@@ -342,8 +342,17 @@ Teilen und zusammenführen, ohne den Überblick zu verlieren: Jede Seite ist als
 ### Administrative Berechtigungen
 
 <p align="center">
-  <img src="docs/bilder/readme/berechtigungen-verwalten.png" width="720" alt="Verwaltungswerkzeug: Organisation, Nutzungsart und je Reiter des Programms die Funktionen mit Häkchen">
+  <img src="docs/bilder/readme/berechtigungen-verwalten.png" width="49%" align="top" alt="FunktionManager: Organisation, Nutzungsart und je Reiter des Programms die Funktionen mit Häkchen – unter Start nur Drucken, unter Sicher nur Bereich schwärzen und Schwärzungen anwenden">
+  <img src="docs/bilder/readme/berechtigungen.png" width="49%" align="top" alt="Fenster „Berechtigungen“ in PDF-Knead: alle Funktionen je Reiter, grüner Haken erlaubt, rotes Kreuz gesperrt">
 </p>
+<p align="center">
+  <img src="docs/bilder/readme/menueband-start.png" width="100%" alt="Reiter Start mit dieser Funktionsdatei: nur Drucken, Öffnen und die Ansicht sind bedienbar, alles andere ist ausgegraut">
+  <img src="docs/bilder/readme/menueband-sicher.png" width="100%" alt="Reiter Sicher mit dieser Funktionsdatei: nur Bereich schwärzen, Schwärzungen anwenden und die Anzeige der Berechtigungen sind bedienbar">
+</p>
+
+Dieselbe Funktionsdatei überall: im FunktionManager erstellt (links), in PDF-Knead unter „Berechtigungen anzeigen“ (rechts) und auf
+dem Menüband – unter „Start“ bleibt nur „Drucken“, unter „Sicher“ nur „Bereich schwärzen“ und „Schwärzungen anwenden“. Öffnen, Ansehen
+und Suchen gehen immer.
 
 Behörden und größere Firmen müssen festlegen können, wer was darf: keine „Einschränkungen entfernen“ in der Sachbearbeitung, Signieren
 mit Zertifikat nur, wo es vorgesehen ist, Drucken nur, wo es gebraucht wird. Dafür gibt es die Funktionsdatei – ohne Server, ohne
@@ -351,18 +360,15 @@ Anmeldung, ohne dass etwas gesendet wird.
 
 - **Eine kleine Datei neben dem Programm** (`berechtigungen.json`) legt fest, welche Funktionen gesperrt sind: geordnet nach den Reitern
   des Programms, jede Funktion einzeln, Formulare als Ganzes. Die IT verteilt sie wie jede andere Datei.
-- **Mit dem Verwaltungswerkzeug erstellt:** Häkchen setzen, speichern, in PDF-Knead mit „Funktionsdatei einspielen …“ neben das
-  Programm legen. Wo Nutzer nicht schreiben dürfen, lässt sie sich nicht umgehen – auch die Nutzungsart steht dann fest.
+- **Mit dem FunktionManager erstellt,** der jedem Paket beiliegt: Häkchen setzen, speichern, in PDF-Knead mit „Funktionsdatei
+  einspielen …“ neben das Programm legen – PDF-Knead startet danach von selbst neu. Wo Nutzer nicht schreiben dürfen, lässt sie sich
+  nicht umgehen – auch die Nutzungsart steht dann fest.
 - **Nicht an Lizenzen geknüpft:** Berechtigungen regeln, was Mitarbeiter dürfen, nicht, was bezahlt ist. Sie gelten für alle Funktionen,
   auch für die freien.
 - **Im Zweifel sicher:** Eine beschädigte Datei sperrt alle einschränkbaren Funktionen, statt alles zu erlauben. Öffnen, Ansehen und
   Prüfen gehen immer.
 - **Für jeden sichtbar:** Gesperrte Knöpfe sind ausgegraut und sagen, warum; unter Einstellungen → „Berechtigungen anzeigen“ sieht jeder,
   was gilt.
-
-<p align="center">
-  <img src="docs/bilder/readme/berechtigungen.png" width="560" alt="Fenster „Berechtigungen“: alle Funktionen je Reiter, grüner Haken erlaubt, rotes Kreuz gesperrt">
-</p>
 
 ### Druckvorstufe: Überdrucken sehen
 

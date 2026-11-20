@@ -342,8 +342,17 @@ Split and merge without losing track: every page can be seen as a preview, every
 ### Administrative permissions
 
 <p align="center">
-  <img src="docs/bilder/readme/berechtigungen-verwalten.png" width="720" alt="Administration tool: organization, kind of use and, for each tab of the program, its functions with ticks">
+  <img src="docs/bilder/readme/berechtigungen-verwalten.png" width="49%" align="top" alt="FunktionManager: organization, kind of use and, for each tab of the program, its functions with ticks – under Start only printing, under Secure only area redaction and applying redactions">
+  <img src="docs/bilder/readme/berechtigungen.png" width="49%" align="top" alt="“Permissions” window in PDF-Knead: every function by tab, green tick allowed, red cross switched off">
 </p>
+<p align="center">
+  <img src="docs/bilder/readme/menueband-start.png" width="100%" alt="Start tab with this function file: only printing, opening and the view can be used, everything else is greyed out">
+  <img src="docs/bilder/readme/menueband-sicher.png" width="100%" alt="Secure tab with this function file: only area redaction, applying redactions and showing the permissions can be used">
+</p>
+
+The same function file everywhere: made in the FunktionManager (left), in PDF-Knead under “Show permissions” (right) and on the
+ribbon – under “Start” only printing is left, under “Secure” only area redaction and applying redactions. Opening, viewing and searching
+always work.
 
 Authorities and larger companies need to decide who may do what: no “Remove restrictions” for case workers, signing with a certificate
 only where it is intended, printing only where it is needed. That is what the function file is for – no server, no sign-in, nothing
@@ -351,18 +360,15 @@ sent anywhere.
 
 - **One small file beside the program** (`berechtigungen.json`) says which functions are switched off: ordered by the tabs of the
   program, each function on its own, forms as a whole. IT hands it out like any other file.
-- **Made with the administration tool:** set the ticks, save, and put it beside the program with “Install function file …” in
-  PDF-Knead. Where users cannot write, it cannot be bypassed – the kind of use is then fixed as well.
+- **Made with the FunktionManager,** which comes with every package: set the ticks, save, and put it beside the program with
+  “Install function file …” in PDF-Knead – PDF-Knead then starts anew by itself. Where users cannot write, it cannot be bypassed – the
+  kind of use is then fixed as well.
 - **Not tied to licenses:** permissions decide what staff may do, not what has been paid for. They apply to every function, the free
   ones included.
 - **Safe when in doubt:** a damaged file switches off every function that can be restricted instead of allowing everything. Opening,
   viewing and checking always work.
 - **Visible to everyone:** switched-off buttons are greyed out and say why; under Settings → “Show permissions” everyone sees what
   applies.
-
-<p align="center">
-  <img src="docs/bilder/readme/berechtigungen.png" width="560" alt="“Permissions” window: every function by tab, green tick allowed, red cross switched off">
-</p>
 
 ### Prepress: seeing overprint
 
