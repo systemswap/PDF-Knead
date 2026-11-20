@@ -1,0 +1,25 @@
+# Zeilenenden: Git normalisiert Text, Shell-Skripte bleiben immer LF —
+# sonst scheitern sie unter Linux an "\r".
+* text=auto
+*.sh text eol=lf
+# Prüfsummen für den Bau auf GitHub (sha256sum -c): LF auch beim Bau unter Windows auf GitHub
+*.sha256 text eol=lf
+*.yml text eol=lf
+# Python-Werkzeuge und die Auszählungen des Konformitätsabgleichs: LF auf jedem Rechner (Prüfsummen in QUELLEN.txt bleiben gleich)
+*.py text eol=lf
+docs/normabgleich/auszaehlung/* text eol=lf
+tools/normabgleich/ohne/* text eol=lf
+
+# Binär, nie anfassen
+*.png binary
+*.ico binary
+*.jpg binary
+*.svg text
+*.ttf binary
+*.otf binary
+*.cff binary
+*.pdf binary
+*.br binary
+# die mitgelieferten XML-Schemata der E-Rechnung: Byte für Byte wie vom Herausgeber (Lizenz: unverändert weitergeben; Prüfsummen in
+# PdfKnead.EInvoice/Schemata/SHA256SUMS)
+PdfKnead.EInvoice/Schemata/** -text
