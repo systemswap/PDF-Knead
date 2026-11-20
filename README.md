@@ -17,7 +17,7 @@
 <h3 align="center">Ein PDF-Programm, das Ihre Dokumente ernst nimmt.</h3>
 
 <p align="center">
-  Ansehen, bearbeiten, schwärzen, signieren, archivieren – in einem Programm, auf Ihrem Rechner.<br>
+  Ansehen, scannen, bearbeiten, messen, schwärzen, signieren, archivieren – in einem Programm, auf Ihrem Rechner.<br>
   Ohne Konto. Ohne Cloud. Ohne Telemetrie.
 </p>
 
@@ -338,6 +338,31 @@ Teilen und zusammenführen, ohne den Überblick zu verlieren: Jede Seite ist als
 - **Passwort zum Öffnen** mit AES-256, **Rechte** einzeln festlegen: Drucken, Kopieren, Ändern, Kommentieren, Formulare, Seiten.
 - **Ehrlich erklärt:** Ohne Passwort zum Öffnen sind Rechte nur eine Bitte an das Anzeigeprogramm. Wirklich nicht mehr kopierbar ist nur
   „Flachlegen als Bild“ – das sagt PDF-Knead auch im Fenster.
+
+### Administrative Berechtigungen
+
+<p align="center">
+  <img src="docs/bilder/readme/berechtigungen-verwalten.png" width="720" alt="Verwaltungswerkzeug: Organisation, Nutzungsart und je Reiter des Programms die Funktionen mit Häkchen">
+</p>
+
+Behörden und größere Firmen müssen festlegen können, wer was darf: keine „Einschränkungen entfernen“ in der Sachbearbeitung, Signieren
+mit Zertifikat nur, wo es vorgesehen ist, Drucken nur, wo es gebraucht wird. Dafür gibt es die Funktionsdatei – ohne Server, ohne
+Anmeldung, ohne dass etwas gesendet wird.
+
+- **Eine kleine Datei neben dem Programm** (`berechtigungen.json`) legt fest, welche Funktionen gesperrt sind: geordnet nach den Reitern
+  des Programms, jede Funktion einzeln, Formulare als Ganzes. Die IT verteilt sie wie jede andere Datei.
+- **Mit dem Verwaltungswerkzeug erstellt:** Häkchen setzen, speichern, in PDF-Knead mit „Funktionsdatei einspielen …“ neben das
+  Programm legen. Wo Nutzer nicht schreiben dürfen, lässt sie sich nicht umgehen – auch die Nutzungsart steht dann fest.
+- **Nicht an Lizenzen geknüpft:** Berechtigungen regeln, was Mitarbeiter dürfen, nicht, was bezahlt ist. Sie gelten für alle Funktionen,
+  auch für die freien.
+- **Im Zweifel sicher:** Eine beschädigte Datei sperrt alle einschränkbaren Funktionen, statt alles zu erlauben. Öffnen, Ansehen und
+  Prüfen gehen immer.
+- **Für jeden sichtbar:** Gesperrte Knöpfe sind ausgegraut und sagen, warum; unter Einstellungen → „Berechtigungen anzeigen“ sieht jeder,
+  was gilt.
+
+<p align="center">
+  <img src="docs/bilder/readme/berechtigungen.png" width="560" alt="Fenster „Berechtigungen“: alle Funktionen je Reiter, grüner Haken erlaubt, rotes Kreuz gesperrt">
+</p>
 
 ### Druckvorstufe: Überdrucken sehen
 
