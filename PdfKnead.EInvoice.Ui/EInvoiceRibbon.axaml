@@ -1,0 +1,50 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:c="using:PdfKnead.Controls"
+             xmlns:l="using:PdfKnead.Localization"
+             xmlns:local="using:PdfKnead.EInvoice.Ui"
+             x:Class="PdfKnead.EInvoice.Ui.EInvoiceRibbon"
+             x:DataType="local:EInvoiceTabViewModel">
+    <!-- the tab „E-Rechnung“ (KONZEPT §5.24 „Oberfläche“): checking, and whether the document holds an e-invoice — only here, nowhere else -->
+    <StackPanel Orientation="Horizontal">
+        <c:RibbonGroup Header="{l:T 'Prüfen'}">
+            <StackPanel Orientation="Horizontal" Spacing="2">
+                <c:RibbonButton Name="CheckButton" Classes="large" Icon="{StaticResource Icon.CheckmarkCircle}" Label="{l:T 'E-Rechnung prüfen'}"
+                                Command="{Binding CheckCommand}">
+                    <ToolTip.Tip><l:T Text="Die eingebettete E-Rechnung prüfen: Regeln, Einbettung, Abgleich mit dem sichtbaren Teil — eine Hilfe, keine Aussage über die Gültigkeit" /></ToolTip.Tip>
+                </c:RibbonButton>
+            </StackPanel>
+        </c:RibbonGroup>
+        <c:RibbonGroup Header="{l:T 'Datei'}">
+            <StackPanel Orientation="Horizontal" Spacing="2">
+                <c:RibbonButton Name="SaveXmlButton" Classes="large" Icon="{StaticResource Icon.Save}" Label="{l:T 'XML speichern …'}"
+                                Command="{Binding SaveXmlCommand}">
+                    <ToolTip.Tip><l:T Text="Eine Kopie der eingebetteten Rechnungs-XML speichern, Byte für Byte wie eingebettet — die PDF bleibt unverändert" /></ToolTip.Tip>
+                </c:RibbonButton>
+                <c:RibbonButton Name="AttachmentsButton" Classes="large" Icon="{StaticResource Icon.DocumentMultiple}" Label="{l:T 'Anhänge'}"
+                                Command="{Binding ShowAttachmentsCommand}">
+                    <ToolTip.Tip><l:T Text="Die übrigen Anhänge der PDF zeigen und einzeln speichern — geöffnet wird keiner" /></ToolTip.Tip>
+                </c:RibbonButton>
+            </StackPanel>
+        </c:RibbonGroup>
+        <c:RibbonGroup Header="{l:T 'Info'}">
+            <!-- green with an e-invoice, warning colour without one; muted while searching -->
+            <TextBlock Name="InfoText" Text="{Binding InfoText}" VerticalAlignment="Center" Margin="10,0" MaxWidth="260" TextWrapping="Wrap"
+                       Classes.present="{Binding IsPresent}" Classes.absent="{Binding IsAbsent}">
+                <TextBlock.Styles>
+                    <!-- the colour by style only: a value set on the element would win over the classes -->
+                    <Style Selector="TextBlock">
+                        <Setter Property="Foreground" Value="{DynamicResource TextMutedBrush}" />
+                    </Style>
+                    <Style Selector="TextBlock.present">
+                        <Setter Property="Foreground" Value="{DynamicResource GoodBrush}" />
+                        <Setter Property="FontWeight" Value="SemiBold" />
+                    </Style>
+                    <Style Selector="TextBlock.absent">
+                        <Setter Property="Foreground" Value="{DynamicResource WarnBrush}" />
+                    </Style>
+                </TextBlock.Styles>
+            </TextBlock>
+        </c:RibbonGroup>
+    </StackPanel>
+</UserControl>

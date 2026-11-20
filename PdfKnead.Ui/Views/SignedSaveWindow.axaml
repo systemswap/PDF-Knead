@@ -1,0 +1,30 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:l="using:PdfKnead.Localization"
+        x:Class="PdfKnead.Views.SignedSaveWindow"
+        Title="{l:T 'Digitale Unterschrift wird ungültig'}"
+        Icon="/Assets/app.ico"
+        Width="480" SizeToContent="Height"
+        CanResize="False" ShowInTaskbar="False"
+        WindowStartupLocation="CenterOwner">
+    <StackPanel Margin="24" Spacing="14">
+        <StackPanel Orientation="Horizontal" Spacing="12">
+            <Border Width="40" Height="40" CornerRadius="20" Background="{DynamicResource AccentSoftBrush}">
+                <PathIcon Data="{StaticResource Icon.Signature}" Width="20" Height="20" Foreground="{DynamicResource AccentBrush}" />
+            </Border>
+            <StackPanel VerticalAlignment="Center" Spacing="2">
+                <TextBlock FontWeight="SemiBold" FontSize="15" Text="{l:T 'Digitale Unterschrift wird ungültig'}" />
+                <TextBlock Name="FileText" Classes="muted" TextTrimming="CharacterEllipsis" MaxWidth="360" />
+            </StackPanel>
+        </StackPanel>
+
+        <TextBlock Name="MainText" TextWrapping="Wrap" />
+        <TextBlock Name="AdviceText" TextWrapping="Wrap" />
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,4,0,0">
+            <Button Content="{l:T 'Abbrechen'}" Click="OnCancel" IsCancel="True" />
+            <Button Name="SaveButton" Content="{l:T 'Trotzdem speichern'}" Click="OnSave" />
+            <Button Name="SaveAsNewButton" Classes="primary" Content="{l:T 'Als neue Datei speichern …'}" Click="OnSaveAsNew" IsDefault="True" />
+        </StackPanel>
+    </StackPanel>
+</Window>

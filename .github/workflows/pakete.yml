@@ -1,0 +1,145 @@
+# Baut die Pakete von PDF-Knead auf GitHub: Windows x64 und Linux x64, beide als AOT (Maschinencode, Start ~0,3 s), wie publish.ps1 und
+# publish.sh lokal. Die Pakete enthalten nur, was weitergegeben werden darf (ohne die lizenzierten Handschriften, die nicht im Repository
+# liegen); die Modelle der Texterkennung kommen aus dem Release-Entwurf „modelle-1“ (Job „modelle“, tools/ci/modelle-holen.sh, geprüft gegen
+# tools/ci/modelle-ocr.sha256).
+#
+# Vorerst nur von Hand (Actions → „Pakete bauen“ → Run workflow), weil noch viele Pushes kommen. Später bei jedem Push: die Zeilen unter
+# „push:“ einkommentieren.
+#
+# Mit „Release-Entwurf anlegen“ entsteht ein Entwurf v<Version> mit beiden Paketen. Die Versionsdatei für die Updates (version.json mit
+# Signatur) wird NICHT hier erzeugt: der geheime Schlüssel liegt nie bei GitHub. Danach lokal: tools/ci/release-signieren.sh
+# (KONZEPT.md §5.26).
+name: Pakete bauen
+
+on:
+  workflow_dispatch:
+    inputs:
+      tests:
+        description: "Vorher alle Tests laufen lassen (rund 20 Minuten je Plattform)"
+        type: boolean
+        default: false
+      entwurf:
+        description: "Release-Entwurf v<Version> mit beiden Paketen anlegen"
+        type: boolean
+        default: false
+  # push:
+  #   branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pakete-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_NOLOGO: "1"
+  DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+
+jobs:
+  # the models come from the release „modelle-1“, a draft that visitors do not see: drafts are visible only with push access, so this job
+  # alone may write, downloads the archive and hands it to the build jobs, which run the code and its tests with read access only
+  modelle:
+    name: Modelle holen
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Archiv aus dem Entwurf laden
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh release download modelle-1 --pattern modelle-ocr.zip --dir modelle
+      - uses: actions/upload-artifact@v4
+        with:
+          name: modelle-ocr
+          path: modelle/modelle-ocr.zip
+          if-no-files-found: error
+          retention-days: 1
+
+  windows:
+    name: Windows x64 (AOT)
+    needs: modelle
+    runs-on: windows-2022
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - uses: actions/download-artifact@v4
+        with:
+          name: modelle-ocr
+          path: ${{ runner.temp }}/modelle-zip
+      - name: Modelle prüfen und auspacken
+        shell: bash
+        env:
+          MODELLE_ZIP: ${{ runner.temp }}/modelle-zip/modelle-ocr.zip
+        run: tools/ci/modelle-holen.sh
+      - name: Bauen
+        shell: pwsh
+        # publish.ps1 reads its words from $args (no param block): passed as plain words, not splatted
+        run: |
+          if ("${{ inputs.tests }}" -eq "true") { ./publish.ps1 windows aot } else { ./publish.ps1 windows aot ohnetests }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-x64
+          path: published/PDF-Knead-*-windows-x64.zip
+          if-no-files-found: error
+          retention-days: 14
+
+  linux:
+    name: Linux x64 (AOT)
+    needs: modelle
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - name: Werkzeuge für AOT und AppImage
+        run: sudo apt-get update && sudo apt-get install -y clang zlib1g-dev zip libfuse2t64
+      - uses: actions/download-artifact@v4
+        with:
+          name: modelle-ocr
+          path: ${{ runner.temp }}/modelle-zip
+      - name: Modelle prüfen und auspacken
+        env:
+          MODELLE_ZIP: ${{ runner.temp }}/modelle-zip/modelle-ocr.zip
+        run: tools/ci/modelle-holen.sh
+      - name: Bauen
+        run: |
+          if [ "${{ inputs.tests }}" = "true" ]; then ./publish.sh linux aot; else ./publish.sh linux aot ohnetests; fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-x64
+          path: published/PDF-Knead-*-linux-x64.*
+          if-no-files-found: error
+          retention-days: 14
+
+  entwurf:
+    name: Release-Entwurf
+    if: ${{ inputs.entwurf }}
+    needs: [windows, linux]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: "*-x64"
+          path: pakete
+          merge-multiple: true
+      - name: Entwurf anlegen
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' Directory.Build.props)
+          ls -la pakete
+          # a draft, not a pre-release: published as the newest version, which the update check asks for (releases/latest); the text
+          # for users replaces this note when it is signed and published
+          gh release create "v$version" pakete/* --draft --title "PDF-Knead $version" \
+            --notes "Entwurf aus dem Bau auf GitHub (Commit ${GITHUB_SHA::8}), noch nicht signiert und nicht veröffentlicht."

@@ -1,0 +1,45 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:l="using:PdfKnead.Localization"
+        x:Class="PdfKnead.Views.RasterWindow"
+        Title="{l:T 'Flachlegen als Bild'}"
+        Icon="/Assets/app.ico"
+        Width="480" SizeToContent="Height"
+        CanResize="False" ShowInTaskbar="False"
+        WindowStartupLocation="CenterOwner">
+    <StackPanel Margin="24" Spacing="14">
+        <StackPanel Orientation="Horizontal" Spacing="12">
+            <Border Width="40" Height="40" CornerRadius="20" Background="{DynamicResource AccentSoftBrush}">
+                <PathIcon Data="{StaticResource Icon.ImageMultiple}" Width="20" Height="20" Foreground="{DynamicResource AccentBrush}" />
+            </Border>
+            <StackPanel VerticalAlignment="Center" Spacing="2">
+                <TextBlock Name="HeadText" FontWeight="SemiBold" FontSize="15" Text="{l:T 'Flachlegen als Bild'}" />
+                <TextBlock Name="SubText" Classes="muted" TextWrapping="Wrap" MaxWidth="360"
+                           Text="{l:T 'Beim nächsten Speichern wird jede Seite zu einem Bild — so, wie sie angezeigt wird.'}" />
+            </StackPanel>
+        </StackPanel>
+
+        <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto" RowSpacing="10">
+            <TextBlock VerticalAlignment="Center" Margin="0,0,12,0" Text="{l:T 'Auflösung'}" />
+            <ComboBox Grid.Column="1" Name="DpiChoice" MinWidth="200" AutomationProperties.Name="{l:T 'Auflösung'}" />
+            <TextBlock Grid.Row="1" VerticalAlignment="Top" Margin="0,4,12,0" Text="{l:T 'Bildformat'}" />
+            <StackPanel Grid.Row="1" Grid.Column="1" Spacing="4">
+                <RadioButton Name="CompactChoice" GroupName="format" IsChecked="True" Content="{l:T 'Kompakt — Schrift scharf, sehr kleine Datei (empfohlen)'}">
+                    <ToolTip.Tip><l:T Text="Schrift und Linien als scharfe Schwarzweiß-Masken in doppelter Auflösung, Bilder und Flächen als JPEG — etwa ein Viertel der Größe von JPEG, Schrift ohne Säume" /></ToolTip.Tip>
+                </RadioButton>
+                <RadioButton Name="JpegChoice" GroupName="format" Content="{l:T 'JPEG — kleinere Datei'}" />
+                <RadioButton Name="LosslessChoice" GroupName="format" Content="{l:T 'Verlustfrei — gestochen scharf, größere Datei'}" />
+            </StackPanel>
+        </Grid>
+
+        <Border Background="{DynamicResource AccentSoftBrush}" CornerRadius="{DynamicResource RadiusControl}" Padding="12,8">
+            <TextBlock Name="InfoText" TextWrapping="Wrap" FontSize="12"
+                       Text="{l:T 'Danach lässt sich kein Text mehr kopieren, durchsuchen oder ändern. Lesezeichen, Formularfelder, Kommentare, Anhänge und Metadaten entfallen. Sehr große Seiten (etwa A0) bekommen eine geringere Auflösung.'}" />
+        </Border>
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,4,0,0">
+            <Button Content="{l:T 'Abbrechen'}" Click="OnCancel" IsCancel="True" />
+            <Button Name="ApplyButton" Classes="primary" Content="{l:T 'Beim Speichern als Bild flachlegen'}" Click="OnApply" IsDefault="True" />
+        </StackPanel>
+    </StackPanel>
+</Window>

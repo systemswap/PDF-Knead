@@ -1,0 +1,40 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <!-- the WIA tests call the COM methods of the page stream and the transfer callback with pointers, as the driver does (WiaTests) -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <!-- Oberfläche ohne Bildschirm prüfen und als Bild speichern (Skia) -->
+    <PackageReference Include="Avalonia.Headless" />
+    <PackageReference Include="Avalonia.Skia" />
+    <!-- Gegenprobe der eigenen XML-Signaturprüfung (EU-Vertrauensliste), nur im Testprojekt -->
+    <PackageReference Include="System.Security.Cryptography.Xml" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PdfKnead.Core\PdfKnead.Core.csproj" />
+    <ProjectReference Include="..\PdfKnead.Ui\PdfKnead.Ui.csproj" />
+    <ProjectReference Include="..\PdfKnead.Rendering\PdfKnead.Rendering.csproj" />
+    <ProjectReference Include="..\PdfKnead.Ai\PdfKnead.Ai.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Lecksuche der Kommandozeile auch im Prüflauf LeakMatrix -->
+    <Compile Include="..\PdfKnead.Cli\LeakSearch.cs" Link="Cli\LeakSearch.cs" />
+    <Compile Include="..\PdfKnead.Cli\SignatureList.cs" Link="Cli\SignatureList.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+</Project>

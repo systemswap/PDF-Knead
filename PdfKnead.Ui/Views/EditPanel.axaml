@@ -1,0 +1,46 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             Background="{DynamicResource SurfaceAltBrush}"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:l="using:PdfKnead.Localization"
+             xmlns:vm="using:PdfKnead.ViewModels"
+             xmlns:cv="using:PdfKnead.Converters"
+             xmlns:views="using:PdfKnead.Views"
+             x:Class="PdfKnead.Views.EditPanel"
+             x:DataType="vm:DocumentViewModel">
+    <!-- Bearbeiten (KONZEPT §5.22): der Bereich rechts folgt dem Gewählten — Bild (mit seinen Angaben) oder Code; ohne Auswahl ein Satz, was man anklicken kann.
+         Bei Text zeigt sich stattdessen dessen Format-Bereich (RichTextPropertiesHost im Hauptfenster). -->
+    <UserControl.Styles>
+        <StyleInclude Source="avares://PdfKnead.Ui/Styles/PropertyPanel.axaml" />
+        <Style Selector="Button.bannerClose">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="6" />
+        </Style>
+        <Style Selector="Button.bannerClose PathIcon">
+            <Setter Property="Width" Value="14" />
+            <Setter Property="Height" Value="14" />
+            <Setter Property="Foreground" Value="{DynamicResource OnAccentBrush}" />
+        </Style>
+    </UserControl.Styles>
+
+    <DockPanel>
+        <Border DockPanel.Dock="Top" Classes="propBanner">
+            <Grid ColumnDefinitions="Auto,*,Auto">
+                <Border Classes="bannerIcon"><PathIcon Data="{StaticResource Icon.Edit}" /></Border>
+                <TextBlock Grid.Column="1" Margin="10,0,0,0" FontWeight="SemiBold" FontSize="14" VerticalAlignment="Center" Text="{Binding EditPanelTitle}" />
+                <Button Grid.Column="2" Classes="bannerClose" VerticalAlignment="Center"
+                        Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).SetToolCommand, FallbackValue={x:Null}}"
+                        CommandParameter="{x:Static vm:ViewTool.Edit}" AutomationProperties.Name="{l:T 'Bearbeiten beenden'}">
+                    <ToolTip.Tip><l:T Text="Bearbeiten beenden (Esc)" /></ToolTip.Tip>
+                    <PathIcon Data="{StaticResource Icon.Dismiss}" />
+                </Button>
+            </Grid>
+        </Border>
+        <Panel>
+            <TextBlock Classes="hint" Margin="16,12,16,12" TextWrapping="Wrap" Text="{Binding EditHint}"
+                       IsVisible="{Binding EditHint, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+            <views:ContentImagePanel IsVisible="{Binding EditTarget, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Image}" />
+            <views:BarcodePanel IsVisible="{Binding EditTarget, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Code}" />
+        </Panel>
+    </DockPanel>
+</UserControl>

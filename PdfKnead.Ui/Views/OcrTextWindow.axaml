@@ -1,0 +1,26 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:l="using:PdfKnead.Localization"
+        x:Class="PdfKnead.Views.OcrTextWindow"
+        Icon="/Assets/app.ico"
+        Width="680" Height="640" MinWidth="420" MinHeight="300"
+        ShowInTaskbar="False"
+        WindowStartupLocation="CenterOwner">
+    <!-- Der ganze Text der Texterkennung, nach Seiten (KONZEPT §5.6, „OCR anzeigen“) -->
+    <DockPanel Margin="24">
+        <TextBlock DockPanel.Dock="Top" Classes="muted" TextWrapping="Wrap" Margin="0,0,0,12"
+                   Text="{l:T 'Unsichtbarer Text über den Seiten, den eine Texterkennung angelegt hat. Er wird mit durchsucht und kopiert — Namen darin lassen sich in „Verborgenes schwärzen“ markieren.'}" />
+        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="10" Margin="0,16,0,0">
+            <Button Name="CopyButton" Content="{l:T 'Alles kopieren'}" Click="OnCopy" />
+            <Button MinWidth="96" Content="{l:T 'Schließen'}" IsDefault="True" IsCancel="True" Click="OnClose" />
+        </StackPanel>
+        <Border Classes="card" Padding="14,10">
+            <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+                <Panel>
+                    <SelectableTextBlock Name="Selectable" TextWrapping="Wrap" />
+                    <TextBlock Name="Plain" TextWrapping="Wrap" IsVisible="False" />
+                </Panel>
+            </ScrollViewer>
+        </Border>
+    </DockPanel>
+</Window>

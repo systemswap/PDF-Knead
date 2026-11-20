@@ -1,0 +1,25 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:l="using:PdfKnead.Localization"
+             x:Class="PdfKnead.Views.RedactionReasonPicker">
+    <!-- Schwärzungsgrund (Wunsch vom 4.11.2026): Land, Code mit Bedeutung, eigener Grund statt des Codes, Code im Balken -->
+    <StackPanel Spacing="6">
+        <TextBlock Classes="small muted" Text="{l:T 'Landesschwärzungscodes'}" />
+        <ComboBox Name="SetBox" HorizontalAlignment="Stretch" SelectionChanged="OnSetChanged"
+                  AutomationProperties.Name="{l:T 'Landesschwärzungscodes'}" />
+        <TextBlock Classes="small muted" Text="{l:T 'Schwärzungscode'}" />
+        <ComboBox Name="CodeBox" HorizontalAlignment="Stretch" SelectionChanged="OnCodeChanged"
+                  AutomationProperties.Name="{l:T 'Schwärzungscode'}" />
+        <TextBlock Name="MeaningText" Classes="muted" FontSize="12" TextWrapping="Wrap" IsVisible="False" />
+        <TextBox Name="OwnBox" PlaceholderText="{l:T 'Eigener Grund (ersetzt den Code)'}"
+                 AutomationProperties.Name="{l:T 'Eigener Grund'}" />
+        <CheckBox Name="InBarBox" IsChecked="True" IsCheckedChanged="OnInBarChanged" Content="{l:T 'Code im Balken anzeigen'}">
+            <ToolTip.Tip><l:T Text="Beim Schwärzen steht der Code (oder der eigene Grund) klein im Balken; Bedeutung und Rechtsgrundlage stehen im Schwärzungsprotokoll" /></ToolTip.Tip>
+        </CheckBox>
+        <CheckBox Name="AutoBox" IsVisible="False" IsCheckedChanged="OnAutoChanged" Content="{l:T 'Code je Fundart automatisch setzen'}">
+            <ToolTip.Tip><l:T Text="E-Mail, Telefon, IBAN, Kartennummer und Datum bekommen den Code, den die Code-Datei des Landes für sie vorsieht; eigene Wörter den gewählten Code" /></ToolTip.Tip>
+        </CheckBox>
+        <TextBlock Name="FitWarning" IsVisible="False" FontSize="12" TextWrapping="Wrap" Foreground="{DynamicResource DangerBrush}" />
+        <TextBlock Name="RevealWarning" IsVisible="False" FontSize="12" TextWrapping="Wrap" Foreground="{DynamicResource DangerBrush}" />
+    </StackPanel>
+</UserControl>

@@ -1,0 +1,23 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:l="using:PdfKnead.Localization"
+             xmlns:c="using:PdfKnead.Controls"
+             xmlns:v="using:PdfKnead.Views"
+             x:Class="PdfKnead.Views.LanguagePicker">
+    <StackPanel Orientation="Horizontal" Spacing="8">
+        <ComboBox Name="Box" MinWidth="240" AutomationProperties.Name="{l:T 'Sprache'}" PlaceholderText="{l:T 'Sprache wählen'}">
+            <ComboBox.ItemTemplate>
+                <DataTemplate x:DataType="v:DocumentLanguage">
+                    <StackPanel Orientation="Horizontal" Spacing="10">
+                        <c:FlagView Language="{Binding Language}" IsVisible="{Binding !IsOther}" />
+                        <TextBlock Text="{Binding Display}" VerticalAlignment="Center" />
+                    </StackPanel>
+                </DataTemplate>
+            </ComboBox.ItemTemplate>
+        </ComboBox>
+        <TextBox Name="OwnBox" Width="110" IsVisible="False" PlaceholderText="{l:T 'z. B. de-DE'}"
+                 AutomationProperties.Name="{l:T 'Eigenes Sprachkürzel'}">
+            <ToolTip.Tip><l:T Text="Kürzel der Sprache nach BCP 47, zum Beispiel de-DE, en-GB oder sr-Latn" /></ToolTip.Tip>
+        </TextBox>
+    </StackPanel>
+</UserControl>

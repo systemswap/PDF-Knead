@@ -1,0 +1,197 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:l="using:PdfKnead.Localization"
+        xmlns:c="using:PdfKnead.Controls"
+        xmlns:v="using:PdfKnead.Views"
+        x:Class="PdfKnead.Views.SignatureWindow"
+        Title="{l:T 'Unterschrift'}"
+        Icon="/Assets/app.ico"
+        Width="800" Height="740" MinWidth="640" MinHeight="530"
+        ShowInTaskbar="False"
+        WindowStartupLocation="CenterOwner">
+    <Window.Styles>
+        <!-- Farbfelder: rund, die gewählte mit Ring in der Akzentfarbe -->
+        <Style Selector="Button.swatch">
+            <Setter Property="Width" Value="28" />
+            <Setter Property="Height" Value="28" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="CornerRadius" Value="14" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="2" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
+        <Style Selector="Button.swatch.selected">
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+        </Style>
+    </Window.Styles>
+    <Grid RowDefinitions="Auto,*,Auto" Margin="24">
+        <Grid ColumnDefinitions="Auto,*,Auto">
+            <Border Width="40" Height="40" CornerRadius="20" Background="{DynamicResource AccentSoftBrush}" VerticalAlignment="Top">
+                <PathIcon Data="{StaticResource Icon.Signature}" Width="20" Height="20"
+                          Foreground="{DynamicResource AccentBrush}" />
+            </Border>
+            <StackPanel Grid.Column="1" Margin="12,0,0,0" VerticalAlignment="Center" Spacing="2">
+                <TextBlock FontWeight="SemiBold" FontSize="15" Text="{l:T 'Unterschrift einsetzen'}" />
+                <TextBlock Classes="muted" TextWrapping="Wrap"
+                           Text="{l:T 'Schreiben, zeichnen oder ein Bild nehmen, dann auf der Seite klicken oder ein Rechteck aufziehen.'}" />
+            </StackPanel>
+            <!-- Farbe: Kuli-Farben vorn, dazu eine eigene -->
+            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="2" Margin="16,0,0,0" VerticalAlignment="Center">
+                <StackPanel Name="Swatches" Orientation="Horizontal" Spacing="2" />
+                <Button Name="CustomColor" Classes="swatch" AutomationProperties.Name="{l:T 'Eigene Farbe …'}" ToolTip.Tip="{l:T 'Eigene Farbe …'}">
+                    <Ellipse Width="18" Height="18">
+                        <Ellipse.Fill>
+                            <ConicGradientBrush>
+                                <GradientStop Color="#E53935" Offset="0" />
+                                <GradientStop Color="#FDD835" Offset="0.17" />
+                                <GradientStop Color="#43A047" Offset="0.33" />
+                                <GradientStop Color="#00ACC1" Offset="0.5" />
+                                <GradientStop Color="#1E40C8" Offset="0.67" />
+                                <GradientStop Color="#8E24AA" Offset="0.83" />
+                                <GradientStop Color="#E53935" Offset="1" />
+                            </ConicGradientBrush>
+                        </Ellipse.Fill>
+                    </Ellipse>
+                    <Button.Flyout>
+                        <Flyout Placement="BottomEdgeAlignedRight">
+                            <StackPanel Width="240" Spacing="6" Margin="4">
+                                <TextBlock Classes="section" Text="{l:T 'Eigene Farbe'}" />
+                                <Border Name="CustomPreview" Height="28" CornerRadius="6" Margin="0,2,0,4" />
+                                <TextBlock Classes="muted small" Text="{l:T 'Farbton'}" />
+                                <Slider Name="HueSlider" Minimum="0" Maximum="360" AutomationProperties.Name="{l:T 'Farbton'}" />
+                                <TextBlock Classes="muted small" Text="{l:T 'Sättigung'}" />
+                                <Slider Name="SaturationSlider" Minimum="0" Maximum="100" AutomationProperties.Name="{l:T 'Sättigung'}" />
+                                <TextBlock Classes="muted small" Text="{l:T 'Helligkeit'}" />
+                                <Slider Name="LightnessSlider" Minimum="3" Maximum="60" AutomationProperties.Name="{l:T 'Helligkeit'}" />
+                            </StackPanel>
+                        </Flyout>
+                    </Button.Flyout>
+                </Button>
+            </StackPanel>
+        </Grid>
+
+        <TabControl Grid.Row="1" Name="Tabs" Margin="0,12,0,0">
+            <TabControl.Styles>
+                <Style Selector="TabItem">
+                    <Setter Property="FontSize" Value="15" />
+                    <Setter Property="MinHeight" Value="36" />
+                </Style>
+            </TabControl.Styles>
+            <TabItem Header="{l:T 'Schreiben'}">
+                <Grid RowDefinitions="Auto,*" Margin="0,8,0,0">
+                    <TextBox Name="NameBox" PlaceholderText="{l:T 'Name'}" AutomationProperties.Name="{l:T 'Name'}" FontSize="14" Margin="0,0,0,8" />
+                    <ListBox Grid.Row="1" Name="FontList" Classes="choices" SelectionMode="Single" AutomationProperties.Name="{l:T 'Handschrift'}">
+                        <ListBox.Styles>
+                            <!-- Gewählte Handschrift deutlich: Rahmen in der Akzentfarbe (dazu das Häkchen im Eintrag) -->
+                            <Style Selector="ListBoxItem">
+                                <Setter Property="BorderThickness" Value="2" />
+                                <Setter Property="BorderBrush" Value="Transparent" />
+                            </Style>
+                            <!-- Für Screenreader: der Name der Handschrift -->
+                            <Style Selector="ListBoxItem" x:DataType="v:SignatureChoice">
+                                <Setter Property="AutomationProperties.Name" Value="{Binding Family}" />
+                            </Style>
+                            <Style Selector="ListBoxItem:selected">
+                                <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                            </Style>
+                        </ListBox.Styles>
+                        <ListBox.ItemTemplate>
+                            <DataTemplate x:DataType="v:SignatureChoice">
+                                <Grid ColumnDefinitions="*,150" Height="58">
+                                    <!-- Auf Papier: Tinte wird multipliziert, auf dunklem Grund wäre sie kaum zu sehen -->
+                                    <Border Background="White" CornerRadius="4" Padding="6,2">
+                                        <c:ElementPreview Element="{Binding Preview}" />
+                                    </Border>
+                                    <PathIcon Grid.Column="1" Data="{StaticResource Icon.CheckmarkCircle}" Width="20" Height="20"
+                                              Foreground="{DynamicResource AccentBrush}" VerticalAlignment="Top" HorizontalAlignment="Right"
+                                              IsVisible="{Binding $parent[ListBoxItem].IsSelected}" />
+                                    <TextBlock Grid.Column="1" Text="{Binding Family}" Classes="muted" FontSize="11" TextTrimming="CharacterEllipsis"
+                                               VerticalAlignment="Bottom" Margin="12,0,0,2" />
+                                </Grid>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Grid>
+            </TabItem>
+            <TabItem Header="{l:T 'Zeichnen'}">
+                <Grid RowDefinitions="*,Auto" Margin="0,8,0,0">
+                    <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="6" ClipToBounds="True">
+                        <c:InkCanvas Name="Ink" AutomationProperties.Name="{l:T 'Unterschrift zeichnen'}" />
+                    </Border>
+                    <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8" Margin="0,8,0,0">
+                        <TextBlock Classes="muted" VerticalAlignment="Center" Text="{l:T 'Mit Maus, Stift oder Finger unterschreiben'}" />
+                        <Button Content="{l:T 'Letzten Strich zurück'}" Click="OnUndoStroke" />
+                        <Button Content="{l:T 'Leeren'}" Click="OnClearInk" />
+                    </StackPanel>
+                </Grid>
+            </TabItem>
+            <TabItem Header="{l:T 'Bild'}">
+                <Grid RowDefinitions="Auto,*,Auto" Margin="0,8,0,0">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button Content="{l:T 'Bild wählen …'}" Click="OnPickImage" />
+                        <CheckBox Name="RemoveBackground" IsChecked="True" Content="{l:T 'Weißen Hintergrund entfernen'}" />
+                    </StackPanel>
+                    <Border Grid.Row="1" Margin="0,8,0,0" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="6"
+                            Background="White" ClipToBounds="True">
+                        <c:ElementPreview Name="ImagePreview" Margin="12" AutomationProperties.Name="{l:T 'Vorschau des Bildes'}" />
+                    </Border>
+                    <TextBlock Grid.Row="2" Name="ImageInfo" Classes="muted" Margin="0,6,0,0"
+                               Text="{l:T 'Foto oder Scan der Unterschrift (PNG, JPEG …)'}" />
+                </Grid>
+            </TabItem>
+        </TabControl>
+
+        <Grid Grid.Row="2" ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" Margin="0,16,0,0">
+            <StackPanel Grid.ColumnSpan="2" Spacing="2">
+                <StackPanel Orientation="Horizontal" Spacing="10">
+                    <CheckBox Name="TextureBox" IsChecked="True" Content="{l:T 'Kuli-Struktur: Tinte ungleichmäßig wie mit dem Kugelschreiber'}"
+                              ToolTip.Tip="{l:T 'Ohne Häkchen glatt als Vektoren – oder mit den eigenen Bildern der Schrift, wenn sie welche mitbringt.'}" />
+                    <!-- Tintenstärke: nur die Farbpalette, wirkt sofort (keine neue Struktur) -->
+                    <TextBlock Classes="muted" VerticalAlignment="Center" Margin="8,0,0,0" Text="{l:T 'Tinte'}" />
+                    <Slider Name="StrengthSlider" Width="130" Minimum="0.5" Maximum="2.5" Value="1.6" VerticalAlignment="Center"
+                            SmallChange="0.05" LargeChange="0.25"
+                            AutomationProperties.Name="{l:T 'Tintenstärke'}"
+                            ToolTip.Tip="{l:T 'Wie viel Tinte der Kuli abgibt: weiter rechts dichter und satter, nie dunkler als die Farbe'}" />
+                    <TextBlock Name="StrengthText" Classes="muted small" VerticalAlignment="Center" Width="40" />
+                </StackPanel>
+                <CheckBox Name="OriginBox" IsChecked="True" Content="{l:T 'Herkunft darunter: Name, Datum und Geräte-Kennung'}" />
+                <TextBlock Name="OriginPreview" Classes="muted" FontSize="11" Margin="28,0,0,0" TextTrimming="CharacterEllipsis" />
+            </StackPanel>
+            <!-- Dezent abgesetzt, über die ganze Breite: digital signieren und die Knöpfe sind etwas anderes als das Aussehen der Unterschrift -->
+            <Border Grid.Row="1" Grid.ColumnSpan="2" Height="1" Background="{DynamicResource LineBrush}" Margin="0,10,0,9" />
+            <CheckBox Grid.Row="2" Name="DigitalBox" VerticalAlignment="Center" Content="{l:T 'Digital signieren'}"
+                      ToolTip.Tip="{l:T 'Versiegelt das Dokument beim Speichern mit Ihrem Zertifikat nach PDF-Norm. Verbreitete PDF-Leser zeigen dann an, wer unterschrieben hat und ob das Dokument seitdem geändert wurde. Ohne Häkchen eine normale Unterschrift.'}" />
+            <StackPanel Grid.Row="2" Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                <Button Content="{l:T 'Abbrechen'}" Click="OnCancel" IsCancel="True" />
+                <Button Name="OkButton" Classes="primary" Content="{l:T 'Einsetzen'}" Click="OnOk" IsDefault="True" />
+            </StackPanel>
+            <!-- Rechte nach dem Signieren (KONZEPT §5.17, S6): nur mit „Digital signieren“ -->
+            <StackPanel Grid.Row="3" Grid.ColumnSpan="2" Name="RightsRow" Orientation="Horizontal" Spacing="10" Margin="28,6,0,0">
+                <TextBlock Classes="muted" VerticalAlignment="Center" Text="{l:T 'Danach erlaubt:'}" />
+                <ComboBox Name="RightsBox" SelectedIndex="0" VerticalAlignment="Center"
+                          AutomationProperties.Name="{l:T 'Was nach dem Signieren erlaubt ist'}"
+                          ToolTip.Tip="{l:T 'Zertifizieren legt fest, was nach dieser Unterschrift noch erlaubt ist; alles andere zeigen PDF-Leser als Änderung an. Nur die erste Unterschrift eines Dokuments kann zertifizieren.'}">
+                    <ComboBoxItem Content="{l:T 'Ausfüllen, Unterschriften und Kommentare (nicht zertifizieren)'}" />
+                    <ComboBoxItem Name="CertifyForms" Content="{l:T 'Zertifizieren: nur Ausfüllen und Unterschreiben'}" />
+                    <ComboBoxItem Name="CertifyComments" Content="{l:T 'Zertifizieren: Ausfüllen, Unterschreiben und Kommentare'}" />
+                    <ComboBoxItem Name="CertifyNothing" Content="{l:T 'Zertifizieren: keine Änderungen'}" />
+                </ComboBox>
+                <CheckBox Name="LockBox" VerticalAlignment="Center" Content="{l:T 'Felder sperren'}"
+                          ToolTip.Tip="{l:T 'Wird danach ein Feld des Formulars geändert, zeigen PDF-Leser diese Unterschrift als ungültig an.'}" />
+            </StackPanel>
+            <!-- Welche Stufe entsteht (eIDAS), ohne Rechtsberatung -->
+            <!-- Which certificate signs: the default, or another one for this signature only (docs/ABLAUFPLAN.md, 9.4.0, step 2) -->
+            <StackPanel Grid.Row="4" Grid.ColumnSpan="2" Name="WithRow" Orientation="Horizontal" Spacing="8" Margin="28,6,0,0">
+                <TextBlock Classes="muted" VerticalAlignment="Center" Text="{l:T 'Unterschreiben mit:'}" />
+                <TextBlock Name="WithText" VerticalAlignment="Center" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" MaxWidth="420" />
+                <Button Name="WithButton" Content="{l:T 'ändern …'}" VerticalAlignment="Center" AutomationProperties.Name="{l:T 'Zertifikat für diese Unterschrift ändern'}"
+                        ToolTip.Tip="{l:T 'Ein anderes Zertifikat nur für diese Unterschrift — als Standard nur mit „als Standard merken“. Zertifikate hinzufügen unter „Zertifikat“.'}" />
+                <CheckBox Name="RememberBox" VerticalAlignment="Center" IsVisible="False" Content="{l:T 'als Standard merken'}" />
+            </StackPanel>
+            <TextBlock Grid.Row="5" Grid.ColumnSpan="2" Name="LevelText" Classes="muted" FontSize="12" TextWrapping="Wrap" Margin="28,6,0,0" MaxWidth="720"
+                       HorizontalAlignment="Left" />
+        </Grid>
+    </Grid>
+</Window>

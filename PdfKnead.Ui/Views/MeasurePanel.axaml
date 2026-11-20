@@ -1,0 +1,310 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             Background="{DynamicResource SurfaceAltBrush}"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:l="using:PdfKnead.Localization"
+             xmlns:vm="using:PdfKnead.ViewModels"
+             xmlns:cv="using:PdfKnead.Converters"
+             x:Class="PdfKnead.Views.MeasurePanel"
+             x:DataType="vm:DocumentViewModel">
+    <!-- Messen (Ablaufplan 7.6, Entscheidung vom 6.11.2026): Art wählen, Punkte auf der Seite setzen; Wert und Maßstab hier, die Messungen der Sitzung darunter -->
+    <UserControl.Resources>
+        <!-- a colour with its name (Ablaufplan 7.6 e2) -->
+        <DataTemplate x:Key="MeasureColorTemplate" x:DataType="vm:FieldColorOption">
+            <StackPanel Orientation="Horizontal" Spacing="6">
+                <Border Width="14" Height="14" CornerRadius="3" Background="{Binding Brush}" BorderBrush="{DynamicResource LineStrongBrush}"
+                        BorderThickness="1" VerticalAlignment="Center" />
+                <TextBlock VerticalAlignment="Center">
+                    <TextBlock.Text>
+                        <MultiBinding Converter="{x:Static l:T.Translate}">
+                            <Binding Path="Label" />
+                            <x:Static Member="l:T.LanguageVersion" />
+                        </MultiBinding>
+                    </TextBlock.Text>
+                </TextBlock>
+            </StackPanel>
+        </DataTemplate>
+        <!-- only the colour, for the rows of the list -->
+        <DataTemplate x:Key="MeasureSwatchTemplate" x:DataType="vm:FieldColorOption">
+            <Border Width="14" Height="14" CornerRadius="3" Background="{Binding Brush}" BorderBrush="{DynamicResource LineStrongBrush}"
+                    BorderThickness="1" VerticalAlignment="Center" />
+        </DataTemplate>
+    </UserControl.Resources>
+
+    <UserControl.Styles>
+        <StyleInclude Source="avares://PdfKnead.Ui/Styles/PropertyPanel.axaml" />
+        <Style Selector="Button.bannerClose">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="6" />
+        </Style>
+        <Style Selector="Button.bannerClose PathIcon">
+            <Setter Property="Width" Value="14" />
+            <Setter Property="Height" Value="14" />
+            <Setter Property="Foreground" Value="{DynamicResource OnAccentBrush}" />
+        </Style>
+    </UserControl.Styles>
+
+    <Grid RowDefinitions="Auto,*">
+        <Border Classes="propBanner">
+            <Grid ColumnDefinitions="Auto,*,Auto">
+                <Border Classes="bannerIcon"><PathIcon Data="{StaticResource Icon.Ruler}" /></Border>
+                <TextBlock Grid.Column="1" Margin="10,0,0,0" FontWeight="SemiBold" FontSize="14" VerticalAlignment="Center" Text="{l:T 'Messen'}" />
+                <Button Grid.Column="2" Classes="bannerClose" VerticalAlignment="Center"
+                        Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).MeasureCommand, FallbackValue={x:Null}}"
+                        AutomationProperties.Name="{l:T 'Messen beenden'}">
+                    <ToolTip.Tip><l:T Text="Messen beenden (die Messungen verschwinden)" /></ToolTip.Tip>
+                    <PathIcon Data="{StaticResource Icon.Dismiss}" />
+                </Button>
+            </Grid>
+        </Border>
+
+        <!-- the cards scroll as one, so that the list of measurements is never cut off (7.6 e2) -->
+        <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled">
+            <StackPanel>
+                <!-- Maßstab der Seite (Ablaufplan 7.6 d, g; Festlegung vom 6.11.2026): Maßstab eingeben — oder kalibrieren: Anfang und Ende einer
+                     Strecke bekannter Länge setzen (mit Lupe), ihre Länge und Einheit eingeben, der Maßstab füllt sich; für diese oder alle Seiten -->
+                <Border Classes="propCard">
+                    <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="8" RowSpacing="8">
+                        <TextBlock Grid.ColumnSpan="2" Classes="hint" Text="{l:T 'Maßstab der Seite'}" />
+
+                        <TextBlock Grid.Row="1" VerticalAlignment="Center" Text="{l:T 'Maßstab'}" />
+                        <Grid Grid.Row="1" Grid.Column="1" ColumnDefinitions="Auto,*" ColumnSpacing="6">
+                            <TextBlock VerticalAlignment="Center" Text="1 :" />
+                            <TextBox Grid.Column="1" Name="ScaleRatioBox" Text="{Binding ScaleRatio}" AutomationProperties.Name="{l:T 'Maßstab 1 zu'}" />
+                        </Grid>
+
+                        <Grid Grid.Row="2" Grid.ColumnSpan="2" ColumnDefinitions="Auto,*" ColumnSpacing="8">
+                            <!-- hervorgehoben (Festlegung, Fehlergedächtnis 686): in Ruhe in der Akzentfarbe hinterlegt, beim Kalibrieren voll in der Akzentfarbe -->
+                            <Button Name="CalibrateButton" Command="{Binding StartCalibrationCommand}" Classes.soft="{Binding !IsCalibrating}" Classes.primary="{Binding IsCalibrating}" Padding="10,5">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <PathIcon Width="14" Height="14" Data="{StaticResource Icon.Ruler}" />
+                                    <TextBlock Text="{l:T 'Kalibrieren'}" />
+                                </StackPanel>
+                                <ToolTip.Tip><l:T Text="Anfang und Ende einer Strecke bekannter Länge setzen (etwa der Maßstabsleiste des Plans) — mit Lupe; dann ihre wirkliche Länge eingeben" /></ToolTip.Tip>
+                            </Button>
+                            <TextBlock Grid.Column="1" Classes="hint" TextWrapping="Wrap" VerticalAlignment="Center" Text="{Binding CalibrationHint}" />
+                        </Grid>
+
+                        <TextBlock Grid.Row="3" Grid.ColumnSpan="2" Classes="muted" FontSize="11" Text="{Binding CalibrationLineText}" IsVisible="{Binding HasCalibrationLine}" />
+                        <TextBlock Grid.Row="4" VerticalAlignment="Center" Text="{l:T 'entspricht'}" IsVisible="{Binding HasCalibrationLine}" />
+                        <Grid Grid.Row="4" Grid.Column="1" ColumnDefinitions="*,Auto" ColumnSpacing="6" IsVisible="{Binding HasCalibrationLine}">
+                            <TextBox Name="CalibrationLengthBox" Text="{Binding CalibrationLength}" AutomationProperties.Name="{l:T 'Wirkliche Länge der Strecke'}" />
+                            <ComboBox Grid.Column="1" Name="CalibrationUnitBox" ItemsSource="{x:Static vm:DocumentViewModel.ScaleUnits}" SelectedItem="{Binding ScaleUnit}"
+                                      AutomationProperties.Name="{l:T 'Einheit'}" />
+                        </Grid>
+
+                        <TextBlock Grid.Row="5" VerticalAlignment="Center" Text="{l:T 'Gilt für'}" />
+                        <StackPanel Grid.Row="5" Grid.Column="1" Orientation="Horizontal" Spacing="12">
+                            <RadioButton GroupName="ScalePages" Content="{l:T 'diese Seite'}" IsChecked="{Binding !ScaleAllPages, Mode=OneWay}" />
+                            <RadioButton Name="ScaleAllPagesBox" GroupName="ScalePages" Content="{l:T 'alle Seiten'}" IsChecked="{Binding ScaleAllPages}">
+                                <ToolTip.Tip><l:T Text="Den Maßstab für alle Seiten der Datei festlegen (ein Rückgängig-Schritt)" /></ToolTip.Tip>
+                            </RadioButton>
+                        </StackPanel>
+
+                        <Button Grid.Row="6" Grid.ColumnSpan="2" Name="ApplyScaleButton" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                                Command="{Binding ApplyScaleCommand}" Content="{l:T 'Maßstab festlegen'}">
+                            <ToolTip.Tip><l:T Text="Den Maßstab festlegen; er wird mit der Datei gespeichert, andere Programme messen dann dasselbe" /></ToolTip.Tip>
+                        </Button>
+                    </Grid>
+                </Border>
+
+                <!-- Art der Messung (7.6 c, e; seit der Festlegung vom 6.11.2026 unter dem Maßstab): Länge, Linienzug, Fläche, Winkel, Kreis/Bogen; Wert der Messung -->
+                <Border Classes="propCard">
+                    <StackPanel Spacing="6">
+                        <TextBlock Classes="hint" Text="{l:T 'Art der Messung'}" />
+                        <WrapPanel Orientation="Horizontal">
+                            <!-- je Art ein gegliederter Tooltip: was gemessen wird, wie es geht (Festlegung vom 8.11.2026) -->
+                            <RadioButton Name="MeasureLength" Margin="0,0,10,4" Content="{l:T 'Länge'}" GroupName="MeasureKind"
+                                         IsChecked="{Binding MeasureKind, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Length}">
+                                <ToolTip.Tip>
+                                    <StackPanel Classes="tip">
+                                        <TextBlock Classes="tipTitle" Text="{l:T 'Länge'}" />
+                                        <TextBlock Text="{l:T 'Misst den Abstand zwischen zwei Punkten.'}" />
+                                        <Grid Classes="tipKeys" ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto">
+                                            <TextBlock Grid.Row="0" Classes="tipKey" Text="{l:T 'Anfang'}" />
+                                            <TextBlock Grid.Row="0" Grid.Column="1" Text="{l:T 'Klick'}" />
+                                            <TextBlock Grid.Row="1" Classes="tipKey" Text="{l:T 'Ende'}" />
+                                            <TextBlock Grid.Row="1" Grid.Column="1" Text="{l:T 'Klick — die Messung ist fertig'}" />
+                                        </Grid>
+                                    </StackPanel>
+                                </ToolTip.Tip>
+                            </RadioButton>
+                            <RadioButton Name="MeasurePolyline" Margin="0,0,10,4" Content="{l:T 'Linienzug'}" GroupName="MeasureKind"
+                                         IsChecked="{Binding MeasureKind, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Polyline}">
+                                <ToolTip.Tip>
+                                    <StackPanel Classes="tip">
+                                        <TextBlock Classes="tipTitle" Text="{l:T 'Linienzug'}" />
+                                        <TextBlock Text="{l:T 'Misst die Länge aus mehreren Abschnitten: Geraden, Knicke und Bögen.'}" />
+                                        <Grid Classes="tipKeys" ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto,Auto,4,Auto,Auto">
+                                            <TextBlock Grid.Row="0" Classes="tipKey" Text="{l:T 'Gerade'}" />
+                                            <TextBlock Grid.Row="0" Grid.Column="1" Text="{l:T 'Klick'}" />
+                                            <TextBlock Grid.Row="1" Classes="tipKey" Text="{l:T 'Bogen'}" />
+                                            <TextBlock Grid.Row="1" Grid.Column="1" Text="{l:T 'Strg+Umschalt+Klick auf einen Punkt des Bogens, dann sein Ende anklicken'}" />
+                                            <TextBlock Grid.Row="2" Classes="tipKey" Text="{l:T 'Bogen tangential'}" />
+                                            <TextBlock Grid.Row="2" Grid.Column="1" TextWrapping="Wrap" MaxWidth="320" Text="{l:T 'Strg+Alt+Klick auf sein Ende — schließt ohne Knick an; nach dem ersten Punkt mit Strg+Alt die Richtung ziehen (ein Klick setzt einen Bogenpunkt)'}" />
+                                            <TextBlock Grid.Row="3" Classes="tipKey" Text="{l:T 'Bogen tangential kippen'}" />
+                                            <TextBlock Grid.Row="3" Grid.Column="1" Text="{l:T 'Leertaste'}" />
+                                            <TextBlock Grid.Row="5" Classes="tipKey" Text="{l:T 'Beenden'}" />
+                                            <TextBlock Grid.Row="5" Grid.Column="1" Text="{l:T 'Doppelklick oder Enter'}" />
+                                            <TextBlock Grid.Row="6" Classes="tipKey" Text="{l:T 'Fortsetzen'}" />
+                                            <TextBlock Grid.Row="6" Grid.Column="1" Text="{l:T 'Doppelklick auf einen fertigen Linienzug, dann am Anfang oder Ende weiterklicken'}" />
+                                        </Grid>
+                                    </StackPanel>
+                                </ToolTip.Tip>
+                            </RadioButton>
+                            <RadioButton Name="MeasureArea" Margin="0,0,10,4" Content="{l:T 'Fläche'}" GroupName="MeasureKind"
+                                         IsChecked="{Binding MeasureKind, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Area}">
+                                <ToolTip.Tip>
+                                    <StackPanel Classes="tip">
+                                        <TextBlock Classes="tipTitle" Text="{l:T 'Fläche'}" />
+                                        <TextBlock Text="{l:T 'Misst Fläche und Umfang — auch mit gebogenen Kanten.'}" />
+                                        <Grid Classes="tipKeys" ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto,Auto,4,Auto">
+                                            <TextBlock Grid.Row="0" Classes="tipKey" Text="{l:T 'Ecke'}" />
+                                            <TextBlock Grid.Row="0" Grid.Column="1" Text="{l:T 'Klick'}" />
+                                            <TextBlock Grid.Row="1" Classes="tipKey" Text="{l:T 'Bogen'}" />
+                                            <TextBlock Grid.Row="1" Grid.Column="1" Text="{l:T 'Strg+Umschalt+Klick auf einen Punkt des Bogens, dann sein Ende anklicken'}" />
+                                            <TextBlock Grid.Row="2" Classes="tipKey" Text="{l:T 'Bogen tangential'}" />
+                                            <TextBlock Grid.Row="2" Grid.Column="1" TextWrapping="Wrap" MaxWidth="320" Text="{l:T 'Strg+Alt+Klick auf sein Ende — schließt ohne Knick an; nach dem ersten Punkt mit Strg+Alt die Richtung ziehen (ein Klick setzt einen Bogenpunkt)'}" />
+                                            <TextBlock Grid.Row="3" Classes="tipKey" Text="{l:T 'Bogen tangential kippen'}" />
+                                            <TextBlock Grid.Row="3" Grid.Column="1" Text="{l:T 'Leertaste'}" />
+                                            <TextBlock Grid.Row="5" Classes="tipKey" Text="{l:T 'Schließen'}" />
+                                            <TextBlock Grid.Row="5" Grid.Column="1" Text="{l:T 'Doppelklick oder Enter'}" />
+                                        </Grid>
+                                    </StackPanel>
+                                </ToolTip.Tip>
+                            </RadioButton>
+                            <RadioButton Name="MeasureAngle" Margin="0,0,10,4" Content="{l:T 'Winkel'}" GroupName="MeasureKind"
+                                         IsChecked="{Binding MeasureKind, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Angle}">
+                                <ToolTip.Tip>
+                                    <StackPanel Classes="tip">
+                                        <TextBlock Classes="tipTitle" Text="{l:T 'Winkel'}" />
+                                        <TextBlock Text="{l:T 'Misst den Winkel zwischen zwei Schenkeln.'}" />
+                                        <Grid Classes="tipKeys" ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto">
+                                            <TextBlock Grid.Row="0" Classes="tipKey" Text="{l:T 'Erster Schenkel'}" />
+                                            <TextBlock Grid.Row="0" Grid.Column="1" Text="{l:T 'Klick auf einen Punkt'}" />
+                                            <TextBlock Grid.Row="1" Classes="tipKey" Text="{l:T 'Scheitel'}" />
+                                            <TextBlock Grid.Row="1" Grid.Column="1" Text="{l:T 'Klick'}" />
+                                            <TextBlock Grid.Row="2" Classes="tipKey" Text="{l:T 'Zweiter Schenkel'}" />
+                                            <TextBlock Grid.Row="2" Grid.Column="1" Text="{l:T 'Klick auf einen Punkt — die Messung ist fertig'}" />
+                                        </Grid>
+                                    </StackPanel>
+                                </ToolTip.Tip>
+                            </RadioButton>
+                            <RadioButton Name="MeasureRadius" Margin="0,0,10,4" Content="{l:T 'Kreis/Bogen'}" GroupName="MeasureKind"
+                                         IsChecked="{Binding MeasureKind, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Radius}">
+                                <ToolTip.Tip>
+                                    <StackPanel Classes="tip">
+                                        <TextBlock Classes="tipTitle" Text="{l:T 'Kreis/Bogen'}" />
+                                        <TextBlock Text="{l:T 'Misst einen Kreis oder Bogen über Punkte auf seinem Rand.'}" />
+                                        <Grid Classes="tipKeys" ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,4,Auto">
+                                            <TextBlock Grid.Row="0" Classes="tipKey" Text="{l:T 'Randpunkte'}" />
+                                            <TextBlock Grid.Row="0" Grid.Column="1" Text="{l:T 'Klick — mindestens drei; der erste und der letzte sind die Enden'}" />
+                                            <TextBlock Grid.Row="1" Classes="tipKey" Text="{l:T 'Ganzer Kreis'}" />
+                                            <TextBlock Grid.Row="1" Grid.Column="1" Text="{l:T 'den letzten Punkt auf den ersten setzen'}" />
+                                            <TextBlock Grid.Row="3" Classes="tipKey" Text="{l:T 'Beenden'}" />
+                                            <TextBlock Grid.Row="3" Grid.Column="1" Text="{l:T 'Doppelklick oder Enter'}" />
+                                        </Grid>
+                                    </StackPanel>
+                                </ToolTip.Tip>
+                            </RadioButton>
+                        </WrapPanel>
+                        <TextBlock Classes="hint" TextWrapping="Wrap" Text="{Binding MeasureHint}" />
+                        <TextBlock Classes="hint" TextWrapping="Wrap" Text="{l:T 'Punkte rasten an Linien der Zeichnung ein, mit Alt frei; Linien rasten gerade ein (0°, 45°, 90° …), mit Umschalt beliebiger Winkel. Esc verwirft, Rücktaste nimmt den letzten Punkt zurück.'}" />
+                        <TextBlock Name="MeasureValue" FontSize="18" FontWeight="SemiBold" TextWrapping="Wrap" Text="{Binding MeasureText}"
+                                   IsVisible="{Binding MeasureText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                        <TextBlock Name="MeasureDetail" FontSize="12" TextWrapping="Wrap" Text="{Binding MeasureDetail}" IsVisible="{Binding MeasureDetail, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                        <TextBlock Classes="muted" FontSize="11" TextWrapping="Wrap" Text="{Binding MeasureScaleText}" />
+                    </StackPanel>
+                </Border>
+
+                <!-- Darstellung (7.6 e2, e3): Farbe der nächsten Messung, Maße und Winkel für alle, Nachkommastellen, Fang -->
+                <Border Classes="propCard">
+                    <StackPanel Spacing="6">
+                        <TextBlock Classes="hint" Text="{l:T 'Darstellung'}" />
+                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="6" Margin="0,4,0,0">
+                        <TextBlock VerticalAlignment="Center" Text="{l:T 'Farbe neuer Messungen'}" />
+                        <ComboBox Grid.Column="1" Name="MeasureColorBox" HorizontalAlignment="Stretch" ItemsSource="{x:Static vm:DocumentViewModel.MeasureColors}"
+                                  SelectedItem="{Binding MeasureColor}" ItemTemplate="{StaticResource MeasureColorTemplate}"
+                                  AutomationProperties.Name="{l:T 'Farbe neuer Messungen'}" />
+                    </Grid>
+                    <CheckBox Name="MeasureAllSegments" IsChecked="{Binding MeasureShowSegments}" Content="{l:T 'Maße an allen Linien'}">
+                        <ToolTip.Tip><l:T Text="Die Länge jedes Stücks an allen Linienzügen und Flächen zeigen (und an den nächsten)" /></ToolTip.Tip>
+                    </CheckBox>
+                    <CheckBox Name="MeasureAllAngles" IsChecked="{Binding MeasureShowAngles}" Content="{l:T 'Winkel an allen Knicken'}">
+                        <ToolTip.Tip><l:T Text="Den Winkel an jedem Knick aller Linienzüge und Flächen zeigen (und an den nächsten)" /></ToolTip.Tip>
+                    </CheckBox>
+                    <!-- Einstellungen (7.6 e3): Nachkommastellen, Fang -->
+                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="6">
+                        <TextBlock VerticalAlignment="Center" Text="{l:T 'Nachkommastellen'}" />
+                        <ComboBox Grid.Column="1" Name="MeasureDecimalsBox" HorizontalAlignment="Stretch" ItemsSource="{x:Static vm:DocumentViewModel.MeasureDecimalChoices}"
+                                  SelectedItem="{Binding MeasureDecimals}" AutomationProperties.Name="{l:T 'Nachkommastellen'}">
+                            <ComboBox.ItemTemplate>
+                                <DataTemplate x:DataType="vm:ILabeled">
+                                    <TextBlock>
+                                        <TextBlock.Text>
+                                            <MultiBinding Converter="{x:Static l:T.Translate}">
+                                                <Binding Path="Label" />
+                                                <x:Static Member="l:T.LanguageVersion" />
+                                            </MultiBinding>
+                                        </TextBlock.Text>
+                                    </TextBlock>
+                                </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                            <ToolTip.Tip><l:T Text="Wie viele Stellen nach dem Komma die Werte zeigen — „wie in der Datei“ nimmt die Zahlenformate des Maßstabs" /></ToolTip.Tip>
+                        </ComboBox>
+                    </Grid>
+                    <CheckBox Name="MeasureSnapBox" IsChecked="{Binding MeasureSnap}" Content="{l:T 'Punkte rasten an der Zeichnung ein'}">
+                        <ToolTip.Tip><l:T Text="Aus: Punkte sitzen, wo geklickt wird; Alt kehrt es jeweils um" /></ToolTip.Tip>
+                    </CheckBox>
+                    <CheckBox Name="MeasureStraightBox" IsChecked="{Binding MeasureStraight}" Content="{l:T 'Gerade Linien einrasten (0°, 45°, 90° …)'}">
+                        <ToolTip.Tip><l:T Text="Liegt eine Linie fast waagerecht, senkrecht oder schräg im 45°-Winkel, rastet sie genau ein; Umschalt kehrt es jeweils um" /></ToolTip.Tip>
+                    </CheckBox>
+                    <CheckBox Name="MeasureLoupeBox" IsChecked="{Binding MeasureLoupe}" Content="{l:T 'Lupe beim Setzen der Punkte'}">
+                        <ToolTip.Tip><l:T Text="Eine Lupe neben der Maus zeigt die Stelle vierfach vergrößert; beim Kalibrieren immer" /></ToolTip.Tip>
+                    </CheckBox>
+                    <CheckBox Name="MeasureAskOnLeaveBox" IsChecked="{Binding MeasureAskOnLeave}" Content="{l:T 'Beim Ausschalten nach Messungen fragen, die nicht in der PDF sind'}">
+                        <ToolTip.Tip><l:T Text="Messungen sind zuerst nur Anzeige; beim Ausschalten von „Messen“ fragt PDF-Knead, ob sie als Bemaßung in die PDF sollen" /></ToolTip.Tip>
+                    </CheckBox>
+                    <TextBlock Classes="hint" TextWrapping="Wrap" Text="{l:T 'Klick auf eine Messung (Linie, Punkt oder Wert) wählt sie — auch eine gespeicherte Bemaßung: Punkte direkt ziehen, Strg+Klick auf die Linie der gewählten Messung fügt einen Punkt ein, Punkt anklicken und Entf entfernt ihn, Doppelklick auf einen Linienzug setzt ihn fort; Strg+Klick sonst auf eine Messung beginnt dort eine neue. Farbe, Strich, Löschen in der Leiste darüber.'}" />
+                    </StackPanel>
+                </Border>
+
+                <Border Classes="propCard">
+                    <Grid RowDefinitions="Auto,*,Auto">
+                        <TextBlock Classes="hint" Text="{l:T 'Messungen'}" Margin="0,0,0,4" />
+                        <ListBox Grid.Row="1" Name="MeasureList" Background="Transparent" ItemsSource="{Binding Measurements}" SelectedItem="{Binding SelectedMeasurement}">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate x:DataType="vm:MeasureRow">
+                                    <!-- je Messung: Farbe, Wert, Maße und Winkel an/aus (7.6 e2) -->
+                                    <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto" ColumnSpacing="6" Margin="0,2">
+                                        <ComboBox Padding="4,2" MinWidth="0" ItemsSource="{x:Static vm:DocumentViewModel.MeasureColors}" SelectedItem="{Binding Color}"
+                                                  ItemTemplate="{StaticResource MeasureSwatchTemplate}" AutomationProperties.Name="{l:T 'Farbe dieser Messung'}">
+                                            <ToolTip.Tip><l:T Text="Farbe dieser Messung" /></ToolTip.Tip>
+                                        </ComboBox>
+                                        <TextBlock Grid.Column="1" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center" Text="{Binding Line}" />
+                                        <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Spacing="10" IsVisible="{Binding HasPieces}">
+                                            <CheckBox FontSize="12" MinHeight="0" IsChecked="{Binding ShowSegments}" Content="{l:T 'Maße'}">
+                                                <ToolTip.Tip><l:T Text="Die Länge jedes Stücks dieser Linie zeigen" /></ToolTip.Tip>
+                                            </CheckBox>
+                                            <CheckBox FontSize="12" MinHeight="0" IsChecked="{Binding ShowAngles}" Content="{l:T 'Winkel'}">
+                                                <ToolTip.Tip><l:T Text="Den Winkel an jedem Knick dieser Linie zeigen" /></ToolTip.Tip>
+                                            </CheckBox>
+                                        </StackPanel>
+                                    </Grid>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                        <WrapPanel Grid.Row="2" Margin="0,6,0,0">
+                            <Button Name="InsertAllDimensionsButton" Classes="accent" Margin="0,0,6,0" Command="{Binding InsertAllDimensionsCommand}" Content="{l:T 'Alle als Bemaßung einfügen'}">
+                                <ToolTip.Tip><l:T Text="Alle Messungen als Bemaßungen in die Seiten setzen (ein Rückgängig-Schritt) — sie werden mit der Datei gespeichert" /></ToolTip.Tip>
+                            </Button>
+                            <Button Command="{Binding ClearMeasurementsCommand}" Content="{l:T 'Messungen entfernen'}">
+                                <ToolTip.Tip><l:T Text="Die Messungen von der Seite nehmen (in der Datei steht nichts davon)" /></ToolTip.Tip>
+                            </Button>
+                        </WrapPanel>
+                    </Grid>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</UserControl>

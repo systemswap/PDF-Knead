@@ -1,0 +1,97 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:l="using:PdfKnead.Localization"
+             xmlns:vm="using:PdfKnead.ViewModels"
+             xmlns:g="using:PdfKnead.Core.Pdf.Graphics"
+             x:Class="PdfKnead.Views.ImageInfoPanel"
+             x:DataType="vm:DocumentViewModel">
+    <!-- Angaben des gewählten Bildes (KONZEPT §5.15): beim Lesen eigener Bereich nach einem Klick aufs Bild, in „Bearbeiten“ im Bereich „Bild“ (§5.22) -->
+    <UserControl.Styles>
+        <StyleInclude Source="avares://PdfKnead.Ui/Styles/PropertyPanel.axaml" />
+        <Style Selector="Button.bannerClose">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="6" />
+        </Style>
+        <Style Selector="Button.bannerClose PathIcon">
+            <Setter Property="Width" Value="14" />
+            <Setter Property="Height" Value="14" />
+            <Setter Property="Foreground" Value="{DynamicResource OnAccentBrush}" />
+        </Style>
+    </UserControl.Styles>
+
+    <DockPanel>
+        <!-- Nur beim Lesen (eigener Bereich): Kopfzeile mit Schließen; in „Bearbeiten“ steht der Bereich im Bereich „Bild“ -->
+        <Border DockPanel.Dock="Top" Classes="propBanner" IsVisible="{Binding IsReadingImageInfo}">
+            <Grid ColumnDefinitions="Auto,*,Auto">
+                <Border Classes="bannerIcon"><PathIcon Data="{StaticResource Icon.ImageAltText}" /></Border>
+                <TextBlock Grid.Column="1" Margin="10,0,0,0" FontWeight="SemiBold" FontSize="14" VerticalAlignment="Center" Text="{l:T 'Bildinfo'}" />
+                <Button Grid.Column="2" Classes="bannerClose" VerticalAlignment="Center" Command="{Binding CloseImageInfoCommand}"
+                        AutomationProperties.Name="{l:T 'Bildinfo schließen'}">
+                    <ToolTip.Tip><l:T Text="Bildinfo schließen (Esc)" /></ToolTip.Tip>
+                    <PathIcon Data="{StaticResource Icon.Dismiss}" />
+                </Button>
+            </Grid>
+        </Border>
+        <!-- Bild kopieren und in Originalqualität speichern (Wunsch vom 27.10.2026), dazu die Angaben als Text -->
+        <WrapPanel DockPanel.Dock="Bottom" Margin="12,0,6,6" Orientation="Horizontal"
+                   IsVisible="{Binding InspectedImage, Converter={x:Static ObjectConverters.IsNotNull}}">
+            <Button Margin="0,0,6,6" x:Name="ReadingCopyImageButton" IsVisible="{Binding IsReadingImageInfo}"
+                    Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).CopyImageCommand, FallbackValue={x:Null}}"
+                    AutomationProperties.Name="{l:T 'Bild kopieren'}">
+                <ToolTip.Tip><l:T Text="Das Bild in die Zwischenablage, so wie es zu sehen ist" /></ToolTip.Tip>
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <PathIcon Data="{StaticResource Icon.Image}" Width="16" Height="16" />
+                    <TextBlock Text="{l:T 'Bild kopieren'}" />
+                </StackPanel>
+            </Button>
+            <Button Margin="0,0,6,6" x:Name="ReadingSaveImageButton" IsVisible="{Binding IsReadingImageInfo}"
+                    Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).SaveImageCommand, FallbackValue={x:Null}}"
+                    AutomationProperties.Name="{l:T 'Bild speichern …'}">
+                <ToolTip.Tip><l:T Text="Das Bild als Datei in seiner Originalqualität: JPEG und JPEG 2000 unverändert, sonst verlustfrei als PNG (CMYK als TIFF)" /></ToolTip.Tip>
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <PathIcon Data="{StaticResource Icon.Save}" Width="16" Height="16" />
+                    <TextBlock Text="{l:T 'Bild speichern …'}" />
+                </StackPanel>
+            </Button>
+            <Button Margin="0,0,6,6"
+                    Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).CopyImageInfoCommand, FallbackValue={x:Null}}"
+                    AutomationProperties.Name="{l:T 'Als Text kopieren'}">
+                <ToolTip.Tip><l:T Text="Alle Angaben zum Bild in die Zwischenablage" /></ToolTip.Tip>
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <PathIcon Data="{StaticResource Icon.Copy}" Width="16" Height="16" />
+                    <TextBlock Text="{l:T 'Als Text kopieren'}" />
+                </StackPanel>
+            </Button>
+        </WrapPanel>
+        <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+            <StackPanel Margin="0,0,0,4">
+                <TextBlock Classes="hint" Margin="16,4,16,10" Text="{Binding ImageInfoHint}"
+                           IsVisible="{Binding ImageInfoHint, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                <TextBlock Classes="hint" Margin="16,0,16,8" Text="{Binding ImageInfoPosition}"
+                           IsVisible="{Binding ImageInfoPosition, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                <ItemsControl ItemsSource="{Binding InspectedImage.Sections, FallbackValue={x:Null}}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="g:ImageInfoSection">
+                            <Border Classes="propCard">
+                                <StackPanel>
+                                    <TextBlock Classes="propTitle" Text="{Binding Title}" Margin="0,0,0,4" />
+                                    <ItemsControl ItemsSource="{Binding Rows}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate x:DataType="g:ImageInfoRow">
+                                                <Grid ColumnDefinitions="104,*" Margin="0,3">
+                                                    <TextBlock Classes="caption" Margin="0,0,8,0" VerticalAlignment="Top" TextWrapping="Wrap" Text="{Binding Label}" />
+                                                    <SelectableTextBlock Grid.Column="1" TextWrapping="Wrap" Text="{Binding Value}" />
+                                                </Grid>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+        </ScrollViewer>
+    </DockPanel>
+</UserControl>

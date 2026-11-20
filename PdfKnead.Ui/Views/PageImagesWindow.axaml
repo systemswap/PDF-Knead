@@ -1,0 +1,70 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:l="using:PdfKnead.Localization"
+        x:Class="PdfKnead.Views.PageImagesWindow"
+        Title="{l:T 'Als Bild speichern'}"
+        Icon="/Assets/app.ico"
+        Width="500" SizeToContent="Height"
+        CanResize="False" ShowInTaskbar="False"
+        WindowStartupLocation="CenterOwner">
+    <StackPanel Margin="24" Spacing="14">
+        <StackPanel Orientation="Horizontal" Spacing="12">
+            <Border Width="40" Height="40" CornerRadius="20" Background="{DynamicResource AccentSoftBrush}">
+                <PathIcon Data="{StaticResource Icon.ImageMultiple}" Width="20" Height="20" Foreground="{DynamicResource AccentBrush}" />
+            </Border>
+            <StackPanel VerticalAlignment="Center" Spacing="2">
+                <TextBlock FontWeight="SemiBold" FontSize="15" Text="{l:T 'Als Bild speichern'}" />
+                <TextBlock Name="SubText" Classes="muted" TextWrapping="Wrap" MaxWidth="380"
+                           Text="{l:T 'Jede Seite als Bilddatei in einen Ordner — Dateinamen wie „Name_001“.'}" />
+            </StackPanel>
+        </StackPanel>
+
+        <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="12">
+            <TextBlock VerticalAlignment="Top" Margin="0,4,12,0" Text="{l:T 'Seiten'}" />
+            <StackPanel Grid.Column="1" Spacing="4">
+                <RadioButton Name="AllChoice" GroupName="pages" IsChecked="True" />
+                <RadioButton Name="SelectedChoice" GroupName="pages" />
+            </StackPanel>
+
+            <TextBlock Grid.Row="1" VerticalAlignment="Top" Margin="0,4,12,0" Text="{l:T 'Bildformat'}" />
+            <StackPanel Grid.Row="1" Grid.Column="1" Spacing="4">
+                <RadioButton Name="PngChoice" GroupName="format" IsChecked="True" Content="{l:T 'PNG — verlustfrei'}">
+                    <ToolTip.Tip><l:T Text="Gestochen scharf, größere Dateien; Schwarzweiß-Seiten mit einem Bit je Bildpunkt" /></ToolTip.Tip>
+                </RadioButton>
+                <RadioButton Name="JpegChoice" GroupName="format" Content="{l:T 'JPEG — kleine Dateien'}">
+                    <ToolTip.Tip><l:T Text="Gut für Fotos und Farbscans; jedes Programm kann es öffnen" /></ToolTip.Tip>
+                </RadioButton>
+                <RadioButton Name="TiffChoice" GroupName="format" Content="{l:T 'TIFF — verlustfrei, auch mehrseitig'}">
+                    <ToolTip.Tip><l:T Text="Üblich zum Archivieren; Schwarzweiß-Seiten sehr klein mit dem Fax-Verfahren CCITT G4" /></ToolTip.Tip>
+                </RadioButton>
+                <CheckBox Name="OneFileChoice" Margin="28,0,0,0" Content="{l:T 'Alle Seiten in eine Datei'}">
+                    <ToolTip.Tip><l:T Text="Eine mehrseitige TIFF-Datei statt einer Datei je Seite" /></ToolTip.Tip>
+                </CheckBox>
+                <RadioButton Name="WebPChoice" GroupName="format" Content="{l:T 'WebP — noch kleiner'}">
+                    <ToolTip.Tip><l:T Text="Kleiner als JPEG bei gleichem Aussehen; ältere Programme öffnen es nicht, und die Auflösung wird nicht gespeichert" /></ToolTip.Tip>
+                </RadioButton>
+            </StackPanel>
+
+            <TextBlock Grid.Row="2" Name="QualityLabel" VerticalAlignment="Center" Margin="0,0,12,0" Text="{l:T 'Qualität'}" />
+            <DockPanel Grid.Row="2" Grid.Column="1" Name="QualityPanel">
+                <TextBlock Name="QualityText" DockPanel.Dock="Right" Width="40" TextAlignment="Right" VerticalAlignment="Center" />
+                <Slider Name="QualitySlider" Minimum="50" Maximum="100" TickFrequency="1" IsSnapToTickEnabled="True" Value="90"
+                        AutomationProperties.Name="{l:T 'Qualität'}">
+                    <ToolTip.Tip><l:T Text="Höher: schärfer und größer; 85 bis 92 sieht man kaum vom Original" /></ToolTip.Tip>
+                </Slider>
+            </DockPanel>
+
+            <TextBlock Grid.Row="3" Name="DpiLabel" VerticalAlignment="Center" Margin="0,0,12,0" Text="{l:T 'Auflösung'}" />
+            <ComboBox Grid.Row="3" Grid.Column="1" Name="DpiChoice" MinWidth="200" AutomationProperties.Name="{l:T 'Auflösung'}" />
+        </Grid>
+
+        <Border Background="{DynamicResource AccentSoftBrush}" CornerRadius="{DynamicResource RadiusControl}" Padding="12,8">
+            <TextBlock Name="InfoText" TextWrapping="Wrap" FontSize="12" />
+        </Border>
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,4,0,0">
+            <Button Content="{l:T 'Abbrechen'}" Click="OnCancel" IsCancel="True" />
+            <Button Name="ApplyButton" Classes="primary" Content="{l:T 'Ordner wählen …'}" Click="OnApply" IsDefault="True" />
+        </StackPanel>
+    </StackPanel>
+</Window>

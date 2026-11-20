@@ -1,0 +1,43 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="PdfKnead.App"
+             RequestedThemeVariant="Default">
+             <!-- „Default“ folgt dem System; die Einstellung überschreibt es beim Start. -->
+
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceInclude Source="avares://PdfKnead.Ui/Styles/Tokens.axaml" />
+                <ResourceInclude Source="avares://PdfKnead.Ui/Styles/Icons.axaml" />
+                <ResourceInclude Source="avares://PdfKnead.Ui/Styles/Ribbon.axaml" />
+            </ResourceDictionary.MergedDictionaries>
+
+            <!-- Akzentfarbe auch für die Fluent-Steuerelemente (Auswahl, Fokus, Regler) -->
+            <ResourceDictionary.ThemeDictionaries>
+                <ResourceDictionary x:Key="Light">
+                    <Color x:Key="SystemAccentColor">#4F46E5</Color>
+                    <Color x:Key="SystemAccentColorDark1">#4338CA</Color>
+                    <Color x:Key="SystemAccentColorDark2">#3730A3</Color>
+                    <Color x:Key="SystemAccentColorDark3">#312E81</Color>
+                    <Color x:Key="SystemAccentColorLight1">#6366F1</Color>
+                    <Color x:Key="SystemAccentColorLight2">#818CF8</Color>
+                    <Color x:Key="SystemAccentColorLight3">#A5B4FC</Color>
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="Dark">
+                    <Color x:Key="SystemAccentColor">#8B85FF</Color>
+                    <Color x:Key="SystemAccentColorDark1">#7A73F5</Color>
+                    <Color x:Key="SystemAccentColorDark2">#6A62E8</Color>
+                    <Color x:Key="SystemAccentColorDark3">#5A52DA</Color>
+                    <Color x:Key="SystemAccentColorLight1">#A09BFF</Color>
+                    <Color x:Key="SystemAccentColorLight2">#B6B2FF</Color>
+                    <Color x:Key="SystemAccentColorLight3">#CCC9FF</Color>
+                </ResourceDictionary>
+            </ResourceDictionary.ThemeDictionaries>
+        </ResourceDictionary>
+    </Application.Resources>
+
+    <Application.Styles>
+        <FluentTheme DensityStyle="Compact" />
+        <StyleInclude Source="avares://PdfKnead.Ui/Styles/Controls.axaml" />
+    </Application.Styles>
+</Application>

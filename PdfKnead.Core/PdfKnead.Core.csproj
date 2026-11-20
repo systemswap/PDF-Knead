@@ -1,0 +1,50 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <LangVersion>latest</LangVersion>
+        <!-- Zeiger auf die per Memory-Mapping eingeblendete Datei (Pdf/IO/PdfSource.cs) -->
+        <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+        <!-- Native AOT (schneller Start): Warnungen zu Reflexion schon beim normalen Bauen -->
+        <IsAotCompatible>true</IsAotCompatible>
+        <!-- Deliberately no Avalonia reference: the core stays free of UI, so that the PDF core, the command line and the tests
+             run without one. The only package is Microsoft's CMS implementation for digital signatures. -->
+    </PropertyGroup>
+
+    <ItemGroup>
+        <InternalsVisibleTo Include="PdfKnead.Tests" />
+        <!-- the redaction check of the command line builds pages without content (pdf-knead schwaerzpruefung) -->
+        <InternalsVisibleTo Include="pdf-knead" />
+        <!-- the redaction focus of the fuzzer measures what is left under a bar by its shape, as the redaction does (tools/fuzz) -->
+        <InternalsVisibleTo Include="pdf-knead-fuzz" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <PackageReference Include="System.Security.Cryptography.Pkcs" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <!-- Adobe Glyph List und ZapfDingbats-Namen (BSD, Adobe) für Glyphenname → Unicode -->
+        <EmbeddedResource Include="Fonts/Data/*.txt;Fonts/Data/*.bin;Fonts/Data/*.zip" LogicalName="Fonts/%(Filename)%(Extension)" />
+        <!-- Mitgelieferte Schriften (Ordner Schriften/): jede Datei dort kommt ins Programm, ohne Liste im Code -->
+        <EmbeddedResource Include="../Schriften/Standard/*.ttf;../Schriften/Standard/*.cff" LogicalName="Schriften/Standard/%(Filename)%(Extension)" />
+        <!-- Arabic for appearances the program builds (Noto Sans and Naskh Arabic, OFL; docs/FEHLERGEDAECHTNIS.md, No. 910) -->
+        <EmbeddedResource Include="../Schriften/Arabisch/*.ttf" LogicalName="Schriften/Arabisch/%(Filename)%(Extension)" />
+        <!-- Nur die freien Handschriften; die lizenzierten (Handschriften-lizenziert) legen die Publish-Skripte als
+             „Schriften-Unterschrift“ neben das Programm (Wunsch vom 22.10.2026), beim Entwickeln Directory.Build.targets -->
+        <EmbeddedResource Include="../Schriften/Handschriften-frei/*.ttf;../Schriften/Handschriften-frei/*.otf" LogicalName="Schriften/Handschriften/%(Filename)%(Extension)" />
+        <!-- Mitgeliefertes CMYK-Profil (Ordner Farbprofile/, M10b) -->
+        <EmbeddedResource Include="../Farbprofile/*.icc" LogicalName="Farbprofile/%(Filename)%(Extension)" />
+        <!-- Regeln der Formularerkennung (KONZEPT §5.9a): erweiterbar ohne Codeänderung -->
+        <EmbeddedResource Include="Forms/Recognition/Feldregeln.txt" LogicalName="Forms/Feldregeln.txt" />
+        <!-- containment rules of the standard structure types (docs/FEHLERGEDAECHTNIS.md, No. 507) -->
+        <EmbeddedResource Include="Pdf/Accessibility/Containment.tsv" LogicalName="Accessibility/Containment.tsv" />
+        <!-- trust anchors of the EU trusted lists (KONZEPT.md §5.17, „EU-Vertrauensliste“) -->
+        <EmbeddedResource Include="Pdf/Signatures/TrustLists/lotl-anker.crt" LogicalName="TrustLists/lotl-anker.crt" />
+        <!-- Schwärzungscodes je Land (Wunsch vom 4.11.2026): Text mit Tabulatoren, in den Einstellungen änderbar -->
+        <EmbeddedResource Include="Pdf/Editing/Codes/*.txt" LogicalName="Codes/%(Filename)%(Extension)" />
+        <!-- Lexicon of the recognition of persons, companies and addresses (KONZEPT.md, section 5.23; built with "pdf-knead lexikon") -->
+        <EmbeddedResource Include="Pdf/Text/Entities/Data/lexikon.br" LogicalName="Lexikon/lexikon.br" WithCulture="false" />
+    </ItemGroup>
+</Project>

@@ -1,0 +1,36 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:l="using:PdfKnead.Localization"
+        x:Class="PdfKnead.Views.CleanupWindow"
+        Title="{l:T 'Dokument bereinigen'}"
+        Icon="/Assets/app.ico"
+        Width="520" SizeToContent="Height"
+        CanResize="False" ShowInTaskbar="False"
+        WindowStartupLocation="CenterOwner">
+    <StackPanel Margin="24" Spacing="14">
+        <StackPanel Orientation="Horizontal" Spacing="12">
+            <Border Width="40" Height="40" CornerRadius="20" Background="{DynamicResource AccentSoftBrush}">
+                <PathIcon Data="{StaticResource Icon.Broom}" Width="20" Height="20" Foreground="{DynamicResource AccentBrush}" />
+            </Border>
+            <StackPanel VerticalAlignment="Center" Spacing="2">
+                <TextBlock FontWeight="SemiBold" FontSize="15" Text="{l:T 'Dokument bereinigen'}" />
+                <TextBlock Classes="muted" TextWrapping="Wrap" MaxWidth="400"
+                           Text="{l:T 'Verborgene Daten, die beim Weitergeben mitgehen würden. Entfernt wird gleich im Dokument — Strg+Z nimmt es zurück, endgültig erst beim Speichern.'}" />
+            </StackPanel>
+        </StackPanel>
+
+        <!-- the items found, in a fixed order -->
+        <ScrollViewer MaxHeight="520" HorizontalScrollBarVisibility="Disabled">
+            <StackPanel Name="Items" Spacing="10" Margin="0,0,12,0" />
+        </ScrollViewer>
+        <TextBlock Name="NothingText" IsVisible="False" Text="{l:T 'Keine verborgenen Daten gefunden.'}" />
+
+        <TextBlock Classes="muted" FontSize="12" TextWrapping="Wrap"
+                   Text="{l:T 'Frühere Fassungen der Datei (inkrementelles Speichern) entfernt PDF-Knead beim Speichern immer.'}" />
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,4,0,0">
+            <Button Content="{l:T 'Abbrechen'}" Click="OnCancel" IsCancel="True" />
+            <Button Name="ApplyButton" Classes="primary" Content="{l:T 'Beim Speichern entfernen'}" Click="OnApply" IsDefault="True" />
+        </StackPanel>
+    </StackPanel>
+</Window>

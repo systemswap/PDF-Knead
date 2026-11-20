@@ -1,0 +1,85 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:l="using:PdfKnead.Localization"
+        xmlns:c="using:PdfKnead.Controls"
+        xmlns:vm="using:PdfKnead.ViewModels"
+        x:Class="PdfKnead.Views.SignatureFontsWindow"
+        x:DataType="vm:SignatureFontsViewModel"
+        Title="{l:T 'Handschriften für Unterschriften'}"
+        Icon="/Assets/app.ico"
+        Width="700" Height="640" MinWidth="560" MinHeight="440"
+        ShowInTaskbar="False"
+        WindowStartupLocation="CenterOwner">
+    <Window.Resources>
+        <!-- One row: sample in the font, name and origin, remove (only after a confirmation; built-in fonts cannot be removed) -->
+        <DataTemplate x:Key="FontRow" x:DataType="vm:SignatureFontRow">
+            <Border BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1" Padding="0,8">
+                <Grid ColumnDefinitions="210,*,Auto">
+                    <!-- On paper: ink is multiplied, on a dark background it would hardly show -->
+                    <Border Background="White" CornerRadius="4" Padding="8,2" Height="44">
+                        <c:ElementPreview Element="{Binding Sample}" AutomationProperties.Name="{Binding Family}" />
+                    </Border>
+                    <StackPanel Grid.Column="1" Margin="14,0,8,0" VerticalAlignment="Center" Spacing="2">
+                        <TextBlock FontWeight="SemiBold" Text="{Binding Family}" TextTrimming="CharacterEllipsis" />
+                        <TextBlock Classes="muted" FontSize="12" TextTrimming="CharacterEllipsis">
+                            <Run Text="{Binding Origin}" /><Run Text=" · " /><Run Text="{Binding File}" />
+                        </TextBlock>
+                    </StackPanel>
+                    <Button Grid.Column="2" VerticalAlignment="Center" Classes="soft small" Content="{l:T 'Entfernen'}"
+                            IsVisible="{Binding CanAsk}" Command="{Binding AskCommand}" AutomationProperties.Name="{Binding RemoveLabel}">
+                        <ToolTip.Tip><l:T Text="Schriftdatei aus dem Ordner löschen — sie steht dann nicht mehr zur Wahl" /></ToolTip.Tip>
+                    </Button>
+                    <StackPanel Grid.Column="2" VerticalAlignment="Center" Orientation="Horizontal" Spacing="4" IsVisible="{Binding Asking}">
+                        <TextBlock VerticalAlignment="Center" Foreground="{DynamicResource DangerBrush}" Text="{l:T 'Wirklich?'}" Margin="0,0,4,0" />
+                        <Button Classes="danger small" Command="{Binding RemoveCommand}" AutomationProperties.Name="{l:T 'Schrift endgültig entfernen'}"
+                                Content="{l:T 'Entfernen'}" />
+                        <Button Classes="soft small" Content="{l:T 'Behalten'}" Command="{Binding KeepCommand}" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+        </DataTemplate>
+    </Window.Resources>
+
+    <DockPanel Margin="24">
+        <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap"
+                   Text="{l:T 'Diese Handschriften stehen bei „Unterschrift einfügen“ zur Wahl. Eigene Schriften lassen sich hinzufügen — etwa eine gekaufte oder Ihre eigene, als Schrift digitalisierte Handschrift (TrueType oder OpenType).'}" />
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="10" Margin="0,14,0,0">
+            <Button Classes="primary" Command="{Binding ImportCommand}" AutomationProperties.Name="{l:T 'Schrift hinzufügen …'}">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <PathIcon Data="{StaticResource Icon.Add}" Width="14" Height="14" Foreground="{DynamicResource OnAccentBrush}" />
+                    <TextBlock Text="{l:T 'Schrift hinzufügen …'}" Foreground="{DynamicResource OnAccentBrush}" />
+                </StackPanel>
+            </Button>
+            <Button Classes="soft" Command="{Binding OpenFolderCommand}" Content="{l:T 'Ordner öffnen'}">
+                <ToolTip.Tip><l:T Text="Ordner „Schriften-Unterschrift“ neben dem Programm im Dateimanager zeigen" /></ToolTip.Tip>
+            </Button>
+        </StackPanel>
+        <TextBlock DockPanel.Dock="Top" Margin="0,10,0,0" TextWrapping="Wrap" Text="{Binding Message}"
+                   IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" Classes.error="{Binding Failed}">
+            <TextBlock.Styles>
+                <Style Selector="TextBlock.error">
+                    <Setter Property="Foreground" Value="{DynamicResource DangerBrush}" />
+                </Style>
+            </TextBlock.Styles>
+        </TextBlock>
+
+        <Grid DockPanel.Dock="Bottom" ColumnDefinitions="*,Auto" Margin="0,16,0,0">
+            <TextBlock Classes="muted" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,0,16,0"
+                       Text="{l:T 'Hinzugefügte Schriften liegen als Kopie im Ordner „Schriften-Unterschrift“ neben dem Programm und ziehen mit ihm um; das Original bleibt, wo es ist. Unterschriften werden als Umrisse gespeichert, die Schriftdatei kommt in keine PDF.'}" />
+            <Button Grid.Column="1" MinWidth="96" Content="{l:T 'Schließen'}" IsDefault="True" IsCancel="True" Click="OnClose" />
+        </Grid>
+
+        <Border Classes="card" Margin="0,16,0,0" Padding="0">
+            <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+                <StackPanel Margin="18,14">
+                    <TextBlock Classes="section" Text="{l:T 'EIGENE SCHRIFTEN'}" />
+                    <TextBlock Classes="muted" Margin="0,8" TextWrapping="Wrap" IsVisible="{Binding !HasAdded}"
+                               Text="{l:T 'Noch keine eigene Schrift — mit „Schrift hinzufügen …“ eine wählen.'}" />
+                    <ItemsControl ItemsSource="{Binding Added}" ItemTemplate="{StaticResource FontRow}" />
+                    <TextBlock Classes="section" Margin="0,18,0,0" Text="{l:T 'IM PROGRAMM ENTHALTEN'}" />
+                    <ItemsControl ItemsSource="{Binding BuiltIn}" ItemTemplate="{StaticResource FontRow}" />
+                </StackPanel>
+            </ScrollViewer>
+        </Border>
+    </DockPanel>
+</Window>

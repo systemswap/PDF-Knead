@@ -1,0 +1,437 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:l="using:PdfKnead.Localization"
+        xmlns:vm="using:PdfKnead.ViewModels"
+        xmlns:p="using:PdfKnead.Core.Platform"
+        x:Class="PdfKnead.Views.CertificateWindow"
+        x:DataType="vm:CertificateViewModel"
+        Title="{l:T 'Zertifikat für digitale Unterschriften'}"
+        Icon="/Assets/app.ico"
+        Width="740" SizeToContent="Height" MaxHeight="920"
+        CanResize="False" ShowInTaskbar="False"
+        WindowStartupLocation="CenterOwner">
+    <Window.Resources>
+        <!-- One certificate: option button for the default, what it is, buttons on the right (decided on 11.11.2026; No. 733) -->
+        <DataTemplate x:Key="CertificateRowTemplate" x:DataType="vm:CertificateRow">
+            <Border Classes="certRow" Classes.chosen="{Binding IsDefault}" Padding="8,6" Margin="0,1">
+                <Grid ColumnDefinitions="Auto,*,Auto">
+                    <RadioButton GroupName="StandardZertifikat" VerticalAlignment="Top" IsChecked="{Binding IsDefault, Mode=OneWay}" IsEnabled="{Binding Selectable}"
+                                 Command="{Binding $parent[Window].((vm:CertificateViewModel)DataContext).ChooseCommand}" CommandParameter="{Binding}"
+                                 AutomationProperties.Name="{Binding Name}" ToolTip.Tip="{l:T 'Dieses Zertifikat für künftige Unterschriften verwenden'}" />
+                    <StackPanel Grid.Column="1" Spacing="1">
+                        <TextBlock FontWeight="SemiBold" TextWrapping="Wrap" Text="{Binding Name}" />
+                        <TextBlock Classes="muted" FontSize="12" TextWrapping="Wrap" Text="{Binding Origin}" />
+                        <TextBlock Classes="muted" FontSize="12" TextWrapping="Wrap" Text="{Binding Details}" IsVisible="{Binding HasDetails}" />
+                        <TextBlock Classes="error" FontSize="12" TextWrapping="Wrap" Text="{Binding Problem}" IsVisible="{Binding HasProblem}" />
+                        <TextBlock FontSize="12" TextWrapping="Wrap" Text="{Binding Hint}" IsVisible="{Binding HasHint}" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="2" VerticalAlignment="Top">
+                        <Button Classes="subtle" Padding="6" Command="{Binding Export}" CommandParameter="{Binding}"
+                                IsVisible="{Binding Export, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                AutomationProperties.Name="{l:T 'Exportieren'}"
+                                ToolTip.Tip="{l:T 'Speichert das eigene Zertifikat als Datei mit Passwort — zum Sichern oder um auf einem anderen Rechner damit zu unterschreiben.'}">
+                            <PathIcon Data="{StaticResource Icon.ArrowExport}" Width="16" Height="16" />
+                        </Button>
+                        <Button Classes="subtle" Padding="6" Command="{Binding Password}" CommandParameter="{Binding}"
+                                IsVisible="{Binding Password, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                AutomationProperties.Name="{l:T 'Passwort des eigenen Zertifikats'}"
+                                ToolTip.Tip="{l:T 'Freiwillig: Ein Passwort schützt den Schlüssel des eigenen Zertifikats zusätzlich. Es wird beim ersten Unterschreiben nach dem Start abgefragt.'}">
+                            <PathIcon Data="{StaticResource Icon.LockClosed}" Width="16" Height="16" />
+                        </Button>
+                        <Button Classes="subtle" Padding="6" Command="{Binding Remove}" CommandParameter="{Binding}"
+                                IsVisible="{Binding Remove, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                AutomationProperties.Name="{l:T 'Eigenes Zertifikat löschen'}"
+                                ToolTip.Tip="{l:T 'Löscht dieses eigene Zertifikat von diesem Rechner. Schon gesetzte Unterschriften bleiben gültig.'}">
+                            <PathIcon Data="{StaticResource Icon.Delete}" Width="16" Height="16" Foreground="{DynamicResource DangerBrush}" />
+                        </Button>
+                        <Button Classes="subtle" Padding="6" Command="{Binding Forget}" CommandParameter="{Binding}" IsVisible="{Binding IsFile}"
+                                AutomationProperties.Name="{l:T 'Aus der Liste nehmen'}"
+                                ToolTip.Tip="{l:T 'Nimmt die Datei aus der Liste; die Datei selbst bleibt, wo sie ist.'}">
+                            <PathIcon Data="{StaticResource Icon.Delete}" Width="16" Height="16" />
+                        </Button>
+                    </StackPanel>
+                </Grid>
+            </Border>
+        </DataTemplate>
+    </Window.Resources>
+
+    <Grid RowDefinitions="*,Auto">
+        <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+            <StackPanel Margin="24,20,24,16" Spacing="12">
+
+                <!-- 1. Time stamps and long-term validation first: they apply to every certificate (decided on 11.11.2026) -->
+                <Border Classes="fold">
+                    <Expander HorizontalAlignment="Stretch" IsExpanded="{Binding OptionsExpanded}" AutomationProperties.Name="{l:T 'Zeitstempel und Langzeitprüfung'}">
+                        <Expander.Header>
+                            <Grid ColumnDefinitions="Auto,*,Auto">
+                                <PathIcon Data="{StaticResource Icon.History}" Width="16" Height="16" Margin="0,0,8,0" />
+                                <TextBlock Grid.Column="1" FontWeight="SemiBold" Text="{l:T 'Zeitstempel und Langzeitprüfung — für alle Zertifikate'}" VerticalAlignment="Center" />
+                                <TextBlock Grid.Column="2" Classes="muted" FontSize="12" Margin="12,0,0,0" VerticalAlignment="Center" Text="{Binding OptionsSummary}" />
+                            </Grid>
+                        </Expander.Header>
+                        <StackPanel Spacing="14">
+                            <!-- Time stamps (PAdES B-T): off unless switched on, no service preset — the only connection of the signature -->
+                            <StackPanel Spacing="6">
+                                <TextBlock FontWeight="SemiBold" Text="{l:T 'Zeitstempel'}" />
+                                <CheckBox IsChecked="{Binding UseTimestamps}" Content="{l:T 'Unterschriften mit einem Zeitstempel versehen (braucht eine Internetverbindung)'}"
+                                          AutomationProperties.Name="{l:T 'Zeitstempel verwenden'}">
+                                    <ToolTip.Tip><l:T Text="Ein Zeitstempeldienst bestätigt, wann unterschrieben wurde — dann bleibt die Unterschrift auch nach Ablauf des Zertifikats prüfbar. Gesendet wird nur eine Prüfsumme der Unterschrift, nichts vom Dokument." /></ToolTip.Tip>
+                                </CheckBox>
+                                <Grid ColumnDefinitions="*,8,Auto,8,Auto">
+                                    <TextBox Text="{Binding TimestampServer}" PlaceholderText="{l:T 'Adresse des Zeitstempeldienstes, z. B. vom Anbieter Ihres Zertifikats'}"
+                                             AutomationProperties.Name="{l:T 'Adresse des Zeitstempeldienstes'}" IsEnabled="{Binding UseTimestamps}" />
+                                    <!-- free services trusted by the common systems; addresses as published by the providers -->
+                                    <Button Grid.Column="2" Content="{l:T 'Bekannte Dienste …'}" AutomationProperties.Name="{l:T 'Bekannte Zeitstempeldienste'}"
+                                            ToolTip.Tip="{l:T 'Freie Zeitstempeldienste, denen die üblichen Systeme vertrauen. Nichts ist voreingestellt: erst die Wahl hier trägt die Adresse ein.'}">
+                                        <Button.Flyout>
+                                            <MenuFlyout Placement="BottomEdgeAlignedRight">
+                                                <MenuItem Header="{l:T 'DigiCert (frei, ohne Anmeldung)'}" Command="{Binding UseTimestampServerCommand}"
+                                                          CommandParameter="{x:Static p:HttpTimestampAuthority.Suggested}" />
+                                                <MenuItem Header="{l:T 'Sectigo (frei, ohne Anmeldung)'}" Command="{Binding UseTimestampServerCommand}"
+                                                          CommandParameter="http://timestamp.sectigo.com" />
+                                            </MenuFlyout>
+                                        </Button.Flyout>
+                                    </Button>
+                                    <Button Grid.Column="4" Content="{l:T 'Dienst prüfen'}" Command="{Binding CheckTimestampServerCommand}" IsEnabled="{Binding UseTimestamps}"
+                                            ToolTip.Tip="{l:T 'Schickt eine Probe-Anfrage (ein Zufallswert, nichts aus einem Dokument) und zeigt, wer antwortet.'}" />
+                                </Grid>
+                                <!-- login only for services that want one (qualified, paid); the passwords are asked when signing, once per session -->
+                                <Expander Header="{l:T 'Anmeldung beim Dienst (nur bei kostenpflichtigen Diensten)'}" IsEnabled="{Binding UseTimestamps}"
+                                          HorizontalAlignment="Stretch" Padding="8,6">
+                                    <Grid ColumnDefinitions="Auto,8,*,8,Auto" RowDefinitions="Auto,6,Auto,6,Auto">
+                                        <TextBlock VerticalAlignment="Center" Text="{l:T 'Benutzername'}" />
+                                        <TextBox Grid.Column="2" Grid.ColumnSpan="3" Text="{Binding TimestampUser}" AutomationProperties.Name="{l:T 'Benutzername beim Zeitstempeldienst'}"
+                                                 PlaceholderText="{l:T 'leer, wenn der Dienst keinen verlangt'}" />
+                                        <TextBlock Grid.Row="2" VerticalAlignment="Center" Text="{l:T 'Kundenzertifikat'}" />
+                                        <TextBox Grid.Row="2" Grid.Column="2" Text="{Binding TimestampCertificate}" AutomationProperties.Name="{l:T 'Kundenzertifikat für den Zeitstempeldienst'}"
+                                                 PlaceholderText="{l:T 'leer, wenn der Dienst keines verlangt'}" />
+                                        <Button Grid.Row="2" Grid.Column="4" Content="{l:T 'Datei wählen …'}" Click="OnPickTimestampCertificate"
+                                                AutomationProperties.Name="{l:T 'Kundenzertifikat wählen'}" />
+                                        <TextBlock Grid.Row="4" Grid.ColumnSpan="5" FontSize="12" TextWrapping="Wrap" Classes="muted"
+                                                   Text="{l:T 'Die Zugangsdaten gibt der Anbieter mit dem Vertrag. Passwörter fragt PDF-Knead beim ersten Unterschreiben nach dem Start und merkt sie nur bis zum Beenden. Anmeldung nur über https.'}" />
+                                    </Grid>
+                                </Expander>
+                                <TextBlock FontSize="12" TextWrapping="Wrap" Foreground="{DynamicResource DangerBrush}" Text="{Binding TimestampHint}"
+                                           IsVisible="{Binding TimestampHint, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                <TextBlock FontSize="12" TextWrapping="Wrap" Classes="muted"
+                                           Text="{l:T 'PDF-Knead verbindet sich nur mit dieser Adresse und nur beim Unterschreiben. Die bekannten Dienste sind frei und weltweit anerkannt, aber nicht qualifiziert; qualifizierte Zeitstempel (eIDAS) bieten Vertrauensdiensteanbieter gegen Gebühr und mit Anmeldung an.'}" />
+                            </StackPanel>
+
+                            <!-- Long-term validation (PAdES B-LT): off unless switched on; asks only the authorities named in the certificates -->
+                            <StackPanel Spacing="6">
+                                <TextBlock FontWeight="SemiBold" Text="{l:T 'Langzeitprüfung'}" />
+                                <CheckBox IsChecked="{Binding UseLongTerm}" Content="{l:T 'Sperrstatus der Zertifikate mit in die Datei legen (braucht eine Internetverbindung)'}"
+                                          AutomationProperties.Name="{l:T 'Langzeitprüfung verwenden'}">
+                                    <ToolTip.Tip><l:T Text="Nach dem Unterschreiben fragt PDF-Knead bei der Zertifizierungsstelle nach, ob das Zertifikat gültig ist, und legt die Antwort mit in die Datei. So lässt sich die Unterschrift auch in vielen Jahren noch prüfen, wenn die Stelle nicht mehr antwortet. Gesendet wird nur die Seriennummer des Zertifikats." /></ToolTip.Tip>
+                                </CheckBox>
+                                <TextBlock FontSize="12" TextWrapping="Wrap" Classes="muted"
+                                           Text="{l:T 'Gefragt werden nur die Stellen, die im Zertifikat stehen. Beim eigenen Zertifikat gibt es niemanden zu fragen. Am besten zusammen mit einem Zeitstempel.'}" />
+                                <TextBlock FontSize="12" TextWrapping="Wrap" Classes="muted" IsVisible="{Binding UseArchive}"
+                                           Text="{l:T 'Der Archiv-Zeitstempel braucht die Langzeitprüfung (Sperrstatus in der Datei); sie ist deshalb mit eingeschaltet.'}" />
+                                <CheckBox IsChecked="{Binding UseArchive}" IsEnabled="{Binding UseTimestamps}"
+                                          Content="{l:T 'Archiv-Zeitstempel über das ganze Dokument anhängen (für sehr lange Aufbewahrung)'}"
+                                          AutomationProperties.Name="{l:T 'Archiv-Zeitstempel verwenden'}">
+                                    <ToolTip.Tip><l:T Text="Nach Unterschrift und Sperrstatus bestätigt der Zeitstempeldienst noch einmal das ganze Dokument. So bleibt die Unterschrift auch nach Ablauf aller Zertifikate prüfbar; unter „Dokument Signaturen“ lässt er sich vor seinem Ablauf erneuern. Braucht einen Zeitstempeldienst." /></ToolTip.Tip>
+                                </CheckBox>
+                            </StackPanel>
+                        </StackPanel>
+                    </Expander>
+                </Border>
+
+                <!-- 2. The certificate that signs now -->
+                <Border Classes="group" Padding="14,12">
+                    <StackPanel Spacing="10">
+                        <StackPanel Orientation="Horizontal" Spacing="12">
+                            <Border Width="40" Height="40" CornerRadius="20" Background="{DynamicResource AccentSoftBrush}" VerticalAlignment="Top">
+                                <PathIcon Data="{StaticResource Icon.ShieldLock}" Width="20" Height="20" Foreground="{DynamicResource AccentBrush}" />
+                            </Border>
+                            <StackPanel VerticalAlignment="Center" Spacing="2">
+                                <TextBlock Classes="muted" FontSize="12" Text="{l:T 'Unterschreibt künftig mit'}" />
+                                <TextBlock FontWeight="SemiBold" FontSize="15" Text="{Binding Name}" />
+                                <TextBlock Classes="muted" Text="{Binding SourceText}" />
+                                <TextBlock Classes="muted" Text="{Binding ValidUntil}" IsVisible="{Binding HasCertificate}" />
+                                <TextBlock Classes="error" TextWrapping="Wrap" MaxWidth="520" Text="{Binding Problem}" IsVisible="{Binding HasProblem}"
+                                           AutomationProperties.Name="{l:T 'Zertifikat nicht verwendbar'}" />
+                            </StackPanel>
+                        </StackPanel>
+                        <StackPanel Spacing="4" IsVisible="{Binding HasCertificate}">
+                            <TextBlock Classes="muted" FontSize="12" Text="{l:T 'Fingerabdruck (SHA-256)'}" />
+                            <Grid ColumnDefinitions="*,Auto">
+                                <SelectableTextBlock FontSize="12" TextWrapping="Wrap" Text="{Binding Fingerprint}"
+                                                     AutomationProperties.Name="{l:T 'Fingerabdruck'}" />
+                                <Button Grid.Column="1" Margin="8,0,0,0" VerticalAlignment="Top" Content="{l:T 'Kopieren'}" Click="OnCopy"
+                                        ToolTip.Tip="{l:T 'Fingerabdruck in die Zwischenablage, etwa um ihn weiterzugeben'}" />
+                            </Grid>
+                        </StackPanel>
+                        <Border Background="{DynamicResource AccentSoftBrush}" CornerRadius="{DynamicResource RadiusControl}" Padding="12,8">
+                            <StackPanel Spacing="6">
+                                <TextBlock TextWrapping="Wrap" FontSize="12" Text="{Binding TrustHint}" />
+                                <TextBlock TextWrapping="Wrap" FontSize="12" Text="{Binding LevelHint}" IsVisible="{Binding HasCertificate}" />
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </Border>
+
+                <!-- 3. What kinds of certificates there are, by type (design decision; no legal advice) -->
+                <Border Classes="fold">
+                    <Expander HorizontalAlignment="Stretch" IsExpanded="{Binding TypesExpanded}" AutomationProperties.Name="{l:T 'Welche Zertifikate gibt es?'}">
+                        <Expander.Header>
+                            <Grid ColumnDefinitions="Auto,*">
+                                <PathIcon Data="{StaticResource Icon.Info}" Width="16" Height="16" Margin="0,0,8,0" />
+                                <TextBlock Grid.Column="1" FontWeight="SemiBold" VerticalAlignment="Center"
+                                           Text="{l:T 'Welche Zertifikate gibt es? Von einfach bis qualifiziert'}" />
+                            </Grid>
+                        </Expander.Header>
+                        <StackPanel Spacing="12" Classes="types">
+                            <TextBlock TextWrapping="Wrap" FontSize="12"
+                                       Text="{l:T 'Wie viel eine digitale Unterschrift zählt, hängt vom Zertifikat ab und davon, wo sein Schlüssel liegt. Die EU-Verordnung eIDAS kennt drei Stufen; welche ein Zertifikat erreicht, steht in seiner Zeile. Das hier ist ein Überblick, keine Rechtsberatung — welche Stufe ein Zweck braucht, legen das jeweilige Recht oder der Empfänger fest.'}" />
+                            <StackPanel Spacing="3">
+                                <TextBlock FontWeight="SemiBold" Text="{l:T 'Einfache elektronische Signatur'}" />
+                                <TextBlock TextWrapping="Wrap" FontSize="12" Text="{l:T 'Woher: das eigene Zertifikat von PDF-Knead oder jedes andere, dessen Namen niemand Unabhängiges geprüft hat — kostenlos und sofort.'}" />
+                                <TextBlock TextWrapping="Wrap" FontSize="12" Text="{l:T 'Was sie zeigt: dass das Dokument seit dem Unterschreiben nicht verändert wurde. Wer unterschrieben hat, bestätigt niemand; PDF-Leser zeigen „Identität nicht bestätigt“.'}" />
+                                <TextBlock TextWrapping="Wrap" FontSize="12" Text="{l:T 'Wofür: interne Freigaben, Entwürfe, Bestätigungen und Absprachen ohne Formvorschrift — und wenn der Empfänger Ihren Fingerabdruck kennt.'}" />
+                            </StackPanel>
+                            <StackPanel Spacing="3">
+                                <TextBlock FontWeight="SemiBold" Text="{l:T 'Fortgeschrittene elektronische Signatur'}" />
+                                <TextBlock TextWrapping="Wrap" FontSize="12" Text="{l:T 'Woher: ein Zertifikat einer Zertifizierungsstelle, die Ihre Identität geprüft hat (etwa ein Personen- oder Dokumentsignatur-Zertifikat) — als Datei, im Zertifikatsspeicher von Windows oder auf einer Karte.'}" />
+                                <TextBlock TextWrapping="Wrap" FontSize="12" Text="{l:T 'Was sie zeigt: zusätzlich, wer unterschrieben hat. Die Unterschrift ist Ihnen eindeutig zugeordnet, der Schlüssel steht unter Ihrer Kontrolle.'}" />
+                                <TextBlock TextWrapping="Wrap" FontSize="12" Text="{l:T 'Wofür: Verträge und Erklärungen ohne gesetzliche Schriftform, Geschäftsverkehr, Behörden, die sie zulassen.'}" />
+                            </StackPanel>
+                            <StackPanel Spacing="3">
+                                <TextBlock FontWeight="SemiBold" Text="{l:T 'Fortgeschritten mit qualifiziertem Zertifikat'}" />
+                                <TextBlock TextWrapping="Wrap" FontSize="12" Text="{l:T 'Woher: ein qualifiziertes Zertifikat eines Vertrauensdiensteanbieters, dessen Schlüssel aber nicht auf einer sicheren Signaturerstellungseinheit liegt, etwa als Datei.'}" />
+                                <TextBlock TextWrapping="Wrap" FontSize="12" Text="{l:T 'Was sie zeigt: Die Identität ist besonders streng geprüft. Der handschriftlichen Unterschrift gleichgestellt ist sie trotzdem nicht.'}" />
+                            </StackPanel>
+                            <StackPanel Spacing="3">
+                                <TextBlock FontWeight="SemiBold" Text="{l:T 'Qualifizierte elektronische Signatur'}" />
+                                <TextBlock TextWrapping="Wrap" FontSize="12" Text="{l:T 'Woher: ein qualifiziertes Zertifikat eines Anbieters auf der EU-Vertrauensliste; der Schlüssel liegt auf einer qualifizierten Signaturerstellungseinheit — einer Signaturkarte, einem Token oder als Fernsignatur beim Anbieter. Mit Identitätsprüfung (etwa per Ausweis oder Video) und meist gegen Gebühr.'}" />
+                                <TextBlock TextWrapping="Wrap" FontSize="12" Text="{l:T 'Was sie zeigt: Sie ist der handschriftlichen Unterschrift gleichgestellt (eIDAS Art. 25 Abs. 2) und ersetzt in Deutschland die gesetzliche Schriftform (§ 126a BGB), soweit ein Gesetz das nicht ausdrücklich ausschließt.'}" />
+                                <TextBlock TextWrapping="Wrap" FontSize="12" Text="{l:T 'Wofür: Verträge und Erklärungen, für die das Gesetz die Schriftform verlangt; Anträge und Schriftsätze, wo sie vorgeschrieben ist.'}" />
+                            </StackPanel>
+                            <StackPanel Spacing="3">
+                                <TextBlock FontWeight="SemiBold" Text="{l:T 'Elektronische Siegel'}" />
+                                <TextBlock TextWrapping="Wrap" FontSize="12" Text="{l:T 'Für eine Organisation statt einer Person (Firmenzertifikat), in denselben Stufen. Ein Siegel bestätigt, woher ein Dokument stammt und dass es unverändert ist — die Unterschrift einer Person ersetzt es nicht.'}" />
+                            </StackPanel>
+                            <StackPanel Spacing="3">
+                                <TextBlock FontWeight="SemiBold" Text="{l:T 'Zeitstempel'}" />
+                                <TextBlock TextWrapping="Wrap" FontSize="12" Text="{l:T 'Bestätigen, wann unterschrieben wurde, und halten die Unterschrift auch nach Ablauf des Zertifikats prüfbar — für jede der Stufen. Qualifizierte Zeitstempel bieten Vertrauensdiensteanbieter an.'}" />
+                            </StackPanel>
+                        </StackPanel>
+                    </Expander>
+                </Border>
+
+                <!-- 4. Own certificates: several, each in its own row -->
+                <Border Classes="fold">
+                    <Expander HorizontalAlignment="Stretch" IsExpanded="{Binding OwnExpanded}" AutomationProperties.Name="{l:T 'Eigene Zertifikate'}">
+                        <Expander.Header>
+                            <TextBlock FontWeight="SemiBold" Text="{Binding OwnHeader}" />
+                        </Expander.Header>
+                        <StackPanel Spacing="8">
+                            <TextBlock Classes="muted" FontSize="12" TextWrapping="Wrap"
+                                       Text="{l:T 'Von PDF-Knead auf diesem Rechner erzeugt, mit dem Namen, der in der Unterschrift steht — kostenlos, sofort, einfache elektronische Signatur. Mehrere sind möglich, etwa für verschiedene Namen oder Rollen.'}" />
+                            <ItemsControl ItemsSource="{Binding OwnRows}" ItemTemplate="{StaticResource CertificateRowTemplate}" />
+                            <Grid ColumnDefinitions="*,8,Auto">
+                                <TextBox Text="{Binding OwnName}" PlaceholderText="{l:T 'Name, wie er in der Unterschrift stehen soll'}"
+                                         AutomationProperties.Name="{l:T 'Name für das eigene Zertifikat'}" />
+                                <Button Grid.Column="2" Command="{Binding CreateOwnCommand}"
+                                        ToolTip.Tip="{l:T 'Erzeugt ein weiteres eigenes Zertifikat mit diesem Namen und wählt es; die vorhandenen bleiben.'}">
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <PathIcon Data="{StaticResource Icon.Add}" Width="14" Height="14" />
+                                        <TextBlock Text="{l:T 'Eigenes Zertifikat erzeugen'}" VerticalAlignment="Center" />
+                                    </StackPanel>
+                                </Button>
+                            </Grid>
+
+                            <!-- Password of an own certificate: optional; a forgotten one cannot be recovered -->
+                            <Border Background="{DynamicResource AccentSoftBrush}" CornerRadius="{DynamicResource RadiusControl}" Padding="12,10"
+                                    IsVisible="{Binding ChangingPassword}">
+                                <StackPanel Spacing="8">
+                                    <TextBlock FontWeight="SemiBold" TextWrapping="Wrap" Text="{Binding PasswordTitle}" />
+                                    <TextBlock TextWrapping="Wrap" FontSize="12"
+                                               Text="{l:T 'Das Passwort schützt den Schlüssel des eigenen Zertifikats auf diesem Rechner zusätzlich. Beim ersten Unterschreiben nach dem Start wird es abgefragt und bis zum Beenden gemerkt. Vergessen lässt es sich nicht wiederherstellen — dann ein neues Zertifikat erzeugen; schon gesetzte Unterschriften bleiben gültig.'}" />
+                                    <TextBox Text="{Binding PasswordCurrent}" PasswordChar="•" Classes="revealPasswordButton" IsVisible="{Binding HasPassword}"
+                                             PlaceholderText="{l:T 'Bisheriges Passwort'}" AutomationProperties.Name="{l:T 'Bisheriges Passwort'}" />
+                                    <Grid ColumnDefinitions="*,8,*">
+                                        <TextBox Text="{Binding PasswordNew}" PasswordChar="•" Classes="revealPasswordButton"
+                                                 PlaceholderText="{l:T 'Neues Passwort'}" AutomationProperties.Name="{l:T 'Neues Passwort'}" />
+                                        <TextBox Grid.Column="2" Text="{Binding PasswordRepeat}" PasswordChar="•" Classes="revealPasswordButton"
+                                                 PlaceholderText="{l:T 'Passwort wiederholen'}" AutomationProperties.Name="{l:T 'Neues Passwort wiederholen'}" />
+                                    </Grid>
+                                    <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+                                        <Button Content="{l:T 'Passwort entfernen'}" Command="{Binding RemovePasswordCommand}" IsVisible="{Binding HasPassword}" />
+                                        <Button Classes="primary" Command="{Binding SavePasswordCommand}">
+                                            <Panel>
+                                                <TextBlock Text="{l:T 'Festlegen'}" IsVisible="{Binding !HasPassword}" />
+                                                <TextBlock Text="{l:T 'Ändern'}" IsVisible="{Binding HasPassword}" />
+                                            </Panel>
+                                        </Button>
+                                        <Button Content="{l:T 'Abbrechen'}" Command="{Binding CancelPasswordCommand}" />
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+                            <!-- Export: the password protects the file; it cannot be recovered -->
+                            <Border Background="{DynamicResource AccentSoftBrush}" CornerRadius="{DynamicResource RadiusControl}" Padding="12,10"
+                                    IsVisible="{Binding Exporting}">
+                                <StackPanel Spacing="8">
+                                    <TextBlock FontWeight="SemiBold" TextWrapping="Wrap" Text="{Binding ExportTitle}" />
+                                    <TextBlock TextWrapping="Wrap" FontSize="12"
+                                               Text="{l:T 'Das Passwort schützt die Datei. Auf einem anderen Rechner unter „Zertifikatsdateien“ mit diesem Passwort hinzufügen. Ohne Passwort lässt sich die Datei nicht öffnen, und vergessen lässt es sich nicht wiederherstellen.'}" />
+                                    <TextBox Text="{Binding ExportCurrent}" PasswordChar="•" Classes="revealPasswordButton" IsVisible="{Binding HasPassword}"
+                                             PlaceholderText="{l:T 'Passwort des Zertifikats'}" AutomationProperties.Name="{l:T 'Passwort des Zertifikats'}" />
+                                    <Grid ColumnDefinitions="*,8,*,8,Auto,8,Auto">
+                                        <TextBox Text="{Binding ExportPassword}" PasswordChar="•" Classes="revealPasswordButton"
+                                                 PlaceholderText="{l:T 'Neues Passwort'}" AutomationProperties.Name="{l:T 'Passwort für die exportierte Datei'}" />
+                                        <TextBox Grid.Column="2" Text="{Binding ExportRepeat}" PasswordChar="•" Classes="revealPasswordButton"
+                                                 PlaceholderText="{l:T 'Passwort wiederholen'}" AutomationProperties.Name="{l:T 'Passwort wiederholen'}" />
+                                        <Button Grid.Column="4" Content="{l:T 'Speichern unter …'}" Command="{Binding ExportOwnCommand}" />
+                                        <Button Grid.Column="6" Content="{l:T 'Abbrechen'}" Command="{Binding CancelExportCommand}" />
+                                    </Grid>
+                                </StackPanel>
+                            </Border>
+                            <Border Background="{DynamicResource DangerSoftBrush}" CornerRadius="{DynamicResource RadiusControl}" Padding="12,8"
+                                    IsVisible="{Binding ConfirmingRemove}">
+                                <Grid ColumnDefinitions="*,8,Auto,8,Auto">
+                                    <TextBlock TextWrapping="Wrap" FontSize="12" VerticalAlignment="Center"
+                                               Text="{Binding RemoveQuestion}" />
+                                    <Button Grid.Column="2" Content="{l:T 'Behalten'}" Command="{Binding KeepOwnCommand}" />
+                                    <Button Grid.Column="4" Content="{l:T 'Löschen'}" Foreground="{DynamicResource DangerBrush}" Command="{Binding RemoveOwnCommand}" />
+                                </Grid>
+                            </Border>
+                        </StackPanel>
+                    </Expander>
+                </Border>
+
+                <!-- 5. Certificate files: several, each with its own password (asked when signing with it, never stored) -->
+                <Border Classes="fold">
+                    <Expander HorizontalAlignment="Stretch" IsExpanded="{Binding FilesExpanded}" AutomationProperties.Name="{l:T 'Zertifikatsdateien'}">
+                        <Expander.Header>
+                            <TextBlock FontWeight="SemiBold" Text="{Binding FilesHeader}" />
+                        </Expander.Header>
+                        <StackPanel Spacing="8">
+                            <TextBlock Classes="muted" FontSize="12" TextWrapping="Wrap"
+                                       Text="{l:T 'Zertifikate mit Schlüssel als Datei (.pfx, .p12), etwa von einer Zertifizierungsstelle oder aus einem Export. Jede Datei hat ihr eigenes Passwort; PDF-Knead prüft es beim Hinzufügen, speichert es nicht und fragt es beim Unterschreiben mit dieser Datei ab.'}" />
+                            <ItemsControl ItemsSource="{Binding FileRows}" ItemTemplate="{StaticResource CertificateRowTemplate}" />
+                            <Grid ColumnDefinitions="*,8,Auto" RowDefinitions="Auto,6,Auto">
+                                <TextBox Text="{Binding FilePath}" IsReadOnly="True" PlaceholderText="{l:T 'Zertifikatsdatei (.pfx, .p12)'}"
+                                         AutomationProperties.Name="{l:T 'Zertifikatsdatei'}" />
+                                <Button Grid.Column="2" Click="OnPickFile">
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <PathIcon Data="{StaticResource Icon.FolderOpen}" Width="14" Height="14" />
+                                        <TextBlock Text="{l:T 'Datei wählen …'}" VerticalAlignment="Center" />
+                                    </StackPanel>
+                                </Button>
+                                <TextBox Grid.Row="2" Text="{Binding FilePassword}" PasswordChar="•" Classes="revealPasswordButton"
+                                         PlaceholderText="{l:T 'Passwort dieser Datei'}" AutomationProperties.Name="{l:T 'Passwort der Zertifikatsdatei'}" />
+                                <Button Grid.Row="2" Grid.Column="2" Command="{Binding LoadFileCommand}"
+                                        ToolTip.Tip="{l:T 'Prüft die Datei mit ihrem Passwort, nimmt sie in die Liste und wählt sie. Das Passwort wird nicht gespeichert, sondern beim Signieren abgefragt.'}">
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <PathIcon Data="{StaticResource Icon.Add}" Width="14" Height="14" />
+                                        <TextBlock Text="{l:T 'Hinzufügen'}" VerticalAlignment="Center" />
+                                    </StackPanel>
+                                </Button>
+                            </Grid>
+                        </StackPanel>
+                    </Expander>
+                </Border>
+
+                <!-- 6. Signature cards through their PKCS#11 driver (not under Windows, where they are in the store) -->
+                <Border Classes="fold" IsVisible="{x:Static vm:CertificateViewModel.CardsAvailable}">
+                    <Expander HorizontalAlignment="Stretch" IsExpanded="{Binding CardsExpanded}" AutomationProperties.Name="{l:T 'Signaturkarte oder Token'}">
+                        <Expander.Header>
+                            <TextBlock FontWeight="SemiBold" Text="{Binding CardsHeader}" />
+                        </Expander.Header>
+                        <StackPanel Spacing="8">
+                            <TextBlock Classes="muted" FontSize="12" TextWrapping="Wrap"
+                                       Text="{l:T 'Zertifikate auf einer Signaturkarte oder einem Token, gelesen über den Treiber der Karte. Die PIN wird erst beim Unterschreiben gebraucht.'}" />
+                            <ItemsControl ItemsSource="{Binding CardRows}" ItemTemplate="{StaticResource CertificateRowTemplate}" />
+                            <Grid ColumnDefinitions="*,8,Auto,8,Auto">
+                                <ComboBox HorizontalAlignment="Stretch" ItemsSource="{Binding CardModules}" SelectedItem="{Binding CardModule}"
+                                          PlaceholderText="{Binding CardHint}" AutomationProperties.Name="{l:T 'Kartentreiber'}" />
+                                <Button Grid.Column="2" Content="{l:T 'Treiber wählen …'}" Click="OnPickCardModule"
+                                        ToolTip.Tip="{l:T 'Den Treiber (PKCS#11-Bibliothek) Ihrer Karte wählen, wenn er nicht in der Liste steht. Nur Treiber aus vertrauenswürdiger Quelle wählen: PDF-Knead führt ihn aus.'}" />
+                                <Button Grid.Column="4" Content="{l:T 'Karte lesen'}" Command="{Binding ReadCardCommand}"
+                                        ToolTip.Tip="{l:T 'Liest die Zertifikate auf der Karte; die PIN wird erst beim Unterschreiben gebraucht.'}" />
+                            </Grid>
+                        </StackPanel>
+                    </Expander>
+                </Border>
+
+                <!-- 7. The Windows store -->
+                <Border Classes="fold" IsVisible="{x:Static vm:CertificateViewModel.StoreAvailable}">
+                    <Expander HorizontalAlignment="Stretch" IsExpanded="{Binding StoreExpanded}" AutomationProperties.Name="{l:T 'Zertifikatsspeicher von Windows'}">
+                        <Expander.Header>
+                            <TextBlock FontWeight="SemiBold" Text="{Binding StoreHeader}" />
+                        </Expander.Header>
+                        <StackPanel Spacing="8">
+                            <TextBlock Classes="muted" FontSize="12" TextWrapping="Wrap"
+                                       Text="{l:T 'Zertifikate, die in Windows für Ihr Konto eingerichtet sind — von der Firma, einer Zertifizierungsstelle oder einer Signaturkarte mit Windows-Treiber. Was nicht unterschreiben kann, steht mit dem Grund da und lässt sich nicht wählen.'}" />
+                            <ItemsControl ItemsSource="{Binding StoreRows}" ItemTemplate="{StaticResource CertificateRowTemplate}" />
+                            <TextBlock Classes="muted" FontSize="12" Text="{l:T 'Im Zertifikatsspeicher von Windows ist kein Zertifikat zum Unterschreiben.'}"
+                                       IsVisible="{Binding !StoreRows.Count}" />
+                        </StackPanel>
+                    </Expander>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- Always visible: what happened, what is not complete, and closing (decided on 11.11.2026) -->
+        <Border Grid.Row="1" BorderThickness="0,1,0,0" BorderBrush="{DynamicResource LineBrush}" Background="{DynamicResource SurfaceAltBrush}" Padding="24,10">
+            <StackPanel Spacing="8">
+                <TextBlock Text="{Binding Message}" TextWrapping="Wrap" IsVisible="{Binding Message, Converter={x:Static ObjectConverters.IsNotNull}}"
+                           Foreground="{DynamicResource TextMutedBrush}" Classes.error="{Binding IsError}" />
+                <Border Background="{DynamicResource WarnSoftBrush}" BorderBrush="{DynamicResource WarnBrush}" BorderThickness="1"
+                        CornerRadius="{DynamicResource RadiusControl}" Padding="12,8" IsVisible="{Binding WarningShown}"
+                        AutomationProperties.Name="{l:T 'Noch nicht vollständig'}">
+                    <StackPanel Spacing="6">
+                        <TextBlock FontWeight="SemiBold" Text="{l:T 'Noch nicht vollständig:'}" />
+                        <ItemsControl ItemsSource="{Binding Incomplete}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="x:String">
+                                    <TextBlock TextWrapping="Wrap" FontSize="12" Text="{Binding StringFormat='• {0}'}" />
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+                            <Button Content="{l:T 'Zurück'}" Command="{Binding BackCommand}" />
+                            <Button Content="{l:T 'Trotzdem schließen'}" Click="OnClose" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+                <Grid ColumnDefinitions="*,Auto">
+                    <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center" IsVisible="{Binding IncompleteHintShown}">
+                        <PathIcon Data="{StaticResource Icon.Info}" Width="14" Height="14" Foreground="{DynamicResource WarnBrush}" />
+                        <TextBlock Classes="muted" FontSize="12" VerticalAlignment="Center" Text="{l:T 'Noch nicht alles vollständig — beim Schließen steht, was fehlt.'}" />
+                    </StackPanel>
+                    <Button Grid.Column="1" Classes="primary" Content="{l:T 'Schließen'}" Click="OnClose" IsDefault="True" IsCancel="True" />
+                </Grid>
+            </StackPanel>
+        </Border>
+    </Grid>
+    <Window.Styles>
+        <Style Selector="TextBlock.error">
+            <Setter Property="Foreground" Value="{DynamicResource DangerBrush}" />
+        </Style>
+        <!-- a card: the certificate that signs from now on -->
+        <Style Selector="Border.group">
+            <Setter Property="BorderBrush" Value="{DynamicResource LineBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="{DynamicResource RadiusControl}" />
+            <Setter Property="Background" Value="{DynamicResource SurfaceBrush}" />
+            <Setter Property="Padding" Value="4" />
+        </Style>
+        <!-- a foldable area: the expander is the group box itself, no second frame around it -->
+        <Style Selector="Border.fold">
+            <Setter Property="Background" Value="Transparent" />
+        </Style>
+        <Style Selector="Border.fold > Expander">
+            <Setter Property="Background" Value="{DynamicResource SurfaceBrush}" />
+        </Style>
+        <Style Selector="Border.certRow">
+            <Setter Property="CornerRadius" Value="{DynamicResource RadiusControl}" />
+            <Setter Property="Background" Value="Transparent" />
+        </Style>
+        <Style Selector="Border.certRow.chosen">
+            <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}" />
+        </Style>
+    </Window.Styles>
+</Window>

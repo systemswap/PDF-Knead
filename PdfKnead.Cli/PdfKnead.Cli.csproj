@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <!-- Kommandozeile zum Untersuchen von PDFs (Entwicklung, Fehlersuche, später Stapelverarbeitung).
+         Nur der Core, keine Oberfläche. -->
+    <PropertyGroup>
+        <OutputType>Exe</OutputType>
+        <TargetFramework>net10.0</TargetFramework>
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <LangVersion>latest</LangVersion>
+        <AssemblyName>pdf-knead</AssemblyName>
+        <RootNamespace>PdfKnead.Cli</RootNamespace>
+        <InvariantGlobalization>false</InvariantGlobalization>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\PdfKnead.Core\PdfKnead.Core.csproj" />
+        <ProjectReference Include="..\PdfKnead.Rendering\PdfKnead.Rendering.csproj" />
+        <ProjectReference Include="..\PdfKnead.Ai\PdfKnead.Ai.csproj" />
+        <ProjectReference Include="..\PdfKnead.EInvoice\PdfKnead.EInvoice.csproj" />   <!-- Andockstelle E-Rechnung (KONZEPT §5.24) -->
+    </ItemGroup>
+
+    <ItemGroup>
+        <!-- Skia-Bibliothek für das Betriebssystem (in der Oberfläche bringt Avalonia sie mit) -->
+        <PackageReference Include="SkiaSharp.NativeAssets.Win32" />
+        <PackageReference Include="SkiaSharp.NativeAssets.Linux" />
+    </ItemGroup>
+</Project>

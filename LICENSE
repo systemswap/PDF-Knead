@@ -1,0 +1,269 @@
+PDF-Knead-Lizenz (Source Available), Fassung 1.0
+Entwurf vom 26.10.2026 – vor dem ersten Verkauf rechtlich zu prüfen
+
+Rechteinhaber: der Urheber von PDF-Knead, Inhaber des GitHub-Kontos „systemswap“, im Folgenden „Rechteinhaber“. Ändert sich der
+Name des Kontos, ist der Inhaber des Kontos unter seinem jeweiligen Namen gemeint.
+
+Der Quellcode von PDF-Knead ist einsehbar, aber PDF-Knead ist keine Open-Source-Software: Die gewerbliche Nutzung der
+kostenpflichtigen Funktionen und jede kommerzielle Weitergabe brauchen eine Lizenz des Rechteinhabers.
+
+
+§ 1 Begriffe
+
+(1) „Software“: das Programm PDF-Knead in ausführbarer Form und als Quellcode samt der Dateien seines Projekts, ohne die
+    Bestandteile anderer Projekte (§ 9).
+(2) „Ergebnisse“: Dateien und Ausdrucke, die mit der Software erstellt oder bearbeitet werden.
+(3) „Gewerbliche Nutzung“: jede Nutzung durch oder für Unternehmen, Selbständige und Freiberufler im Rahmen ihrer Tätigkeit,
+    Behörden und andere Stellen der öffentlichen Verwaltung sowie Vereine, die hauptberuflich Beschäftigte haben oder einen
+    Geschäftsbetrieb unterhalten – auch durch deren Angestellte, Mitglieder oder Beauftragte.
+(4) „Nicht-gewerbliche Nutzung“: die Nutzung durch Privatpersonen für private Zwecke, durch Vereine ohne hauptberuflich
+    Beschäftigte und ohne Geschäftsbetrieb, durch Schulen und Hochschulen sowie durch gemeinnützige Körperschaften.
+(5) „Freie Funktionen“: Ansehen, Suchen, Drucken, die Bildinformationen sowie das Ausfüllen bereits vorhandener Formularfelder
+    und das Speichern des ausgefüllten Formulars. Alle anderen Funktionen sind „kostenpflichtige Funktionen“; die Software
+    kennzeichnet sie.
+(6) „Kommerzielle Weitergabe“: jede Weitergabe oder Bereitstellung der Software, mit der Geld verdient wird – insbesondere
+    gegen Entgelt, als Teil eines kostenpflichtigen Produkts oder Angebots, über Download-Angebote, die sich durch Gebühren oder
+    Werbung finanzieren, oder als Dienst für andere (zum Beispiel über das Internet), für den ein Entgelt verlangt wird.
+
+
+§ 2 Nutzung ohne Lizenzgebühr
+
+(1) Für die nicht-gewerbliche Nutzung darf die Software mit allen Funktionen ohne Lizenzgebühr verwendet werden.
+(2) Für die gewerbliche Nutzung dürfen die freien Funktionen ohne Lizenzgebühr verwendet werden.
+
+
+§ 3 Gewerbliche Nutzung der kostenpflichtigen Funktionen
+
+(1) Die gewerbliche Nutzung der kostenpflichtigen Funktionen erfordert eine kommerzielle Lizenz, die der Rechteinhaber in einem
+    gesonderten Vertrag erteilt. Umfang, Laufzeit und Preis ergeben sich aus diesem Vertrag.
+(2) Zum Ausprobieren dürfen die kostenpflichtigen Funktionen gewerblich 30 Tage lang ab der ersten Nutzung ohne kommerzielle
+    Lizenz verwendet werden.
+(3) Lizenzschlüssel dürfen nicht an Dritte weitergegeben werden, die nicht zum Lizenznehmer gehören.
+
+
+§ 4 Ergebnisse
+
+Die Ergebnisse stehen dem Anwender zu. Diese Lizenz schränkt ihre Verwendung nicht ein; sie dürfen auch verkauft werden. Rechte
+Dritter an den verarbeiteten Inhalten bleiben unberührt.
+
+
+§ 5 Weitergabe der Software
+
+(1) Die unveränderte Software darf weitergegeben werden, wenn damit kein Geld verdient wird. Sie ist vollständig weiterzugeben,
+    zusammen mit dieser Lizenz, der Datei THIRD-PARTY-NOTICES.md und den Lizenztexten der Bestandteile anderer Projekte.
+(2) Jede kommerzielle Weitergabe ist nicht erlaubt. Der Rechteinhaber behält sich den Vertrieb der Software vor.
+
+
+§ 6 Änderungen
+
+(1) Die Software darf für den eigenen Gebrauch verändert werden.
+(2) Veränderte Fassungen der Software dürfen nicht weitergegeben oder anderen zugänglich gemacht werden.
+(3) Die Lizenzprüfung, die Registrierung, die Kennzeichnung der kostenpflichtigen Funktionen sowie Lizenz- und Urheberhinweise
+    dürfen weder entfernt noch verändert oder umgangen werden – auch nicht in einer Fassung für den eigenen Gebrauch.
+
+
+§ 7 Übernahme von Code-Teilen
+
+(1) Einzelne Teile des Quellcodes dürfen in eigene private, nicht-kommerzielle Projekte übernommen werden. Nicht erlaubt ist die
+    Übernahme der Software als Ganzes oder wesentlicher Teile davon.
+(2) Solche Projekte dürfen veröffentlicht werden, solange damit kein Geld verdient wird.
+(3) Bei jeder Übernahme ist PDF-Knead als Quelle zu nennen, mit einem Hinweis auf diese Lizenz. Die übernommenen Teile bleiben
+    unter dieser Lizenz.
+
+
+§ 8 Name
+
+Der Name „PDF-Knead“ darf nicht für andere Produkte, für veränderte Fassungen oder für übernommene Teile verwendet werden, und
+nicht so, dass der Eindruck entsteht, der Rechteinhaber stehe hinter einem anderen Angebot. Die sachliche Nennung, etwa als Quelle
+nach § 7, bleibt erlaubt.
+
+
+§ 9 Bestandteile anderer Projekte
+
+Die Software enthält Bestandteile anderer Projekte. Für sie gelten ausschließlich deren eigene Lizenzen; sie sind in der Datei
+THIRD-PARTY-NOTICES.md aufgeführt, ihre Lizenztexte liegen der Software bei. Diese Lizenz schränkt die Rechte an diesen
+Bestandteilen nicht ein.
+
+
+§ 10 Beiträge
+
+Beiträge zur Software (zum Beispiel Code, Übersetzungen, Grafiken) übernimmt der Rechteinhaber nur, wenn ihm der Beitragende
+zuvor die ausschließlichen, zeitlich und räumlich unbeschränkten Nutzungsrechte daran einräumt, einschließlich des Rechts, sie
+weiter zu lizenzieren und mit der Software zu verkaufen.
+
+
+§ 11 Verstöße
+
+(1) Wer gegen diese Lizenz verstößt, verliert die Rechte aus ihr.
+(2) Wird ein Verstoß innerhalb von 30 Tagen behoben, nachdem der Rechteinhaber darauf hingewiesen hat, bestehen die Rechte weiter.
+    Das gilt für den ersten Verstoß; weitergehende Ansprüche des Rechteinhabers bleiben unberührt.
+
+
+§ 12 Haftung und Gewährleistung
+
+(1) Die Software wird im Rahmen dieser Lizenz unentgeltlich und ohne Gewähr so überlassen, wie sie ist.
+(2) Der Rechteinhaber haftet nur für Vorsatz und grobe Fahrlässigkeit, bei der Verletzung von Leben, Körper oder Gesundheit und
+    nach dem Produkthaftungsgesetz. Im Übrigen ist die Haftung ausgeschlossen, insbesondere für Datenverlust, entgangenen Gewinn
+    und Folgeschäden.
+(3) Der Anwender sichert seine Dateien vor der Bearbeitung und prüft die Ergebnisse, bevor er sie weitergibt oder verwendet.
+    Insbesondere gilt:
+    - Schwärzen und Bereinigen: Der Anwender prüft, ob vertrauliche Inhalte tatsächlich entfernt sind, bevor er eine Datei
+      weitergibt. Es wird nicht zugesagt, dass jede Art verborgener Inhalte erkannt wird.
+    - Digitale Unterschriften: Sie sind keine qualifizierten elektronischen Signaturen. Für ihre rechtliche Wirksamkeit im
+      Einzelfall wird keine Zusage gegeben.
+    - Komprimieren und Umwandeln: Dabei kann Qualität verloren gehen; das Original ist aufzubewahren.
+    - E-Rechnung prüfen: Die Prüfung ist eine Hilfe. Sie trifft keine Aussage über die steuerliche oder rechtliche Gültigkeit einer
+      Rechnung; ihre Regeln entsprechen dem angezeigten Stand. Der Anwender prüft die Rechnung selbst.
+(4) Für Inhaber einer kommerziellen Lizenz gelten Haftung und Gewährleistung nach deren Vertrag.
+
+
+§ 13 Spätere Fassungen
+
+Neue Versionen der Software können unter einer geänderten Lizenz erscheinen. Für eine bereits erhaltene Version gilt weiter die
+Lizenz, mit der sie erhalten wurde.
+
+
+§ 14 Schlussbestimmungen
+
+(1) Es gilt das Recht der Bundesrepublik Deutschland unter Ausschluss des UN-Kaufrechts.
+(2) Ist der Lizenznehmer Kaufmann, juristische Person des öffentlichen Rechts oder öffentlich-rechtliches Sondervermögen, ist
+    Gerichtsstand der Sitz des Rechteinhabers.
+(3) Ist eine Bestimmung dieser Lizenz unwirksam, bleiben die übrigen wirksam.
+(4) Maßgeblich ist die deutsche Fassung. Die englische Fassung ist eine Übersetzung zur Information.
+
+
+SPDX-License-Identifier: LicenseRef-PDF-Knead
+
+
+===============================================================================================================================
+
+PDF-Knead License (Source Available), Version 1.0
+Draft of 26 October 2026 – to be reviewed legally before the first sale
+English translation for information; the German version above is binding.
+
+Licensor: the author of PDF-Knead, owner of the GitHub account “systemswap”, hereinafter “Licensor”. If the account is renamed, this
+means its owner under the current name.
+
+The source code of PDF-Knead is available to read, but PDF-Knead is not open-source software: commercial use of the paid features
+and any commercial distribution require a license from the Licensor.
+
+
+1 Definitions
+
+(1) “Software”: the program PDF-Knead in executable form and as source code together with the files of its project, without the
+    components of other projects (section 9).
+(2) “Results”: files and printouts created or edited with the Software.
+(3) “Commercial use”: any use by or for companies, self-employed persons and freelancers in the course of their work, authorities
+    and other public administration bodies, and associations that have full-time employees or run a business – including use by
+    their employees, members or agents.
+(4) “Non-commercial use”: use by private individuals for private purposes, by associations without full-time employees and without
+    a business, by schools and universities, and by non-profit organizations.
+(5) “Free features”: viewing, searching, printing, the image information, and filling in existing form fields and saving the
+    filled-in form. All other features are “paid features”; the Software marks them.
+(6) “Commercial distribution”: any distribution or provision of the Software that earns money – in particular against payment, as
+    part of a paid product or offer, through download offers financed by fees or advertising, or as a service for others (for
+    example over the internet) for which payment is charged.
+
+
+2 Use without a license fee
+
+(1) For non-commercial use, the Software may be used with all features without a license fee.
+(2) For commercial use, the free features may be used without a license fee.
+
+
+3 Commercial use of the paid features
+
+(1) Commercial use of the paid features requires a commercial license, granted by the Licensor in a separate contract. Scope, term
+    and price follow from that contract.
+(2) For evaluation, the paid features may be used commercially for 30 days from first use without a commercial license.
+(3) License keys must not be passed on to third parties outside the licensee.
+
+
+4 Results
+
+The Results belong to the user. This license does not restrict their use; they may also be sold. Rights of third parties in the
+processed content remain unaffected.
+
+
+5 Distribution of the Software
+
+(1) The unmodified Software may be distributed as long as no money is earned with it. It must be distributed complete, together
+    with this license, the file THIRD-PARTY-NOTICES.md and the license texts of the components of other projects.
+(2) Any commercial distribution is not permitted. The Licensor reserves the distribution of the Software.
+
+
+6 Modifications
+
+(1) The Software may be modified for one's own use.
+(2) Modified versions of the Software must not be distributed or made available to others.
+(3) The license check, the registration, the marking of the paid features, and license and copyright notices must not be removed,
+    altered or circumvented – not even in a version for one's own use.
+
+
+7 Use of parts of the code
+
+(1) Individual parts of the source code may be used in one's own private, non-commercial projects. Using the Software as a whole or
+    substantial parts of it is not permitted.
+(2) Such projects may be published as long as no money is earned with them.
+(3) Every such use must name PDF-Knead as the source, with a reference to this license. The parts taken over remain under this
+    license.
+
+
+8 Name
+
+The name “PDF-Knead” must not be used for other products, for modified versions or for parts taken over, nor in a way that suggests
+the Licensor is behind another offer. Mentioning it factually, for example as the source under section 7, remains permitted.
+
+
+9 Components of other projects
+
+The Software contains components of other projects. Only their own licenses apply to them; they are listed in the file
+THIRD-PARTY-NOTICES.md, and their license texts accompany the Software. This license does not restrict the rights in these
+components.
+
+
+10 Contributions
+
+The Licensor accepts contributions to the Software (for example code, translations, graphics) only if the contributor first grants
+the Licensor the exclusive rights of use in them, unlimited in time and territory, including the right to sublicense them and to
+sell them with the Software.
+
+
+11 Violations
+
+(1) Anyone who violates this license loses the rights under it.
+(2) If a violation is remedied within 30 days after the Licensor has pointed it out, the rights continue. This applies to the first
+    violation; further claims of the Licensor remain unaffected.
+
+
+12 Liability and warranty
+
+(1) Under this license, the Software is provided free of charge and without warranty, as it is.
+(2) The Licensor is liable only for intent and gross negligence, for injury to life, body or health, and under the German Product
+    Liability Act. Otherwise, liability is excluded, in particular for loss of data, lost profit and consequential damage.
+(3) The user backs up his files before editing them and checks the Results before passing them on or using them. In particular:
+    - Redaction and cleanup: the user checks whether confidential content has actually been removed before passing on a file. It
+      is not promised that every kind of hidden content is detected.
+    - Digital signatures: they are not qualified electronic signatures. No promise is made about their legal effect in a given case.
+    - Compression and conversion: quality may be lost; keep the original.
+    - E-invoice check: the check is an aid. It makes no statement about the tax or legal validity of an invoice; its rules reflect
+      the state shown. The user checks the invoice himself.
+(4) For holders of a commercial license, liability and warranty follow their contract.
+
+
+13 Later versions
+
+New versions of the Software may be released under a changed license. A version already received remains under the license with
+which it was received.
+
+
+14 Final provisions
+
+(1) The law of the Federal Republic of Germany applies, excluding the UN Convention on Contracts for the International Sale of Goods.
+(2) If the licensee is a merchant, a legal entity under public law or a special fund under public law, the place of jurisdiction is
+    the Licensor's seat.
+(3) If a provision of this license is invalid, the others remain valid.
+(4) The German version is authoritative. The English version is a translation for information.
+
+
+SPDX-License-Identifier: LicenseRef-PDF-Knead

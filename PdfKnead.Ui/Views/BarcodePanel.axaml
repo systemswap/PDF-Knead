@@ -1,0 +1,88 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             Background="{DynamicResource SurfaceAltBrush}"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:l="using:PdfKnead.Localization"
+             xmlns:vm="using:PdfKnead.ViewModels"
+             xmlns:g="using:PdfKnead.Core.Pdf.Graphics"
+             x:Class="PdfKnead.Views.BarcodePanel"
+             x:DataType="vm:DocumentViewModel">
+    <!-- Code (KONZEPT §5.19, Teil von „Bearbeiten“ §5.22): Eigenschaften und Bedeutung des gewählten Codes -->
+    <UserControl.Styles>
+        <StyleInclude Source="avares://PdfKnead.Ui/Styles/PropertyPanel.axaml" />
+    </UserControl.Styles>
+
+    <DockPanel>
+        <WrapPanel DockPanel.Dock="Bottom" Margin="12,0,6,6" Orientation="Horizontal"
+                   IsVisible="{Binding InspectedBarcode, Converter={x:Static ObjectConverters.IsNotNull}}">
+            <Button Margin="0,0,6,6" x:Name="OpenAddressButton" Classes="primary"
+                    IsVisible="{Binding InspectedBarcode.HasAction, FallbackValue=False}"
+                    Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).OpenBarcodeActionCommand, FallbackValue={x:Null}}"
+                    AutomationProperties.Name="{Binding InspectedBarcode.ActionLabel, FallbackValue=''}">
+                <ToolTip.Tip><l:T Text="Fragt vorher nach und zeigt die genaue Adresse" /></ToolTip.Tip>
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <PathIcon Data="{StaticResource Icon.Link}" Width="16" Height="16" />
+                    <TextBlock Text="{Binding InspectedBarcode.ActionLabel, FallbackValue=''}" />
+                </StackPanel>
+            </Button>
+            <Button Margin="0,0,6,6" x:Name="ReplaceCodeButton"
+                    Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).ReplaceBarcodeCommand, FallbackValue={x:Null}}"
+                    AutomationProperties.Name="{l:T 'Code ändern …'}">
+                <ToolTip.Tip><l:T Text="Den Code durch einen neuen mit geändertem Inhalt ersetzen — an derselben Stelle, in derselben Größe; der alte wird aus der Datei entfernt" /></ToolTip.Tip>
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <PathIcon Data="{StaticResource Icon.TextEditStyle}" Width="16" Height="16" />
+                    <TextBlock Text="{l:T 'Code ändern …'}" />
+                </StackPanel>
+            </Button>
+            <Button Margin="0,0,6,6" x:Name="CopyCodeButton"
+                    Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).CopyBarcodeTextCommand, FallbackValue={x:Null}}"
+                    AutomationProperties.Name="{l:T 'Inhalt kopieren'}">
+                <ToolTip.Tip><l:T Text="Den Inhalt des Codes genau so in die Zwischenablage, wie er im Code steht" /></ToolTip.Tip>
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <PathIcon Data="{StaticResource Icon.Copy}" Width="16" Height="16" />
+                    <TextBlock Text="{l:T 'Inhalt kopieren'}" />
+                </StackPanel>
+            </Button>
+            <Button Margin="0,0,6,6"
+                    Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).CopyBarcodeInfoCommand, FallbackValue={x:Null}}"
+                    AutomationProperties.Name="{l:T 'Als Text kopieren'}">
+                <ToolTip.Tip><l:T Text="Alle Angaben zum Code in die Zwischenablage" /></ToolTip.Tip>
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <PathIcon Data="{StaticResource Icon.DocumentText}" Width="16" Height="16" />
+                    <TextBlock Text="{l:T 'Als Text kopieren'}" />
+                </StackPanel>
+            </Button>
+        </WrapPanel>
+        <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+            <StackPanel Margin="0,0,0,4">
+                <TextBlock Classes="hint" Margin="16,4,16,10" Text="{Binding BarcodeHint}"
+                           IsVisible="{Binding BarcodeHint, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                <Border Margin="12,0,12,8" Padding="10,8" CornerRadius="{DynamicResource RadiusControl}"
+                        Background="{DynamicResource DangerSoftBrush}" BorderBrush="{DynamicResource WarnBrush}" BorderThickness="1"
+                        IsVisible="{Binding InspectedBarcode.HasWarnings, FallbackValue=False}">
+                    <SelectableTextBlock TextWrapping="Wrap" Text="{Binding InspectedBarcode.Warnings, FallbackValue=''}" />
+                </Border>
+                <ItemsControl ItemsSource="{Binding InspectedBarcode.Sections, FallbackValue={x:Null}}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="g:ImageInfoSection">
+                            <Border Classes="propCard">
+                                <StackPanel>
+                                    <TextBlock Classes="propTitle" Text="{Binding Title}" Margin="0,0,0,4" TextWrapping="Wrap" />
+                                    <ItemsControl ItemsSource="{Binding Rows}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate x:DataType="g:ImageInfoRow">
+                                                <Grid ColumnDefinitions="104,*" Margin="0,3">
+                                                    <TextBlock Classes="caption" Margin="0,0,8,0" VerticalAlignment="Top" TextWrapping="Wrap" Text="{Binding Label}" />
+                                                    <SelectableTextBlock Grid.Column="1" TextWrapping="Wrap" Text="{Binding Value}" />
+                                                </Grid>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+        </ScrollViewer>
+    </DockPanel>
+</UserControl>

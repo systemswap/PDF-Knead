@@ -1,0 +1,325 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:l="using:PdfKnead.Localization"
+        xmlns:c="using:PdfKnead.Controls"
+        xmlns:vm="using:PdfKnead.ViewModels"
+        x:Class="PdfKnead.Views.PrintWindow"
+        x:DataType="vm:PrintViewModel"
+        Title="{l:T 'Drucken'}"
+        Icon="/Assets/app.ico"
+        Width="1140" Height="780" MinWidth="820" MinHeight="560"
+        ShowInTaskbar="False"
+        WindowStartupLocation="CenterOwner">
+    <Window.Styles>
+        <Style Selector="Grid.row">
+            <Setter Property="Margin" Value="0,0,0,8" />
+        </Style>
+        <Style Selector="Grid.row > TextBlock">
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+        <Style Selector="Grid.row ComboBox">
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+        </Style>
+    </Window.Styles>
+
+    <Grid RowDefinitions="*,Auto">
+        <Grid ColumnDefinitions="370,Auto,*">
+            <!-- Optionen -->
+            <ScrollViewer Grid.Column="0" HorizontalScrollBarVisibility="Disabled">
+                <StackPanel Margin="20,18,16,18" Spacing="6" IsEnabled="{Binding CanChange}">
+                    <StackPanel Orientation="Horizontal" Spacing="12" Margin="0,0,0,10">
+                        <Border Width="40" Height="40" CornerRadius="20" Background="{DynamicResource AccentSoftBrush}">
+                            <PathIcon Data="{StaticResource Icon.Print}" Width="20" Height="20" Foreground="{DynamicResource AccentBrush}" />
+                        </Border>
+                        <StackPanel VerticalAlignment="Center" Spacing="2" MaxWidth="280">
+                            <TextBlock FontWeight="SemiBold" FontSize="15" Text="{l:T 'Drucken'}" />
+                            <TextBlock Classes="muted" Text="{Binding FileName}" TextTrimming="CharacterEllipsis" />
+                        </StackPanel>
+                    </StackPanel>
+
+                    <TextBlock Classes="section" Text="{l:T 'DRUCKER'}" />
+                    <ComboBox Name="TargetChoice" HorizontalAlignment="Stretch" ItemsSource="{Binding Targets}" SelectedItem="{Binding SelectedTarget}"
+                              AutomationProperties.Name="{l:T 'Drucker'}" Margin="0,0,0,4">
+                        <ToolTip.Tip><l:T Text="Drucker oder „Als PDF speichern“: eine PDF mit genau den Blättern der Vorschau" /></ToolTip.Tip>
+                    </ComboBox>
+                    <TextBlock Classes="muted small" IsVisible="{Binding LoadingPrinters}" Text="{l:T 'Drucker werden gesucht …'}" />
+                    <TextBlock Classes="small" Foreground="{DynamicResource DangerBrush}" TextWrapping="Wrap" IsVisible="{Binding PdfWithoutProtection}" Margin="0,0,0,4"
+                               Text="{l:T 'Die Datei ist geschützt — die PDF wird ohne Passwort und Rechte gespeichert.'}" />
+                    <Button Classes="soft" HorizontalAlignment="Left" IsVisible="{Binding HasDriverDialog}" Command="{Binding DriverDialogCommand}"
+                            Content="{l:T 'Druckereigenschaften …'}" Margin="0,0,0,4">
+                        <ToolTip.Tip><l:T Text="Einstellungen des Druckerherstellers (z. B. Heften, Papierart) — werden für diesen Druck übernommen" /></ToolTip.Tip>
+                    </Button>
+                    <Grid Classes="row" ColumnDefinitions="96,*" IsVisible="{Binding IsPrinter}">
+                        <TextBlock Text="{l:T 'Kopien'}" />
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="14">
+                            <NumericUpDown Value="{Binding Copies}" Minimum="1" Maximum="999" Increment="1" FormatString="0" Width="110"
+                                           AutomationProperties.Name="{l:T 'Kopien'}" />
+                            <CheckBox IsChecked="{Binding Collate}" Content="{l:T 'Sortieren'}">
+                                <ToolTip.Tip><l:T Text="Kopien sortiert: erst das ganze Dokument, dann die nächste Kopie (sonst jede Seite mehrfach hintereinander)" /></ToolTip.Tip>
+                            </CheckBox>
+                        </StackPanel>
+                    </Grid>
+
+                    <TextBlock Classes="section" Text="{l:T 'SEITEN'}" Margin="0,10,0,0" />
+                    <ComboBox HorizontalAlignment="Stretch" ItemsSource="{Binding Ranges}" SelectedItem="{Binding SelectedRange}"
+                              AutomationProperties.Name="{l:T 'Seiten'}" Margin="0,0,0,4" />
+                    <TextBox Text="{Binding CustomRange}" IsVisible="{Binding IsCustomRange}" PlaceholderText="{l:T 'z. B. 1-3, 7, 10-'}"
+                             AutomationProperties.Name="{l:T 'Seitenbereich'}" Margin="0,0,0,4">
+                        <ToolTip.Tip><l:T Text="Seiten und Bereiche mit Komma getrennt; „10-“ bis zum Ende, „5-3“ rückwärts" /></ToolTip.Tip>
+                    </TextBox>
+                    <Grid Classes="row" ColumnDefinitions="96,*">
+                        <TextBlock Text="{l:T 'Nur'}" />
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="14">
+                            <ComboBox Width="128" ItemsSource="{Binding Subsets}" SelectedItem="{Binding SelectedSubset}" AutomationProperties.Name="{l:T 'Gerade oder ungerade Seiten'}" />
+                            <CheckBox IsChecked="{Binding Reverse}" Content="{l:T 'Rückwärts'}">
+                                <ToolTip.Tip><l:T Text="Letzte Seite zuerst — für Drucker, die das Papier bedruckt nach oben ablegen" /></ToolTip.Tip>
+                            </CheckBox>
+                        </StackPanel>
+                    </Grid>
+
+                    <TextBlock Classes="section" Text="{l:T 'PAPIER UND ANORDNUNG'}" Margin="0,10,0,0" />
+                    <!-- Druckart (Wunsch vom 20.10.2026): darunter nur die Optionen der gewählten Art -->
+                    <Grid Classes="row" ColumnDefinitions="96,*">
+                        <TextBlock Text="{l:T 'Druckart'}" />
+                        <ComboBox Name="KindBox" Grid.Column="1" ItemsSource="{Binding Kinds}" SelectedItem="{Binding SelectedKind}" AutomationProperties.Name="{l:T 'Druckart'}">
+                            <ToolTip.Tip><l:T Text="Normal: eine oder mehrere Seiten pro Blatt. Broschüre: zwei Seiten je Blattseite, in der Mitte gefalzt. Poster: eine Seite vergrößert auf mehrere Blätter zum Zusammenkleben." /></ToolTip.Tip>
+                        </ComboBox>
+                    </Grid>
+                    <Grid Classes="row" ColumnDefinitions="96,*">
+                        <TextBlock Text="{l:T 'Papier'}" />
+                        <ComboBox Grid.Column="1" ItemsSource="{Binding PaperChoices}" SelectedItem="{Binding SelectedPaperChoice}" AutomationProperties.Name="{l:T 'Papier'}" />
+                    </Grid>
+                    <Grid Classes="row" ColumnDefinitions="96,*" IsVisible="{Binding HasTrays}">
+                        <TextBlock Text="{l:T 'Papierfach'}" />
+                        <ComboBox Grid.Column="1" ItemsSource="{Binding Trays}" SelectedItem="{Binding SelectedTray}" AutomationProperties.Name="{l:T 'Papierfach'}" />
+                    </Grid>
+                    <Grid Classes="row" ColumnDefinitions="96,*" IsVisible="{Binding IsNotBooklet}">
+                        <TextBlock Text="{l:T 'Ausrichtung'}" />
+                        <ComboBox Grid.Column="1" ItemsSource="{Binding Orientations}" SelectedItem="{Binding SelectedOrientation}" AutomationProperties.Name="{l:T 'Ausrichtung'}">
+                            <ToolTip.Tip><l:T Text="Automatisch: das Blatt liegt wie die Seite — Seiten im Querformat kommen quer aufs Papier" /></ToolTip.Tip>
+                        </ComboBox>
+                    </Grid>
+                    <Grid Classes="row" ColumnDefinitions="96,*" IsVisible="{Binding IsNormal}">
+                        <TextBlock Text="{l:T 'Pro Blatt'}" />
+                        <ComboBox Name="PerSheetBox" Grid.Column="1" ItemsSource="{Binding PerSheetChoices}" SelectedItem="{Binding SelectedPerSheet}"
+                                  AutomationProperties.Name="{l:T 'Seiten pro Blatt'}">
+                            <ToolTip.Tip><l:T Text="Mehrere Seiten verkleinert auf ein Blatt Papier" /></ToolTip.Tip>
+                        </ComboBox>
+                    </Grid>
+                    <Grid Classes="row" ColumnDefinitions="96,*" IsVisible="{Binding IsSingle}">
+                        <TextBlock Text="{l:T 'Größe'}" />
+                        <ComboBox Grid.Column="1" ItemsSource="{Binding Scalings}" SelectedItem="{Binding SelectedScaling}" AutomationProperties.Name="{l:T 'Größe'}" />
+                    </Grid>
+                    <Grid Classes="row" ColumnDefinitions="96,*" IsVisible="{Binding IsCustomScaling}">
+                        <TextBlock Text="{l:T 'Prozent'}" />
+                        <NumericUpDown Grid.Column="1" Value="{Binding Percent}" Minimum="1" Maximum="1000" Increment="5" FormatString="0" Width="110"
+                                       HorizontalAlignment="Left" AutomationProperties.Name="{l:T 'Prozent'}" />
+                    </Grid>
+                    <Grid Classes="row" ColumnDefinitions="96,*" IsVisible="{Binding IsMultiple}">
+                        <TextBlock Text="{l:T 'Reihenfolge'}" />
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="14">
+                            <ComboBox Width="128" ItemsSource="{Binding Orders}" SelectedItem="{Binding SelectedOrder}" AutomationProperties.Name="{l:T 'Reihenfolge'}" />
+                            <CheckBox IsChecked="{Binding Borders}" Content="{l:T 'Rahmen'}">
+                                <ToolTip.Tip><l:T Text="Feiner Rahmen um jede Seite" /></ToolTip.Tip>
+                            </CheckBox>
+                        </StackPanel>
+                    </Grid>
+
+                    <!-- Broschüre (M8b) -->
+                    <StackPanel IsVisible="{Binding IsBooklet}" Spacing="6">
+                        <TextBlock Classes="section" Text="{l:T 'BROSCHÜRE'}" Margin="0,10,0,0" />
+                        <Grid Classes="row" ColumnDefinitions="96,*">
+                            <TextBlock Text="{l:T 'Bindung'}" />
+                            <ComboBox Grid.Column="1" ItemsSource="{Binding Bindings}" SelectedItem="{Binding SelectedBinding}" AutomationProperties.Name="{l:T 'Bindung'}">
+                                <ToolTip.Tip><l:T Text="Rechts für Sprachen, die von rechts nach links gelesen werden" /></ToolTip.Tip>
+                            </ComboBox>
+                        </Grid>
+                        <Grid Classes="row" ColumnDefinitions="96,*">
+                            <TextBlock Text="{l:T 'Bund'}" />
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
+                                <NumericUpDown Value="{Binding Gutter}" Minimum="0" Maximum="100" Increment="1" FormatString="0.#" Width="110"
+                                               AutomationProperties.Name="{l:T 'Bund in mm'}">
+                                    <ToolTip.Tip><l:T Text="Abstand zwischen den beiden Seiten an der Falz — mehr Platz zum Heften" /></ToolTip.Tip>
+                                </NumericUpDown>
+                                <TextBlock VerticalAlignment="Center" Text="mm" />
+                            </StackPanel>
+                        </Grid>
+                        <Grid Classes="row" ColumnDefinitions="96,*">
+                            <TextBlock Text="{l:T 'Hefte'}" />
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
+                                <NumericUpDown Value="{Binding SheetsPerBooklet}" Minimum="0" Maximum="100" Increment="1" FormatString="0" Width="110"
+                                               AutomationProperties.Name="{l:T 'Bögen je Heft'}">
+                                    <ToolTip.Tip><l:T Text="Dicke Broschüren in Hefte zu je so vielen Bögen teilen (jedes für sich gefalzt, dann aufeinandergelegt); 0 = ein Heft" /></ToolTip.Tip>
+                                </NumericUpDown>
+                                <TextBlock VerticalAlignment="Center" Text="{l:T 'Bögen je Heft'}" />
+                            </StackPanel>
+                        </Grid>
+                        <Grid Classes="row" ColumnDefinitions="96,*">
+                            <TextBlock Text="{l:T 'Bundzuwachs'}" />
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
+                                <NumericUpDown Value="{Binding Creep}" Minimum="0" Maximum="2" Increment="0.05" FormatString="0.00" Width="110"
+                                               AutomationProperties.Name="{l:T 'Bundzuwachs in mm je Bogen'}">
+                                    <ToolTip.Tip><l:T Text="Innere Bögen stehen nach dem Falzen außen vor — ihre Seiten rücken je Bogen um so viel zur Falz (etwa die Papierstärke, 0,1 mm). 0 = aus." /></ToolTip.Tip>
+                                </NumericUpDown>
+                                <TextBlock VerticalAlignment="Center" Text="{l:T 'mm je Bogen'}" />
+                            </StackPanel>
+                        </Grid>
+                        <CheckBox IsChecked="{Binding BlanksBeforeBack}" Content="{l:T 'Leerseiten vor die letzte Seite'}">
+                            <ToolTip.Tip><l:T Text="Fehlende Seiten (auf ein Vielfaches von 4) kommen vor die letzte Seite — sie bleibt außen als Rückseite. Sonst ans Ende." /></ToolTip.Tip>
+                        </CheckBox>
+                        <TextBlock Classes="muted" TextWrapping="Wrap" IsVisible="{Binding HasBookletHint}" Text="{Binding BookletHint}" />
+                    </StackPanel>
+
+                    <!-- Poster (KONZEPT §5.11) -->
+                    <StackPanel IsVisible="{Binding IsPoster}" Spacing="6">
+                        <TextBlock Classes="section" Text="{l:T 'POSTER'}" Margin="0,10,0,0" />
+                        <Grid Classes="row" ColumnDefinitions="96,*">
+                            <TextBlock Text="{l:T 'Postergröße'}" />
+                            <ComboBox Grid.Column="1" ItemsSource="{Binding PosterSizes}" SelectedItem="{Binding SelectedPosterSize}" AutomationProperties.Name="{l:T 'Postergröße'}">
+                                <ToolTip.Tip><l:T Text="Die Seite wird auf dieses Format vergrößert (im Hochformat, wenn die Seite hoch ist, sonst quer) — oder um einen eigenen Prozentwert" /></ToolTip.Tip>
+                            </ComboBox>
+                        </Grid>
+                        <Grid Classes="row" ColumnDefinitions="96,*" IsVisible="{Binding IsPosterPercent}">
+                            <TextBlock Text="{l:T 'Prozent'}" />
+                            <NumericUpDown Grid.Column="1" Value="{Binding PosterPercent}" Minimum="10" Maximum="2000" Increment="25" FormatString="0" Width="110"
+                                           HorizontalAlignment="Left" AutomationProperties.Name="{l:T 'Postergröße in Prozent'}" />
+                        </Grid>
+                        <Grid Classes="row" ColumnDefinitions="96,*">
+                            <TextBlock Text="{l:T 'Klebekante'}" />
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
+                                <NumericUpDown Value="{Binding Overlap}" Minimum="0" Maximum="50" Increment="1" FormatString="0.#" Width="110"
+                                               AutomationProperties.Name="{l:T 'Klebekante in mm'}">
+                                    <ToolTip.Tip><l:T Text="So weit überlappen benachbarte Blätter: ein Rand zum Kleben, und nichts fehlt, wenn man nicht ganz genau schneidet" /></ToolTip.Tip>
+                                </NumericUpDown>
+                                <TextBlock VerticalAlignment="Center" Text="mm" />
+                            </StackPanel>
+                        </Grid>
+                        <CheckBox IsChecked="{Binding CutMarks}" Content="{l:T 'Schnittmarken'}">
+                            <ToolTip.Tip><l:T Text="Marken an den Ecken: dort den Rand abschneiden; kurze Striche zeigen, wo das Nachbarblatt anliegt" /></ToolTip.Tip>
+                        </CheckBox>
+                        <CheckBox IsChecked="{Binding RegistrationMarks}" Content="{l:T 'Passkreuze'}">
+                            <ToolTip.Tip><l:T Text="Kreuze in der Mitte der Klebekante — sie stehen auf beiden Nachbarblättern an derselben Stelle und helfen beim Ausrichten" /></ToolTip.Tip>
+                        </CheckBox>
+                        <CheckBox IsChecked="{Binding TileLabels}" Content="{l:T 'Beschriftung'}">
+                            <ToolTip.Tip><l:T Text="Klein am Rand jedes Blatts: Name im Raster (z. B. B2), Seite und Größe des Rasters" /></ToolTip.Tip>
+                        </CheckBox>
+                        <TextBlock Classes="muted" TextWrapping="Wrap" Text="{Binding PosterInfo}" />
+                    </StackPanel>
+
+                    <StackPanel IsVisible="{Binding IsPrinter}" Spacing="6">
+                        <TextBlock Classes="section" Text="{l:T 'AUSGABE'}" Margin="0,10,0,0" />
+                        <Grid Classes="row" ColumnDefinitions="96,*">
+                            <TextBlock Text="{l:T 'Seiten'}" />
+                            <ComboBox Grid.Column="1" ItemsSource="{Binding DuplexModes}" SelectedItem="{Binding SelectedDuplex}" AutomationProperties.Name="{l:T 'Beidseitig'}">
+                                <ToolTip.Tip><l:T Text="Lange Kante: wie ein Buch im Hochformat. Kurze Kante: wie ein Block, der oben gebunden ist. Von Hand: für Drucker ohne Beidseitig-Druck." /></ToolTip.Tip>
+                            </ComboBox>
+                        </Grid>
+                        <Grid Classes="row" ColumnDefinitions="96,*" IsVisible="{Binding HasQualities}">
+                            <TextBlock Text="{l:T 'Qualität'}" />
+                            <ComboBox Grid.Column="1" ItemsSource="{Binding Qualities}" SelectedItem="{Binding SelectedQuality}" AutomationProperties.Name="{l:T 'Qualität'}" />
+                        </Grid>
+                        <Grid Classes="row" ColumnDefinitions="96,*">
+                            <TextBlock Text="{l:T 'Farbe'}" />
+                            <CheckBox Grid.Column="1" IsChecked="{Binding Grayscale}" IsEnabled="{Binding ColorAvailable}" Content="{l:T 'Graustufen'}"
+                                      ToolTip.ShowOnDisabled="True">
+                                <ToolTip.Tip><l:T Text="In Graustufen drucken (spart Farbe). Ausgegraut: der Drucker druckt nur schwarzweiß." /></ToolTip.Tip>
+                            </CheckBox>
+                        </Grid>
+                        <ItemsControl ItemsSource="{Binding ExtraOptions}" IsVisible="{Binding HasExtraOptions}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:PrinterOptionViewModel">
+                                    <Grid Classes="row" ColumnDefinitions="96,*">
+                                        <TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis" />
+                                        <ComboBox Grid.Column="1" ItemsSource="{Binding Choices}" SelectedItem="{Binding Selected}"
+                                                  AutomationProperties.Name="{Binding Label}" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+
+                    <Border IsVisible="{Binding !PrintAllowed}" Background="{DynamicResource DangerSoftBrush}" CornerRadius="6" Padding="10,6" Margin="0,8,0,0">
+                        <TextBlock TextWrapping="Wrap" Text="{l:T 'Die Rechte dieses Dokuments erlauben kein Drucken.'}" />
+                    </Border>
+                    <Border IsVisible="{Binding LowResolutionOnly}" Background="{DynamicResource SurfaceAltBrush}" CornerRadius="6" Padding="10,6" Margin="0,8,0,0">
+                        <TextBlock Classes="muted" TextWrapping="Wrap" Text="{l:T 'Die Rechte dieses Dokuments erlauben nur Drucken in niedriger Auflösung (150 dpi).'}" />
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
+
+            <Rectangle Grid.Column="1" Width="1" Fill="{DynamicResource LineBrush}" />
+
+            <!-- Vorschau -->
+            <DockPanel Grid.Column="2">
+                <Border DockPanel.Dock="Bottom" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0" Padding="10,6">
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="8">
+                        <StackPanel Orientation="Horizontal" Spacing="2" IsVisible="{Binding IsBooklet}" Margin="0,0,16,0">
+                            <ToggleButton Classes="subtle" IsChecked="{Binding BookView, Mode=OneWay}" Command="{Binding ShowBookViewCommand}" Content="{l:T 'Als Buch'}">
+                                <ToolTip.Tip><l:T Text="Blättern wie in der fertigen Broschüre" /></ToolTip.Tip>
+                            </ToggleButton>
+                            <ToggleButton Classes="subtle" IsChecked="{Binding !BookView}" Command="{Binding ShowSheetViewCommand}" Content="{l:T 'Druckbogen'}">
+                                <ToolTip.Tip><l:T Text="Die Bögen, wie sie aus dem Drucker kommen: Vorder- und Rückseite nacheinander" /></ToolTip.Tip>
+                            </ToggleButton>
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Spacing="2" IsVisible="{Binding IsPoster}" Margin="0,0,16,0">
+                            <ToggleButton Classes="subtle" IsChecked="{Binding PosterOverview, Mode=OneWay}" Command="{Binding ShowPosterOverviewModeCommand}" Content="{l:T 'Übersicht'}">
+                                <ToolTip.Tip><l:T Text="Die ganze Seite mit dem Raster der Blätter — ein Klick auf ein Blatt zeigt es groß" /></ToolTip.Tip>
+                            </ToggleButton>
+                            <ToggleButton Classes="subtle" IsChecked="{Binding !PosterOverview}" Command="{Binding ShowPosterSheetModeCommand}" Content="{l:T 'Druckbogen'}">
+                                <ToolTip.Tip><l:T Text="Das einzelne Blatt, wie es aus dem Drucker kommt, mit Marken und Beschriftung" /></ToolTip.Tip>
+                            </ToggleButton>
+                        </StackPanel>
+                        <Button Classes="subtle" Command="{Binding PreviousSheetCommand}" AutomationProperties.Name="{l:T 'Vorheriges Blatt'}">
+                            <PathIcon Data="{StaticResource Icon.ChevronDown}" Width="14" Height="14" RenderTransform="rotate(90deg)" />
+                            <ToolTip.Tip><l:T Text="Vorheriges Blatt (Bild auf)" /></ToolTip.Tip>
+                        </Button>
+                        <TextBlock MinWidth="150" TextAlignment="Center" VerticalAlignment="Center" Text="{Binding SheetInfo}" />
+                        <Button Classes="subtle" Command="{Binding NextSheetCommand}" AutomationProperties.Name="{l:T 'Nächstes Blatt'}">
+                            <PathIcon Data="{StaticResource Icon.ChevronDown}" Width="14" Height="14" RenderTransform="rotate(-90deg)" />
+                            <ToolTip.Tip><l:T Text="Nächstes Blatt (Bild ab)" /></ToolTip.Tip>
+                        </Button>
+                    </StackPanel>
+                </Border>
+                <Border Background="{DynamicResource CanvasBrush}">
+                    <Grid>
+                        <c:PrintPreview Name="Preview" AutomationProperties.Name="{l:T 'Druckvorschau'}" Image="{Binding PreviewImage}" SheetWidth="{Binding SheetWidth}" SheetHeight="{Binding SheetHeight}"
+                                        MarginPoints="{Binding PrintableMargin}" IsVisible="{Binding ShowSheets}" />
+                        <c:BookletPreview Name="Book" Pages="{Binding BookPages}" Spread="{Binding Spread}" RightBinding="{Binding SelectedBinding.Value}"
+                                          IsVisible="{Binding ShowBook}" AutomationProperties.Name="{l:T 'Broschüre als Buch'}" />
+                        <c:PosterPreview Name="Poster" Image="{Binding PosterImage}" Grid="{Binding PosterGrid}" Current="{Binding PosterTile}"
+                                         IsVisible="{Binding ShowPosterOverview}" AutomationProperties.Name="{l:T 'Poster-Übersicht'}" />
+                        <ProgressBar IsIndeterminate="True" IsVisible="{Binding Building}" VerticalAlignment="Top" Height="3" MinHeight="3" CornerRadius="0" />
+                    </Grid>
+                </Border>
+            </DockPanel>
+        </Grid>
+
+        <!-- Fuß: was gedruckt wird, Hinweise, Aktionen -->
+        <Border Grid.Row="1" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0" Padding="20,12">
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                    <Button Name="CancelButton" Content="{l:T 'Abbrechen'}" Click="OnCancel" IsCancel="True" />
+                    <Button Classes="primary" Content="{Binding PrimaryText}" Command="{Binding PrintCommand}" IsDefault="True"
+                            IsVisible="{Binding !AwaitingTurn}" />
+                    <Button Classes="primary" Content="{l:T 'Rückseiten drucken'}" Command="{Binding ContinueBacksCommand}" IsVisible="{Binding AwaitingTurn}" />
+                </StackPanel>
+                <StackPanel VerticalAlignment="Center" Spacing="4" Margin="0,0,16,0">
+                    <StackPanel IsVisible="{Binding AwaitingTurn}" Spacing="4">
+                        <TextBlock FontWeight="SemiBold" TextWrapping="Wrap" Text="{l:T 'Die Vorderseiten sind gedruckt.'}" />
+                        <TextBlock TextWrapping="Wrap"
+                                   Text="{l:T 'Den Stapel umdrehen und wieder einlegen, sodass die leeren Seiten bedruckt werden, dann „Rückseiten drucken“.'}" />
+                        <CheckBox IsChecked="{Binding ReverseBacks}" Content="{l:T 'Rückseiten in umgekehrter Reihenfolge'}">
+                            <ToolTip.Tip><l:T Text="Nötig, wenn der Drucker das letzte Blatt zuerst einzieht — bei einem Probedruck mit zwei Blättern zu erkennen" /></ToolTip.Tip>
+                        </CheckBox>
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Spacing="10" IsVisible="{Binding IsPrinting}">
+                        <ProgressBar IsIndeterminate="True" Width="140" IsVisible="{Binding !AwaitingTurn}" />
+                        <TextBlock Classes="muted" VerticalAlignment="Center" Text="{Binding Progress}" />
+                    </StackPanel>
+                    <TextBlock Text="{Binding Summary}" IsVisible="{Binding !IsPrinting}" />
+                    <TextBlock Foreground="{DynamicResource DangerBrush}" TextWrapping="Wrap" Text="{Binding Problem}" IsVisible="{Binding HasProblem}" />
+                </StackPanel>
+            </DockPanel>
+        </Border>
+    </Grid>
+</Window>

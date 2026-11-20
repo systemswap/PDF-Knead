@@ -1,0 +1,171 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:c="using:PdfKnead.Controls">
+
+    <!-- ===================================================================
+         Ribbon: Knöpfe, Umschalter, Gruppen.
+         Klein: Icon 16 + Text daneben. Groß (Klasse „large“): Icon 26 über dem Text.
+         =================================================================== -->
+
+    <ControlTheme x:Key="RibbonButtonBase" TargetType="Button">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+        <Setter Property="Padding" Value="6,2" />
+        <Setter Property="MinHeight" Value="22" />
+        <Setter Property="CornerRadius" Value="{DynamicResource RadiusControl}" />
+        <Setter Property="HorizontalAlignment" Value="Stretch" />
+        <Setter Property="HorizontalContentAlignment" Value="Left" />
+        <Setter Property="Focusable" Value="True" />
+    </ControlTheme>
+
+    <ControlTheme x:Key="{x:Type c:RibbonButton}" TargetType="c:RibbonButton" BasedOn="{StaticResource RibbonButtonBase}">
+        <Setter Property="Template">
+            <ControlTemplate>
+                <Border Name="PART_Border"
+                        Background="{TemplateBinding Background}"
+                        CornerRadius="{TemplateBinding CornerRadius}"
+                        Padding="{TemplateBinding Padding}">
+                    <StackPanel Name="PART_Stack" Orientation="Horizontal" Spacing="6"
+                                HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}">
+                        <PathIcon Name="PART_Icon" Data="{TemplateBinding Icon}" Width="16" Height="16"
+                                  Foreground="{TemplateBinding Foreground}" />
+                        <TextBlock Name="PART_Label" Text="{TemplateBinding Label}" FontSize="12"
+                                   VerticalAlignment="Center" />
+                    </StackPanel>
+                </Border>
+            </ControlTemplate>
+        </Setter>
+
+        <Style Selector="^:pointerover /template/ Border#PART_Border">
+            <Setter Property="Background" Value="{DynamicResource HoverBrush}" />
+        </Style>
+        <Style Selector="^:pressed /template/ Border#PART_Border">
+            <Setter Property="Background" Value="{DynamicResource PressedBrush}" />
+        </Style>
+        <Style Selector="^:disabled">
+            <Setter Property="Foreground" Value="{DynamicResource TextDisabledBrush}" />
+        </Style>
+        <Style Selector="^:focus-visible /template/ Border#PART_Border">
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+            <Setter Property="BorderThickness" Value="1.5" />
+        </Style>
+
+        <Style Selector="^.large">
+            <Setter Property="Padding" Value="6,6,6,4" />
+            <Setter Property="MinWidth" Value="54" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalAlignment" Value="Stretch" />
+        </Style>
+        <Style Selector="^.large /template/ StackPanel#PART_Stack">
+            <Setter Property="Orientation" Value="Vertical" />
+            <Setter Property="Spacing" Value="5" />
+        </Style>
+        <Style Selector="^.large /template/ PathIcon#PART_Icon">
+            <Setter Property="Width" Value="{DynamicResource IconLarge}" />
+            <Setter Property="Height" Value="{DynamicResource IconLarge}" />
+        </Style>
+        <Style Selector="^.large /template/ TextBlock#PART_Label">
+            <Setter Property="TextAlignment" Value="Center" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+            <Setter Property="MaxWidth" Value="112" />  <!-- „Zusammenführen“ ohne Umbruch -->
+            <Setter Property="HorizontalAlignment" Value="Center" />
+            <Setter Property="VerticalAlignment" Value="Top" />
+        </Style>
+        <!-- Nur Icon (Schnellzugriff, Statusleiste) -->
+        <Style Selector="^.icon /template/ TextBlock#PART_Label">
+            <Setter Property="IsVisible" Value="False" />
+        </Style>
+        <Style Selector="^.icon">
+            <Setter Property="Padding" Value="5" />
+        </Style>
+    </ControlTheme>
+
+    <ControlTheme x:Key="{x:Type c:RibbonToggleButton}" TargetType="c:RibbonToggleButton">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+        <Setter Property="Padding" Value="6,2" />
+        <Setter Property="MinHeight" Value="22" />
+        <Setter Property="CornerRadius" Value="{DynamicResource RadiusControl}" />
+        <Setter Property="HorizontalAlignment" Value="Stretch" />
+        <Setter Property="HorizontalContentAlignment" Value="Left" />
+        <Setter Property="Template">
+            <ControlTemplate>
+                <Border Name="PART_Border"
+                        Background="{TemplateBinding Background}"
+                        CornerRadius="{TemplateBinding CornerRadius}"
+                        Padding="{TemplateBinding Padding}">
+                    <StackPanel Name="PART_Stack" Orientation="Horizontal" Spacing="6"
+                                HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}">
+                        <PathIcon Name="PART_Icon" Data="{TemplateBinding Icon}" Width="16" Height="16"
+                                  Foreground="{TemplateBinding Foreground}" />
+                        <TextBlock Name="PART_Label" Text="{TemplateBinding Label}" FontSize="12"
+                                   VerticalAlignment="Center" />
+                    </StackPanel>
+                </Border>
+            </ControlTemplate>
+        </Setter>
+
+        <Style Selector="^:pointerover /template/ Border#PART_Border">
+            <Setter Property="Background" Value="{DynamicResource HoverBrush}" />
+        </Style>
+        <Style Selector="^:checked /template/ Border#PART_Border">
+            <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}" />
+        </Style>
+        <Style Selector="^:checked">
+            <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
+        </Style>
+        <Style Selector="^:disabled">
+            <Setter Property="Foreground" Value="{DynamicResource TextDisabledBrush}" />
+        </Style>
+
+        <Style Selector="^.large">
+            <Setter Property="Padding" Value="6,6,6,4" />
+            <Setter Property="MinWidth" Value="54" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalAlignment" Value="Stretch" />
+        </Style>
+        <Style Selector="^.large /template/ StackPanel#PART_Stack">
+            <Setter Property="Orientation" Value="Vertical" />
+            <Setter Property="Spacing" Value="5" />
+        </Style>
+        <Style Selector="^.large /template/ PathIcon#PART_Icon">
+            <Setter Property="Width" Value="{DynamicResource IconLarge}" />
+            <Setter Property="Height" Value="{DynamicResource IconLarge}" />
+        </Style>
+        <Style Selector="^.large /template/ TextBlock#PART_Label">
+            <Setter Property="TextAlignment" Value="Center" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+            <Setter Property="MaxWidth" Value="112" />  <!-- „Zusammenführen“ ohne Umbruch -->
+            <Setter Property="HorizontalAlignment" Value="Center" />
+            <Setter Property="VerticalAlignment" Value="Top" />
+        </Style>
+        <Style Selector="^.icon /template/ TextBlock#PART_Label">
+            <Setter Property="IsVisible" Value="False" />
+        </Style>
+        <Style Selector="^.icon">
+            <Setter Property="Padding" Value="5" />
+        </Style>
+    </ControlTheme>
+
+    <ControlTheme x:Key="{x:Type c:RibbonGroup}" TargetType="c:RibbonGroup">
+        <Setter Property="Template">
+            <ControlTemplate>
+                <Grid ColumnDefinitions="Auto,Auto" RowDefinitions="*,Auto">
+                    <ContentPresenter Name="PART_ContentPresenter"
+                                      Content="{TemplateBinding Content}"
+                                      Margin="4,6,4,0"
+                                      VerticalAlignment="Stretch" />
+                    <ContentPresenter Name="PART_HeaderPresenter" Grid.Row="1"
+                                      Content="{TemplateBinding Header}"
+                                      HorizontalAlignment="Center"
+                                      Margin="4,0,4,4"
+                                      Foreground="{DynamicResource TextMutedBrush}"
+                                      FontSize="{DynamicResource FontSizeSmall}" />
+                    <Border Grid.Column="1" Grid.RowSpan="2" Width="1" Margin="4,10"
+                            Background="{DynamicResource LineBrush}" />
+                </Grid>
+            </ControlTemplate>
+        </Setter>
+    </ControlTheme>
+
+</ResourceDictionary>

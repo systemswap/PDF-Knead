@@ -1,0 +1,118 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             Background="{DynamicResource SurfaceAltBrush}"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:l="using:PdfKnead.Localization"
+             xmlns:vm="using:PdfKnead.ViewModels"
+             xmlns:ed="using:PdfKnead.Core.Pdf.Editing"
+             x:Class="PdfKnead.Views.TextPropertiesPanel"
+             x:DataType="vm:MainViewModel">
+    <!-- Format of the selected text element, or of the next one while the "Text" tool is on; right-hand like shapes and images -->
+    <UserControl.Resources>
+        <DataTemplate x:Key="FontTemplate" x:DataType="vm:FontOption">
+            <TextBlock>
+                <TextBlock.Text>
+                    <MultiBinding Converter="{x:Static l:T.Translate}">
+                        <Binding Path="Label" />
+                        <x:Static Member="l:T.LanguageVersion" />
+                    </MultiBinding>
+                </TextBlock.Text>
+            </TextBlock>
+        </DataTemplate>
+        <DataTemplate x:Key="ColorTemplate" x:DataType="vm:ColorOption">
+            <StackPanel Orientation="Horizontal" Spacing="6">
+                <Border Width="14" Height="14" CornerRadius="3" Background="{Binding Brush}" BorderBrush="{DynamicResource LineStrongBrush}"
+                        BorderThickness="1" VerticalAlignment="Center" />
+                <TextBlock VerticalAlignment="Center">
+                    <TextBlock.Text>
+                        <MultiBinding Converter="{x:Static l:T.Translate}">
+                            <Binding Path="Label" />
+                            <x:Static Member="l:T.LanguageVersion" />
+                        </MultiBinding>
+                    </TextBlock.Text>
+                </TextBlock>
+            </StackPanel>
+        </DataTemplate>
+    </UserControl.Resources>
+    <UserControl.Styles>
+        <StyleInclude Source="avares://PdfKnead.Ui/Styles/PropertyPanel.axaml" />
+    </UserControl.Styles>
+
+    <DockPanel>
+        <Border DockPanel.Dock="Top" Classes="propBanner">
+            <Grid ColumnDefinitions="Auto,*">
+                <Border Classes="bannerIcon"><PathIcon Data="{StaticResource Icon.TextT}" /></Border>
+                <TextBlock Grid.Column="1" Margin="10,0,0,0" FontWeight="SemiBold" FontSize="14" VerticalAlignment="Center" Text="{l:T 'Text'}" />
+            </Grid>
+        </Border>
+        <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+            <StackPanel Margin="0,0,0,12">
+                <TextBlock Classes="hint" Margin="14,10,14,0" IsVisible="{Binding !HasTextElementSelected}"
+                           Text="{l:T 'Gilt für den nächsten Text auf der Seite.'}" />
+
+                <!-- Font -->
+                <Border Classes="propCard">
+                    <StackPanel>
+                        <StackPanel Classes="propHeader">
+                            <Border Classes="propBadge"><PathIcon Data="{StaticResource Icon.TextT}" /></Border>
+                            <TextBlock Classes="propTitle" Text="{l:T 'Schrift'}" />
+                        </StackPanel>
+                        <TextBlock Classes="caption" Text="{l:T 'Schriftart'}" />
+                        <ComboBox ItemsSource="{x:Static vm:MainViewModel.FontOptions}" SelectedItem="{Binding TextFont}"
+                                  ItemTemplate="{StaticResource FontTemplate}" AutomationProperties.Name="{l:T 'Schriftart'}"
+                                  ToolTip.Tip="{l:T 'Schriftart (eingebettet: Liberation Sans, Serif oder Mono)'}" />
+                        <Grid ColumnDefinitions="Auto,*" Margin="0,8,0,0">
+                            <StackPanel Grid.Column="0">
+                                <TextBlock Classes="caption" Text="{l:T 'Schriftgröße'}" />
+                                <ComboBox Width="96" IsEditable="True" VerticalContentAlignment="Center" ItemsSource="{x:Static vm:MainViewModel.FontSizes}" SelectedItem="{Binding TextSize}"
+                                          Text="{Binding TextSizeText, UpdateSourceTrigger=LostFocus}" AutomationProperties.Name="{l:T 'Schriftgröße'}"
+                                          ToolTip.Tip="{l:T 'Schriftgröße in Punkt (auch eigene Werte eintippen)'}" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Margin="10,0,0,0">
+                                <TextBlock Classes="caption" Text="{l:T 'Textfarbe'}" />
+                                <ComboBox ItemsSource="{x:Static vm:MainViewModel.ColorOptions}" SelectedItem="{Binding TextColor}"
+                                          ItemTemplate="{StaticResource ColorTemplate}" AutomationProperties.Name="{l:T 'Textfarbe'}"
+                                          ToolTip.Tip="{l:T 'Textfarbe'}" />
+                            </StackPanel>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <!-- Paragraph: alignment and wrapping -->
+                <Border Classes="propCard">
+                    <StackPanel>
+                        <StackPanel Classes="propHeader">
+                            <Border Classes="propBadge"><PathIcon Data="{StaticResource Icon.TextAlignLeft}" /></Border>
+                            <TextBlock Classes="propTitle" Text="{l:T 'Absatz'}" />
+                        </StackPanel>
+                        <TextBlock Classes="caption" Text="{l:T 'Ausrichtung'}" />
+                        <Border Classes="segment" HorizontalAlignment="Left">
+                            <StackPanel Orientation="Horizontal" Spacing="2">
+                                <ToggleButton Classes="seg" IsChecked="{Binding AlignLeft, Mode=OneWay}" AutomationProperties.Name="{l:T 'Linksbündig'}"
+                                              Command="{Binding SetAlignmentCommand}" CommandParameter="{x:Static ed:ElementAlignment.Left}"
+                                              ToolTip.Tip="{l:T 'Linksbündig'}">
+                                    <PathIcon Data="{StaticResource Icon.TextAlignLeft}" Width="14" Height="14" />
+                                </ToggleButton>
+                                <ToggleButton Classes="seg" IsChecked="{Binding AlignCenter, Mode=OneWay}" AutomationProperties.Name="{l:T 'Zentriert'}"
+                                              Command="{Binding SetAlignmentCommand}" CommandParameter="{x:Static ed:ElementAlignment.Center}"
+                                              ToolTip.Tip="{l:T 'Zentriert'}">
+                                    <PathIcon Data="{StaticResource Icon.TextAlignCenter}" Width="14" Height="14" />
+                                </ToggleButton>
+                                <ToggleButton Classes="seg" IsChecked="{Binding AlignRight, Mode=OneWay}" AutomationProperties.Name="{l:T 'Rechtsbündig'}"
+                                              Command="{Binding SetAlignmentCommand}" CommandParameter="{x:Static ed:ElementAlignment.Right}"
+                                              ToolTip.Tip="{l:T 'Rechtsbündig'}">
+                                    <PathIcon Data="{StaticResource Icon.TextAlignRight}" Width="14" Height="14" />
+                                </ToggleButton>
+                            </StackPanel>
+                        </Border>
+                        <CheckBox Margin="0,10,0,0" IsChecked="{Binding TextMultiline}" Content="{l:T 'Lange Zeilen umbrechen'}"
+                                  ToolTip.Tip="{l:T 'Lange Zeilen am Rand umbrechen (sonst nur bei Zeilenumbrüchen)'}" />
+                    </StackPanel>
+                </Border>
+
+                <!-- A text that became a fillable field in an older version: its field properties live in the Form tab -->
+                <TextBlock Classes="hint" Margin="14,4,14,0" IsVisible="{Binding HasFieldSelected}"
+                           Text="{l:T 'Dieser Text ist ein ausfüllbares Feld. Name, Format und weitere Feldeigenschaften stehen im Reiter „Formular“.'}" />
+            </StackPanel>
+        </ScrollViewer>
+    </DockPanel>
+</UserControl>

@@ -1,0 +1,27 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:l="using:PdfKnead.Localization"
+        x:Class="PdfKnead.Views.FirstUpdateWindow"
+        Title="{l:T 'Nach Updates suchen?'}"
+        Icon="/Assets/app.ico"
+        Width="520" SizeToContent="Height"
+        CanResize="False" ShowInTaskbar="False"
+        WindowStartupLocation="CenterOwner">
+    <!-- asked once at the first start (KONZEPT §5.26; decided on 18.11.2026: off at first, ask once, as for the certificate) -->
+    <StackPanel Margin="24" Spacing="14">
+        <StackPanel Orientation="Horizontal" Spacing="12">
+            <Border Width="40" Height="40" CornerRadius="20" Background="{DynamicResource AccentSoftBrush}">
+                <PathIcon Data="{StaticResource Icon.Info}" Width="20" Height="20" Foreground="{DynamicResource AccentBrush}" />
+            </Border>
+            <TextBlock VerticalAlignment="Center" FontWeight="SemiBold" FontSize="15" Text="{l:T 'Nach Updates suchen?'}" />
+        </StackPanel>
+        <TextBlock TextWrapping="Wrap"
+                   Text="{l:T 'PDF-Knead kann beim Start höchstens einmal am Tag nachsehen, ob es eine neue Fassung gibt. Gefragt wird nur nach einer Versionsdatei auf GitHub — nichts über Sie oder Ihre Dokumente. Ein Update wird erst nach Ihrem Klick geladen und nur installiert, wenn seine Signatur stimmt.'}" />
+        <TextBlock Classes="muted" FontSize="12" TextWrapping="Wrap"
+                   Text="{l:T 'Sie können das jederzeit unter Datei → Einstellungen → Updates ändern oder dort von Hand nach Updates suchen.'}" />
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,4,0,0">
+            <Button Name="NoButton" Content="{l:T 'Nicht suchen'}" Click="OnNo" IsCancel="True" />
+            <Button Name="YesButton" Classes="primary" Content="{l:T 'Updates einschalten'}" Click="OnYes" IsDefault="True" />
+        </StackPanel>
+    </StackPanel>
+</Window>

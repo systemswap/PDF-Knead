@@ -1,0 +1,196 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             Background="{DynamicResource SurfaceAltBrush}"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:l="using:PdfKnead.Localization"
+             xmlns:vm="using:PdfKnead.ViewModels"
+             xmlns:views="using:PdfKnead.Views"
+             x:Class="PdfKnead.Views.ContentImagePanel"
+             x:DataType="vm:DocumentViewModel">
+    <!-- Bild (KONZEPT §5.20, Teil von „Bearbeiten“ §5.22): Lage, Größe, Drehen, Ersetzen, Zuschneiden und die Angaben des gewählten Bilds -->
+    <UserControl.Styles>
+        <StyleInclude Source="avares://PdfKnead.Ui/Styles/PropertyPanel.axaml" />
+    </UserControl.Styles>
+
+    <DockPanel>
+        <!-- B7 (29.10.2026): die Auswahl als ein Objekt als Vektor kopieren, in dieses oder ein anderes Dokument einfügen -->
+        <WrapPanel DockPanel.Dock="Bottom" Margin="12,0,6,0" Orientation="Horizontal">
+            <Button Margin="0,0,6,6" x:Name="CopyObjectsButton" IsVisible="{Binding HasSelectedImages}"
+                    Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).CopyEditedObjectsCommand, FallbackValue={x:Null}}"
+                    AutomationProperties.Name="{l:T 'Kopieren'}">
+                <ToolTip.Tip><l:T Text="Die Auswahl als ein Objekt kopieren (Strg+C) — als Vektor: Linien bleiben scharf, Bilder in Originalqualität; andere Programme erhalten ein Bild" /></ToolTip.Tip>
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <PathIcon Data="{StaticResource Icon.Copy}" Width="16" Height="16" />
+                    <TextBlock Text="{l:T 'Kopieren'}" />
+                </StackPanel>
+            </Button>
+            <Button Margin="0,0,6,6" x:Name="PasteObjectsButton"
+                    IsVisible="{Binding $parent[Window].((vm:MainViewModel)DataContext).CopiedObjects, Converter={x:Static ObjectConverters.IsNotNull}, FallbackValue=False}"
+                    Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).PasteObjectsCommand, FallbackValue={x:Null}}"
+                    AutomationProperties.Name="{l:T 'Einfügen'}">
+                <ToolTip.Tip><l:T Text="Die kopierten Objekte als ein Objekt einfügen (Strg+V) — danach sind sie gewählt und lassen sich verschieben" /></ToolTip.Tip>
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <PathIcon Data="{StaticResource Icon.Add}" Width="16" Height="16" />
+                    <TextBlock Text="{l:T 'Einfügen'}" />
+                </StackPanel>
+            </Button>
+        </WrapPanel>
+        <!-- Bild kopieren und speichern wie bei Bildinfo (Wunsch vom 28.10.2026); aus Teilen zusammengesetzte Bilder als ein Bild -->
+        <WrapPanel DockPanel.Dock="Bottom" Margin="12,0,6,6" Orientation="Horizontal" IsVisible="{Binding SelectedAreImages}">
+            <Button Margin="0,0,6,6" x:Name="CopyImageButton"
+                    Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).CopyEditedImageCommand, FallbackValue={x:Null}}"
+                    AutomationProperties.Name="{l:T 'Bild kopieren'}">
+                <ToolTip.Tip><l:T Text="Das Bild in die Zwischenablage — aus Teilen zusammengesetzte Bilder als ein Bild, ohne Text darüber" /></ToolTip.Tip>
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <PathIcon Data="{StaticResource Icon.Image}" Width="16" Height="16" />
+                    <TextBlock Text="{l:T 'Bild kopieren'}" />
+                </StackPanel>
+            </Button>
+            <Button Margin="0,0,6,6" x:Name="SaveImageButton"
+                    Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).SaveEditedImageCommand, FallbackValue={x:Null}}"
+                    AutomationProperties.Name="{l:T 'Bild speichern …'}">
+                <ToolTip.Tip><l:T Text="Das Bild als Datei in seiner Originalqualität; aus Teilen zusammengesetzte Bilder als ein Bild in voller Auflösung, verlustfrei als PNG" /></ToolTip.Tip>
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <PathIcon Data="{StaticResource Icon.Save}" Width="16" Height="16" />
+                    <TextBlock Text="{l:T 'Bild speichern …'}" />
+                </StackPanel>
+            </Button>
+        </WrapPanel>
+        <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+            <StackPanel Margin="0,0,0,12">
+                <TextBlock Classes="hint" Margin="14,12,14,0" IsVisible="{Binding !HasSelectedImages}"
+                           Text="{l:T 'Ein Bild oder eine Grafik der Seite anklicken. Zusammengehörige Teile werden als Ganzes gewählt; Alt+Klick wählt, was darunter liegt, zuletzt ein einzelnes Teil; Strg+Klick nimmt dazu oder heraus.'}" />
+                <!-- Lage: Abstand von links und oben, wie auf der Seite gemessen -->
+                <Border Classes="propCard" IsVisible="{Binding HasSelectedImages}">
+                    <StackPanel>
+                        <StackPanel Classes="propHeader">
+                            <Border Classes="propBadge"><PathIcon Data="{StaticResource Icon.ArrowMove}" /></Border>
+                            <TextBlock Classes="propTitle" Text="{l:T 'Lage'}" />
+                        </StackPanel>
+                        <Grid ColumnDefinitions="*,12,*" Margin="0,4,0,0">
+                            <StackPanel Grid.Column="0">
+                                <TextBlock Classes="caption" Text="{l:T 'Von links (mm)'}" />
+                                <TextBox Text="{Binding ImageLeftMm, UpdateSourceTrigger=LostFocus}" AutomationProperties.Name="{l:T 'Abstand vom linken Seitenrand in Millimetern'}" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="2">
+                                <TextBlock Classes="caption" Text="{l:T 'Von oben (mm)'}" />
+                                <TextBox Text="{Binding ImageTopMm, UpdateSourceTrigger=LostFocus}" AutomationProperties.Name="{l:T 'Abstand vom oberen Seitenrand in Millimetern'}" />
+                            </StackPanel>
+                        </Grid>
+                        <TextBlock Classes="hint" Margin="0,8,0,0" Text="{l:T 'Ziehen verschiebt das Bild, die Pfeiltasten um einen Punkt (mit Umschalt um zehn).'}" />
+                    </StackPanel>
+                </Border>
+                <!-- Größe mit Kette (zu = proportional, offen = frei) -->
+                <Border Classes="propCard" IsVisible="{Binding HasSelectedImages}">
+                    <StackPanel>
+                        <StackPanel Classes="propHeader">
+                            <Border Classes="propBadge"><PathIcon Data="{StaticResource Icon.ArrowAutofitWidth}" /></Border>
+                            <TextBlock Classes="propTitle" Text="{l:T 'Größe'}" />
+                        </StackPanel>
+                        <Grid ColumnDefinitions="*,Auto,*" Margin="0,4,0,0">
+                            <StackPanel Grid.Column="0">
+                                <TextBlock Classes="caption" Text="{l:T 'Breite (mm)'}" />
+                                <TextBox Text="{Binding ImageWidthMm, UpdateSourceTrigger=LostFocus}" AutomationProperties.Name="{l:T 'Breite in Millimetern'}" />
+                            </StackPanel>
+                            <ToggleButton Grid.Column="1" Classes="chain" VerticalAlignment="Bottom" Margin="6,0,6,1" Padding="6" MinHeight="30"
+                                          Background="Transparent" BorderThickness="0" IsChecked="{Binding ImageKeepAspect}"
+                                          AutomationProperties.Name="{l:T 'Seitenverhältnis beibehalten'}">
+                                <ToolTip.Tip><l:T Text="Kette geschlossen: Seitenverhältnis bleibt, auch an den Griffen (Umschalt beim Ziehen kehrt es um). Kette offen: Breite und Höhe frei — das Bild wird gestreckt." /></ToolTip.Tip>
+                                <Panel>
+                                    <PathIcon Data="{StaticResource Icon.Link}" Width="18" Height="18" IsVisible="{Binding ImageKeepAspect}"
+                                              Foreground="{DynamicResource AccentBrush}" />
+                                    <PathIcon Data="{StaticResource Icon.LinkDismiss}" Width="18" Height="18" IsVisible="{Binding !ImageKeepAspect}"
+                                              Foreground="{DynamicResource TextMutedBrush}" />
+                                </Panel>
+                            </ToggleButton>
+                            <StackPanel Grid.Column="2">
+                                <TextBlock Classes="caption" Text="{l:T 'Höhe (mm)'}" />
+                                <TextBox Text="{Binding ImageHeightMm, UpdateSourceTrigger=LostFocus}" AutomationProperties.Name="{l:T 'Höhe in Millimetern'}" />
+                            </StackPanel>
+                        </Grid>
+                        <TextBlock Classes="hint" Margin="0,8,0,0" IsVisible="{Binding ImagePartsText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                   Text="{Binding ImagePartsText}" />
+                    </StackPanel>
+                </Border>
+                <!-- Zuschneiden (nur Bilder): ein Rahmen zeigt, was bleibt; das Weggeschnittene verlässt die Datei -->
+                <Border Classes="propCard" IsVisible="{Binding SelectedAreImages}">
+                    <StackPanel>
+                        <StackPanel Classes="propHeader">
+                            <Border Classes="propBadge"><PathIcon Data="{StaticResource Icon.ArrowAutofitWidth}" /></Border>
+                            <TextBlock Classes="propTitle" Text="{l:T 'Zuschneiden'}" />
+                        </StackPanel>
+                        <ToggleButton HorizontalAlignment="Left" Margin="0,4,0,0" Padding="10,6" x:Name="CropToggle" IsChecked="{Binding IsCroppingImages}"
+                                      Content="{l:T 'Mit den Griffen zuschneiden'}" AutomationProperties.Name="{l:T 'Mit den Griffen zuschneiden'}">
+                            <ToolTip.Tip><l:T Text="An: ein Rahmen zeigt, was bleibt — erst „Zuschneiden anwenden“ schneidet; der weggeschnittene Teil wird aus der Datei entfernt, nicht nur verdeckt" /></ToolTip.Tip>
+                        </ToggleButton>
+                        <TextBlock Classes="hint" Margin="0,8,0,0" IsVisible="{Binding IsCroppingImages}"
+                                   Text="{l:T 'Die Griffe verkleinern den Rahmen, Ziehen im Bild verschiebt ihn; das Bild bleibt ganz sichtbar. „Zuschneiden anwenden“ oder Enter schneidet, Esc bricht ab.'}" />
+                        <Button HorizontalAlignment="Left" Margin="0,8,0,0" Padding="10,6" x:Name="ApplyCropButton" IsVisible="{Binding IsCroppingImages}"
+                                Classes="primary" Command="{Binding ApplyCropCommand}" Content="{l:T 'Zuschneiden anwenden'}"
+                                AutomationProperties.Name="{l:T 'Zuschneiden anwenden'}">
+                            <ToolTip.Tip><l:T Text="Das Bild auf den Rahmen zuschneiden (Enter) — der Teil außerhalb wird aus der Datei entfernt; Rückgängig holt ihn zurück" /></ToolTip.Tip>
+                        </Button>
+                    </StackPanel>
+                </Border>
+                <!-- Drehen: in 90°-Schritten oder auf einen Winkel -->
+                <Border Classes="propCard" IsVisible="{Binding HasSelectedImages}">
+                    <StackPanel>
+                        <StackPanel Classes="propHeader">
+                            <Border Classes="propBadge"><PathIcon Data="{StaticResource Icon.ArrowRotateClockwise}" /></Border>
+                            <TextBlock Classes="propTitle" Text="{l:T 'Drehen'}" />
+                        </StackPanel>
+                        <Grid ColumnDefinitions="Auto,6,Auto,12,*" Margin="0,4,0,0">
+                            <Button Grid.Column="0" VerticalAlignment="Bottom" Padding="8,6" Command="{Binding TurnImagesLeftCommand}"
+                                    AutomationProperties.Name="{l:T 'Um 90° nach links drehen'}">
+                                <ToolTip.Tip><l:T Text="Um 90° gegen den Uhrzeigersinn drehen" /></ToolTip.Tip>
+                                <PathIcon Data="{StaticResource Icon.ArrowRotateCounterclockwise}" Width="16" Height="16" />
+                            </Button>
+                            <Button Grid.Column="2" VerticalAlignment="Bottom" Padding="8,6" Command="{Binding TurnImagesRightCommand}"
+                                    AutomationProperties.Name="{l:T 'Um 90° nach rechts drehen'}">
+                                <ToolTip.Tip><l:T Text="Um 90° im Uhrzeigersinn drehen" /></ToolTip.Tip>
+                                <PathIcon Data="{StaticResource Icon.ArrowRotateClockwise}" Width="16" Height="16" />
+                            </Button>
+                            <StackPanel Grid.Column="4">
+                                <TextBlock Classes="caption" Text="{l:T 'Winkel (°)'}" />
+                                <TextBox Text="{Binding ImageAngle, UpdateSourceTrigger=LostFocus}" AutomationProperties.Name="{l:T 'Winkel in Grad'}">
+                                    <ToolTip.Tip><l:T Text="Winkel in Grad: 0 = gerade, positiv im Uhrzeigersinn, negativ dagegen; eintragen dreht das Bild um seine Mitte" /></ToolTip.Tip>
+                                </TextBox>
+                            </StackPanel>
+                        </Grid>
+                        <!-- 0° in der Mitte, je 180° nach links und rechts (Wunsch vom 28.10.2026); eine Bewegung des Reglers ist ein Rückgängig-Schritt -->
+                        <Slider Margin="0,6,0,0" Minimum="-180" Maximum="180" SmallChange="1" LargeChange="15" Value="{Binding ImageAngleDegrees}"
+                                AutomationProperties.Name="{l:T 'Winkel einstellen'}">
+                            <ToolTip.Tip><l:T Text="Das Bild frei drehen: Mitte = gerade, nach rechts im Uhrzeigersinn, nach links dagegen, je bis 180°" /></ToolTip.Tip>
+                        </Slider>
+                    </StackPanel>
+                </Border>
+                <!-- Ersetzen und löschen: wirklich aus der Datei, nicht nur verdeckt -->
+                <Border Classes="propCard" IsVisible="{Binding HasSelectedImages}">
+                    <StackPanel Spacing="6">
+                        <Button HorizontalAlignment="Left" Padding="10,6" x:Name="ReplaceImageButton"
+                                Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).ReplaceEditedImageCommand, FallbackValue={x:Null}}"
+                                AutomationProperties.Name="{l:T 'Bild ersetzen …'}">
+                            <ToolTip.Tip><l:T Text="Eine Bilddatei an seine Stelle setzen — in die Fläche des alten Bilds eingepasst, das alte verlässt die Datei" /></ToolTip.Tip>
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <PathIcon Data="{StaticResource Icon.Image}" Width="16" Height="16" />
+                                <TextBlock Text="{l:T 'Bild ersetzen …'}" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </Button>
+                        <Button HorizontalAlignment="Left" Padding="10,6" Command="{Binding DeleteImagesCommand}"
+                                AutomationProperties.Name="{l:T 'Bild löschen'}">
+                            <ToolTip.Tip><l:T Text="Das Bild aus der Seite entfernen (Entf) — es wird beim Speichern aus der Datei genommen, wenn keine andere Seite es zeigt" /></ToolTip.Tip>
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <PathIcon Data="{StaticResource Icon.Delete}" Width="16" Height="16" />
+                                <TextBlock Text="{l:T 'Bild löschen'}" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </Button>
+                    </StackPanel>
+                </Border>
+                <!-- Angaben zum Bild (KONZEPT §5.15): aufklappbar unter den Bearbeitungen, ohne eigenen Knopf im Ribbon -->
+                <Expander Margin="12,4,6,0" IsVisible="{Binding SelectedAreImages}" IsExpanded="{Binding ImageDetailsOpen}"
+                          Header="{l:T 'Angaben zum Bild'}" AutomationProperties.Name="{l:T 'Angaben zum Bild'}">
+                    <views:ImageInfoPanel Margin="-12,0,-6,0" />
+                </Expander>
+            </StackPanel>
+        </ScrollViewer>
+    </DockPanel>
+</UserControl>

@@ -1,0 +1,297 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:l="using:PdfKnead.Localization"
+             xmlns:local="using:PdfKnead.EInvoice.Ui"
+             x:Class="PdfKnead.EInvoice.Ui.EInvoicePanel"
+             x:DataType="local:EInvoicePanelViewModel">
+    <!-- the area of the checker (KONZEPT §5.24 „Oberfläche“): overview; without an e-invoice a plain note, no error colour -->
+    <DockPanel>
+        <DockPanel DockPanel.Dock="Top" Margin="14,12,8,8">
+            <Button DockPanel.Dock="Right" Classes="soft small" Content="✕" Command="{Binding CloseCommand}"
+                    AutomationProperties.Name="{l:T 'Schließen'}" />
+            <TextBlock Classes="section" VerticalAlignment="Center" Text="{l:T 'E-Rechnung prüfen'}" />
+        </DockPanel>
+        <TextBlock DockPanel.Dock="Bottom" Margin="14,8,14,12" Classes="small muted" TextWrapping="Wrap" Text="{Binding Disclaimer}" />
+        <ScrollViewer>
+            <StackPanel Margin="14,4,14,8" Spacing="10">
+                <DockPanel IsVisible="{Binding IsBusy}">
+                    <Button DockPanel.Dock="Right" Classes="soft small" Content="{l:T 'Abbrechen'}" Command="{Binding CancelCommand}" />
+                    <TextBlock Name="BusyText" Classes="muted" VerticalAlignment="Center" Text="{l:T 'Prüfe …'}" />
+                </DockPanel>
+                <TextBlock Name="SourceLine" Classes="small" FontWeight="SemiBold" TextWrapping="Wrap" Text="{Binding SourceText}"
+                           IsVisible="{Binding !FromPdf}" />
+                <TextBlock Name="SizeLine" Classes="small" TextWrapping="Wrap" Foreground="{DynamicResource WarnBrush}" Text="{Binding SizeHint}"
+                           IsVisible="{Binding SizeHint, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                <TextBlock Name="ErrorText" TextWrapping="Wrap" Foreground="{DynamicResource DangerBrush}" Text="{Binding Error}"
+                           IsVisible="{Binding Error, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+
+                <!-- E4, deviations first: the identity of the invoice where it stands nowhere visibly in the PDF -->
+                <Border Name="DeviationBox" BorderThickness="1" BorderBrush="{DynamicResource WarnBrush}" CornerRadius="{DynamicResource RadiusControl}"
+                        Padding="10,8" IsVisible="{Binding HasDeviation}">
+                    <StackPanel Spacing="4">
+                        <TextBlock Name="DeviationLine" Classes="small" FontWeight="SemiBold" TextWrapping="Wrap" Foreground="{DynamicResource WarnBrush}"
+                                   Text="{Binding DeviationText}" />
+                        <TextBlock Classes="small" TextWrapping="Wrap"
+                                   Text="{l:T 'Was heißt das für Sie? Maßgeblich ist die E-Rechnung (XML): Bei Abweichungen gehen ihre Daten dem sichtbaren Teil vor (UStAE 14.4). Passt die sichtbare Seite nicht zu ihr, klären Sie mit dem Absender, welche Rechnung gilt — ein abweichender sichtbarer Teil kann als weitere Rechnung gelten (UStAE 14c.1 Abs. 4a).'}" />
+                    </StackPanel>
+                </Border>
+
+                <!-- for the buyer (KONZEPT §5.24, „Hilfen für den Einkäufer“): first the payment — what to pay to whom, and what to check before -->
+                <StackPanel Name="PurchaseSection" Spacing="6" IsVisible="{Binding HasPurchase}">
+                    <TextBlock Classes="small muted" FontWeight="SemiBold" Text="{l:T 'Für den Einkauf'}" />
+                    <Border Name="PaymentBox" BorderThickness="1" CornerRadius="{DynamicResource RadiusControl}" Padding="10,8"
+                            Classes.warn="{Binding HasPaymentWarnings}" IsVisible="{Binding HasPayment}">
+                        <Border.Styles>
+                            <Style Selector="Border">
+                                <Setter Property="BorderBrush" Value="{DynamicResource LineBrush}" />
+                            </Style>
+                            <Style Selector="Border.warn">
+                                <Setter Property="BorderBrush" Value="{DynamicResource WarnBrush}" />
+                            </Style>
+                        </Border.Styles>
+                        <StackPanel Spacing="4">
+                            <TextBlock FontWeight="SemiBold" Text="{l:T 'Zahlung'}" />
+                            <ItemsControl Name="PaymentWarningList" ItemsSource="{Binding PaymentWarnings}" IsVisible="{Binding HasPaymentWarnings}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="x:String">
+                                        <TextBlock Classes="small" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,0,0,4" Foreground="{DynamicResource WarnBrush}" Text="{Binding}" />
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <!-- the notes at the top, under the warnings, in the colour of the text: at the foot in grey the missing account was
+                                 overlooked (decided on 15.11.2026: „die fehlende IBAN … nicht gesehen“) -->
+                            <ItemsControl Name="PaymentNoteList" ItemsSource="{Binding PaymentNotes}" IsVisible="{Binding HasPaymentNotes}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="x:String">
+                                        <TextBlock Classes="small" TextWrapping="Wrap" Margin="0,0,0,4" Text="{Binding}" />
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <!-- a row whose value stands on the page: a click marks all its places, each further click goes to the next -->
+                            <ItemsControl Name="PaymentRowList" ItemsSource="{Binding PaymentRows}">
+                                <!-- a row a warning is about: in the warning colour where it stands (the order kept) -->
+                                <ItemsControl.Styles>
+                                    <Style Selector="TextBlock.warnRow">
+                                        <Setter Property="Foreground" Value="{DynamicResource WarnBrush}" />
+                                        <Setter Property="FontWeight" Value="SemiBold" />
+                                    </Style>
+                                </ItemsControl.Styles>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="local:PaymentRow">
+                                        <Button Classes="subtle" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" Padding="2,1" Margin="-2,0,-2,1"
+                                                Command="{Binding RevealCommand}" IsHitTestVisible="{Binding HasPlace}" Focusable="{Binding HasPlace}"
+                                                ToolTip.Tip="{l:T 'Markiert alle Stellen in der PDF — jeder weitere Klick springt zur nächsten.'}">
+                                            <Grid ColumnDefinitions="120,*">
+                                                <TextBlock Classes="small muted" Classes.warnRow="{Binding Warn}" TextWrapping="Wrap" Text="{Binding Label}" />
+                                                <TextBlock Grid.Column="1" Classes="small" Classes.warnRow="{Binding Warn}" TextWrapping="Wrap">
+                                                    <Run Text="{Binding Value}" /><Run Text="  " /><Run Classes="muted" Text="{Binding Page}" />
+                                                </TextBlock>
+                                            </Grid>
+                                        </Button>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                    </Border>
+                    <!-- the mandatory details of § 14 Abs. 4 UStG: whether each stands in the XML, not whether it is right -->
+                    <Expander Name="MandatorySection" IsVisible="{Binding HasMandatory}" IsExpanded="{Binding MandatoryOpen}" HorizontalAlignment="Stretch">
+                        <Expander.Header>
+                            <TextBlock Name="MandatoryHeader" TextWrapping="Wrap" Text="{Binding MandatorySummary}" Classes.missingHead="{Binding HasMandatoryMissing}">
+                                <TextBlock.Styles>
+                                    <Style Selector="TextBlock.missingHead">
+                                        <Setter Property="Foreground" Value="{DynamicResource WarnBrush}" />
+                                        <Setter Property="FontWeight" Value="SemiBold" />
+                                    </Style>
+                                </TextBlock.Styles>
+                            </TextBlock>
+                        </Expander.Header>
+                        <StackPanel Spacing="3">
+                            <TextBlock Classes="small muted" TextWrapping="Wrap" Text="{Binding MandatoryNote}" IsVisible="{Binding HasMandatoryNote}" />
+                            <ItemsControl ItemsSource="{Binding MandatoryRows}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="local:MandatoryRow">
+                                        <StackPanel Margin="0,0,0,4" Spacing="1">
+                                            <TextBlock Classes="small" TextWrapping="Wrap" Text="{Binding Text}" />
+                                            <TextBlock Classes="small" TextWrapping="Wrap" Text="{Binding State}" Classes.missing="{Binding Missing}">
+                                                <TextBlock.Styles>
+                                                    <Style Selector="TextBlock">
+                                                        <Setter Property="Foreground" Value="{DynamicResource TextMutedBrush}" />
+                                                    </Style>
+                                                    <Style Selector="TextBlock.missing">
+                                                        <Setter Property="Foreground" Value="{DynamicResource WarnBrush}" />
+                                                        <Setter Property="FontWeight" Value="SemiBold" />
+                                                    </Style>
+                                                </TextBlock.Styles>
+                                            </TextBlock>
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <TextBlock Classes="small muted" TextWrapping="Wrap"
+                                       Text="{l:T 'Geprüft wird, ob die Angaben in der XML stehen — nicht, ob sie stimmen.'}" />
+                        </StackPanel>
+                    </Expander>
+                </StackPanel>
+
+                <!-- no e-invoice: what there is instead -->
+                <StackPanel Name="NoInvoiceSection" Spacing="6" IsVisible="{Binding NoInvoice}">
+                    <TextBlock TextWrapping="Wrap" FontWeight="SemiBold" Text="{Binding NoInvoiceText}" />
+                </StackPanel>
+                <TextBlock Name="NoAttachmentsText" Classes="small muted" Text="{l:T 'Keine Anhänge.'}" IsVisible="{Binding NoAttachmentsNote}" />
+                <!-- an XRechnung of its own: XRechnungen mostly come as a loose XML file (also by dropping it on the area) -->
+                <StackPanel Name="LooseFileSection" Spacing="4" IsVisible="{Binding OfferLooseFile}">
+                    <Button Name="CheckFileButton" Classes="soft" HorizontalAlignment="Left" Content="{l:T 'XRechnung als eigene Datei prüfen …'}"
+                            Command="{Binding CheckFileCommand}" />
+                    <TextBlock Classes="small muted" TextWrapping="Wrap" Text="{l:T 'oder eine XML-Datei auf dieses Feld ziehen'}" />
+                </StackPanel>
+
+                <!-- the overview of an e-invoice -->
+                <Grid Name="OverviewSection" ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto" IsVisible="{Binding HasInvoice}">
+                    <TextBlock Grid.Row="0" Classes="small muted" Margin="0,0,12,4" Text="{l:T 'Format'}" />
+                    <TextBlock Grid.Row="0" Grid.Column="1" Classes="small" TextWrapping="Wrap" Text="{Binding FormatText}" />
+                    <TextBlock Grid.Row="1" Classes="small muted" Margin="0,0,12,4" Text="{l:T 'Profil'}" />
+                    <TextBlock Grid.Row="1" Grid.Column="1" Classes="small" TextWrapping="Wrap" Text="{Binding ProfileText}" />
+                    <TextBlock Grid.Row="2" Classes="small muted" Margin="0,0,12,4" Text="{l:T 'Regelstand'}" />
+                    <TextBlock Grid.Row="2" Grid.Column="1" Classes="small" TextWrapping="Wrap" Text="{Binding RulesText}" />
+                </Grid>
+                <TextBlock Name="CountText" TextWrapping="Wrap" FontWeight="SemiBold" Text="{Binding CountText}" IsVisible="{Binding HasInvoice}" />
+                <TextBlock Classes="small" TextWrapping="Wrap" Text="{Binding TaxText}"
+                           IsVisible="{Binding TaxText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                <!-- E4: what the findings mean, kind by kind, the weightiest first -->
+                <StackPanel Name="MeaningSection" Spacing="3" IsVisible="{Binding HasMeaning}">
+                    <TextBlock Classes="small" FontWeight="SemiBold" Text="{l:T 'Was heißt das für Sie?'}" />
+                    <ItemsControl Name="MeaningList" ItemsSource="{Binding MeaningRows}">
+                        <ItemsControl.Styles>
+                            <Style Selector="TextBlock.warnRow">
+                                <Setter Property="Foreground" Value="{DynamicResource WarnBrush}" />
+                                <Setter Property="FontWeight" Value="SemiBold" />
+                            </Style>
+                        </ItemsControl.Styles>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="local:MeaningRow">
+                                <TextBlock Classes="small" Classes.warnRow="{Binding Warn}" TextWrapping="Wrap" Margin="0,0,0,3" Text="{Binding Text}" />
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+
+                <!-- what finding and reading noticed (stage 1) -->
+                <StackPanel Spacing="4" IsVisible="{Binding HasFindings}">
+                    <TextBlock Classes="small muted" Text="{l:T 'Befunde beim Lesen:'}" />
+                    <ItemsControl ItemsSource="{Binding Findings}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="x:String">
+                                <TextBlock Classes="small" TextWrapping="Wrap" Margin="0,0,0,4" Text="{Binding}" />
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+
+                <!-- the readable invoice: a representation, not the invoice -->
+                <Expander Name="InvoiceSection" Header="{Binding InvoiceHeader}" IsVisible="{Binding HasInvoice}" HorizontalAlignment="Stretch">
+                    <StackPanel Spacing="2">
+                        <TextBlock Classes="small muted" TextWrapping="Wrap" Text="{Binding InvoiceDisclaimer}" Margin="0,0,0,4" />
+                        <ItemsControl ItemsSource="{Binding InvoiceRows}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="local:InvoiceRow">
+                                    <TextBlock Classes="small" TextWrapping="Wrap" Margin="{Binding Indent}" Text="{Binding Text}"
+                                               Classes.group="{Binding IsGroup}">
+                                        <TextBlock.Styles>
+                                            <Style Selector="TextBlock.group">
+                                                <Setter Property="FontWeight" Value="SemiBold" />
+                                            </Style>
+                                        </TextBlock.Styles>
+                                    </TextBlock>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <TextBlock Classes="small muted" Text="{Binding InvoiceMore}" IsVisible="{Binding HasMore}" />
+                    </StackPanel>
+                </Expander>
+
+                <!-- each value against the visible text; a found one jumps to its place -->
+                <Expander Name="MatchSection" Header="{Binding MatchHeader}" IsVisible="{Binding ShowPdfSections}" HorizontalAlignment="Stretch">
+                    <StackPanel Spacing="6">
+                        <TextBlock Classes="small muted" TextWrapping="Wrap" Text="{Binding MatchSummary}" />
+                        <TextBlock Name="FoundMeaning" Classes="small muted" TextWrapping="Wrap"
+                                   Text="{l:T '„gefunden“ heißt: Der Wert steht sichtbar in der PDF. Welche Stelle zu welchem Feld gehört, prüft PDF-Knead nicht — bei mehreren Stellen springt jeder Klick zur nächsten.'}" />
+                        <ItemsControl ItemsSource="{Binding Matches}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="local:MatchRow">
+                                    <Button Classes="flat" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="4,3"
+                                            Command="{Binding RevealCommand}" IsEnabled="{Binding HasPlace}">
+                                        <StackPanel Spacing="1">
+                                            <TextBlock Classes="small" TextWrapping="Wrap">
+                                                <Run Text="{Binding Status}" FontWeight="SemiBold" /><Run Text=" · " /><Run Text="{Binding Term}" /><Run Text="  " /><Run Text="{Binding Page}" />
+                                            </TextBlock>
+                                            <TextBlock Classes="small muted" TextWrapping="Wrap" Text="{Binding Value}" />
+                                            <TextBlock Classes="small muted" TextWrapping="Wrap" Text="{Binding Note}"
+                                                       IsVisible="{Binding Note, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                        </StackPanel>
+                                    </Button>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </Expander>
+
+                <!-- the rules: the errors first, each with its identifier and where -->
+                <Expander Name="RulesSection" Header="{Binding RulesHeader}" IsVisible="{Binding HasInvoice}" HorizontalAlignment="Stretch">
+                    <ItemsControl ItemsSource="{Binding Rules}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="local:RuleRow">
+                                <StackPanel Margin="0,0,0,8" Spacing="1">
+                                    <TextBlock Classes="small" FontWeight="SemiBold" TextWrapping="Wrap">
+                                        <Run Text="{Binding Id}" /><Run Text=" · " /><Run Text="{Binding Weight}" /><Run Text=" · " /><Run Text="{Binding Meaning}" />
+                                    </TextBlock>
+                                    <TextBlock Classes="small" TextWrapping="Wrap" Text="{Binding Description}" />
+                                    <TextBlock Classes="small muted" TextWrapping="Wrap" Text="{Binding Where}" IsVisible="{Binding HasWhere}" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </Expander>
+
+                <!-- how the invoice lies in the PDF -->
+                <Expander Name="FileSection" Header="{Binding FileHeader}" IsVisible="{Binding ShowPdfSections}" HorizontalAlignment="Stretch">
+                    <ItemsControl ItemsSource="{Binding FileRows}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="local:FileRow">
+                                <Grid ColumnDefinitions="140,*" Margin="0,0,0,3">
+                                    <TextBlock Classes="small muted" TextWrapping="Wrap" Text="{Binding Label}" />
+                                    <TextBlock Grid.Column="1" Classes="small" TextWrapping="Wrap" Text="{Binding Value}" />
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </Expander>
+
+                <!-- the other attachments: shown and saved, never opened -->
+                <Expander Name="AttachmentsSection" Header="{Binding AttachmentsHeader}" IsVisible="{Binding ShowAttachments}"
+                          IsExpanded="{Binding AttachmentsOpen, Mode=TwoWay}" HorizontalAlignment="Stretch">
+                    <StackPanel Spacing="6">
+                        <ItemsControl ItemsSource="{Binding Attachments}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="local:AttachmentRow">
+                                    <DockPanel Margin="0,0,0,6">
+                                        <Button DockPanel.Dock="Right" Classes="soft small" Margin="8,0,0,0" VerticalAlignment="Top"
+                                                Content="{l:T 'Speichern …'}" Command="{Binding SaveCommand}" />
+                                        <TextBlock Classes="small" TextWrapping="Wrap" Text="{Binding Description}" Classes.danger="{Binding Dangerous}">
+                                            <TextBlock.Styles>
+                                                <Style Selector="TextBlock.danger">
+                                                    <Setter Property="Foreground" Value="{DynamicResource WarnBrush}" />
+                                                </Style>
+                                            </TextBlock.Styles>
+                                        </TextBlock>
+                                    </DockPanel>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <TextBlock Classes="small muted" TextWrapping="Wrap" Text="{Binding SaveNote}"
+                                   IsVisible="{Binding SaveNote, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                    </StackPanel>
+                </Expander>
+            </StackPanel>
+        </ScrollViewer>
+    </DockPanel>
+</UserControl>

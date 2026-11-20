@@ -1,0 +1,34 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:l="using:PdfKnead.Localization"
+        x:Class="PdfKnead.Views.FixSignaturesWindow"
+        Title="{l:T 'Unterschrift festschreiben?'}"
+        Icon="/Assets/app.ico"
+        Width="520" SizeToContent="Height"
+        CanResize="False" ShowInTaskbar="False"
+        WindowStartupLocation="CenterOwner">
+    <StackPanel Margin="24" Spacing="14">
+        <!-- Überschrift bricht notfalls um statt abgeschnitten zu werden (Windows-Skalierung, längere Übersetzungen) -->
+        <Grid ColumnDefinitions="Auto,12,*">
+            <Border Width="40" Height="40" CornerRadius="20" Background="{DynamicResource AccentSoftBrush}">
+                <PathIcon Data="{StaticResource Icon.Signature}" Width="20" Height="20"
+                          Foreground="{DynamicResource AccentBrush}" />
+            </Border>
+            <TextBlock Name="TitleText" Grid.Column="2" TextWrapping="Wrap" FontWeight="SemiBold" FontSize="15" VerticalAlignment="Center" Text="{l:T 'Unterschrift festschreiben?'}" />
+        </Grid>
+
+        <TextBlock Name="NoticeText" TextWrapping="Wrap" />
+
+        <!-- Wahlweise gleich als Bild flachlegen (Wunsch vom 22.10.2026): nur, wenn es nicht ohnehin vorgemerkt ist -->
+        <StackPanel Name="ImageOption" Spacing="2">
+            <CheckBox Name="AsImage" Content="{l:T 'Auch als Bild flachlegen'}" />
+            <TextBlock Classes="muted" TextWrapping="Wrap" Margin="28,0,0,0"
+                       Text="{l:T 'Als Bild lassen sich Text und Unterschrift nicht mehr herauslösen oder ändern – dafür ist der Text danach nicht mehr kopier- oder durchsuchbar.'}" />
+        </StackPanel>
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,4,0,0">
+            <Button Content="{l:T 'Abbrechen'}" Click="OnCancel" IsCancel="True" />
+            <Button Classes="primary" Content="{l:T 'Speichern'}" Click="OnSave" IsDefault="True" />
+        </StackPanel>
+    </StackPanel>
+</Window>

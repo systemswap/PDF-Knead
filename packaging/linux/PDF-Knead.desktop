@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=PDF-Knead
+GenericName=PDF-Editor
+Comment=PDF ansehen, teilen, zusammenführen, unterschreiben, schwärzen und drucken
+Exec=PDF-Knead %F
+Icon=pdf-knead
+Categories=Office;Viewer;Graphics;
+Keywords=PDF;Dokument;ansehen;teilen;zusammenführen;unterschreiben;schwärzen;drucken;
+Terminal=false
+StartupNotify=true
+StartupWMClass=PDF-Knead
+MimeType=application/pdf;

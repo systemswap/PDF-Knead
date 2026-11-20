@@ -1,0 +1,209 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:l="using:PdfKnead.Localization"
+        xmlns:v="using:PdfKnead.Views"
+        x:Class="PdfKnead.Views.RedactionWindow"
+        Title="{l:T 'Jetzt schwärzen?'}"
+        Icon="/Assets/app.ico"
+        Width="500" SizeToContent="Height"
+        CanResize="False" ShowInTaskbar="False"
+        WindowStartupLocation="CenterOwner">
+    <!-- Viele Möglichkeiten: der Inhalt rollt, wenn das Fenster höher würde als der Bildschirm; die Knöpfe bleiben unten sichtbar -->
+    <Window.Styles>
+        <Style Selector="ListBox.hits">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+        </Style>
+        <Style Selector="ListBox.hits ListBoxItem">
+            <Setter Property="Padding" Value="4,2" />
+            <Setter Property="MinHeight" Value="0" />
+            <Setter Property="Cursor" Value="Hand" />
+        </Style>
+    </Window.Styles>
+    <DockPanel Margin="24,24,24,24">
+    <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,14,0,0" Name="ButtonRow">
+            <Button Content="{l:T 'Weiter markieren'}" Click="OnKeepMarking" IsCancel="True">
+                <ToolTip.Tip>
+                    <l:T Text="Nichts schwärzen und zurück zum Markieren — was danach kommen sollte, unterbleibt." />
+                </ToolTip.Tip>
+            </Button>
+            <Button Classes="primary" Content="{l:T 'Jetzt schwärzen'}" Click="OnApply" IsDefault="True" />
+    </StackPanel>
+    <ScrollViewer HorizontalScrollBarVisibility="Disabled" Padding="0,0,8,0">
+    <StackPanel Spacing="14">
+        <StackPanel Orientation="Horizontal" Spacing="12">
+            <Border Width="40" Height="40" CornerRadius="20" Background="{DynamicResource AccentSoftBrush}">
+                <PathIcon Data="{StaticResource Icon.ShieldLock}" Width="20" Height="20" Foreground="{DynamicResource AccentBrush}" />
+            </Border>
+            <StackPanel VerticalAlignment="Center" Spacing="2">
+                <TextBlock FontWeight="SemiBold" FontSize="15" Text="{l:T 'Jetzt zuerst vollständig schwärzen?'}" />
+                <TextBlock Name="CountText" Classes="muted" TextWrapping="Wrap" MaxWidth="380" />
+            </StackPanel>
+        </StackPanel>
+
+        <TextBlock Name="ActionText" IsVisible="False" TextWrapping="Wrap" FontWeight="SemiBold" />
+
+        <TextBlock TextWrapping="Wrap"
+                   Text="{l:T 'Alles unter den Markierungen — Text, Bilder, Grafiken, Kommentare und Formularfelder — wird aus dem Dokument entfernt und durch schwarze Balken ersetzt. Strg+Z nimmt es zurück; endgültig gelöscht wird es erst beim Speichern.'}" />
+
+        <!-- Geschwärzter Text an weiteren Stellen: Klick auf eine Zeile springt dorthin und rahmt die Stelle (KONZEPT §5.6). Genau der markierte
+             Text ist vorgewählt, einzelne Wörter daraus nicht: dort würde nur das Wort schwarz, und es kann etwas anderes meinen. -->
+        <Border Name="UnredactedPanel" IsVisible="False" BorderBrush="{DynamicResource DangerBrush}" BorderThickness="1"
+                CornerRadius="{DynamicResource RadiusControl}" Padding="12,8">
+            <StackPanel Spacing="6">
+                <TextBlock Name="UnredactedTitle" FontWeight="SemiBold" TextWrapping="Wrap" />
+                <ListBox Name="UnredactedList" Classes="hits" MaxHeight="150" SelectionChanged="OnHitChosen"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled" AutomationProperties.Name="{l:T 'Weitere Stellen'}" />
+                <CheckBox Name="AlsoUnredacted" IsChecked="True" Content="{l:T 'Diese Stellen auch schwärzen'}" />
+            </StackPanel>
+        </Border>
+        <Border Name="WordsPanel" IsVisible="False" BorderBrush="{DynamicResource LineStrongBrush}" BorderThickness="1"
+                CornerRadius="{DynamicResource RadiusControl}" Padding="12,8">
+            <StackPanel Spacing="6">
+                <TextBlock Name="WordsTitle" FontWeight="SemiBold" TextWrapping="Wrap" />
+                <ListBox Name="WordsList" Classes="hits" MaxHeight="150" SelectionChanged="OnHitChosen"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled" AutomationProperties.Name="{l:T 'Einzelne Wörter'}" />
+                <CheckBox Name="AlsoWords" IsChecked="False" Content="{l:T 'Auch diese Wörter schwärzen'}" />
+                <TextBlock Name="WordsHint" Classes="muted" FontSize="12" TextWrapping="Wrap"
+                           Text="{l:T 'Schwarz wird nur das fett gesetzte Wort, nicht der Rest der Zeile.'}" />
+            </StackPanel>
+        </Border>
+
+        <!-- QR- und Barcodes (KONZEPT §5.19): nur teilweise gedeckt oder mit geschwärztem Text im Inhalt; je Code ein Häkchen -->
+        <Border Name="CodesPanel" IsVisible="False" BorderBrush="{DynamicResource DangerBrush}" BorderThickness="1"
+                CornerRadius="{DynamicResource RadiusControl}" Padding="12,8">
+            <StackPanel Spacing="6">
+                <TextBlock Name="CodesTitle" FontWeight="SemiBold" TextWrapping="Wrap" />
+                <ScrollViewer MaxHeight="180" HorizontalScrollBarVisibility="Disabled">
+                    <ItemsControl Name="CodesList">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="v:RedactionCodeChoice">
+                                <CheckBox IsChecked="{Binding Redact}" AutomationProperties.Name="{Binding Text}">
+                                    <TextBlock Text="{Binding Text}" FontSize="12" TextWrapping="Wrap" />
+                                </CheckBox>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+                <TextBlock Name="CodesHint" Classes="muted" FontSize="12" TextWrapping="Wrap"
+                           Text="{l:T 'Angehakte Codes bekommen einen Balken über den ganzen Code.'}" />
+                <TextBlock Name="CodesUnchecked" IsVisible="False" FontSize="12" TextWrapping="Wrap" />
+            </StackPanel>
+        </Border>
+
+        <Border Name="ElsewherePanel" IsVisible="False" BorderBrush="{DynamicResource DangerBrush}" BorderThickness="1"
+                CornerRadius="{DynamicResource RadiusControl}" Padding="12,8">
+            <StackPanel Spacing="6">
+                <TextBlock Name="ElsewhereText" FontWeight="SemiBold" TextWrapping="Wrap" />
+                <CheckBox Name="CleanElsewhere" IsChecked="True" Content="{l:T 'Gleich mit entfernen (Dokument bereinigen)'}" />
+                <TextBlock Name="KeepWarning" IsVisible="False" FontWeight="SemiBold" TextWrapping="Wrap" Foreground="{DynamicResource WarnBrush}" />
+                <TextBlock Name="ManualHint" IsVisible="False" Classes="muted" FontSize="12" TextWrapping="Wrap"
+                           Text="{l:T 'Formularfelder und eingefügte Texte bitte selbst ändern — sie werden nicht automatisch entfernt.'}" />
+            </StackPanel>
+        </Border>
+
+        <!-- Verborgenes und alte Texterkennung gleich mit entfernen (KONZEPT §5.6, „Schwärzen-Umbau“); sichere Vorgaben bei jedem Öffnen -->
+        <StackPanel Spacing="6">
+            <CheckBox Name="CleanHidden" IsChecked="True" AutomationProperties.Name="{l:T 'Verborgenes gleich mit entfernen'}"
+                      IsCheckedChanged="OnHiddenChoiceChanged">
+                <StackPanel Spacing="2">
+                    <TextBlock Text="{l:T 'Verborgenes gleich mit entfernen'}" />
+                    <TextBlock Classes="muted" FontSize="12" TextWrapping="Wrap" MaxWidth="400"
+                               Text="{l:T 'Was niemand sieht, Inhalte ausgeblendeter Ebenen und verdeckte Teile von Bildern. Vermutlich unsichtbaren Text (weiß auf weiß, verdeckt) entscheiden Sie selbst mit „Verborgenes schwärzen“.'}" />
+                </StackPanel>
+            </CheckBox>
+            <CheckBox Name="RemoveOcr" IsChecked="True" IsVisible="False" AutomationProperties.Name="{l:T 'Alte Texterkennung (OCR) entfernen'}"
+                      IsCheckedChanged="OnHiddenChoiceChanged">
+                <StackPanel Spacing="2">
+                    <TextBlock Text="{l:T 'Alte Texterkennung (OCR) entfernen'}" />
+                    <TextBlock Name="OcrText" Classes="muted" FontSize="12" TextWrapping="Wrap" MaxWidth="400" />
+                </StackPanel>
+            </CheckBox>
+            <TextBlock Name="OcrWarning" IsVisible="False" FontSize="12" TextWrapping="Wrap" MaxWidth="430" Margin="28,0,0,0"
+                       Foreground="{DynamicResource DangerBrush}"
+                       Text="{l:T 'Die alte Texterkennung kann Geschwärztes enthalten: Ihre unsichtbaren Wörter liegen oft nicht genau über dem Bild und bleiben dann neben dem Balken stehen.'}" />
+            <StackPanel Name="ScopePanel" Orientation="Horizontal" Spacing="16" Margin="28,0,0,0">
+                <RadioButton Name="WholeDocument" GroupName="Bereich" IsChecked="True" Content="{l:T 'im ganzen Dokument'}" IsCheckedChanged="OnHiddenChoiceChanged" />
+                <RadioButton Name="RedactedPagesOnly" GroupName="Bereich" Content="{l:T 'nur auf Seiten mit Schwärzung'}" />
+            </StackPanel>
+        </StackPanel>
+
+        <!-- Neue Texterkennung nur aus dem, was sichtbar bleibt (KONZEPT §5.6, Schritt c): für Seiten ohne alte OCR oder als Bild flachgelegt -->
+        <StackPanel Name="NewOcrPanel" Spacing="6" IsVisible="False">
+            <CheckBox Name="NewOcr" AutomationProperties.Name="{l:T 'Neue Texterkennung anlegen – nur aus dem, was sichtbar bleibt'}"
+                      IsCheckedChanged="OnNewOcrChanged">
+                <StackPanel Spacing="2">
+                    <TextBlock Text="{l:T 'Neue Texterkennung anlegen – nur aus dem, was sichtbar bleibt'}" />
+                    <TextBlock Classes="muted" FontSize="12" TextWrapping="Wrap" MaxWidth="400"
+                               Text="{l:T 'Danach liest die Texterkennung die fertig geschwärzten Seiten neu — Geschwärztes kann sie nicht mehr sehen. Die Seiten bleiben so durchsuchbar. Läuft im Hintergrund, Strg+Z nimmt sie einzeln zurück.'}" />
+                </StackPanel>
+            </CheckBox>
+            <StackPanel Name="OcrSizePanel" Orientation="Horizontal" Spacing="16" Margin="28,0,0,0">
+                <RadioButton Name="OcrSmall" GroupName="Stufe" Content="{l:T 'Paddle 6: small'}" />
+                <RadioButton Name="OcrMedium" GroupName="Stufe" Content="{l:T 'Paddle 6: medium'}" />
+            </StackPanel>
+        </StackPanel>
+
+        <!-- Schwärzungsgründe (KONZEPT §5.6, B-14): freiwillig; ohne Grund wird geschwärzt wie immer -->
+        <StackPanel Spacing="6">
+            <TextBlock Text="{l:T 'Grund der Schwärzungen (freiwillig)'}" />
+            <AutoCompleteBox Name="Reason" FilterMode="Contains" MinimumPrefixLength="0" TextChanged="OnReasonChanged"
+                             PlaceholderText="{l:T 'z. B. Personenbezogene Daten (Art. 6 DSGVO)'}" AutomationProperties.Name="{l:T 'Grund der Schwärzungen'}" />
+            <TextBlock Name="OwnReasonsText" Classes="muted" FontSize="12" TextWrapping="Wrap" MaxWidth="430" IsVisible="False" />
+            <StackPanel Name="ReasonPanel" Spacing="6" Margin="28,0,0,0">
+                <CheckBox Name="ReasonInBars" IsChecked="True" Content="{l:T 'Code oder Grund in die Balken schreiben (weiß, wo er hineinpasst)'}"
+                          IsCheckedChanged="OnReasonChanged">
+                    <ToolTip.Tip><l:T Text="Bei Markierungen mit eigenem Grund so, wie bei der Markierung gewählt („Code im Balken anzeigen“); aus: in keinen Balken" /></ToolTip.Tip>
+                </CheckBox>
+                <TextBlock Name="FitWarning" IsVisible="False" FontSize="12" TextWrapping="Wrap" MaxWidth="400" Foreground="{DynamicResource DangerBrush}" />
+                <CheckBox Name="ReasonNotes" Content="{l:T 'Notiz mit dem Grund am Balken'}" IsCheckedChanged="OnReasonChanged" />
+                <StackPanel Orientation="Horizontal" Spacing="12">
+                    <CheckBox Name="ReasonProtocol" IsChecked="True" Content="{l:T 'Schwärzungsprotokoll'}" IsCheckedChanged="OnReasonChanged" />
+                    <RadioButton Name="ProtocolFirst" GroupName="Protokoll" IsChecked="True" Content="{l:T 'als erste Seite'}" />
+                    <RadioButton Name="ProtocolLast" GroupName="Protokoll" Content="{l:T 'als letzte Seite'}" />
+                </StackPanel>
+                <TextBox Name="ReasonName" PlaceholderText="{l:T 'Name oder Kürzel fürs Protokoll (freiwillig, wird gemerkt)'}"
+                         AutomationProperties.Name="{l:T 'Name oder Kürzel'}" TextChanged="OnReasonChanged" />
+                <TextBlock Classes="muted" FontSize="12" TextWrapping="Wrap" MaxWidth="430"
+                           Text="{l:T 'Das Protokoll nennt je Schwärzung Seite, Lage und Grund — nie, was geschwärzt ist.'}" />
+            </StackPanel>
+            <TextBlock Name="ReasonWarning" IsVisible="False" FontSize="12" TextWrapping="Wrap" MaxWidth="430" Foreground="{DynamicResource DangerBrush}" />
+        </StackPanel>
+
+        <CheckBox Name="HideLengths" IsChecked="True" AutomationProperties.Name="{l:T 'Länge geschwärzter Wörter verbergen'}">
+            <StackPanel Spacing="2">
+                <TextBlock Text="{l:T 'Länge geschwärzter Wörter verbergen'}" />
+                <TextBlock Classes="muted" FontSize="12" TextWrapping="Wrap" MaxWidth="400"
+                           Text="{l:T 'Balken in Textzeilen werden auf feste Stufen verlängert, damit man an ihrer Breite nicht erraten kann, welches Wort darunter stand. Die Wörter danach rücken dafür etwas zusammen; keines wird verdeckt.'}" />
+                <TextBlock Classes="muted" FontSize="12" TextWrapping="Wrap" MaxWidth="400"
+                           Text="{l:T 'Wer jede Längenangabe ausschließen will: auch die Nachbarwörter schwärzen oder die Seiten als Bild flachlegen.'}" />
+            </StackPanel>
+        </CheckBox>
+
+        <StackPanel Spacing="6">
+            <CheckBox Name="AsImages" AutomationProperties.Name="{l:T 'Seiten mit Schwärzung zusätzlich als Bild flachlegen'}"
+                      IsCheckedChanged="OnHiddenChoiceChanged">
+                <StackPanel Spacing="2">
+                    <TextBlock>
+                        <Run Text="{l:T 'Seiten mit Schwärzung zusätzlich als Bild flachlegen'}" />
+                        <Run Foreground="{DynamicResource TextMutedBrush}" Text="{l:T '(am sichersten)'}" />
+                    </TextBlock>
+                    <TextBlock Classes="muted" FontSize="12" TextWrapping="Wrap" MaxWidth="400"
+                               Text="{l:T 'Diese Seiten werden zu Bildern: keine verborgenen Reste mehr, dafür lässt sich ihr Text nicht mehr kopieren oder durchsuchen. Die übrigen Seiten bleiben, wie sie sind.'}" />
+                </StackPanel>
+            </CheckBox>
+            <!-- Gleich darunter die neue Texterkennung (Wunsch vom 4.11.2026): dieselbe Einstellung wie oben, ohne zurückzuscrollen -->
+            <CheckBox Name="AsImagesOcr" Margin="28,0,0,0" AutomationProperties.Name="{l:T 'Danach neue Texterkennung anlegen'}"
+                      IsCheckedChanged="OnAsImagesOcrChanged">
+                <StackPanel Spacing="2">
+                    <TextBlock Text="{l:T 'Danach neue Texterkennung anlegen'}" />
+                    <TextBlock Classes="muted" FontSize="12" TextWrapping="Wrap" MaxWidth="372"
+                               Text="{l:T 'Die Bildseiten bleiben so durchsuchbar — die Texterkennung liest nur, was nach dem Schwärzen sichtbar ist.'}" />
+                </StackPanel>
+            </CheckBox>
+        </StackPanel>
+
+    </StackPanel>
+    </ScrollViewer>
+    </DockPanel>
+</Window>

@@ -1,0 +1,21 @@
+# PDF-Knead – Schwärzungscodes
+# Eine Zeile je Code, Spalten durch Tabulator getrennt:
+#   Code	Kurztext	Bedeutung	Rechtsgrundlage	Fundarten (E-Mail, Telefon, IBAN, Karte, Datum, Person, Firma, Anschrift; mit Komma getrennt, leer: keine)
+# Der Code steht im Balken, Kurztext, Bedeutung und Rechtsgrundlage im Schwärzungsprotokoll.
+# Eigene Wörter und Namen bekommen den in „Suchen und schwärzen“ gewählten Code.
+# Ohne Gewähr – die Texte fassen die Vorschriften in eigenen Worten zusammen; vor dem Einsatz mit dem geltenden Recht abgleichen.
+Land	Deutschland (Bund)
+Stand	11/2026
+Art. 6 DSGVO	Personenbezogene Daten	Angaben, die sich auf eine bestimmte oder bestimmbare Person beziehen, etwa Name, Anschrift, Kontaktdaten, Geburtsdatum, Konto- oder Kennnummern; ohne Rechtsgrundlage dürfen sie nicht weitergegeben werden.	Datenschutz-Grundverordnung (EU) 2016/679, Art. 6 mit Art. 4 Nr. 1	E-Mail, Telefon, IBAN, Karte, Datum, Person, Anschrift
+Art. 9 DSGVO	Besondere Kategorien personenbezogener Daten	Gesundheit, ethnische Herkunft, politische Meinung, religiöse oder weltanschauliche Überzeugung, Gewerkschaftszugehörigkeit, genetische und biometrische Daten, Sexualleben oder sexuelle Orientierung.	Datenschutz-Grundverordnung (EU) 2016/679, Art. 9
+Art. 10 DSGVO	Strafrechtliche Verurteilungen und Straftaten	Angaben über strafrechtliche Verurteilungen, Straftaten und damit verbundene Sicherungsmaßregeln.	Datenschutz-Grundverordnung (EU) 2016/679, Art. 10
+§ 3 IFG	Schutz besonderer öffentlicher Belange	Das Bekanntwerden könnte etwa internationale Beziehungen, die innere oder äußere Sicherheit, Kontroll- und Aufsichtsaufgaben oder laufende Gerichts- und Ermittlungsverfahren beeinträchtigen.	Informationsfreiheitsgesetz des Bundes (IFG), § 3
+§ 4 IFG	Schutz des behördlichen Entscheidungsprozesses	Entwürfe und Vorarbeiten zu einer Entscheidung, solange deren Bekanntwerden den Erfolg der Entscheidung oder bevorstehender Maßnahmen vereiteln würde.	Informationsfreiheitsgesetz des Bundes (IFG), § 4
+§ 5 IFG	Schutz personenbezogener Daten Dritter	Personenbezogene Daten anderer Personen, deren schutzwürdiges Interesse am Ausschluss des Zugangs überwiegt oder die nicht eingewilligt haben.	Informationsfreiheitsgesetz des Bundes (IFG), § 5
+§ 6 IFG	Geistiges Eigentum, Betriebs- und Geschäftsgeheimnisse	Inhalte, deren Herausgabe Rechte am geistigen Eigentum verletzen oder Betriebs- oder Geschäftsgeheimnisse ohne Einwilligung offenbaren würde.	Informationsfreiheitsgesetz des Bundes (IFG), § 6
+§ 8 UIG	Schutz öffentlicher Belange (Umweltinformationen)	Bei Umweltinformationen: nachteilige Auswirkungen etwa auf internationale Beziehungen, die Verteidigung, die öffentliche Sicherheit oder laufende Verfahren.	Umweltinformationsgesetz (UIG), § 8
+§ 9 UIG	Schutz sonstiger Belange (Umweltinformationen)	Bei Umweltinformationen: personenbezogene Daten, Rechte am geistigen Eigentum sowie Betriebs- und Geschäftsgeheimnisse.	Umweltinformationsgesetz (UIG), § 9
+§ 2 GeschGehG	Geschäftsgeheimnis	Informationen mit wirtschaftlichem Wert, die nicht allgemein bekannt sind und durch angemessene Maßnahmen geheim gehalten werden.	Gesetz zum Schutz von Geschäftsgeheimnissen (GeschGehG), § 2 Nr. 1
+§ 30 AO	Steuergeheimnis	Verhältnisse von Steuerpflichtigen, die in einem Steuerverfahren bekannt geworden sind.	Abgabenordnung (AO), § 30
+§ 35 SGB I	Sozialgeheimnis	Sozialdaten, die von Sozialleistungsträgern erhoben, verarbeitet oder genutzt werden.	Sozialgesetzbuch Erstes Buch (SGB I), § 35
+§ 203 StGB	Berufsgeheimnis	Geheimnisse, die Angehörigen bestimmter Berufe (etwa Ärzten, Rechtsanwälten, Steuerberatern) anvertraut oder bekannt geworden sind.	Strafgesetzbuch (StGB), § 203

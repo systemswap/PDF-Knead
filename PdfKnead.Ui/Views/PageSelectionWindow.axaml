@@ -1,0 +1,47 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:l="using:PdfKnead.Localization"
+        xmlns:c="using:PdfKnead.Controls"
+        x:Class="PdfKnead.Views.PageSelectionWindow"
+        Title="{l:T 'Seiten einfügen'}"
+        Icon="/Assets/app.ico"
+        Width="980" Height="700" MinWidth="560" MinHeight="420"
+        ShowInTaskbar="False"
+        WindowStartupLocation="CenterOwner">
+    <Grid RowDefinitions="Auto,Auto,*,Auto">
+        <!-- Kopf: Datei und Hinweis -->
+        <StackPanel Grid.Row="0" Margin="20,18,20,6" Spacing="2">
+            <TextBlock FontWeight="SemiBold" FontSize="15" Name="TitleText" TextTrimming="CharacterEllipsis" />
+            <TextBlock Classes="muted" TextWrapping="Wrap"
+                       Text="{l:T 'Häkchen setzen: Klick auf eine Seite schaltet sie um, Umschalt+Klick einen ganzen Bereich.'}" />
+        </StackPanel>
+
+        <!-- Werkzeuge: Alle, Keine, Bereich, Größe -->
+        <DockPanel Grid.Row="1" Margin="20,6,20,8">
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                <PathIcon Data="{StaticResource Icon.ZoomOut}" Width="14" Height="14" Foreground="{DynamicResource TextMutedBrush}" />
+                <Slider Name="SizeSlider" Width="140" Minimum="70" Maximum="420" Value="150" VerticalAlignment="Center" />
+                <PathIcon Data="{StaticResource Icon.ZoomIn}" Width="14" Height="14" Foreground="{DynamicResource TextMutedBrush}" />
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <Button Content="{l:T 'Alle'}" Click="OnAll" />
+                <Button Content="{l:T 'Keine'}" Click="OnNone" />
+                <TextBox Name="RangeBox" Width="180" PlaceholderText="{l:T 'Bereich, z. B. 1-3, 7'}" TextChanged="OnRangeChanged" />
+                <TextBlock Name="RangeError" VerticalAlignment="Center" Foreground="{DynamicResource DangerBrush}" IsVisible="False"
+                           Text="{l:T 'Ungültiger Bereich'}" />
+            </StackPanel>
+        </DockPanel>
+
+        <Border Grid.Row="2" Background="{DynamicResource CanvasBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1">
+            <c:PageGridView Name="GridView" />
+        </Border>
+
+        <DockPanel Grid.Row="3" Margin="20,12">
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8">
+                <Button Content="{l:T 'Abbrechen'}" Click="OnCancel" IsCancel="True" />
+                <Button Classes="primary" Name="OkButton" Content="{l:T 'Einfügen'}" Click="OnOk" IsDefault="True" />
+            </StackPanel>
+            <TextBlock Name="CountText" Classes="muted" VerticalAlignment="Center" />
+        </DockPanel>
+    </Grid>
+</Window>

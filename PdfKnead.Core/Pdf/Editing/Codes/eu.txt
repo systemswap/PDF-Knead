@@ -1,0 +1,17 @@
+# PDF-Knead – Schwärzungscodes
+# Eine Zeile je Code, Spalten durch Tabulator getrennt:
+#   Code	Kurztext	Bedeutung	Rechtsgrundlage	Fundarten (E-Mail, Telefon, IBAN, Karte, Datum, Person, Firma, Anschrift; mit Komma getrennt, leer: keine)
+# Der Code steht im Balken, Kurztext, Bedeutung und Rechtsgrundlage im Schwärzungsprotokoll.
+# Eigene Wörter und Namen bekommen den in „Suchen und schwärzen“ gewählten Code.
+# Ohne Gewähr – die Texte fassen die Vorschriften in eigenen Worten zusammen; vor dem Einsatz mit dem geltenden Recht abgleichen.
+Land	Europäische Union
+Stand	11/2026
+Art. 4(1)(a)	Schutz des öffentlichen Interesses	Öffentliche Sicherheit, Verteidigung und militärische Belange, internationale Beziehungen oder die Finanz-, Währungs- oder Wirtschaftspolitik der Union oder eines Mitgliedstaats.	Verordnung (EG) Nr. 1049/2001, Art. 4 Abs. 1 Buchst. a
+Art. 4(1)(b)	Privatsphäre und Integrität des Einzelnen	Schutz der Privatsphäre und der Integrität einer Person, insbesondere nach dem Datenschutzrecht der Union.	Verordnung (EG) Nr. 1049/2001, Art. 4 Abs. 1 Buchst. b	E-Mail, Telefon, IBAN, Karte, Datum, Person, Anschrift
+Art. 4(2) Anstr. 1	Geschäftliche Interessen	Geschäftliche Interessen einer natürlichen oder juristischen Person, einschließlich des geistigen Eigentums.	Verordnung (EG) Nr. 1049/2001, Art. 4 Abs. 2, 1. Gedankenstrich
+Art. 4(2) Anstr. 2	Gerichtsverfahren und Rechtsberatung	Schutz von Gerichtsverfahren und der Rechtsberatung.	Verordnung (EG) Nr. 1049/2001, Art. 4 Abs. 2, 2. Gedankenstrich
+Art. 4(2) Anstr. 3	Inspektionen, Untersuchungen, Audits	Schutz des Zwecks von Inspektions-, Untersuchungs- und Audittätigkeiten.	Verordnung (EG) Nr. 1049/2001, Art. 4 Abs. 2, 3. Gedankenstrich
+Art. 4(3)	Entscheidungsprozess	Dokumente zur internen Verwendung, deren Verbreitung den Entscheidungsprozess eines Organs ernstlich beeinträchtigen würde.	Verordnung (EG) Nr. 1049/2001, Art. 4 Abs. 3
+Art. 6 DSGVO	Personenbezogene Daten	Angaben, die sich auf eine bestimmte oder bestimmbare Person beziehen; ohne Rechtsgrundlage dürfen sie nicht weitergegeben werden.	Datenschutz-Grundverordnung (EU) 2016/679, Art. 6 mit Art. 4 Nr. 1
+Art. 9 DSGVO	Besondere Kategorien personenbezogener Daten	Gesundheit, ethnische Herkunft, politische Meinung, religiöse oder weltanschauliche Überzeugung, Gewerkschaftszugehörigkeit, genetische und biometrische Daten, Sexualleben oder sexuelle Orientierung.	Datenschutz-Grundverordnung (EU) 2016/679, Art. 9
+Art. 10 DSGVO	Strafrechtliche Verurteilungen und Straftaten	Angaben über strafrechtliche Verurteilungen, Straftaten und damit verbundene Sicherungsmaßregeln.	Datenschutz-Grundverordnung (EU) 2016/679, Art. 10

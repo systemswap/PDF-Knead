@@ -1,0 +1,2159 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:vm="using:PdfKnead.ViewModels"
+        xmlns:c="using:PdfKnead.Controls"
+        xmlns:cv="using:PdfKnead.Converters"
+        xmlns:l="using:PdfKnead.Localization"
+        xmlns:loc="using:PdfKnead.Core.Localization"
+        xmlns:doc="using:PdfKnead.Core.Pdf.Document"
+        xmlns:ed="using:PdfKnead.Core.Pdf.Editing"
+        xmlns:chrome="using:Avalonia.Controls.Chrome"
+        xmlns:views="using:PdfKnead.Views"
+        mc:Ignorable="d" d:DesignWidth="1520" d:DesignHeight="860"
+        x:Class="PdfKnead.Views.MainWindow"
+        x:DataType="vm:MainViewModel"
+        Icon="/Assets/app.ico"
+        Title="{Binding WindowTitle}"
+        Width="1520" Height="860"
+        MinWidth="820" MinHeight="560"
+        WindowStartupLocation="CenterScreen"
+        ExtendClientAreaToDecorationsHint="True"
+        ExtendClientAreaTitleBarHeightHint="34">
+
+    <Design.DataContext>
+        <vm:MainViewModel />
+    </Design.DataContext>
+
+    <Window.Styles>
+        <!-- the donate button (design decision, as in another program of the author): a gold glass button — the hard step of colour in the middle
+             makes the gloss, light above, darker below and lighter again towards the bottom like a curved surface; text black, heart red
+             (two text blocks, a button has one text colour); the same in the light and the dark design -->
+        <Style Selector="Button.donate">
+            <Setter Property="Foreground" Value="Black" />
+            <Setter Property="BorderBrush" Value="#C8940B" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="4" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+        <Style Selector="Button.donate /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="BorderBrush" Value="#C8940B" />
+            <Setter Property="Background">
+                <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
+                    <GradientStop Offset="0" Color="#FFF3BE" />
+                    <GradientStop Offset="0.48" Color="#FFD256" />
+                    <GradientStop Offset="0.52" Color="#F7B300" />
+                    <GradientStop Offset="1" Color="#FFDE7C" />
+                </LinearGradientBrush>
+            </Setter>
+        </Style>
+        <Style Selector="Button.donate:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="BorderBrush" Value="#C8940B" />
+            <Setter Property="Background">
+                <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
+                    <GradientStop Offset="0" Color="#FFFAD8" />
+                    <GradientStop Offset="0.48" Color="#FFE083" />
+                    <GradientStop Offset="0.52" Color="#FFC02A" />
+                    <GradientStop Offset="1" Color="#FFEBA8" />
+                </LinearGradientBrush>
+            </Setter>
+        </Style>
+        <Style Selector="Button.donate:pressed /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background">
+                <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
+                    <GradientStop Offset="0" Color="#E5A400" />
+                    <GradientStop Offset="1" Color="#FFD256" />
+                </LinearGradientBrush>
+            </Setter>
+        </Style>
+        <!-- Fensterleiste von Avalonia: Titel und Vollbild-Knopf ausblenden — den Titel zeigt unsere eigene
+             Leiste (Programm links, Datei mittig), Vollbild geht mit F11. Den Knopf auf Breite 0 setzen, nicht
+             unsichtbar: sonst bleibt sein Platz rechts neben „Schließen“ frei (Fehlergedächtnis 26) -->
+        <Style Selector="WindowDrawnDecorations /template/ Panel#PART_TitleTextPanel > TextBlock">
+            <Setter Property="IsVisible" Value="False" />
+        </Style>
+        <Style Selector="WindowDrawnDecorations /template/ Button#PART_FullScreenButton">
+            <Setter Property="Width" Value="0" />
+            <Setter Property="MinWidth" Value="0" />
+            <Setter Property="Margin" Value="0" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Opacity" Value="0" />
+            <Setter Property="IsHitTestVisible" Value="False" />
+            <Setter Property="Focusable" Value="False" />
+        </Style>
+        <!-- Zeichen für digitale Signaturen im Dokument-Reiter -->
+        <Style Selector="Button.signatureMark">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="3,0" />
+            <Setter Property="MinWidth" Value="0" />
+            <Setter Property="MinHeight" Value="0" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="Cursor" Value="Hand" />
+        </Style>
+        <Style Selector="Button.signatureMark:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="Transparent" />
+        </Style>
+        <Style Selector="Button.signatureMark:pressed /template/ ContentPresenter">
+            <Setter Property="Background" Value="Transparent" />
+        </Style>
+        <Style Selector="Button.signatureMark PathIcon">
+            <Setter Property="Width" Value="16" />
+            <Setter Property="Height" Value="16" />
+        </Style>
+    </Window.Styles>
+
+    <Window.Resources>
+        <!-- Eintrag im Verlauf (Startbildschirm und Datei → Öffnen): öffnen, × nimmt ihn nur aus der Liste -->
+        <DataTemplate x:Key="RecentFileTemplate" x:DataType="vm:RecentFile">
+            <Grid ColumnDefinitions="*,Auto">
+                <Button Classes="subtle" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                        Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).OpenRecentCommand}"
+                        CommandParameter="{Binding}">
+                    <StackPanel Orientation="Horizontal" Spacing="10" Opacity="{Binding Missing, Converter={x:Static cv:BoolToOpacity.Instance}}">
+                        <PathIcon Data="{StaticResource Icon.DocumentText}" Width="18" Height="18"
+                                  Foreground="{DynamicResource AccentBrush}" />
+                        <StackPanel>
+                            <TextBlock Text="{Binding FileName}" FontWeight="Medium" />
+                            <TextBlock Classes="muted small" Text="{Binding Folder}" TextTrimming="CharacterEllipsis" MaxWidth="440" />
+                            <TextBlock Classes="small" Foreground="{DynamicResource DangerBrush}" IsVisible="{Binding Missing}"
+                                       Text="{l:T 'Nicht gefunden — verschoben oder gelöscht?'}" />
+                        </StackPanel>
+                    </StackPanel>
+                </Button>
+                <Button Grid.Column="1" Classes="closeTab" VerticalAlignment="Center" Margin="6,0,2,0"
+                        Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).RemoveRecentCommand}"
+                        CommandParameter="{Binding}">
+                    <ToolTip.Tip><l:T Text="Aus der Liste entfernen (die Datei bleibt erhalten)" /></ToolTip.Tip>
+                    <PathIcon Data="{StaticResource Icon.Dismiss}" Width="10" Height="10" />
+                </Button>
+            </Grid>
+        </DataTemplate>
+    </Window.Resources>
+
+    <DockPanel>
+    <!-- Eigene Titelleiste (Wunsch vom 16.10.2026): links Programm und Version, mittig die Datei.
+         Die Knöpfe rechts zeichnet Avalonia (unter Linux über EnableDrawnDecorations in Program.cs); ohne
+         Unterstützung bleibt die normale Titelleiste und dieser Streifen unsichtbar. -->
+    <Grid DockPanel.Dock="Top" Name="TitleBar" Height="34" ColumnDefinitions="*,Auto,*"
+          Background="{DynamicResource SurfaceBrush}"
+          chrome:WindowDecorationProperties.ElementRole="TitleBar"
+          IsVisible="{Binding $parent[Window].IsExtendedIntoWindowDecorations}">
+        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8" Margin="12,0,0,0" VerticalAlignment="Center"
+                    IsHitTestVisible="False">
+            <c:AppLogo Width="16" Height="16" VerticalAlignment="Center" />
+            <TextBlock Name="TitleAppText" Classes="small" VerticalAlignment="Center" Foreground="{DynamicResource TextMutedBrush}" />
+        </StackPanel>
+        <TextBlock Grid.Column="1" VerticalAlignment="Center" FontWeight="Medium" TextTrimming="CharacterEllipsis" MaxWidth="560"
+                   IsHitTestVisible="False" Text="{Binding SelectedDocument.Title, FallbackValue=''}" />
+    </Grid>
+    <Grid RowDefinitions="Auto,Auto,Auto,*,Auto">
+
+        <!-- ============================================================
+             Ribbon: Reiterzeile
+             ============================================================ -->
+        <Border Grid.Row="0" Background="{DynamicResource SurfaceBrush}">
+            <DockPanel Height="40">
+                <Button DockPanel.Dock="Left" Classes="fileTab" Content="{l:T 'Datei'}"
+                        Command="{Binding ShowBackstageCommand}"
+                        CommandParameter="{x:Static vm:BackstagePage.Open}">
+                    <ToolTip.Tip><l:T Text="Öffnen, Speichern, Exportieren, Drucken, Einstellungen (Alt+D)" /></ToolTip.Tip>
+                </Button>
+
+                <!-- Rechts: Spenden, Speichern, Rückgängig, Wiederholen, Ribbon einklappen -->
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="2" Margin="0,0,8,0"
+                            VerticalAlignment="Center">
+                    <!-- donate (design decision): 25 px left of the save button; opens the donation page in the browser of the system -->
+                    <Button Name="DonateButton" Classes="donate" Height="24" FontSize="12" Padding="10,0" Margin="0,0,23,0"
+                            VerticalAlignment="Center" Command="{Binding DonateCommand}" AutomationProperties.Name="{l:T 'Spenden'}">
+                        <StackPanel Orientation="Horizontal" Spacing="5" VerticalAlignment="Center">
+                            <TextBlock Text="♥" Foreground="#D62B3A" FontSize="18" VerticalAlignment="Center" />
+                            <TextBlock Text="{l:T 'Spenden'}" Foreground="Black" VerticalAlignment="Center" />
+                        </StackPanel>
+                        <ToolTip.Tip><l:T Text="PDF-Knead unterstützen — öffnet die Spendenseite im Browser" /></ToolTip.Tip>
+                    </Button>
+                    <c:RibbonButton Classes="icon" Icon="{StaticResource Icon.Save}" Command="{Binding SaveCommand}"
+                                    ToolTip.ShowOnDisabled="True">
+                        <ToolTip.Tip><l:T Text="Speichern (Strg+S)" /></ToolTip.Tip>
+                    </c:RibbonButton>
+                    <c:RibbonButton Classes="icon" Icon="{StaticResource Icon.ArrowUndo}" Command="{Binding UndoCommand}"
+                                    ToolTip.Tip="{Binding UndoTip}" ToolTip.ShowOnDisabled="True" />
+                    <c:RibbonButton Classes="icon" Icon="{StaticResource Icon.ArrowRedo}" Command="{Binding RedoCommand}"
+                                    ToolTip.Tip="{Binding RedoTip}" ToolTip.ShowOnDisabled="True" />
+                    <Border Width="1" Height="18" Margin="6,0" Background="{DynamicResource LineBrush}" />
+                    <c:RibbonButton Name="CollapseButton" Classes="icon" Command="{Binding ToggleRibbonCommand}"
+                                    Icon="{StaticResource Icon.ChevronUp}">
+                        <ToolTip.Tip><l:T Text="Menüband ein- oder ausklappen (Strg+F1)" /></ToolTip.Tip>
+                    </c:RibbonButton>
+                </StackPanel>
+
+                <StackPanel Orientation="Horizontal">
+                    <Button Classes="ribbonTab" Content="{l:T 'Start'}"
+                            Classes.selected="{Binding RibbonTab, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Start}"
+                            Command="{Binding SelectRibbonTabCommand}" CommandParameter="{x:Static vm:RibbonTab.Start}" />
+                    <Button Classes="ribbonTab" Content="{l:T 'Seiten'}"
+                            Classes.selected="{Binding RibbonTab, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Pages}"
+                            Command="{Binding SelectRibbonTabCommand}" CommandParameter="{x:Static vm:RibbonTab.Pages}" />
+                    <Button Classes="ribbonTab" Content="{l:T 'Einfügen'}"
+                            Classes.selected="{Binding RibbonTab, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Insert}"
+                            Command="{Binding SelectRibbonTabCommand}" CommandParameter="{x:Static vm:RibbonTab.Insert}" />
+                    <Button Classes="ribbonTab" Content="{l:T 'Formular'}"
+                            Classes.selected="{Binding RibbonTab, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Form}"
+                            Command="{Binding SelectRibbonTabCommand}" CommandParameter="{x:Static vm:RibbonTab.Form}" />
+                    <Button Classes="ribbonTab" Content="{l:T 'Unterschrift'}"
+                            Classes.selected="{Binding RibbonTab, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Signature}"
+                            Command="{Binding SelectRibbonTabCommand}" CommandParameter="{x:Static vm:RibbonTab.Signature}" />
+                    <Button Classes="ribbonTab" Content="{l:T 'Sicher'}"
+                            Classes.selected="{Binding RibbonTab, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Secure}"
+                            Command="{Binding SelectRibbonTabCommand}" CommandParameter="{x:Static vm:RibbonTab.Secure}" />
+                    <!-- the tabs of modules of their own (registered by the host program, KONZEPT §5.24 „Aufbau und Entfernen“) -->
+                    <ItemsControl Name="ModuleTabRow" ItemsSource="{Binding ModuleTabs}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate><StackPanel Orientation="Horizontal" /></ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:ModuleTabViewModel">
+                                <Button Classes="ribbonTab" Content="{Binding Header}" Classes.selected="{Binding IsSelected}"
+                                        Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).SelectModuleTabCommand}" CommandParameter="{Binding}" />
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <Button Classes="ribbonTab" Content="{l:T 'Ansicht'}"
+                            Classes.selected="{Binding RibbonTab, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=View}"
+                            Command="{Binding SelectRibbonTabCommand}" CommandParameter="{x:Static vm:RibbonTab.View}" />
+                    <Button Classes="ribbonTab" Content="{l:T 'Über PDF-Knead'}"
+                            Classes.selected="{Binding RibbonTab, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=About}"
+                            Command="{Binding SelectRibbonTabCommand}" CommandParameter="{x:Static vm:RibbonTab.About}" />
+                </StackPanel>
+            </DockPanel>
+        </Border>
+
+        <!-- ============================================================
+             Ribbon: Inhalt des gewählten Reiters
+             ============================================================ -->
+        <Border Grid.Row="1" Background="{DynamicResource SurfaceBrush}"
+                BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,1"
+                Height="{DynamicResource RibbonHeight}"
+                IsVisible="{Binding RibbonContentVisible}">
+            <!-- Narrower than a tab's groups: the ribbon scrolls sideways instead of cutting off the last groups -->
+            <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+                <Panel Margin="6,0">
+
+                    <!-- the tab of a module: its own groups -->
+                    <ContentControl Name="ModuleTabContent" Content="{Binding SelectedModuleTab.Content, FallbackValue={x:Null}}"
+                                    IsVisible="{Binding RibbonTab, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Module}" />
+
+                    <!-- Start -->
+                    <StackPanel Orientation="Horizontal"
+                                IsVisible="{Binding RibbonTab, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Start}">
+                        <c:RibbonGroup Header="{l:T 'Datei'}">
+                            <StackPanel Orientation="Horizontal" Spacing="2">
+                                <c:RibbonButton Classes="large" Icon="{StaticResource Icon.Document}"
+                                                Label="{l:T 'Neu'}" Command="{Binding NewDocumentCommand}">
+                                    <ToolTip.Tip><l:T Text="Neues, leeres Dokument: Format wie A4 oder A3 wählen (Strg+N)" /></ToolTip.Tip>
+                                </c:RibbonButton>
+                                <c:RibbonButton Classes="large" Icon="{StaticResource Icon.FolderOpen}"
+                                                Label="{l:T 'Öffnen'}" Click="OnOpenClick">
+                                    <ToolTip.Tip><l:T Text="PDF öffnen (Strg+O)" /></ToolTip.Tip>
+                                </c:RibbonButton>
+                                <StackPanel Spacing="1">
+                                    <c:RibbonButton Icon="{StaticResource Icon.Save}" Label="{l:T 'Speichern'}"
+                                                    Command="{Binding SaveCommand}">
+                                        <ToolTip.Tip><l:T Text="Speichern (Strg+S)" /></ToolTip.Tip>
+                                    </c:RibbonButton>
+                                    <c:RibbonButton Icon="{StaticResource Icon.Print}" Label="{l:T 'Drucken'}"
+                                                    Command="{Binding PrintCommand}">
+                                        <ToolTip.Tip><l:T Text="Drucken mit Vorschau, mehreren Seiten pro Blatt oder als PDF (Strg+P)" /></ToolTip.Tip>
+                                    </c:RibbonButton>
+                                    <c:RibbonButton Icon="{StaticResource Icon.ArrowMinimize}" Label="{l:T 'Komprimieren'}"
+                                                    Command="{Binding CompressCommand}">
+                                        <ToolTip.Tip><l:T Text="Datei verkleinern: Bilder, Schriften und Packen einstellen, mit Vorher/Nachher und Größenvorschau" /></ToolTip.Tip>
+                                    </c:RibbonButton>
+                                </StackPanel>
+                                <c:RibbonButton Classes="large" Icon="{StaticResource Icon.ScanDash}"
+                                                Label="{l:T 'Scannen'}" Command="{Binding ScanCommand}">
+                                    <ToolTip.Tip><l:T Text="Seiten vom Scanner holen, ordnen und als Dokument übernehmen — Flachbett oder Einzug" /></ToolTip.Tip>
+                                </c:RibbonButton>
+                            </StackPanel>
+                        </c:RibbonGroup>
+                        <c:RibbonGroup Header="{l:T 'Werkzeuge'}">
+                            <StackPanel Orientation="Horizontal" Spacing="2">
+                                <StackPanel Spacing="1">
+                                    <c:RibbonToggleButton Icon="{StaticResource Icon.Cursor}" Label="{l:T 'Text markieren'}"
+                                                          IsChecked="{Binding Tool, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=SelectText, Mode=OneWay}"
+                                                          Command="{Binding SetToolCommand}" CommandParameter="{x:Static vm:ViewTool.SelectText}">
+                                        <ToolTip.Tip><l:T Text="Über Text ziehen markiert ihn, Doppelklick ein Wort, Dreifachklick die Zeile; daneben verschiebt Ziehen die Ansicht" /></ToolTip.Tip>
+                                    </c:RibbonToggleButton>
+                                    <c:RibbonToggleButton Icon="{StaticResource Icon.HandLeft}" Label="{l:T 'Verschieben'}"
+                                                          IsChecked="{Binding Tool, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Pan, Mode=OneWay}"
+                                                          Command="{Binding SetToolCommand}" CommandParameter="{x:Static vm:ViewTool.Pan}">
+                                        <ToolTip.Tip><l:T Text="Ziehen verschiebt immer die Ansicht (mit der mittleren Maustaste geht das bei jedem Werkzeug)" /></ToolTip.Tip>
+                                    </c:RibbonToggleButton>
+                                    <c:RibbonButton Icon="{StaticResource Icon.Copy}" Label="{l:T 'Kopieren'}"
+                                                    Command="{Binding CopyTextCommand}">
+                                        <ToolTip.Tip><l:T Text="Markierten Text kopieren (Strg+C)" /></ToolTip.Tip>
+                                    </c:RibbonButton>
+                                </StackPanel>
+                                <StackPanel Spacing="1">
+                                    <!-- Text, Bilder und Codes der Seite in einem Werkzeug (KONZEPT §5.22) -->
+                                    <c:RibbonToggleButton Icon="{StaticResource Icon.Edit}" Label="{l:T 'Bearbeiten'}"
+                                                          IsChecked="{Binding IsEditTool, Mode=OneWay}" Command="{Binding ToggleEditCommand}">
+                                        <ToolTip.Tip><l:T Text="Text, Bilder, QR-/Barcodes und Formularfelder der Seite ändern (Strg+E): Absätze bekommen einen Rahmen, ein Klick auf Text setzt die Schreibmarke, auf ein Bild zeigt Griffe und seine Angaben, auf einen Code seine Bedeutung, auf ein Feld seine Eigenschaften; Alt+Klick wählt, was darunter liegt; Esc oder ein zweiter Klick beendet es" /></ToolTip.Tip>
+                                    </c:RibbonToggleButton>
+                                    <!-- Messen (Ablaufplan 7.6; Festlegung vom 6.11.2026: bei den Werkzeugen, eigenes Symbol): Länge, Linienzug, Fläche, Winkel, Kreis/Bogen -->
+                                    <c:RibbonToggleButton Name="MeasureToolButton" Icon="{StaticResource Icon.Ruler}" Label="{l:T 'Messen'}"
+                                                          IsChecked="{Binding Tool, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Measure, Mode=OneWay}"
+                                                          Command="{Binding MeasureCommand}">
+                                        <ToolTip.Tip><l:T Text="Längen, Flächen, Winkel und Radien messen — mit dem Maßstab der Seite, sonst in Millimetern des Papiers" /></ToolTip.Tip>
+                                    </c:RibbonToggleButton>
+                                </StackPanel>
+                            </StackPanel>
+                        </c:RibbonGroup>
+                        <c:RibbonGroup Header="{l:T 'Zoom'}">
+                            <StackPanel Orientation="Horizontal" Spacing="2">
+                                <StackPanel Spacing="1">
+                                    <c:RibbonButton Icon="{StaticResource Icon.ZoomIn}" Label="{l:T 'Vergrößern'}"
+                                                    Command="{Binding ZoomInCommand}">
+                                                    <ToolTip.Tip><l:T Text="Vergrößern (Strg+Plus, Strg+Mausrad)" /></ToolTip.Tip>
+                                    </c:RibbonButton>
+                                    <c:RibbonButton Icon="{StaticResource Icon.ZoomOut}" Label="{l:T 'Verkleinern'}"
+                                                    Command="{Binding ZoomOutCommand}">
+                                                    <ToolTip.Tip><l:T Text="Verkleinern (Strg+Minus)" /></ToolTip.Tip>
+                                    </c:RibbonButton>
+                                </StackPanel>
+                                <StackPanel Spacing="1">
+                                    <c:RibbonButton Icon="{StaticResource Icon.ArrowAutofitWidth}" Label="{l:T 'Seitenbreite'}"
+                                                    Command="{Binding FitWidthCommand}">
+                                                    <ToolTip.Tip><l:T Text="Seitenbreite" /></ToolTip.Tip>
+                                    </c:RibbonButton>
+                                    <c:RibbonButton Icon="{StaticResource Icon.ArrowAutofitHeight}" Label="{l:T 'Ganze Seite'}"
+                                                    Command="{Binding FitPageCommand}">
+                                                    <ToolTip.Tip><l:T Text="Ganze Seite (Strg+0)" /></ToolTip.Tip>
+                                    </c:RibbonButton>
+                                </StackPanel>
+                            </StackPanel>
+                        </c:RibbonGroup>
+                        <c:RibbonGroup Header="{l:T 'Ansicht drehen'}">
+                            <StackPanel Spacing="1">
+                                <c:RibbonButton Icon="{StaticResource Icon.ArrowRotateCounterclockwise}" Label="{l:T 'Nach links'}"
+                                                Command="{Binding RotateLeftCommand}">
+                                                <ToolTip.Tip><l:T Text="Ansicht nach links drehen (die Datei bleibt unverändert)" /></ToolTip.Tip>
+                                </c:RibbonButton>
+                                <c:RibbonButton Icon="{StaticResource Icon.ArrowRotateClockwise}" Label="{l:T 'Nach rechts'}"
+                                                Command="{Binding RotateRightCommand}">
+                                                <ToolTip.Tip><l:T Text="Ansicht nach rechts drehen (die Datei bleibt unverändert)" /></ToolTip.Tip>
+                                </c:RibbonButton>
+                            </StackPanel>
+                        </c:RibbonGroup>
+                        <c:RibbonGroup Header="{l:T 'Suchen'}">
+                            <StackPanel Orientation="Horizontal" Spacing="2">
+                                <c:RibbonButton Classes="large" Icon="{StaticResource Icon.Search}" Label="{l:T 'Suchen'}"
+                                                Command="{Binding OpenSearchCommand}" Click="OnSearchClick">
+                                    <ToolTip.Tip><l:T Text="Im Dokument suchen (Strg+F)" /></ToolTip.Tip>
+                                </c:RibbonButton>
+                                <!-- Scans durchsuchbar machen (KONZEPT §5.9) -->
+                                <c:RibbonButton Classes="large" Icon="{StaticResource Icon.DocumentText}" Label="{l:T 'OCR'}"
+                                                Command="{Binding RecognizeTextCommand}">
+                                    <ToolTip.Tip><l:T Text="OCR — Text in Scans und Bildern erkennen: Er liegt danach unsichtbar über der Seite und lässt sich suchen, markieren und kopieren" /></ToolTip.Tip>
+                                </c:RibbonButton>
+                            </StackPanel>
+                        </c:RibbonGroup>
+                        <c:RibbonGroup Header="{l:T 'Notizen'}">
+                            <c:RibbonToggleButton Classes="large" Icon="{StaticResource Icon.ChatEmpty}" Label="{l:T 'Notizen'}"
+                                                  IsChecked="{Binding SelectedDocument.IsNotesOpen, Mode=OneWay, FallbackValue=False}"
+                                                  Command="{Binding ToggleNotesCommand}">
+                                <ToolTip.Tip><l:T Text="Notizen und Kommentare des Dokuments lesen: eine Zeile springt zur Notiz, ein Klick auf das Notiz-Symbol zeigt sie" /></ToolTip.Tip>
+                            </c:RibbonToggleButton>
+                        </c:RibbonGroup>
+                        <!-- Ebenen im Reiter Start (KONZEPT §5.22): eigene Elemente und, in „Bearbeiten“, Bilder und Grafiken des Seiteninhalts -->
+                        <c:RibbonGroup Header="{l:T 'Ebene'}">
+                            <StackPanel Orientation="Horizontal" Spacing="2">
+                                <StackPanel Spacing="1">
+                                    <c:RibbonButton Icon="{StaticResource Icon.PositionForward}" Label="{l:T 'Nach vorn'}"
+                                                    Command="{Binding MoveLayerCommand}" CommandParameter="{x:Static vm:LayerMove.Forward}">
+                                        <ToolTip.Tip><l:T Text="Ausgewähltes Element eine Ebene nach vorn — vor das nächste, das es überlappt (Strg+Bild↑)" /></ToolTip.Tip>
+                                    </c:RibbonButton>
+                                    <c:RibbonButton Icon="{StaticResource Icon.PositionBackward}" Label="{l:T 'Nach hinten'}"
+                                                    Command="{Binding MoveLayerCommand}" CommandParameter="{x:Static vm:LayerMove.Backward}">
+                                        <ToolTip.Tip><l:T Text="Ausgewähltes Element eine Ebene nach hinten — hinter das nächste, das es überlappt (Strg+Bild↓)" /></ToolTip.Tip>
+                                    </c:RibbonButton>
+                                    <c:RibbonToggleButton Icon="{StaticResource Icon.NumberCircle}" Label="{l:T 'Nummern zeigen'}" IsChecked="{Binding ShowLayers}">
+                                        <ToolTip.Tip><l:T Text="Ebene jedes Elements als Nummer zeigen: 1 liegt ganz hinten, die höchste ganz vorn" /></ToolTip.Tip>
+                                    </c:RibbonToggleButton>
+                                </StackPanel>
+                                <StackPanel Spacing="1">
+                                    <c:RibbonButton Icon="{StaticResource Icon.PositionToFront}" Label="{l:T 'Ganz nach vorn'}"
+                                                    Command="{Binding MoveLayerCommand}" CommandParameter="{x:Static vm:LayerMove.ToFront}">
+                                        <ToolTip.Tip><l:T Text="Ausgewähltes Element vor alle anderen (Strg+Umschalt+Bild↑)" /></ToolTip.Tip>
+                                    </c:RibbonButton>
+                                    <c:RibbonButton Icon="{StaticResource Icon.PositionToBack}" Label="{l:T 'Ganz nach hinten'}"
+                                                    Command="{Binding MoveLayerCommand}" CommandParameter="{x:Static vm:LayerMove.ToBack}">
+                                        <ToolTip.Tip><l:T Text="Ausgewähltes Element hinter alle anderen — es bleibt über dem Seiteninhalt (Strg+Umschalt+Bild↓)" /></ToolTip.Tip>
+                                    </c:RibbonButton>
+                                </StackPanel>
+                            </StackPanel>
+                        </c:RibbonGroup>
+                    </StackPanel>
+
+                    <!-- Seiten -->
+                    <StackPanel Orientation="Horizontal"
+                                IsVisible="{Binding RibbonTab, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Pages}">
+                        <c:RibbonGroup Header="{l:T 'Seiten'}">
+                            <StackPanel Orientation="Horizontal" Spacing="2">
+                                <c:RibbonButton Classes="large" Icon="{StaticResource Icon.DocumentAdd}" Label="{l:T 'Aus Datei'}"
+                                                Command="{Binding InsertFromFileCommand}">
+                                    <ToolTip.Tip><l:T Text="Seiten aus einer anderen PDF nach der aktuellen Seite einfügen" /></ToolTip.Tip>
+                                </c:RibbonButton>
+                                <c:RibbonButton Classes="large" Icon="{StaticResource Icon.DocumentOnePage}" Label="{l:T 'Leerseite'}"
+                                                IsEnabled="{Binding SelectedDocument.CanEditPages, FallbackValue=False}">
+                                    <ToolTip.Tip><l:T Text="Leere Seite nach der aktuellen einfügen: in deren Größe oder im gewählten Format; „Weitere …“ für Anzahl, Position und eigene Größe" /></ToolTip.Tip>
+                                    <c:RibbonButton.Flyout>
+                                        <MenuFlyout Placement="BottomEdgeAlignedLeft">
+                                            <MenuItem Header="{l:T 'Wie aktuelle Seite'}" Command="{Binding InsertBlankPageCommand}" />
+                                            <Separator />
+                                            <MenuItem Header="{l:T 'A4 hoch'}" Command="{Binding InsertBlankPageAsCommand}" CommandParameter="A4" />
+                                            <MenuItem Header="{l:T 'A4 quer'}" Command="{Binding InsertBlankPageAsCommand}" CommandParameter="A4 quer" />
+                                            <MenuItem Header="{l:T 'A3 hoch'}" Command="{Binding InsertBlankPageAsCommand}" CommandParameter="A3" />
+                                            <MenuItem Header="{l:T 'A3 quer'}" Command="{Binding InsertBlankPageAsCommand}" CommandParameter="A3 quer" />
+                                            <MenuItem Header="{l:T 'A5 hoch'}" Command="{Binding InsertBlankPageAsCommand}" CommandParameter="A5" />
+                                            <MenuItem Header="{l:T 'A5 quer'}" Command="{Binding InsertBlankPageAsCommand}" CommandParameter="A5 quer" />
+                                            <MenuItem Header="{l:T 'Letter hoch'}" Command="{Binding InsertBlankPageAsCommand}" CommandParameter="Letter" />
+                                            <MenuItem Header="{l:T 'Letter quer'}" Command="{Binding InsertBlankPageAsCommand}" CommandParameter="Letter quer" />
+                                            <Separator />
+                                            <MenuItem Header="{l:T 'Weitere …'}" Command="{Binding InsertBlankPagesCommand}" />
+                                        </MenuFlyout>
+                                    </c:RibbonButton.Flyout>
+                                </c:RibbonButton>
+                                <c:RibbonButton Classes="large" Icon="{StaticResource Icon.Delete}" Label="{l:T 'Löschen'}"
+                                                Command="{Binding DeletePagesCommand}">
+                                    <ToolTip.Tip><l:T Text="Ausgewählte Seiten löschen (Entf in der Seitenleiste)" /></ToolTip.Tip>
+                                </c:RibbonButton>
+                                <StackPanel Spacing="1">
+                                    <c:RibbonButton Icon="{StaticResource Icon.ArrowRotateCounterclockwise}" Label="{l:T 'Links drehen'}"
+                                                    Command="{Binding RotatePagesLeftCommand}">
+                                        <ToolTip.Tip><l:T Text="Ausgewählte Seiten nach links drehen (wird mitgespeichert)" /></ToolTip.Tip>
+                                    </c:RibbonButton>
+                                    <c:RibbonButton Icon="{StaticResource Icon.ArrowRotateClockwise}" Label="{l:T 'Rechts drehen'}"
+                                                    Command="{Binding RotatePagesRightCommand}">
+                                        <ToolTip.Tip><l:T Text="Ausgewählte Seiten nach rechts drehen (wird mitgespeichert)" /></ToolTip.Tip>
+                                    </c:RibbonButton>
+                                    <c:RibbonButton Icon="{StaticResource Icon.DocumentArrowRight}" Label="{l:T 'Extrahieren'}"
+                                                    Command="{Binding ExtractPagesCommand}">
+                                        <ToolTip.Tip><l:T Text="Ausgewählte Seiten als neue PDF-Datei speichern" /></ToolTip.Tip>
+                                    </c:RibbonButton>
+                                </StackPanel>
+                            </StackPanel>
+                        </c:RibbonGroup>
+                        <c:RibbonGroup Header="{l:T 'Teilen und Zusammenführen'}">
+                            <StackPanel Orientation="Horizontal" Spacing="2">
+                                <c:RibbonButton Classes="large" Icon="{StaticResource Icon.SplitVertical}" Label="{l:T 'Teilen'}"
+                                                Command="{Binding SplitCommand}">
+                                    <ToolTip.Tip><l:T Text="Dokument in mehrere Dateien teilen: Seiten auswählen und zu benannten Teilen ziehen" /></ToolTip.Tip>
+                                </c:RibbonButton>
+                                <c:RibbonButton Classes="large" Icon="{StaticResource Icon.Merge}" Label="{l:T 'Zusammenführen'}"
+                                                Command="{Binding MergeFilesCommand}">
+                                    <ToolTip.Tip><l:T Text="Seiten aus mehreren PDF-Dateien zusammenstellen, auch ohne geöffnete Datei — eine PDF in die Seitenleiste ziehen hängt sie schnell an" /></ToolTip.Tip>
+                                </c:RibbonButton>
+                                <c:RibbonButton Classes="large" Icon="{StaticResource Icon.Grid}" Label="{l:T 'Sortieren'}"
+                                                Command="{Binding SortPagesCommand}">
+                                    <ToolTip.Tip><l:T Text="Alle Seiten als Kacheln: mehrere wählen (Strg- oder Umschalt-Klick) und an die neue Stelle ziehen" /></ToolTip.Tip>
+                                </c:RibbonButton>
+                            </StackPanel>
+                        </c:RibbonGroup>
+                        <c:RibbonGroup Header="{l:T 'Ordnen'}">
+                            <c:RibbonButton Classes="large" Icon="{StaticResource Icon.ArrowSort}" Label="{l:T 'Umkehren'}"
+                                            Command="{Binding ReversePagesCommand}">
+                                <ToolTip.Tip><l:T Text="Reihenfolge der ausgewählten Seiten umkehren (ohne Auswahl: alle). Verschieben: Seiten in der Seitenleiste ziehen." /></ToolTip.Tip>
+                            </c:RibbonButton>
+                        </c:RibbonGroup>
+                    </StackPanel>
+
+                    <!-- Einfügen -->
+                    <StackPanel Orientation="Horizontal"
+                                IsVisible="{Binding RibbonTab, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Insert}">
+                        <c:RibbonGroup Header="{l:T 'Inhalt'}">
+                            <StackPanel Orientation="Horizontal" Spacing="2">
+                                <c:RibbonToggleButton Classes="large" Icon="{StaticResource Icon.TextT}" Label="{l:T 'Text'}"
+                                                      IsChecked="{Binding Tool, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=InsertText, Mode=OneWay}"
+                                                      Command="{Binding SetToolCommand}" CommandParameter="{x:Static vm:ViewTool.InsertText}">
+                                    <ToolTip.Tip><l:T Text="Text auf die Seite setzen: Rechteck aufziehen oder klicken und schreiben. Schrift, Größe und Farbe stehen rechts. Bleibt nach dem Speichern in PDF-Knead bearbeitbar; andere Programme zeigen und drucken ihn wie gewohnt." /></ToolTip.Tip>
+                                </c:RibbonToggleButton>
+                            </StackPanel>
+                        </c:RibbonGroup>
+                        <c:RibbonGroup Header="{l:T 'Element'}">
+                            <c:RibbonButton Classes="large" Icon="{StaticResource Icon.Delete}" Label="{l:T 'Löschen'}"
+                                            Command="{Binding DeleteElementCommand}">
+                                <ToolTip.Tip><l:T Text="Ausgewähltes Element löschen (Entf)" /></ToolTip.Tip>
+                            </c:RibbonButton>
+                        </c:RibbonGroup>
+                        <c:RibbonGroup Header="{l:T 'Bilder'}">
+                            <c:RibbonToggleButton Classes="large" Icon="{StaticResource Icon.Image}" Label="{l:T 'Bild'}"
+                                                  IsChecked="{Binding Tool, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=InsertImage, Mode=OneWay}"
+                                                  Command="{Binding InsertImageCommand}">
+                                <ToolTip.Tip><l:T Text="Bild (PNG, JPEG …) auf die Seite setzen: Datei wählen, dann klicken oder ein Rechteck aufziehen" /></ToolTip.Tip>
+                            </c:RibbonToggleButton>
+                        </c:RibbonGroup>
+                        <!-- Notiz (KONZEPT §5.5a): klicken, den Text rechts im Bereich „Notizen“ schreiben -->
+                        <c:RibbonGroup Header="{l:T 'Notizen'}">
+                            <c:RibbonToggleButton Classes="large" Icon="{StaticResource Icon.ChatEmpty}" Label="{l:T 'Notiz'}"
+                                                  IsChecked="{Binding Tool, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=InsertNote, Mode=OneWay}"
+                                                  Command="{Binding InsertNoteCommand}">
+                                <ToolTip.Tip><l:T Text="Notiz auf die Seite setzen: an die Stelle klicken, dann rechts den Text schreiben. Andere PDF-Programme zeigen sie als Kommentar." /></ToolTip.Tip>
+                            </c:RibbonToggleButton>
+                        </c:RibbonGroup>
+                        <!-- Codes (KONZEPT §5.19): klicken oder aufziehen, den Inhalt rechts eingeben -->
+                        <c:RibbonGroup Header="{l:T 'Codes'}">
+                            <c:RibbonToggleButton Classes="large" Icon="{StaticResource Icon.QrCode}" Label="{l:T 'Code'}"
+                                                  IsChecked="{Binding Tool, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=InsertCode, Mode=OneWay}"
+                                                  Command="{Binding InsertCodeCommand}">
+                                <ToolTip.Tip><l:T Text="QR-Code, Data Matrix oder Strichcode auf die Seite setzen: klicken oder ein Rechteck aufziehen, dann rechts den Inhalt eingeben" /></ToolTip.Tip>
+                            </c:RibbonToggleButton>
+                        </c:RibbonGroup>
+                        <!-- Formen (KONZEPT §5.13): direkt wählen, dann aufziehen; rechts die Eigenschaften der ausgewählten Form -->
+                        <c:RibbonGroup Header="{l:T 'Formen'}">
+                            <StackPanel Orientation="Horizontal" Spacing="2">
+                                <StackPanel Spacing="1">
+                                    <c:RibbonToggleButton Icon="{StaticResource Icon.Square}" Label="{l:T 'Rechteck'}"
+                                                          IsChecked="{Binding ActiveShape, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Rectangle, Mode=OneWay}"
+                                                          Command="{Binding InsertShapeCommand}" CommandParameter="{x:Static ed:ShapeKind.Rectangle}">
+                                        <ToolTip.Tip><l:T Text="Rechteck aufziehen (mit Umschalt: Quadrat)" /></ToolTip.Tip>
+                                    </c:RibbonToggleButton>
+                                    <c:RibbonToggleButton Icon="{StaticResource Icon.Circle}" Label="{l:T 'Ellipse'}"
+                                                          IsChecked="{Binding ActiveShape, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Ellipse, Mode=OneWay}"
+                                                          Command="{Binding InsertShapeCommand}" CommandParameter="{x:Static ed:ShapeKind.Ellipse}">
+                                        <ToolTip.Tip><l:T Text="Ellipse aufziehen (mit Umschalt: Kreis)" /></ToolTip.Tip>
+                                    </c:RibbonToggleButton>
+                                    <c:RibbonToggleButton Icon="{StaticResource Icon.LineHorizontal}" Label="{l:T 'Linie'}"
+                                                          IsChecked="{Binding ActiveShape, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Line, Mode=OneWay}"
+                                                          Command="{Binding InsertShapeCommand}" CommandParameter="{x:Static ed:ShapeKind.Line}">
+                                        <ToolTip.Tip><l:T Text="Linie ziehen (mit Umschalt: waagerecht, senkrecht oder 45°)" /></ToolTip.Tip>
+                                    </c:RibbonToggleButton>
+                                </StackPanel>
+                                <StackPanel Spacing="1">
+                                    <c:RibbonToggleButton Icon="{StaticResource Icon.ArrowUpRight}" Label="{l:T 'Pfeil'}"
+                                                          IsChecked="{Binding ActiveShape, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Arrow, Mode=OneWay}"
+                                                          Command="{Binding InsertShapeCommand}" CommandParameter="{x:Static ed:ShapeKind.Arrow}">
+                                        <ToolTip.Tip><l:T Text="Pfeil ziehen — die Spitze kommt ans Ende (mit Umschalt: waagerecht, senkrecht oder 45°)" /></ToolTip.Tip>
+                                    </c:RibbonToggleButton>
+                                    <c:RibbonToggleButton Icon="{StaticResource Icon.Triangle}" Label="{l:T 'Dreieck'}"
+                                                          IsChecked="{Binding ActiveShape, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Triangle, Mode=OneWay}"
+                                                          Command="{Binding InsertShapeCommand}" CommandParameter="{x:Static ed:ShapeKind.Triangle}">
+                                        <ToolTip.Tip><l:T Text="Dreieck aufziehen (mit Umschalt: gleich breit wie hoch)" /></ToolTip.Tip>
+                                    </c:RibbonToggleButton>
+                                    <c:RibbonToggleButton Icon="{StaticResource Icon.Diamond}" Label="{l:T 'Raute'}"
+                                                          IsChecked="{Binding ActiveShape, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Diamond, Mode=OneWay}"
+                                                          Command="{Binding InsertShapeCommand}" CommandParameter="{x:Static ed:ShapeKind.Diamond}">
+                                        <ToolTip.Tip><l:T Text="Raute aufziehen (mit Umschalt: gleich breit wie hoch)" /></ToolTip.Tip>
+                                    </c:RibbonToggleButton>
+                                </StackPanel>
+                                <StackPanel Spacing="1">
+                                    <c:RibbonToggleButton Icon="{StaticResource Icon.Star}" Label="{l:T 'Stern'}"
+                                                          IsChecked="{Binding ActiveShape, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Star, Mode=OneWay}"
+                                                          Command="{Binding InsertShapeCommand}" CommandParameter="{x:Static ed:ShapeKind.Star}">
+                                        <ToolTip.Tip><l:T Text="Stern aufziehen (mit Umschalt: gleich breit wie hoch)" /></ToolTip.Tip>
+                                    </c:RibbonToggleButton>
+                                    <c:RibbonToggleButton Icon="{StaticResource Icon.ChatEmpty}" Label="{l:T 'Sprechblase'}"
+                                                          IsChecked="{Binding ActiveShape, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Callout, Mode=OneWay}"
+                                                          Command="{Binding InsertShapeCommand}" CommandParameter="{x:Static ed:ShapeKind.Callout}">
+                                        <ToolTip.Tip><l:T Text="Sprechblase aufziehen — ein Text lässt sich mit „Text“ hineinsetzen" /></ToolTip.Tip>
+                                    </c:RibbonToggleButton>
+                                </StackPanel>
+                            </StackPanel>
+                        </c:RibbonGroup>
+                        <!-- Ebenen (KONZEPT §5.13): ausgewählte Elemente nach vorn oder hinten, Nummern wie bei der Tab-Reihenfolge -->
+                        <c:RibbonGroup Header="{l:T 'Ebene'}">
+                            <StackPanel Orientation="Horizontal" Spacing="2">
+                                <StackPanel Spacing="1">
+                                    <c:RibbonButton Icon="{StaticResource Icon.PositionForward}" Label="{l:T 'Nach vorn'}"
+                                                    Command="{Binding MoveLayerCommand}" CommandParameter="{x:Static vm:LayerMove.Forward}">
+                                        <ToolTip.Tip><l:T Text="Ausgewähltes Element eine Ebene nach vorn — vor das nächste, das es überlappt (Strg+Bild↑)" /></ToolTip.Tip>
+                                    </c:RibbonButton>
+                                    <c:RibbonButton Icon="{StaticResource Icon.PositionBackward}" Label="{l:T 'Nach hinten'}"
+                                                    Command="{Binding MoveLayerCommand}" CommandParameter="{x:Static vm:LayerMove.Backward}">
+                                        <ToolTip.Tip><l:T Text="Ausgewähltes Element eine Ebene nach hinten — hinter das nächste, das es überlappt (Strg+Bild↓)" /></ToolTip.Tip>
+                                    </c:RibbonButton>
+                                    <c:RibbonToggleButton Icon="{StaticResource Icon.NumberCircle}" Label="{l:T 'Nummern zeigen'}" IsChecked="{Binding ShowLayers}">
+                                        <ToolTip.Tip><l:T Text="Ebene jedes Elements als Nummer zeigen: 1 liegt ganz hinten, die höchste ganz vorn" /></ToolTip.Tip>
+                                    </c:RibbonToggleButton>
+                                </StackPanel>
+                                <StackPanel Spacing="1">
+                                    <c:RibbonButton Icon="{StaticResource Icon.PositionToFront}" Label="{l:T 'Ganz nach vorn'}"
+                                                    Command="{Binding MoveLayerCommand}" CommandParameter="{x:Static vm:LayerMove.ToFront}">
+                                        <ToolTip.Tip><l:T Text="Ausgewähltes Element vor alle anderen (Strg+Umschalt+Bild↑)" /></ToolTip.Tip>
+                                    </c:RibbonButton>
+                                    <c:RibbonButton Icon="{StaticResource Icon.PositionToBack}" Label="{l:T 'Ganz nach hinten'}"
+                                                    Command="{Binding MoveLayerCommand}" CommandParameter="{x:Static vm:LayerMove.ToBack}">
+                                        <ToolTip.Tip><l:T Text="Ausgewähltes Element hinter alle anderen — es bleibt über dem Seiteninhalt (Strg+Umschalt+Bild↓)" /></ToolTip.Tip>
+                                    </c:RibbonButton>
+                                </StackPanel>
+                            </StackPanel>
+                        </c:RibbonGroup>
+                    </StackPanel>
+
+                    <!-- Formular (M6d): Felder erstellen und ihre Eigenschaften bearbeiten -->
+                    <StackPanel Orientation="Horizontal"
+                                IsVisible="{Binding RibbonTab, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Form}">
+                        <c:RibbonGroup Header="{l:T 'Bearbeiten'}">
+                            <c:RibbonToggleButton Classes="large" Icon="{StaticResource Icon.Form}" Label="{l:T 'Formular bearbeiten'}"
+                                                  IsChecked="{Binding IsFormDesign, Mode=OneWay}" Command="{Binding ToggleFormDesignCommand}">
+                                <ToolTip.Tip><l:T Text="Felder auswählen, verschieben, in der Größe ändern und rechts ihre Eigenschaften bearbeiten — auch Felder, die mit anderen Programmen erstellt wurden. Klicks füllen dann nicht aus. Strg+Klick oder ein Rahmen wählt mehrere." /></ToolTip.Tip>
+                            </c:RibbonToggleButton>
+                        </c:RibbonGroup>
+                        <c:RibbonGroup Header="{l:T 'Felder einfügen'}">
+                            <StackPanel Orientation="Horizontal" Spacing="2">
+                                <StackPanel Spacing="1">
+                                    <c:RibbonToggleButton Icon="{StaticResource Icon.TextField}" Label="{l:T 'Textfeld'}"
+                                                          IsChecked="{Binding ActivePreset, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Text, Mode=OneWay}"
+                                                          Command="{Binding InsertFormFieldCommand}" CommandParameter="{x:Static vm:FieldPreset.Text}">
+                                        <ToolTip.Tip><l:T Text="Textfeld: klicken oder Rechteck aufziehen. Das Werkzeug bleibt an für weitere Felder (Esc oder noch einmal klicken beendet es)." /></ToolTip.Tip>
+                                    </c:RibbonToggleButton>
+                                    <c:RibbonToggleButton Icon="{StaticResource Icon.Calendar}" Label="{l:T 'Datum'}"
+                                                          IsChecked="{Binding ActivePreset, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Date, Mode=OneWay}"
+                                                          Command="{Binding InsertFormFieldCommand}" CommandParameter="{x:Static vm:FieldPreset.Date}">
+                                        <ToolTip.Tip><l:T Text="Datumsfeld: ein Textfeld mit Datumsformat (TT.MM.JJJJ) — PDF-Knead zeigt beim Ausfüllen einen Kalender." /></ToolTip.Tip>
+                                    </c:RibbonToggleButton>
+                                    <c:RibbonToggleButton Icon="{StaticResource Icon.NumberSymbol}" Label="{l:T 'Zahl'}"
+                                                          IsChecked="{Binding ActivePreset, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Number, Mode=OneWay}"
+                                                          Command="{Binding InsertFormFieldCommand}" CommandParameter="{x:Static vm:FieldPreset.Number}">
+                                        <ToolTip.Tip><l:T Text="Zahlenfeld: nimmt nur Zahlen an und zeigt sie mit Tausenderpunkten (auch als Währung oder Prozent; rechts unter „Format“). Kann eine Summe aus anderen Feldern rechnen." /></ToolTip.Tip>
+                                    </c:RibbonToggleButton>
+                                </StackPanel>
+                                <StackPanel Spacing="1">
+                                    <c:RibbonToggleButton Icon="{StaticResource Icon.CheckboxChecked}" Label="{l:T 'Kontrollkästchen'}"
+                                                          IsChecked="{Binding ActivePreset, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=CheckBox, Mode=OneWay}"
+                                                          Command="{Binding InsertFormFieldCommand}" CommandParameter="{x:Static vm:FieldPreset.CheckBox}">
+                                        <ToolTip.Tip><l:T Text="Kontrollkästchen zum Ankreuzen: klicken setzt es in Standardgröße." /></ToolTip.Tip>
+                                    </c:RibbonToggleButton>
+                                    <c:RibbonToggleButton Icon="{StaticResource Icon.RadioButton}" Label="{l:T 'Optionsfeld'}"
+                                                          IsChecked="{Binding ActivePreset, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Radio, Mode=OneWay}"
+                                                          Command="{Binding InsertFormFieldCommand}" CommandParameter="{x:Static vm:FieldPreset.Radio}">
+                                        <ToolTip.Tip><l:T Text="Optionsfelder: alle, die bei eingeschaltetem Werkzeug gesetzt werden, bilden eine Gruppe — davon ist genau eins gewählt. Für eine neue Gruppe das Werkzeug neu starten." /></ToolTip.Tip>
+                                    </c:RibbonToggleButton>
+                                    <c:RibbonToggleButton Icon="{StaticResource Icon.TextBulletListSquare}" Label="{l:T 'Kombinationsfeld'}"
+                                                          IsChecked="{Binding ActivePreset, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=ComboBox, Mode=OneWay}"
+                                                          Command="{Binding InsertFormFieldCommand}" CommandParameter="{x:Static vm:FieldPreset.ComboBox}">
+                                        <ToolTip.Tip><l:T Text="Aufklappliste: ein Eintrag wird gewählt, wahlweise auch eigener Text. Die Einträge stehen rechts unter „Optionen“." /></ToolTip.Tip>
+                                    </c:RibbonToggleButton>
+                                </StackPanel>
+                                <StackPanel Spacing="1">
+                                    <c:RibbonToggleButton Icon="{StaticResource Icon.List}" Label="{l:T 'Listenfeld'}"
+                                                          IsChecked="{Binding ActivePreset, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=ListBox, Mode=OneWay}"
+                                                          Command="{Binding InsertFormFieldCommand}" CommandParameter="{x:Static vm:FieldPreset.ListBox}">
+                                        <ToolTip.Tip><l:T Text="Liste mit sichtbaren Einträgen, wahlweise mehrere wählbar." /></ToolTip.Tip>
+                                    </c:RibbonToggleButton>
+                                    <c:RibbonToggleButton Icon="{StaticResource Icon.ArrowReset}" Label="{l:T 'Zurücksetzen'}"
+                                                          IsChecked="{Binding ActivePreset, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=ResetButton, Mode=OneWay}"
+                                                          Command="{Binding InsertFormFieldCommand}" CommandParameter="{x:Static vm:FieldPreset.ResetButton}">
+                                        <ToolTip.Tip><l:T Text="Schaltfläche, die alle Felder auf ihren Standardwert zurücksetzt (ohne Skript — funktioniert in jedem Programm)." /></ToolTip.Tip>
+                                    </c:RibbonToggleButton>
+                                    <c:RibbonButton Icon="{StaticResource Icon.Delete}" Label="{l:T 'Löschen'}"
+                                                    Command="{Binding DeleteElementCommand}">
+                                        <ToolTip.Tip><l:T Text="Ausgewählte Felder löschen (Entf)" /></ToolTip.Tip>
+                                    </c:RibbonButton>
+                                </StackPanel>
+                                <StackPanel Spacing="1">
+                                    <c:RibbonToggleButton Icon="{StaticResource Icon.QrCode}" Label="{l:T 'QR-Feld'}"
+                                                          IsChecked="{Binding ActivePreset, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=QrCode, Mode=OneWay}"
+                                                          Command="{Binding InsertFormFieldCommand}" CommandParameter="{x:Static vm:FieldPreset.QrCode}">
+                                        <ToolTip.Tip><l:T Text="Feld, dessen Inhalt als QR-Code erscheint: beim Ausfüllen den Text, eine Adresse oder eine Überweisung eintippen. Andere PDF-Programme zeigen den gespeicherten Code." /></ToolTip.Tip>
+                                    </c:RibbonToggleButton>
+                                    <c:RibbonToggleButton Icon="{StaticResource Icon.Barcode}" Label="{l:T 'Barcode-Feld'}"
+                                                          IsChecked="{Binding ActivePreset, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Barcode, Mode=OneWay}"
+                                                          Command="{Binding InsertFormFieldCommand}" CommandParameter="{x:Static vm:FieldPreset.Barcode}">
+                                        <ToolTip.Tip><l:T Text="Feld, dessen Inhalt als Strichcode erscheint (Code 128, rechts auch EAN, UPC, Code 39, ITF oder GS1-128). Andere PDF-Programme zeigen den gespeicherten Code." /></ToolTip.Tip>
+                                    </c:RibbonToggleButton>
+                                </StackPanel>
+                            </StackPanel>
+                        </c:RibbonGroup>
+                        <c:RibbonGroup Header="{l:T 'Anordnen'}">
+                            <StackPanel Orientation="Horizontal" Spacing="2">
+                                <StackPanel Spacing="1">
+                                    <c:RibbonButton Icon="{StaticResource Icon.AlignLeft}" Label="{l:T 'Links'}"
+                                                    Command="{Binding ArrangeFieldsCommand}" CommandParameter="{x:Static vm:FieldArrange.Left}">
+                                        <ToolTip.Tip><l:T Text="Ausgewählte Felder links bündig am zuletzt gewählten ausrichten" /></ToolTip.Tip>
+                                    </c:RibbonButton>
+                                    <c:RibbonButton Icon="{StaticResource Icon.AlignCenterVertical}" Label="{l:T 'Zentriert'}"
+                                                    Command="{Binding ArrangeFieldsCommand}" CommandParameter="{x:Static vm:FieldArrange.Center}">
+                                        <ToolTip.Tip><l:T Text="Ausgewählte Felder waagerecht zentriert am zuletzt gewählten ausrichten (Mitten untereinander)" /></ToolTip.Tip>
+                                    </c:RibbonButton>
+                                    <c:RibbonButton Icon="{StaticResource Icon.AlignRight}" Label="{l:T 'Rechts'}"
+                                                    Command="{Binding ArrangeFieldsCommand}" CommandParameter="{x:Static vm:FieldArrange.Right}">
+                                        <ToolTip.Tip><l:T Text="Ausgewählte Felder rechts bündig am zuletzt gewählten ausrichten" /></ToolTip.Tip>
+                                    </c:RibbonButton>
+                                </StackPanel>
+                                <StackPanel Spacing="1">
+                                    <c:RibbonButton Icon="{StaticResource Icon.AlignTop}" Label="{l:T 'Oben'}"
+                                                    Command="{Binding ArrangeFieldsCommand}" CommandParameter="{x:Static vm:FieldArrange.Top}">
+                                        <ToolTip.Tip><l:T Text="Ausgewählte Felder oben bündig am zuletzt gewählten ausrichten" /></ToolTip.Tip>
+                                    </c:RibbonButton>
+                                    <c:RibbonButton Icon="{StaticResource Icon.AlignCenterHorizontal}" Label="{l:T 'Mitte'}"
+                                                    Command="{Binding ArrangeFieldsCommand}" CommandParameter="{x:Static vm:FieldArrange.Middle}">
+                                        <ToolTip.Tip><l:T Text="Ausgewählte Felder senkrecht mittig am zuletzt gewählten ausrichten (auf einer Linie, etwa Kästchen in einer Reihe)" /></ToolTip.Tip>
+                                    </c:RibbonButton>
+                                    <c:RibbonButton Icon="{StaticResource Icon.AlignBottom}" Label="{l:T 'Unten'}"
+                                                    Command="{Binding ArrangeFieldsCommand}" CommandParameter="{x:Static vm:FieldArrange.Bottom}">
+                                        <ToolTip.Tip><l:T Text="Ausgewählte Felder unten bündig am zuletzt gewählten ausrichten" /></ToolTip.Tip>
+                                    </c:RibbonButton>
+                                </StackPanel>
+                                <StackPanel Spacing="1">
+                                    <c:RibbonButton Icon="{StaticResource Icon.AlignSpaceEvenlyHorizontal}" Label="{l:T 'Waagerecht verteilen'}"
+                                                    Command="{Binding DistributeFieldsCommand}" CommandParameter="{x:Static vm:FieldArrange.DistributeHorizontally}">
+                                        <ToolTip.Tip><l:T Text="Ausgewählte Felder nebeneinander verteilen — gleichmäßig zwischen dem ersten und letzten oder mit dem gewählten Abstand. Kästchen zählen samt Beschriftung." /></ToolTip.Tip>
+                                    </c:RibbonButton>
+                                    <c:RibbonButton Icon="{StaticResource Icon.AlignSpaceEvenlyVertical}" Label="{l:T 'Senkrecht verteilen'}"
+                                                    Command="{Binding DistributeFieldsCommand}" CommandParameter="{x:Static vm:FieldArrange.DistributeVertically}">
+                                        <ToolTip.Tip><l:T Text="Ausgewählte Felder untereinander verteilen — gleichmäßig zwischen dem ersten und letzten oder mit dem gewählten Abstand" /></ToolTip.Tip>
+                                    </c:RibbonButton>
+                                    <StackPanel Orientation="Horizontal" Spacing="4" Margin="6,1,0,0">
+                                        <TextBlock Text="{l:T 'Abstand'}" FontSize="12" VerticalAlignment="Center" Foreground="{DynamicResource TextMutedBrush}" />
+                                        <ComboBox Width="136" IsEditable="True" ItemsSource="{Binding GapOptions}"
+                                                  Text="{Binding DistributeGap}" AutomationProperties.Name="{l:T 'Abstand'}"
+                                                  ToolTip.Tip="{l:T 'Abstand beim Verteilen in Punkt (1/72 Zoll; bei 100 % etwa 1,3 Bildschirmpixel) — oder gleichmäßig'}" />
+                                    </StackPanel>
+                                </StackPanel>
+                                <StackPanel Spacing="1">
+                                    <c:RibbonButton Icon="{StaticResource Icon.ArrowAutofitWidth}" Label="{l:T 'Gleich breit'}"
+                                                    Command="{Binding ArrangeFieldsCommand}" CommandParameter="{x:Static vm:FieldArrange.SameWidth}">
+                                        <ToolTip.Tip><l:T Text="Ausgewählte Felder so breit wie das zuletzt gewählte" /></ToolTip.Tip>
+                                    </c:RibbonButton>
+                                    <c:RibbonButton Icon="{StaticResource Icon.ArrowAutofitHeight}" Label="{l:T 'Gleich hoch'}"
+                                                    Command="{Binding ArrangeFieldsCommand}" CommandParameter="{x:Static vm:FieldArrange.SameHeight}">
+                                        <ToolTip.Tip><l:T Text="Ausgewählte Felder so hoch wie das zuletzt gewählte" /></ToolTip.Tip>
+                                    </c:RibbonButton>
+                                    <c:RibbonButton Icon="{StaticResource Icon.Copy}" Label="{l:T 'Verdoppeln'}" Command="{Binding DuplicateFieldsCommand}">
+                                        <ToolTip.Tip><l:T Text="Ausgewählte Felder darunter verdoppeln (Strg+D) — Optionsfelder kommen in dieselbe Gruppe" /></ToolTip.Tip>
+                                    </c:RibbonButton>
+                                </StackPanel>
+                            </StackPanel>
+                        </c:RibbonGroup>
+                        <!-- Ebenen (KONZEPT §5.13): ausgewählte Elemente nach vorn oder hinten, Nummern wie bei der Tab-Reihenfolge -->
+                        <c:RibbonGroup Header="{l:T 'Ebene'}">
+                            <StackPanel Orientation="Horizontal" Spacing="2">
+                                <StackPanel Spacing="1">
+                                    <c:RibbonButton Icon="{StaticResource Icon.PositionForward}" Label="{l:T 'Nach vorn'}"
+                                                    Command="{Binding MoveLayerCommand}" CommandParameter="{x:Static vm:LayerMove.Forward}">
+                                        <ToolTip.Tip><l:T Text="Ausgewähltes Element eine Ebene nach vorn — vor das nächste, das es überlappt (Strg+Bild↑)" /></ToolTip.Tip>
+                                    </c:RibbonButton>
+                                    <c:RibbonButton Icon="{StaticResource Icon.PositionBackward}" Label="{l:T 'Nach hinten'}"
+                                                    Command="{Binding MoveLayerCommand}" CommandParameter="{x:Static vm:LayerMove.Backward}">
+                                        <ToolTip.Tip><l:T Text="Ausgewähltes Element eine Ebene nach hinten — hinter das nächste, das es überlappt (Strg+Bild↓)" /></ToolTip.Tip>
+                                    </c:RibbonButton>
+                                    <c:RibbonToggleButton Icon="{StaticResource Icon.NumberCircle}" Label="{l:T 'Nummern zeigen'}" IsChecked="{Binding ShowLayers}">
+                                        <ToolTip.Tip><l:T Text="Ebene jedes Elements als Nummer zeigen: 1 liegt ganz hinten, die höchste ganz vorn" /></ToolTip.Tip>
+                                    </c:RibbonToggleButton>
+                                </StackPanel>
+                                <StackPanel Spacing="1">
+                                    <c:RibbonButton Icon="{StaticResource Icon.PositionToFront}" Label="{l:T 'Ganz nach vorn'}"
+                                                    Command="{Binding MoveLayerCommand}" CommandParameter="{x:Static vm:LayerMove.ToFront}">
+                                        <ToolTip.Tip><l:T Text="Ausgewähltes Element vor alle anderen (Strg+Umschalt+Bild↑)" /></ToolTip.Tip>
+                                    </c:RibbonButton>
+                                    <c:RibbonButton Icon="{StaticResource Icon.PositionToBack}" Label="{l:T 'Ganz nach hinten'}"
+                                                    Command="{Binding MoveLayerCommand}" CommandParameter="{x:Static vm:LayerMove.ToBack}">
+                                        <ToolTip.Tip><l:T Text="Ausgewähltes Element hinter alle anderen — es bleibt über dem Seiteninhalt (Strg+Umschalt+Bild↓)" /></ToolTip.Tip>
+                                    </c:RibbonButton>
+                                </StackPanel>
+                            </StackPanel>
+                        </c:RibbonGroup>
+                        <!-- „Felder erkennen“ steht klein unter den Prüf-Knöpfen, damit der Reiter auch mit QR- und Barcode-Feld in die Startbreite passt -->
+                        <c:RibbonGroup Header="{l:T 'Prüfen und erkennen'}">
+                            <StackPanel Spacing="1">
+                                <c:RibbonToggleButton Icon="{StaticResource Icon.NumberCircle}" Label="{l:T 'Tab-Reihenfolge'}"
+                                                      IsChecked="{Binding ShowTabOrder, Mode=OneWay}" Command="{Binding ToggleTabOrderCommand}">
+                                    <ToolTip.Tip><l:T Text="Zeigt, in welcher Reihenfolge die Tab-Taste durch die Felder geht. Felder nacheinander anklicken legt sie neu fest (Esc beendet)." /></ToolTip.Tip>
+                                </c:RibbonToggleButton>
+                                <c:RibbonButton Icon="{StaticResource Icon.Eye}" Label="{l:T 'Ausfüllen testen'}" Command="{Binding TestFormCommand}">
+                                    <ToolTip.Tip><l:T Text="„Formular bearbeiten“ beenden und das Formular ausfüllen — Formate, Kalender und Berechnungen wirken sofort" /></ToolTip.Tip>
+                                </c:RibbonButton>
+                                <c:RibbonToggleButton Icon="{StaticResource Icon.Sparkle}" Label="{l:T 'Felder erkennen'}"
+                                                      IsChecked="{Binding SelectedDocument.IsFieldProposalsOpen, Mode=OneWay, FallbackValue=False}"
+                                                      Command="{Binding RecognizeFieldsCommand}">
+                                    <ToolTip.Tip><l:T Text="Schlägt Felder an Linien, Kästchen und Tabellen der Seiten vor, auch in Scans — Sie prüfen, benennen und übernehmen. Mit den KI-Modellen liest es Scans und findet auch nicht gezeichnete Felder." /></ToolTip.Tip>
+                                </c:RibbonToggleButton>
+                            </StackPanel>
+                        </c:RibbonGroup>
+                    </StackPanel>
+
+                    <!-- Signature: sign, signature fields, handwriting fonts -->
+                    <StackPanel Orientation="Horizontal"
+                                IsVisible="{Binding RibbonTab, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Signature}">
+                        <c:RibbonGroup Header="{l:T 'Unterschreiben'}">
+                            <c:RibbonToggleButton Classes="large" Icon="{StaticResource Icon.Signature}" Label="{l:T 'Unterschreiben'}"
+                                                  IsChecked="{Binding Tool, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=InsertSignature, Mode=OneWay}"
+                                                  Command="{Binding InsertSignatureCommand}">
+                                <ToolTip.Tip><l:T Text="Unterschrift aus einer Handschrift: Namen und Schrift wählen, dann auf der Seite klicken oder ein Rechteck aufziehen. Doppelklick auf eine Unterschrift ändert sie." /></ToolTip.Tip>
+                            </c:RibbonToggleButton>
+                        </c:RibbonGroup>
+                        <c:RibbonGroup Header="{l:T 'Felder'}">
+                            <c:RibbonToggleButton Classes="large" Icon="{StaticResource Icon.Signature}" Label="{l:T 'Unterschriftsfeld'}"
+                                                  IsChecked="{Binding ActivePreset, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Signature, Mode=OneWay}"
+                                                  Command="{Binding InsertFormFieldCommand}" CommandParameter="{x:Static vm:FieldPreset.Signature}">
+                                <ToolTip.Tip><l:T Text="Leeres Feld zum Unterschreiben: Rechteck aufziehen oder klicken. Andere Programme bieten dort das Unterschreiben an; mit „Unterschreiben“ hineinklicken setzt die eigene genau hinein." /></ToolTip.Tip>
+                            </c:RibbonToggleButton>
+                        </c:RibbonGroup>
+                        <c:RibbonGroup Header="{l:T 'Digital signieren'}">
+                            <StackPanel Orientation="Horizontal" Spacing="2">
+                            <c:RibbonButton Classes="large" Icon="{StaticResource Icon.ShieldLock}" Label="{l:T 'Zertifikat'}"
+                                            Command="{Binding ManageCertificateCommand}">
+                                <ToolTip.Tip><l:T Text="Mit welchem Zertifikat digitale Unterschriften signiert werden: eigenes, aus einer Datei oder (unter Windows) aus dem Zertifikatsspeicher. Zeigt auch den Fingerabdruck zum Weitergeben." /></ToolTip.Tip>
+                            </c:RibbonButton>
+                            <c:RibbonButton Classes="large" Icon="{StaticResource Icon.CheckmarkCircle}" Label="{l:T 'Dokument&#10;Signaturen'}"
+                                            Command="{Binding ShowSignatureDetailsCommand}" IsEnabled="{Binding HasSelection}">
+                                <ToolTip.Tip><l:T Text="Prüft die digitalen Unterschriften des Dokuments: wer unterschrieben hat, ob sie echt sind und ob das Dokument danach geändert wurde" /></ToolTip.Tip>
+                            </c:RibbonButton>
+                            </StackPanel>
+                        </c:RibbonGroup>
+                        <c:RibbonGroup Header="{l:T 'Handschriften'}">
+                            <c:RibbonButton Classes="large" Icon="{StaticResource Icon.TextEditStyle}" Label="{l:T 'Schriften verwalten'}"
+                                            Command="{Binding ManageSignatureFontsCommand}">
+                                <ToolTip.Tip><l:T Text="Handschriften für Unterschriften ansehen, eigene hinzufügen oder entfernen" /></ToolTip.Tip>
+                            </c:RibbonButton>
+                        </c:RibbonGroup>
+                    </StackPanel>
+
+                    <!-- Sicher -->
+                    <StackPanel Orientation="Horizontal"
+                                IsVisible="{Binding RibbonTab, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Secure}">
+                        <c:RibbonGroup Header="{l:T 'Schwärzen'}">
+                            <StackPanel Orientation="Horizontal" Spacing="2">
+                                <c:RibbonToggleButton Classes="large" Icon="{StaticResource Icon.Eraser}" Label="{l:T 'Bereich schwärzen'}"
+                                                      IsChecked="{Binding Tool, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=InsertRedaction, Mode=OneWay}"
+                                                      Command="{Binding SetToolCommand}" CommandParameter="{x:Static vm:ViewTool.InsertRedaction}">
+                                    <ToolTip.Tip><l:T Text="Zum Schwärzen markieren, bis zum Ausschalten oder Esc: über Text ziehen markiert den Text, sonst einen Bereich aufziehen; Markierungen verschieben und an den Griffen verformen — bis zum Anwenden rückgängig zu machen. Damit sicher keine Daten mehr vorhanden sind, nach dem Schwärzen zusätzlich „Dokument bereinigen“ und „Flachlegen als Bild“ empfohlen" /></ToolTip.Tip>
+                                </c:RibbonToggleButton>
+                                <StackPanel Spacing="1">
+                                    <c:RibbonToggleButton Icon="{StaticResource Icon.EyeOff}" Label="{l:T 'Verborgenes schwärzen'}"
+                                                          IsChecked="{Binding Tool, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=RedactHidden, Mode=OneWay}"
+                                                          Command="{Binding RedactHiddenCommand}">
+                                        <ToolTip.Tip><l:T Text="Verborgenen Text auf allen Seiten zeigen — weiß auf weiß, verdeckt, winzig, außerhalb der Seite, unsichtbar (OCR) —, bis zum Ausschalten oder Esc: ein Klick auf einen Rahmen markiert die Stelle zum Schwärzen, entfernt wird sie mit „Schwärzungen anwenden“" /></ToolTip.Tip>
+                                    </c:RibbonToggleButton>
+                                    <c:RibbonToggleButton Icon="{StaticResource Icon.TextT}" Label="{l:T 'Text schwärzen'}"
+                                                          IsChecked="{Binding Tool, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=RedactText, Mode=OneWay}"
+                                                          Command="{Binding RedactTextCommand}">
+                                        <ToolTip.Tip><l:T Text="Text zum Schwärzen markieren, bis zum Ausschalten oder Esc: schon markierter Text sofort, danach jeder Text, über den man zieht (Doppelklick: Wort, Dreifachklick: Zeile); Markierungen verschieben und an den Griffen verformen" /></ToolTip.Tip>
+                                    </c:RibbonToggleButton>
+                                    <c:RibbonButton Icon="{StaticResource Icon.Search}" Label="{l:T 'Suchen und schwärzen'}"
+                                                    Command="{Binding SearchRedactCommand}">
+                                        <ToolTip.Tip><l:T Text="Wörter, Namen, E-Mail-Adressen, Telefonnummern oder IBAN im ganzen Dokument suchen und schwärzen" /></ToolTip.Tip>
+                                    </c:RibbonButton>
+                                </StackPanel>
+                                <c:RibbonButton Classes="large" Icon="{StaticResource Icon.ShieldLock}" Label="{l:T 'Schwärzungen anwenden'}"
+                                                Command="{Binding ApplyRedactionsCommand}">
+                                    <ToolTip.Tip><l:T Text="Als neue Datei speichern: der Inhalt unter den Schwärzungen wird endgültig entfernt, das Original bleibt unverändert. Damit sicher keine Daten mehr vorhanden sind, zusätzlich „Dokument bereinigen“ und „Flachlegen als Bild“ empfohlen" /></ToolTip.Tip>
+                                </c:RibbonButton>
+                            </StackPanel>
+                        </c:RibbonGroup>
+                        <c:RibbonGroup Header="{l:T 'Sichern'}">
+                            <StackPanel Orientation="Horizontal" Spacing="2">
+                                <c:RibbonToggleButton Classes="large" Icon="{StaticResource Icon.Layer}" Label="{l:T 'Flachlegen'}"
+                                                      IsChecked="{Binding FlattenOnSave}" IsEnabled="{Binding HasSelection}">
+                                    <ToolTip.Tip><l:T Text="Beim Speichern Formularfelder, Kommentare, Stempel und Unterschriften fest in die Seiten legen — danach lässt sich nichts mehr ausfüllen oder verschieben (Links bleiben). Verborgenes bleibt dabei erhalten: unsichtbarer Text, ausgeblendete Ebenen, Metadaten, Lesezeichen, Anhänge und Skripte — zum Entfernen „Dokument bereinigen“ oder „Flachlegen als Bild“" /></ToolTip.Tip>
+                                </c:RibbonToggleButton>
+                                <c:RibbonToggleButton Classes="large" Icon="{StaticResource Icon.ImageMultiple}" Label="{l:T 'Flachlegen als Bild'}"
+                                                      IsChecked="{Binding RasterOnSave, Mode=OneWay}" Command="{Binding ToggleRasterCommand}">
+                                    <ToolTip.Tip><l:T Text="Beim Speichern jede Seite zu einem Bild machen — nur was man sieht, bleibt: verborgene Ebenen, unsichtbarer Text, Metadaten, Lesezeichen, Anhänge und Skripte sind danach fort. Text lässt sich nicht mehr kopieren oder durchsuchen. Was nur schwach zu sehen ist (sehr hell, winzig), bleibt als Pixel im Bild; ein Passwort bleibt" /></ToolTip.Tip>
+                                </c:RibbonToggleButton>
+                            </StackPanel>
+                        </c:RibbonGroup>
+                        <c:RibbonGroup Header="{l:T 'Schutz'}">
+                            <StackPanel Orientation="Horizontal" Spacing="2">
+                                <c:RibbonButton Classes="large" Icon="{StaticResource Icon.LockClosed}" Label="{l:T 'Passwort und Rechte'}"
+                                                Command="{Binding EditProtectionCommand}">
+                                    <ToolTip.Tip><l:T Text="Passwort zum Öffnen und Rechte (Drucken, Kopieren, Ändern …) — gilt ab dem nächsten Speichern" /></ToolTip.Tip>
+                                </c:RibbonButton>
+                                <!-- was die Datei erlaubt und was sie sperrt, auf einen Blick (Wunsch vom 4.11.2026) -->
+                                <c:RibbonButton Name="RightsButton" Classes="large" Icon="{StaticResource Icon.ShieldLock}" Label="{l:T 'Berechtigungen'}"
+                                                IsEnabled="{Binding HasSelection}">
+                                    <ToolTip.Tip><l:T Text="Was die Datei erlaubt und was sie sperrt (Drucken, Kopieren, Ändern …)" /></ToolTip.Tip>
+                                    <c:RibbonButton.Flyout>
+                                        <Flyout Placement="BottomEdgeAlignedLeft">
+                                            <StackPanel Spacing="6" MaxWidth="340" Margin="4">
+                                                <TextBlock FontWeight="SemiBold" Text="{l:T 'Berechtigungen der Datei'}" />
+                                                <ItemsControl ItemsSource="{Binding SelectedDocument.Rights, FallbackValue={x:Null}}">
+                                                    <ItemsControl.ItemTemplate>
+                                                        <DataTemplate x:DataType="vm:RightRow">
+                                                            <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,2">
+                                                                <PathIcon Data="{StaticResource Icon.CheckmarkCircle}" Width="16" Height="16"
+                                                                          Foreground="{DynamicResource AccentBrush}" IsVisible="{Binding Allowed}" />
+                                                                <PathIcon Data="{StaticResource Icon.Dismiss}" Width="16" Height="16"
+                                                                          Foreground="{DynamicResource DangerBrush}" IsVisible="{Binding !Allowed}" />
+                                                                <TextBlock Text="{Binding Label}" VerticalAlignment="Center" />
+                                                            </StackPanel>
+                                                        </DataTemplate>
+                                                    </ItemsControl.ItemTemplate>
+                                                </ItemsControl>
+                                                <TextBlock Classes="muted small" TextWrapping="Wrap" Text="{Binding SelectedDocument.RightsNote, FallbackValue=''}" />
+                                            </StackPanel>
+                                        </Flyout>
+                                    </c:RibbonButton.Flyout>
+                                </c:RibbonButton>
+                                <c:RibbonButton Classes="large" Icon="{StaticResource Icon.LockOpen}" Label="{l:T 'Einschränkungen entfernen'}"
+                                                Command="{Binding LiftRestrictionsCommand}">
+                                    <ToolTip.Tip><l:T Text="Drucken, Kopieren, Ändern … wieder erlauben — mit dem Rechte-Passwort oder nach der Bestätigung, dazu berechtigt zu sein; ein Passwort zum Öffnen bleibt nötig" /></ToolTip.Tip>
+                                </c:RibbonButton>
+                                <c:RibbonButton Classes="large" Icon="{StaticResource Icon.Broom}" Label="{l:T 'Dokument bereinigen'}"
+                                                Command="{Binding CleanDocumentCommand}">
+                                    <ToolTip.Tip><l:T Text="Verborgene Daten finden und beim Speichern entfernen: Metadaten, Anhänge, JavaScript, Vorschaubilder, Daten anderer Programme …" /></ToolTip.Tip>
+                                </c:RibbonButton>
+                            </StackPanel>
+                        </c:RibbonGroup>
+                        <c:RibbonGroup Header="{l:T 'Prüfen'}">
+                            <StackPanel Orientation="Horizontal" Spacing="2">
+                                <c:RibbonToggleButton Classes="large" Icon="{StaticResource Icon.CheckmarkCircle}" Label="{l:T 'Barrierefreiheit'}"
+                                                      IsChecked="{Binding SelectedDocument.IsAccessibilityOpen, Mode=OneWay, FallbackValue=False}"
+                                                      Command="{Binding ToggleAccessibilityCommand}">
+                                    <ToolTip.Tip><l:T Text="Prüfen, ob Bildschirmleser und andere Hilfsmittel die Datei lesen können (PDF/UA) — geprüft wird die Datei, wie sie gespeichert würde" /></ToolTip.Tip>
+                                </c:RibbonToggleButton>
+                            </StackPanel>
+                        </c:RibbonGroup>
+                    </StackPanel>
+
+                    <!-- Ansicht -->
+                    <StackPanel Orientation="Horizontal"
+                                IsVisible="{Binding RibbonTab, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=View}">
+                        <c:RibbonGroup Header="{l:T 'Seitenansicht'}">
+                            <StackPanel Orientation="Horizontal" Spacing="2">
+                                <c:RibbonToggleButton Classes="large" Icon="{StaticResource Icon.DocumentOnePage}" Label="{l:T 'Einzelseite'}"
+                                                      IsChecked="{Binding SelectedDocument.PageLayout, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Single, Mode=OneWay, FallbackValue=False}"
+                                                      Command="{Binding SetLayoutCommand}" CommandParameter="{x:Static vm:PageLayout.Single}">
+                                                      <ToolTip.Tip><l:T Text="Immer nur eine Seite; Mausrad und Bild ab blättern am Seitenende weiter" /></ToolTip.Tip>
+                                </c:RibbonToggleButton>
+                                <c:RibbonToggleButton Classes="large" Icon="{StaticResource Icon.DocumentOnePageMultiple}" Label="{l:T 'Fortlaufend'}"
+                                                      IsChecked="{Binding SelectedDocument.PageLayout, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Continuous, Mode=OneWay, FallbackValue=False}"
+                                                      Command="{Binding SetLayoutCommand}" CommandParameter="{x:Static vm:PageLayout.Continuous}">
+                                                      <ToolTip.Tip><l:T Text="Alle Seiten untereinander" /></ToolTip.Tip>
+                                </c:RibbonToggleButton>
+                                <c:RibbonToggleButton Classes="large" Icon="{StaticResource Icon.BookOpen}" Label="{l:T 'Doppelseite'}"
+                                                      IsChecked="{Binding SelectedDocument.PageLayout, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=TwoPages, Mode=OneWay, FallbackValue=False}"
+                                                      Command="{Binding SetLayoutCommand}" CommandParameter="{x:Static vm:PageLayout.TwoPages}">
+                                                      <ToolTip.Tip><l:T Text="Je zwei Seiten nebeneinander" /></ToolTip.Tip>
+                                </c:RibbonToggleButton>
+                            </StackPanel>
+                        </c:RibbonGroup>
+                        <c:RibbonGroup Header="{l:T 'Fenster'}">
+                            <StackPanel Orientation="Horizontal" Spacing="2">
+                                <c:RibbonToggleButton Classes="large" Icon="{StaticResource Icon.PanelLeft}" Label="{l:T 'Seitenleiste'}"
+                                                      IsChecked="{Binding SidebarVisible}">
+                                    <ToolTip.Tip><l:T Text="Seitenleiste ein- oder ausblenden (F4)" /></ToolTip.Tip>
+                                </c:RibbonToggleButton>
+                                <c:RibbonButton Classes="large" Icon="{StaticResource Icon.FullScreenMaximize}" Label="{l:T 'Vollbild'}"
+                                                Click="OnFullScreenClick">
+                                    <ToolTip.Tip><l:T Text="Vollbild ein oder aus (F11)" /></ToolTip.Tip>
+                                </c:RibbonButton>
+                            </StackPanel>
+                        </c:RibbonGroup>
+                        <c:RibbonGroup Header="{l:T 'Darstellung'}">
+                            <StackPanel Orientation="Horizontal" Spacing="2">
+                                <c:RibbonButton Classes="large" Icon="{StaticResource Icon.DarkTheme}" Label="{l:T 'Erscheinungsbild'}">
+                                    <ToolTip.Tip><l:T Text="Hell, dunkel oder wie das System" /></ToolTip.Tip>
+                                    <c:RibbonButton.Flyout>
+                                        <MenuFlyout Placement="BottomEdgeAlignedLeft">
+                                            <MenuItem Header="{l:T 'Wie das System'}" Click="OnThemeClick" Tag="System" />
+                                            <MenuItem Header="{l:T 'Hell'}" Click="OnThemeClick" Tag="Light" />
+                                            <MenuItem Header="{l:T 'Dunkel'}" Click="OnThemeClick" Tag="Dark" />
+                                        </MenuFlyout>
+                                    </c:RibbonButton.Flyout>
+                                </c:RibbonButton>
+                                <c:RibbonToggleButton Classes="large" Icon="{StaticResource Icon.LineThickness}" Label="{l:T 'Dünne Linien verstärken'}"
+                                                      IsChecked="{Binding EnhanceThinLines}">
+                                                      <ToolTip.Tip><l:T Text="Linien, die dünner als ein Pixel wären, als volle Linie zeichnen — Pläne bleiben auch verkleinert gut lesbar" /></ToolTip.Tip>
+                                </c:RibbonToggleButton>
+                                <c:RibbonToggleButton Classes="large" Icon="{StaticResource Icon.Color}" Label="{l:T 'Überdrucken-Vorschau'}"
+                                                      IsChecked="{Binding OverprintPreview}">
+                                                      <ToolTip.Tip><l:T Text="Zeigt, wie es gedruckt aussieht, wenn Farben übereinander gedruckt statt ausgespart werden: Die Farben mischen sich — Gelb auf Cyan wird Grün, Blau auf Grün wird dunkler und schmutziger. So sieht man ungewollte Farbmischungen in Druckvorlagen schon vor dem Druck." /></ToolTip.Tip>
+                                </c:RibbonToggleButton>
+                            </StackPanel>
+                        </c:RibbonGroup>
+                        <c:RibbonGroup Header="{l:T 'Sprache'}">
+                            <c:RibbonButton Classes="large" Icon="{StaticResource Icon.LocalLanguage}" Label="{l:T 'Sprache'}"
+                                            Command="{Binding ShowBackstageCommand}"
+                                            CommandParameter="{x:Static vm:BackstagePage.Settings}">
+                                <ToolTip.Tip><l:T Text="Sprache der Oberfläche wählen oder eine Übersetzung anlegen" /></ToolTip.Tip>
+                            </c:RibbonButton>
+                        </c:RibbonGroup>
+                    </StackPanel>
+
+                    <!-- Über PDF-Knead -->
+                    <StackPanel Orientation="Horizontal"
+                                IsVisible="{Binding RibbonTab, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=About}">
+                        <c:RibbonGroup Header="{l:T 'Lizenzen'}">
+                            <c:RibbonButton Classes="large" Icon="{StaticResource Icon.DocumentText}" Label="{l:T 'Lizenzen'}"
+                                            Command="{Binding ShowLicensesCommand}">
+                                <ToolTip.Tip><l:T Text="Lizenz von PDF-Knead und die Lizenzen der mitgelieferten Bestandteile anderer Projekte" /></ToolTip.Tip>
+                            </c:RibbonButton>
+                        </c:RibbonGroup>
+                    </StackPanel>
+                </Panel>
+            </ScrollViewer>
+        </Border>
+
+        <!-- ============================================================
+             Meldungsleiste
+             ============================================================ -->
+        <StackPanel Grid.Row="2">
+        <!-- updates (KONZEPT §5.26): a quiet hint, no window of its own -->
+        <Border Name="UpdateBar" Background="{DynamicResource AccentSoftBrush}" IsVisible="{Binding Updates.ShowsHint}"
+                BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1">
+            <DockPanel Margin="14,6">
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="6">
+                    <Button Classes="soft" Content="{l:T 'Laden'}" Command="{Binding DownloadUpdateCommand}" IsVisible="{Binding Updates.CanDownload}" />
+                    <Button Classes="primary" Content="{l:T 'Jetzt neu starten'}" Command="{Binding RestartForUpdateCommand}" IsVisible="{Binding Updates.CanRestart}" />
+                    <Button Classes="soft" Content="{l:T 'Download-Seite öffnen'}" Command="{Binding OpenUpdatePageCommand}" IsVisible="{Binding Updates.ShowsDownloadPage}" />
+                    <Button Classes="soft" Content="{l:T 'Später'}" Command="{Binding LaterUpdateCommand}" />
+                </StackPanel>
+                <PathIcon Data="{StaticResource Icon.Info}" Width="16" Height="16" Margin="0,0,8,0" Foreground="{DynamicResource AccentBrush}" />
+                <StackPanel VerticalAlignment="Center">
+                    <TextBlock TextWrapping="Wrap" Text="{Binding Updates.Message}" />
+                    <ProgressBar Minimum="0" Maximum="1" Value="{Binding Updates.Progress}" Height="4" Margin="0,4,0,0"
+                                 IsVisible="{Binding Updates.State, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Downloading}" />
+                    <TextBlock Classes="small muted" TextWrapping="Wrap" MaxHeight="80" Text="{Binding Updates.Notes}"
+                               IsVisible="{Binding Updates.CanDownload}" />
+                </StackPanel>
+            </DockPanel>
+        </Border>
+        <Border Background="{DynamicResource DangerSoftBrush}" IsVisible="{Binding HasMessage}"
+                BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1">
+            <DockPanel Margin="14,6">
+                <Button DockPanel.Dock="Right" Classes="closeTab" Command="{Binding DismissMessageCommand}">
+                    <PathIcon Data="{StaticResource Icon.Dismiss}" Width="12" Height="12" />
+                </Button>
+                <PathIcon Data="{StaticResource Icon.Info}" Width="16" Height="16" Margin="0,0,8,0"
+                          Foreground="{DynamicResource DangerBrush}" />
+                <TextBlock Text="{Binding Message}" TextWrapping="Wrap" VerticalAlignment="Center" />
+            </DockPanel>
+        </Border>
+        <!-- Modus „Formular bearbeiten“ an: man sieht sofort, dass Felder verändert werden können -->
+        <Border Name="ModeBanner" Background="{DynamicResource DangerSoftBrush}" IsVisible="{Binding ModeBannerVisible}"
+                BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1">
+            <!-- Schmal und dezent (Wunsch): normale Schrift, je 3 px darüber und darunter -->
+            <DockPanel Margin="14,3">
+                <Button DockPanel.Dock="Right" Classes="danger small" Padding="10,1" MinHeight="0" Content="{l:T 'Beenden'}"
+                        Command="{Binding EndModeCommand}" Margin="12,0,0,0"
+                        AutomationProperties.Name="{l:T 'Modus beenden'}">
+                    <ToolTip.Tip><l:T Text="Modus beenden: zurück zum Ausfüllen und Markieren" /></ToolTip.Tip>
+                </Button>
+                <Panel>
+                    <DockPanel IsVisible="{Binding IsFormDesign}">
+                        <PathIcon Data="{StaticResource Icon.Form}" Width="14" Height="14" Margin="0,0,6,0"
+                                  Foreground="{DynamicResource DangerBrush}" />
+                        <TextBlock Text="{l:T 'Bearbeitungsmodus aktiv — Felder auswählen, verschieben, in der Größe ändern und löschen. Esc oder „Beenden“ zum Ausfüllen.'}"
+                                   TextWrapping="Wrap" VerticalAlignment="Center" />
+                    </DockPanel>
+                    <DockPanel IsVisible="{Binding IsEditTool}">
+                        <PathIcon Data="{StaticResource Icon.Edit}" Width="14" Height="14" Margin="0,0,6,0"
+                                  Foreground="{DynamicResource DangerBrush}" />
+                        <TextBlock Text="{l:T 'Bearbeiten aktiv — Text, Bilder, Codes und Felder der Seite anklicken; Alt+Klick wählt, was darunter liegt. Esc oder „Beenden“ zum Lesen.'}"
+                                   TextWrapping="Wrap" VerticalAlignment="Center" />
+                    </DockPanel>
+                </Panel>
+            </DockPanel>
+        </Border>
+        <!-- Vorgetäuschte Schwärzung: Text sieht geschwärzt aus, steht aber noch in der Datei -->
+        <Border Background="{DynamicResource DangerSoftBrush}" IsVisible="{Binding SelectedDocument.FakeRedactionWarningVisible, FallbackValue=False}"
+                BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1">
+            <DockPanel Margin="14,6">
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8" Margin="12,0,0,0">
+                    <Button Content="{l:T 'Anzeigen'}" Command="{Binding SelectedDocument.ShowFakeRedactionCommand}"
+                            AutomationProperties.Name="{l:T 'Vorgetäuschte Schwärzung anzeigen'}" />
+                    <Button Classes="primary" Content="{l:T 'Richtig schwärzen'}" Command="{Binding SelectedDocument.MarkFakeRedactionsCommand}"
+                            ToolTip.Tip="{l:T 'Setzt Schwärzungsmarken auf diese Stellen; mit „Schwärzungen anwenden“ wird der Text darunter wirklich aus der Datei entfernt.'}" />
+                    <Button Classes="closeTab" Command="{Binding SelectedDocument.DismissFakeRedactionCommand}"
+                            AutomationProperties.Name="{l:T 'Warnung schließen'}">
+                        <PathIcon Data="{StaticResource Icon.Dismiss}" Width="12" Height="12" />
+                    </Button>
+                </StackPanel>
+                <PathIcon Data="{StaticResource Icon.Info}" Width="16" Height="16" Margin="0,0,8,0" Foreground="{DynamicResource DangerBrush}" />
+                <TextBlock Text="{Binding SelectedDocument.FakeRedactionText, FallbackValue=''}" TextWrapping="Wrap" VerticalAlignment="Center" />
+            </DockPanel>
+        </Border>
+        <!-- Nach dem Unterschreiben: flachlegen? -->
+        <Border Background="{DynamicResource AccentSoftBrush}" IsVisible="{Binding FlattenPromptVisible}"
+                BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1">
+            <DockPanel Margin="14,6">
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8" Margin="12,0,0,0">
+                    <Button Classes="primary" Content="{l:T 'Flachlegen'}" Command="{Binding FlattenNowCommand}" />
+                    <Button Content="{l:T 'Nicht jetzt'}" Command="{Binding FlattenLaterCommand}" />
+                </StackPanel>
+                <PathIcon Data="{StaticResource Icon.Layer}" Width="16" Height="16" Margin="0,0,8,0"
+                          Foreground="{DynamicResource AccentBrush}" />
+                <TextBlock TextWrapping="Wrap" VerticalAlignment="Center"
+                           Text="{l:T 'Unterschrieben. Das Dokument hat noch ausfüllbare Felder oder Kommentare — beim Speichern flachlegen, damit sich nichts mehr ändern lässt?'}" />
+            </DockPanel>
+        </Border>
+        </StackPanel>
+
+        <!-- ============================================================
+             Seitenleiste | Dokument
+             ============================================================ -->
+        <Grid Grid.Row="3" Name="BodyGrid" ColumnDefinitions="232,Auto,*">
+
+            <!-- Seitenleiste -->
+            <Border Grid.Column="0" Name="Sidebar" Background="{DynamicResource SurfaceBrush}"
+                    BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,1,0"
+                    IsVisible="{Binding SidebarVisible}">
+                <DockPanel>
+                    <DockPanel DockPanel.Dock="Top" Margin="8,8,6,4">
+                        <c:RibbonButton DockPanel.Dock="Right" Classes="icon" Icon="{StaticResource Icon.Dismiss}"
+                                        Command="{Binding ToggleSidebarCommand}">
+                            <ToolTip.Tip><l:T Text="Seitenleiste ausblenden (F4)" /></ToolTip.Tip>
+                        </c:RibbonButton>
+                        <StackPanel Orientation="Horizontal" Spacing="2">
+                            <c:RibbonToggleButton Classes="icon" Icon="{StaticResource Icon.DocumentMultiple}"
+                                                  IsChecked="{Binding SidebarTab, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Pages, Mode=OneWay}"
+                                                  Command="{Binding ShowSidebarTabCommand}" CommandParameter="{x:Static vm:SidebarTab.Pages}">
+                                <ToolTip.Tip><l:T Text="Seiten" /></ToolTip.Tip>
+                            </c:RibbonToggleButton>
+                            <c:RibbonToggleButton Classes="icon" Icon="{StaticResource Icon.Bookmark}"
+                                                  IsChecked="{Binding SidebarTab, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Bookmarks, Mode=OneWay}"
+                                                  Command="{Binding ShowSidebarTabCommand}" CommandParameter="{x:Static vm:SidebarTab.Bookmarks}">
+                                <ToolTip.Tip><l:T Text="Lesezeichen" /></ToolTip.Tip>
+                            </c:RibbonToggleButton>
+                            <c:RibbonToggleButton Classes="icon" Icon="{StaticResource Icon.Form}"
+                                                  IsChecked="{Binding SidebarTab, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Fields, Mode=OneWay}"
+                                                  Command="{Binding ShowSidebarTabCommand}" CommandParameter="{x:Static vm:SidebarTab.Fields}">
+                                <ToolTip.Tip><l:T Text="Formularfelder" /></ToolTip.Tip>
+                            </c:RibbonToggleButton>
+                        </StackPanel>
+                    </DockPanel>
+                    <Border DockPanel.Dock="Top" Height="1" Background="{DynamicResource LineBrush}" />
+
+                    <Panel>
+                        <!-- Ohne Dokument: Hinweis (mit Dokument nicht, sonst stünde das Symbol unter kurzen Seitenlisten) -->
+                        <Panel IsVisible="{Binding SidebarTab, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Pages}">
+                            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="10" Margin="16"
+                                        IsVisible="{Binding HasNoDocuments}">
+                                <PathIcon Data="{StaticResource Icon.DocumentMultiple}" Width="32" Height="32"
+                                          Foreground="{DynamicResource TextDisabledBrush}" />
+                                <TextBlock Classes="muted" TextAlignment="Center" TextWrapping="Wrap"
+                                           Text="{l:T 'Kein Dokument geöffnet'}" />
+                            </StackPanel>
+                        </Panel>
+
+                        <!-- Seiten: Vorschaubilder (nur die sichtbaren werden gerechnet — die Liste ist virtualisiert).
+                             Mehrfachauswahl mit Strg/Umschalt; Ziehen verschiebt, am Rand rollt die Liste mit. -->
+                        <Panel Name="PageListPanel"
+                               IsVisible="{Binding SidebarTab, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Pages}">
+                        <ListBox Classes="pages" Name="PageList" ItemsSource="{Binding SelectedDocument.Pages}"
+                                 SelectionMode="Multiple">
+                            <ListBox.Styles>
+                                <!-- Auswahl liegt im Modell (bleibt beim Rollen der virtualisierten Liste erhalten) -->
+                                <Style Selector="ListBoxItem" x:DataType="vm:PageViewModel">
+                                    <Setter Property="IsSelected" Value="{Binding IsSelected, Mode=TwoWay}" />
+                                </Style>
+                            </ListBox.Styles>
+                            <ListBox.ContextMenu>
+                                <ContextMenu>
+                                    <MenuItem Header="{l:T 'Nach links drehen'}" Command="{Binding RotatePagesLeftCommand}" />
+                                    <MenuItem Header="{l:T 'Nach rechts drehen'}" Command="{Binding RotatePagesRightCommand}" />
+                                    <MenuItem Header="{l:T 'Leerseite danach einfügen'}">
+                                        <MenuItem Header="{l:T 'Wie aktuelle Seite'}" Command="{Binding InsertBlankPageCommand}" />
+                                        <Separator />
+                                        <MenuItem Header="{l:T 'A4 hoch'}" Command="{Binding InsertBlankPageAsCommand}" CommandParameter="A4" />
+                                        <MenuItem Header="{l:T 'A4 quer'}" Command="{Binding InsertBlankPageAsCommand}" CommandParameter="A4 quer" />
+                                        <MenuItem Header="{l:T 'A3 hoch'}" Command="{Binding InsertBlankPageAsCommand}" CommandParameter="A3" />
+                                        <MenuItem Header="{l:T 'A3 quer'}" Command="{Binding InsertBlankPageAsCommand}" CommandParameter="A3 quer" />
+                                        <MenuItem Header="{l:T 'A5 hoch'}" Command="{Binding InsertBlankPageAsCommand}" CommandParameter="A5" />
+                                        <MenuItem Header="{l:T 'A5 quer'}" Command="{Binding InsertBlankPageAsCommand}" CommandParameter="A5 quer" />
+                                        <MenuItem Header="{l:T 'Letter hoch'}" Command="{Binding InsertBlankPageAsCommand}" CommandParameter="Letter" />
+                                        <MenuItem Header="{l:T 'Letter quer'}" Command="{Binding InsertBlankPageAsCommand}" CommandParameter="Letter quer" />
+                                        <Separator />
+                                        <MenuItem Header="{l:T 'Weitere …'}" Command="{Binding InsertBlankPagesCommand}" />
+                                    </MenuItem>
+                                    <MenuItem Header="{l:T 'Seiten aus Datei einfügen …'}" Command="{Binding InsertFromFileCommand}" />
+                                    <MenuItem Header="{l:T 'Extrahieren …'}" Command="{Binding ExtractPagesCommand}" />
+                                    <MenuItem Header="{l:T 'Reihenfolge umkehren'}" Command="{Binding ReversePagesCommand}" />
+                                    <Separator />
+                                    <MenuItem Header="{l:T 'Löschen'}" Command="{Binding DeletePagesCommand}" InputGesture="Delete" />
+                                </ContextMenu>
+                            </ListBox.ContextMenu>
+                            <ListBox.ItemTemplate>
+                                <DataTemplate x:DataType="vm:PageViewModel">
+                                    <StackPanel Spacing="6" HorizontalAlignment="Center" Margin="0,6">
+                                        <Border Width="{x:Static vm:PageViewModel.ThumbnailWidth}" Height="{Binding ThumbnailHeight}"
+                                                BorderBrush="{DynamicResource LineStrongBrush}" BorderThickness="1"
+                                                CornerRadius="2" BoxShadow="{DynamicResource ShadowCard}" HorizontalAlignment="Center">
+                                            <c:PageThumbnail Page="{Binding}"
+                                                             Document="{Binding $parent[Window].((vm:MainViewModel)DataContext).SelectedDocument}" />
+                                        </Border>
+                                        <TextBlock Text="{Binding Number}" HorizontalAlignment="Center" FontWeight="Medium" />
+                                        <TextBlock Classes="muted small" Text="{Binding Format}" HorizontalAlignment="Center"
+                                                   TextTrimming="CharacterEllipsis" MaxWidth="180" />
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                        <!-- Einfügemarke beim Ziehen -->
+                        <Canvas IsHitTestVisible="False">
+                            <Border Name="DropMarker" Height="3" CornerRadius="2" IsVisible="False"
+                                    Background="{DynamicResource AccentBrush}" />
+                        </Canvas>
+                        </Panel>
+                        <!-- Lesezeichen -->
+                        <Panel IsVisible="{Binding SidebarTab, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Bookmarks}">
+                            <TreeView Classes="outline" Name="OutlineTree" ItemsSource="{Binding SelectedDocument.Outline}"
+                                      IsVisible="{Binding SelectedDocument.HasOutline, FallbackValue=False}">
+                                <TreeView.ItemTemplate>
+                                    <TreeDataTemplate x:DataType="doc:OutlineItem" ItemsSource="{Binding Children}">
+                                        <TextBlock Text="{Binding Title}" TextTrimming="CharacterEllipsis" Padding="0,2" />
+                                    </TreeDataTemplate>
+                                </TreeView.ItemTemplate>
+                            </TreeView>
+                            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="10" Margin="16"
+                                        IsVisible="{Binding !SelectedDocument.HasOutline, FallbackValue=True}">
+                                <PathIcon Data="{StaticResource Icon.Bookmark}" Width="32" Height="32"
+                                          Foreground="{DynamicResource TextDisabledBrush}" />
+                                <TextBlock Classes="muted" TextAlignment="Center" TextWrapping="Wrap"
+                                           Text="{l:T 'Dieses Dokument hat keine Lesezeichen.'}" />
+                            </StackPanel>
+                        </Panel>
+                        <!-- Formularfelder (M6d): nach Seite, ein Klick wählt das Feld im Modus „Formular bearbeiten“ -->
+                        <Panel IsVisible="{Binding SidebarTab, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Fields}">
+                            <ListBox ItemsSource="{Binding FieldList}" SelectedItem="{Binding SelectedFieldItem}"
+                                     IsVisible="{Binding !HasNoFields}" AutomationProperties.Name="{l:T 'Formularfelder'}">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:FieldListItem">
+                                        <StackPanel Spacing="1" Margin="2,2">
+                                            <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" FontWeight="Medium" />
+                                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                                <TextBlock Classes="muted small" Text="{Binding Kind}" />
+                                                <TextBlock Classes="muted small" Text="{Binding PageText}" />
+                                            </StackPanel>
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="10" Margin="16"
+                                        IsVisible="{Binding HasNoFields}">
+                                <PathIcon Data="{StaticResource Icon.Form}" Width="32" Height="32"
+                                          Foreground="{DynamicResource TextDisabledBrush}" />
+                                <TextBlock Classes="muted" TextAlignment="Center" TextWrapping="Wrap"
+                                           Text="{l:T 'Dieses Dokument hat keine Formularfelder.'}" />
+                            </StackPanel>
+                        </Panel>
+                    </Panel>
+                </DockPanel>
+            </Border>
+
+            <GridSplitter Grid.Column="1" Classes="sidebar" ResizeDirection="Columns" Name="SidebarSplitter"
+                          IsVisible="{Binding SidebarVisible}" />
+
+            <!-- Dokumentbereich -->
+            <Grid Grid.Column="2" RowDefinitions="Auto,*">
+
+                <!-- Reiter der offenen Dokumente -->
+                <Border Grid.Row="0" IsVisible="{Binding HasDocuments}" Padding="8,0,8,0">
+                    <ListBox Classes="docTabs" ItemsSource="{Binding Documents}"
+                             SelectedItem="{Binding SelectedDocument}">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate x:DataType="vm:DocumentViewModel">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <PathIcon Data="{StaticResource Icon.DocumentText}" Width="14" Height="14"
+                                              Foreground="{DynamicResource AccentBrush}" />
+                                    <!-- Digital signiert (KONZEPT §5.17, S4): grün alle gültig, rot ungültig oder nach dem Unterschreiben
+                                         geändert; Quickinfo mit dem Ergebnis, ein Klick öffnet die Einzelheiten -->
+                                    <Button Classes="signatureMark" IsVisible="{Binding HasSignatures}"
+                                            Command="{Binding $parent[ListBox].((vm:MainViewModel)DataContext).ShowSignatureDetailsCommand}"
+                                            CommandParameter="{Binding}"
+                                            ToolTip.Tip="{Binding SignatureMarkTip}" AutomationProperties.Name="{Binding SignatureSummary}">
+                                        <Panel>
+                                            <PathIcon Data="{StaticResource Icon.Info}" Foreground="{DynamicResource GoodBrush}" IsVisible="{Binding SignatureMarkGood}" />
+                                            <PathIcon Data="{StaticResource Icon.Info}" Foreground="{DynamicResource DangerBrush}" IsVisible="{Binding SignatureMarkBad}" />
+                                        </Panel>
+                                    </Button>
+                                    <TextBlock Text="{Binding Title}" MaxWidth="220" TextTrimming="CharacterEllipsis"
+                                               VerticalAlignment="Center" ToolTip.Tip="{Binding Path}" />
+                                    <Button Classes="closeTab"
+                                            Command="{Binding $parent[ListBox].((vm:MainViewModel)DataContext).CloseDocumentCommand}"
+                                            CommandParameter="{Binding}">
+                                        <ToolTip.Tip><l:T Text="Schließen (Strg+W)" /></ToolTip.Tip>
+                                        <PathIcon Data="{StaticResource Icon.Dismiss}" Width="10" Height="10" />
+                                    </Button>
+                                </StackPanel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Border>
+
+                <!-- Startbildschirm ohne Dokument -->
+                <ScrollViewer Grid.Row="1" IsVisible="{Binding HasNoDocuments}">
+                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Margin="32" Spacing="24"
+                                MaxWidth="560">
+                        <StackPanel Spacing="14" HorizontalAlignment="Center">
+                            <c:AppLogo Width="72" Height="72" HorizontalAlignment="Center" />
+                            <TextBlock Classes="hero" HorizontalAlignment="Center" Text="{l:T 'Willkommen bei PDF-Knead'}" />
+                            <TextBlock Classes="muted" HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap"
+                                       Text="{l:T 'PDF öffnen oder einfach ins Fenster ziehen.'}" />
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="8" Margin="0,6,0,0">
+                                <Button Classes="primary" Click="OnOpenClick">
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <PathIcon Data="{StaticResource Icon.FolderOpen}" Width="16" Height="16"
+                                                  Foreground="{DynamicResource OnAccentBrush}" />
+                                        <TextBlock Text="{l:T 'PDF öffnen …'}" Foreground="{DynamicResource OnAccentBrush}" />
+                                    </StackPanel>
+                                </Button>
+                                <Button Command="{Binding NewDocumentCommand}" AutomationProperties.Name="{l:T 'Neues Dokument …'}">
+                                    <ToolTip.Tip><l:T Text="Neues, leeres Dokument: Format wie A4 oder A3 wählen (Strg+N)" /></ToolTip.Tip>
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <PathIcon Data="{StaticResource Icon.Document}" Width="16" Height="16" />
+                                        <TextBlock Text="{l:T 'Neues Dokument …'}" />
+                                    </StackPanel>
+                                </Button>
+                                <Button Classes="primary" Command="{Binding MergeFilesCommand}" AutomationProperties.Name="{l:T 'Zusammenführen …'}">
+                                    <ToolTip.Tip><l:T Text="Mehrere PDF-Dateien laden und ihre Seiten zu einer neuen Datei zusammenstellen" /></ToolTip.Tip>
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <PathIcon Data="{StaticResource Icon.Merge}" Width="16" Height="16" Foreground="{DynamicResource OnAccentBrush}" />
+                                        <TextBlock Text="{l:T 'Zusammenführen …'}" Foreground="{DynamicResource OnAccentBrush}" />
+                                    </StackPanel>
+                                </Button>
+                            </StackPanel>
+                        </StackPanel>
+
+                        <Border Classes="card" IsVisible="{Binding HasRecentFiles}" Padding="12">
+                            <StackPanel Spacing="6">
+                                <DockPanel Margin="8,0,0,2">
+                                    <Button DockPanel.Dock="Right" Classes="soft small" Command="{Binding ClearRecentCommand}"
+                                            Content="{l:T 'Verlauf leeren'}">
+                                        <ToolTip.Tip><l:T Text="Alle Einträge aus der Liste entfernen — die Dateien bleiben erhalten" /></ToolTip.Tip>
+                                    </Button>
+                                    <TextBlock Classes="section" VerticalAlignment="Center" Text="{l:T 'ZULETZT GEÖFFNET'}" />
+                                </DockPanel>
+                                <ItemsControl ItemsSource="{Binding RecentFiles}" ItemTemplate="{StaticResource RecentFileTemplate}" />
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
+
+                <!-- Geöffnetes Dokument: fortlaufende Ansicht aus Kacheln -->
+                <Border Grid.Row="1" Background="{DynamicResource CanvasBrush}" IsVisible="{Binding HasSelection}">
+                    <DockPanel>
+                    <!-- Eigenschaften der ausgewählten Formularfelder (M6d), nur im Modus „Formular bearbeiten“ -->
+                    <Border DockPanel.Dock="Right" Width="344" Background="{DynamicResource SurfaceBrush}"
+                            BorderBrush="{DynamicResource LineBrush}" BorderThickness="1,0,0,0"
+                            IsVisible="{Binding FieldProperties.IsVisible}">
+                        <views:FieldPropertiesPanel DataContext="{Binding FieldProperties}" />
+                    </Border>
+                    <Panel>
+                        <c:DocumentViewer Name="Viewer" Document="{Binding SelectedDocument}" />
+                        <!-- Eigenschaften der ausgewählten Form (KONZEPT §5.13): schwebend rechts, die Seite springt nicht bei jeder Auswahl -->
+                        <Border Name="ElementPropertiesHost" HorizontalAlignment="Right" Width="320" Margin="0,8,22,8" VerticalAlignment="Top"
+                                MaxHeight="{Binding $parent[Panel].Bounds.Height}"
+                                Background="{DynamicResource SurfaceAltBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1"
+                                CornerRadius="{DynamicResource RadiusControl}" BoxShadow="{DynamicResource ShadowCard}" ClipToBounds="True"
+                                IsVisible="{Binding ElementProperties.IsVisible}">
+                            <views:ElementPropertiesPanel DataContext="{Binding ElementProperties}" IsEnabled="{Binding CanEdit}" />
+                        </Border>
+                        <!-- Eigenschaften des ausgewählten Codes (KONZEPT §5.19): an derselben Stelle -->
+                        <Border Name="CodePropertiesHost" HorizontalAlignment="Right" Width="320" Margin="0,8,22,8" VerticalAlignment="Top"
+                                MaxHeight="{Binding $parent[Panel].Bounds.Height}"
+                                Background="{DynamicResource SurfaceAltBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1"
+                                CornerRadius="{DynamicResource RadiusControl}" BoxShadow="{DynamicResource ShadowCard}" ClipToBounds="True"
+                                IsVisible="{Binding CodeProperties.IsVisible}">
+                            <views:CodePropertiesPanel DataContext="{Binding CodeProperties}" IsEnabled="{Binding CanEdit}" />
+                        </Border>
+                        <!-- Format of the selected text, or of the next one while the "Text" tool is on: same place -->
+                        <Border Name="TextPropertiesHost" HorizontalAlignment="Right" Width="320" Margin="0,8,22,8" VerticalAlignment="Top"
+                                MaxHeight="{Binding $parent[Panel].Bounds.Height}"
+                                Background="{DynamicResource SurfaceAltBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1"
+                                CornerRadius="{DynamicResource RadiusControl}" BoxShadow="{DynamicResource ShadowCard}" ClipToBounds="True"
+                                IsVisible="{Binding ShowTextProperties}">
+                            <views:TextPropertiesPanel IsEnabled="{Binding SelectedDocument.CanEditElements, FallbackValue=False}" />
+                        </Border>
+                        <!-- Formatierung von bearbeitetem Text (KONZEPT §5.14, T2): an derselben Stelle -->
+                        <Border Name="RichTextPropertiesHost" HorizontalAlignment="Right" Width="320" Margin="0,8,22,8" VerticalAlignment="Top"
+                                MaxHeight="{Binding $parent[Panel].Bounds.Height}"
+                                Background="{DynamicResource SurfaceAltBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1"
+                                CornerRadius="{DynamicResource RadiusControl}" BoxShadow="{DynamicResource ShadowCard}" ClipToBounds="True"
+                                IsVisible="{Binding RichTextProperties.IsVisible}">
+                            <views:RichTextPropertiesPanel DataContext="{Binding RichTextProperties}" IsEnabled="{Binding CanEdit}" />
+                        </Border>
+                        <!-- Felder in „Bearbeiten“ (KONZEPT §5.22): Eigenschaften des gewählten Felds schwebend an derselben Stelle wie die anderen Bereiche -->
+                        <Border Name="FieldFloatingHost" HorizontalAlignment="Right" Width="320" Margin="0,8,22,8" VerticalAlignment="Stretch"
+                                Background="{DynamicResource SurfaceAltBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1"
+                                CornerRadius="{DynamicResource RadiusControl}" BoxShadow="{DynamicResource ShadowCard}" ClipToBounds="True"
+                                IsVisible="{Binding FieldProperties.IsFloating}">
+                            <views:FieldPropertiesPanel DataContext="{Binding FieldProperties}" />
+                        </Border>
+                        <!-- Bildinfo beim Lesen (KONZEPT §5.15): ein Klick auf ein Bild zeigt seine Angaben, an derselben Stelle -->
+                        <Border Name="ImageInfoHost" HorizontalAlignment="Right" Width="320" Margin="0,8,22,8" VerticalAlignment="Top"
+                                MaxHeight="{Binding $parent[Panel].Bounds.Height}"
+                                Background="{DynamicResource SurfaceAltBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1"
+                                CornerRadius="{DynamicResource RadiusControl}" BoxShadow="{DynamicResource ShadowCard}" ClipToBounds="True"
+                                IsVisible="{Binding SelectedDocument.IsReadingImageInfo, FallbackValue=False}">
+                            <views:ImageInfoPanel DataContext="{Binding SelectedDocument}" />
+                        </Border>
+                        <!-- Bearbeiten (KONZEPT §5.22): das Gewählte — Bild mit seinen Angaben, Code — an derselben Stelle, solange das Werkzeug an ist; bei Text zeigt sich dessen Format-Bereich -->
+                        <Border Name="EditHost" HorizontalAlignment="Right" Width="320" Margin="0,8,22,8" VerticalAlignment="Top"
+                                MaxHeight="{Binding $parent[Panel].Bounds.Height}"
+                                Background="{DynamicResource SurfaceAltBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1"
+                                CornerRadius="{DynamicResource RadiusControl}" BoxShadow="{DynamicResource ShadowCard}" ClipToBounds="True"
+                                IsVisible="{Binding SelectedDocument.IsEditPanelVisible, FallbackValue=False}">
+                            <views:EditPanel DataContext="{Binding SelectedDocument}" />
+                        </Border>
+                        <!-- Verborgenes schwärzen (KONZEPT §5.18): an derselben Stelle, solange das Werkzeug an ist; die Liste füllt die Höhe -->
+                        <Border Name="HiddenContentHost" HorizontalAlignment="Right" Width="320" Margin="0,8,22,8" VerticalAlignment="Stretch"
+                                Background="{DynamicResource SurfaceAltBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1"
+                                CornerRadius="{DynamicResource RadiusControl}" BoxShadow="{DynamicResource ShadowCard}" ClipToBounds="True"
+                                IsVisible="{Binding IsHiddenTool}">
+                            <views:HiddenContentPanel DataContext="{Binding SelectedDocument}" />
+                        </Border>
+                        <!-- Dokument bereinigen (KONZEPT §5.18): an derselben Stelle, solange der Bereich offen ist -->
+                        <Border Name="CleanupHost" HorizontalAlignment="Right" Width="340" Margin="0,8,22,8" VerticalAlignment="Stretch"
+                                Background="{DynamicResource SurfaceAltBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1"
+                                CornerRadius="{DynamicResource RadiusControl}" BoxShadow="{DynamicResource ShadowCard}" ClipToBounds="True"
+                                IsVisible="{Binding SelectedDocument.IsCleanupOpen, FallbackValue=False}">
+                            <views:CleanupPanel DataContext="{Binding SelectedDocument}" />
+                        </Border>
+                        <!-- Barrierefreiheit (Ablaufplan 6.7 Schritt 10): an derselben Stelle, solange der Bereich offen ist -->
+                        <Border Name="AccessibilityHost" HorizontalAlignment="Right" Width="360" Margin="0,8,22,8" VerticalAlignment="Stretch"
+                                Background="{DynamicResource SurfaceAltBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1"
+                                CornerRadius="{DynamicResource RadiusControl}" BoxShadow="{DynamicResource ShadowCard}" ClipToBounds="True"
+                                IsVisible="{Binding SelectedDocument.IsAccessibilityOpen, FallbackValue=False}">
+                            <views:AccessibilityPanel DataContext="{Binding SelectedDocument}" />
+                        </Border>
+                        <!-- the area of a module of its own (KONZEPT §5.24 „Aufbau und Entfernen“): at the same place, while it is open -->
+                        <Border Name="ModulePanelHost" HorizontalAlignment="Right" Width="380" Margin="0,8,22,8" VerticalAlignment="Stretch"
+                                Background="{DynamicResource SurfaceAltBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1"
+                                CornerRadius="{DynamicResource RadiusControl}" BoxShadow="{DynamicResource ShadowCard}" ClipToBounds="True"
+                                IsVisible="{Binding SelectedDocument.IsModulePanelOpen, FallbackValue=False}">
+                            <ContentControl Content="{Binding SelectedDocument.ModulePanel, FallbackValue={x:Null}}" />
+                        </Border>
+                        <!-- Notizen lesen (KONZEPT §5.5a): an derselben Stelle, solange der Bereich offen ist -->
+                        <Border Name="NotesHost" HorizontalAlignment="Right" Width="340" Margin="0,8,22,8" VerticalAlignment="Stretch"
+                                Background="{DynamicResource SurfaceAltBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1"
+                                CornerRadius="{DynamicResource RadiusControl}" BoxShadow="{DynamicResource ShadowCard}" ClipToBounds="True"
+                                IsVisible="{Binding SelectedDocument.IsNotesOpen, FallbackValue=False}">
+                            <views:NotesPanel DataContext="{Binding SelectedDocument}" />
+                        </Border>
+                        <!-- Messen (Ablaufplan 7.6): an derselben Stelle, solange das Werkzeug an ist -->
+                        <Border Name="MeasureHost" HorizontalAlignment="Right" Width="320" Margin="0,8,22,8" VerticalAlignment="Stretch"
+                                Background="{DynamicResource SurfaceAltBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1"
+                                CornerRadius="{DynamicResource RadiusControl}" BoxShadow="{DynamicResource ShadowCard}" ClipToBounds="True"
+                                IsVisible="{Binding SelectedDocument.IsMeasuring, FallbackValue=False}">
+                            <views:MeasurePanel DataContext="{Binding SelectedDocument}" />
+                        </Border>
+                        <!-- Leiste der gewählten Messung (Ablaufplan 7.6 e3): schwebt über ihr, die Ansicht sagt, wo (MeasureBarPlaced) -->
+                        <Canvas Name="MeasureBarLayer" ClipToBounds="True">
+                            <Border Name="MeasureBar" Padding="6,4" DataContext="{Binding SelectedDocument}" x:DataType="vm:DocumentViewModel"
+                                    Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1"
+                                    CornerRadius="{DynamicResource RadiusControl}" BoxShadow="{DynamicResource ShadowCard}"
+                                    IsVisible="{Binding HasSelectedMeasurement, FallbackValue=False}">
+                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                    <ItemsControl Name="MeasureBarColors" ItemsSource="{x:Static vm:DocumentViewModel.MeasureColors}">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate><StackPanel Orientation="Horizontal" Spacing="2" /></ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate x:DataType="vm:FieldColorOption">
+                                                <Button Padding="3" Background="Transparent" BorderThickness="0"
+                                                        Command="{Binding $parent[ItemsControl].((vm:DocumentViewModel)DataContext).SetSelectedMeasureColorCommand, FallbackValue={x:Null}}"
+                                                        CommandParameter="{Binding}" AutomationProperties.Name="{Binding Label}">
+                                                    <Border Width="16" Height="16" CornerRadius="8" Background="{Binding Brush}" />
+                                                </Button>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                    <ComboBox Name="MeasureBarWidth" VerticalAlignment="Center" ItemsSource="{x:Static vm:DocumentViewModel.MeasureWidths}"
+                                              SelectedItem="{Binding SelectedMeasurement.Width, FallbackValue={x:Null}}" DisplayMemberBinding="{Binding Label}"
+                                              AutomationProperties.Name="{l:T 'Strichstärke'}">
+                                        <ToolTip.Tip><l:T Text="Strichstärke" /></ToolTip.Tip>
+                                    </ComboBox>
+                                    <ComboBox Name="MeasureBarFill" VerticalAlignment="Center" ItemsSource="{x:Static vm:DocumentViewModel.MeasureOpacities}"
+                                              SelectedItem="{Binding SelectedMeasurement.FillOpacity, FallbackValue={x:Null}}" DisplayMemberBinding="{Binding Label}"
+                                              IsVisible="{Binding SelectedMeasurement.IsArea, FallbackValue=False}" AutomationProperties.Name="{l:T 'Deckkraft der Füllung'}">
+                                        <ToolTip.Tip><l:T Text="Deckkraft der Füllung" /></ToolTip.Tip>
+                                    </ComboBox>
+                                    <ToggleButton Name="MeasureBarSegments" VerticalAlignment="Center" Content="{l:T 'Maße'}"
+                                                  IsChecked="{Binding SelectedMeasurement.ShowSegments, FallbackValue=False}"
+                                                  IsVisible="{Binding SelectedMeasurement.HasPieces, FallbackValue=False}">
+                                        <ToolTip.Tip><l:T Text="Maße an jedem Stück" /></ToolTip.Tip>
+                                    </ToggleButton>
+                                    <ToggleButton Name="MeasureBarAngles" VerticalAlignment="Center" Content="{l:T 'Winkel'}"
+                                                  IsChecked="{Binding SelectedMeasurement.ShowAngles, FallbackValue=False}"
+                                                  IsVisible="{Binding SelectedMeasurement.HasPieces, FallbackValue=False}">
+                                        <ToolTip.Tip><l:T Text="Winkel an jedem Knick" /></ToolTip.Tip>
+                                    </ToggleButton>
+                                    <Button Name="MeasureBarArc" VerticalAlignment="Center" Command="{Binding SwitchSelectedArcCommand}"
+                                            Content="{Binding SelectedMeasurement.SwitchArcText, FallbackValue={x:Null}}"
+                                            IsVisible="{Binding SelectedMeasurement.CanSwitchArc, FallbackValue=False}">
+                                        <ToolTip.Tip><l:T Text="Die Punkte dieses Linienzugs als Bogen auswerten, oder den Bogen wieder als Linienzug" /></ToolTip.Tip>
+                                    </Button>
+                                    <Button Name="MeasureBarContinue" VerticalAlignment="Center" Command="{Binding ContinueSelectedMeasurementCommand}" Content="{l:T 'Fortsetzen'}"
+                                            IsVisible="{Binding SelectedMeasurement.CanContinue, FallbackValue=False}">
+                                        <ToolTip.Tip><l:T Text="Den Linienzug weiterzeichnen — der nächste Klick setzt am näheren Ende an (auch Doppelklick auf seine Linie)" /></ToolTip.Tip>
+                                    </Button>
+                                    <Button Name="MeasureBarInsert" VerticalAlignment="Center" Command="{Binding InsertSelectedDimensionCommand}" Content="{l:T 'Als Bemaßung einfügen'}"
+                                            IsVisible="{Binding SelectedMeasurement.IsSession, FallbackValue=False}">
+                                        <ToolTip.Tip><l:T Text="Die Messung als Bemaßung in die Seite setzen — sie wird mit der Datei gespeichert, andere Programme zeigen sie und messen dasselbe" /></ToolTip.Tip>
+                                    </Button>
+                                    <Button Name="MeasureBarDelete" VerticalAlignment="Center" Background="Transparent" Command="{Binding DeleteSelectedMeasurementCommand}"
+                                            AutomationProperties.Name="{l:T 'Messung löschen'}">
+                                        <ToolTip.Tip><l:T Text="Messung löschen" /></ToolTip.Tip>
+                                        <PathIcon Width="14" Height="14" Data="{StaticResource Icon.Delete}" />
+                                    </Button>
+                                </StackPanel>
+                            </Border>
+                        </Canvas>
+                        <!-- Felder erkennen (KONZEPT §5.9a): an derselben Stelle, solange die Vorschläge offen sind -->
+                        <Border Name="FormProposalsHost" HorizontalAlignment="Right" Width="340" Margin="0,8,22,8" VerticalAlignment="Stretch"
+                                Background="{DynamicResource SurfaceAltBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1"
+                                CornerRadius="{DynamicResource RadiusControl}" BoxShadow="{DynamicResource ShadowCard}" ClipToBounds="True"
+                                IsVisible="{Binding SelectedDocument.IsFieldProposalsOpen, FallbackValue=False}">
+                            <views:FormProposalsPanel DataContext="{Binding SelectedDocument}" />
+                        </Border>
+                        <!-- Ganzer Text einer verborgenen Stelle: schwebend links neben dem Bereich, folgt der gewählten Zeile -->
+                        <Border Name="HiddenTextHost" HorizontalAlignment="Right" Width="440" Margin="0,8,350,8" VerticalAlignment="Top"
+                                MaxHeight="{Binding $parent[Panel].Bounds.Height}"
+                                Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1"
+                                CornerRadius="{DynamicResource RadiusControl}" BoxShadow="{DynamicResource ShadowCard}" ClipToBounds="True"
+                                IsVisible="{Binding SelectedDocument.IsHiddenTextOpen, FallbackValue=False}">
+                            <views:HiddenTextFlyout DataContext="{Binding SelectedDocument}" />
+                        </Border>
+                        <!-- Hinweise beim Lesen (Datei repariert …), schwebend oben -->
+                        <Border VerticalAlignment="Top" HorizontalAlignment="Center" Margin="16,12,16,0" Padding="12,8" MaxWidth="760"
+                                IsVisible="{Binding SelectedDocument.HasProblems, FallbackValue=False}"
+                                Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1"
+                                CornerRadius="{DynamicResource RadiusControl}" BoxShadow="{DynamicResource ShadowCard}">
+                            <StackPanel Orientation="Horizontal" Spacing="10">
+                                <PathIcon Data="{StaticResource Icon.Info}" Width="16" Height="16" VerticalAlignment="Top"
+                                          Foreground="{DynamicResource AccentBrush}" />
+                                <TextBlock Text="{Binding SelectedDocument.Problems, FallbackValue=''}" TextWrapping="Wrap" MaxWidth="660" />
+                                <Button Classes="closeTab" Command="{Binding DismissProblemsCommand}" VerticalAlignment="Top">
+                                    <PathIcon Data="{StaticResource Icon.Dismiss}" Width="10" Height="10" />
+                                </Button>
+                            </StackPanel>
+                        </Border>
+                        <!-- Suchleiste (Strg+F), schwebend oben rechts -->
+                        <Border Name="SearchBar" VerticalAlignment="Top" HorizontalAlignment="Right" Margin="16,12,28,0" Padding="6,4"
+                                IsVisible="{Binding SelectedDocument.IsSearchOpen, FallbackValue=False}"
+                                Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1"
+                                CornerRadius="{DynamicResource RadiusControl}" BoxShadow="{DynamicResource ShadowCard}">
+                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                <PathIcon Data="{StaticResource Icon.Search}" Width="14" Height="14" Margin="4,0,2,0" VerticalAlignment="Center"
+                                          Foreground="{DynamicResource TextMutedBrush}" />
+                                <TextBox Name="SearchBox" Width="220" VerticalAlignment="Center" AutomationProperties.Name="{l:T 'Im Dokument suchen'}"
+                                         Text="{Binding SelectedDocument.SearchText, FallbackValue=''}"
+                                         PlaceholderText="{l:T 'Im Dokument suchen'}" KeyDown="OnSearchKeyDown" />
+                                <TextBlock Classes="small muted" MinWidth="90" VerticalAlignment="Center" Margin="4,0"
+                                           Text="{Binding SelectedDocument.SearchStatus, FallbackValue=''}" />
+                                <c:RibbonToggleButton Icon="{StaticResource Icon.TextT}" Padding="4,2"
+                                                      IsChecked="{Binding SelectedDocument.MatchCase, FallbackValue=False}">
+                                    <ToolTip.Tip><l:T Text="Groß- und Kleinschreibung beachten" /></ToolTip.Tip>
+                                </c:RibbonToggleButton>
+                                <c:RibbonButton Classes="icon" Icon="{StaticResource Icon.ChevronUp}" Padding="4"
+                                                Command="{Binding SelectedDocument.FindPreviousCommand, FallbackValue={x:Null}}">
+                                    <ToolTip.Tip><l:T Text="Vorheriger Treffer (Umschalt+Enter, Umschalt+F3)" /></ToolTip.Tip>
+                                </c:RibbonButton>
+                                <c:RibbonButton Classes="icon" Icon="{StaticResource Icon.ChevronDown}" Padding="4"
+                                                Command="{Binding SelectedDocument.FindNextCommand, FallbackValue={x:Null}}">
+                                    <ToolTip.Tip><l:T Text="Nächster Treffer (Enter, F3)" /></ToolTip.Tip>
+                                </c:RibbonButton>
+                                <Button Classes="closeTab" VerticalAlignment="Center"
+                                        Command="{Binding SelectedDocument.CloseSearchCommand, FallbackValue={x:Null}}">
+                                    <PathIcon Data="{StaticResource Icon.Dismiss}" Width="10" Height="10" />
+                                    <ToolTip.Tip><l:T Text="Suche schließen (Esc)" /></ToolTip.Tip>
+                                </Button>
+                            </StackPanel>
+                        </Border>
+                    </Panel>
+                    </DockPanel>
+                </Border>
+            </Grid>
+        </Grid>
+
+        <!-- ============================================================
+             Statusleiste
+             ============================================================ -->
+        <Border Grid.Row="4" Background="{DynamicResource SurfaceBrush}"
+                BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0" Height="30">
+            <DockPanel Margin="12,0,8,0">
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="2" VerticalAlignment="Center"
+                            IsEnabled="{Binding HasSelection}">
+                    <c:RibbonButton Classes="icon" Icon="{StaticResource Icon.ArrowAutofitWidth}" Padding="3" Command="{Binding FitWidthCommand}">
+                        <ToolTip.Tip><l:T Text="Seitenbreite" /></ToolTip.Tip>
+                    </c:RibbonButton>
+                    <c:RibbonButton Classes="icon" Icon="{StaticResource Icon.ArrowAutofitHeight}" Padding="3" Command="{Binding FitPageCommand}">
+                        <ToolTip.Tip><l:T Text="Ganze Seite (Strg+0)" /></ToolTip.Tip>
+                    </c:RibbonButton>
+                    <Border Width="1" Height="16" Margin="6,0" Background="{DynamicResource LineBrush}" />
+                    <c:RibbonButton Classes="icon" Icon="{StaticResource Icon.ZoomOut}" Padding="3" Command="{Binding ZoomOutCommand}">
+                        <ToolTip.Tip><l:T Text="Verkleinern (Strg+Minus)" /></ToolTip.Tip>
+                    </c:RibbonButton>
+                    <Slider Width="120" Minimum="10" Maximum="800" VerticalAlignment="Center" Margin="4,0"
+                            Value="{Binding SelectedDocument.ZoomPercent, FallbackValue=100}" />
+                    <c:RibbonButton Classes="icon" Icon="{StaticResource Icon.ZoomIn}" Padding="3" Command="{Binding ZoomInCommand}">
+                        <ToolTip.Tip><l:T Text="Vergrößern (Strg+Plus, Strg+Mausrad)" /></ToolTip.Tip>
+                    </c:RibbonButton>
+                    <TextBlock Classes="muted small" Text="{Binding SelectedDocument.ZoomText, FallbackValue='100 %'}" Width="48"
+                               TextAlignment="Right" VerticalAlignment="Center" />
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Spacing="16" VerticalAlignment="Center">
+                    <TextBlock Classes="muted small" VerticalAlignment="Center" Text="{Binding PageStatus}" />
+                    <!-- Fortschritt der Texterkennung, die im Hintergrund läuft -->
+                    <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center"
+                                IsVisible="{Binding SelectedDocument.RecognitionStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}, FallbackValue=False}">
+                        <ProgressBar IsIndeterminate="True" Width="60" Height="3" MinHeight="3" VerticalAlignment="Center" />
+                        <TextBlock Classes="small" VerticalAlignment="Center" Text="{Binding SelectedDocument.RecognitionStatus}" />
+                        <!-- „Autoscroll“: nur, solange die Ansicht nicht mitläuft, weil selbst gescrollt wurde -->
+                        <Button Classes="primary" Padding="8,1" FontSize="{DynamicResource FontSizeSmall}" Content="{l:T 'Autoscroll'}"
+                                IsVisible="{Binding !SelectedDocument.RecognitionFollows, FallbackValue=False}"
+                                Command="{Binding SelectedDocument.FollowRecognitionCommand}">
+                            <ToolTip.Tip><l:T Text="Die Ansicht läuft wieder mit der Texterkennung mit" /></ToolTip.Tip>
+                        </Button>
+                        <Button Classes="softWarn" Padding="8,1" FontSize="{DynamicResource FontSizeSmall}" Content="{l:T 'Abbrechen'}" Command="{Binding SelectedDocument.CancelRecognitionCommand}">
+                            <ToolTip.Tip><l:T Text="Texterkennung abbrechen — die Seiten, die schon fertig sind, behalten ihren Text" /></ToolTip.Tip>
+                        </Button>
+                    </StackPanel>
+                    <TextBlock Classes="small" VerticalAlignment="Center" Text="{Binding Notice}" IsVisible="{Binding HasNotice}"
+                               Foreground="{DynamicResource AccentBrush}" TextTrimming="CharacterEllipsis" />
+                </StackPanel>
+            </DockPanel>
+        </Border>
+
+        <!-- ============================================================
+             Datei-Bereich (Backstage) über allem
+             ============================================================ -->
+        <Grid Grid.Row="0" Grid.RowSpan="5" ColumnDefinitions="232,*" RowDefinitions="Auto,*" IsVisible="{Binding BackstageOpen}"
+              Background="{DynamicResource SurfaceBrush}">
+            <Border Grid.Column="0" Grid.RowSpan="2" Background="{DynamicResource AccentBrush}">
+                <DockPanel>
+                    <Button DockPanel.Dock="Top" Classes="backstageNav" Margin="0,14,0,10"
+                            Command="{Binding CloseBackstageCommand}" AutomationProperties.Name="{l:T 'Zurück'}">
+                        <ToolTip.Tip><l:T Text="Zurück zum Dokument (Esc)" /></ToolTip.Tip>
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <PathIcon Data="{StaticResource Icon.ArrowLeft}" Width="18" Height="18"
+                                      Foreground="{DynamicResource OnAccentBrush}" />
+                            <TextBlock Text="{l:T 'Zurück'}" Foreground="{DynamicResource OnAccentBrush}" />
+                        </StackPanel>
+                    </Button>
+                    <Button DockPanel.Dock="Bottom" Classes="backstageNav" Margin="0,0,0,14" Content="{l:T 'Einstellungen'}"
+                            Classes.selected="{Binding BackstagePage, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Settings}"
+                            Command="{Binding ShowBackstageCommand}" CommandParameter="{x:Static vm:BackstagePage.Settings}" />
+                    <Button DockPanel.Dock="Bottom" Classes="backstageNav" Content="{l:T 'Info'}"
+                            Classes.selected="{Binding BackstagePage, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Info}"
+                            Command="{Binding ShowBackstageCommand}" CommandParameter="{x:Static vm:BackstagePage.Info}" />
+                    <Button DockPanel.Dock="Bottom" Classes="backstageNav" Content="{l:T 'Schriften'}"
+                            Command="{Binding ManageSignatureFontsCommand}">
+                        <ToolTip.Tip><l:T Text="Handschriften für Unterschriften hinzufügen oder entfernen, etwa eine gekaufte oder Ihre eigene" /></ToolTip.Tip>
+                    </Button>
+                    <StackPanel>
+                        <Button Classes="backstageNav" Content="{l:T 'Neu'}" Command="{Binding NewDocumentCommand}">
+                            <ToolTip.Tip><l:T Text="Neues, leeres Dokument: Format wie A4 oder A3 wählen (Strg+N)" /></ToolTip.Tip>
+                        </Button>
+                        <Button Classes="backstageNav" Content="{l:T 'Öffnen'}"
+                                Classes.selected="{Binding BackstagePage, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Open}"
+                                Command="{Binding ShowBackstageCommand}" CommandParameter="{x:Static vm:BackstagePage.Open}" />
+                        <Button Classes="backstageNav" Content="{l:T 'Speichern'}" Command="{Binding SaveCommand}">
+                            <ToolTip.Tip><l:T Text="Über die geöffnete Datei speichern (Strg+S)" /></ToolTip.Tip>
+                        </Button>
+                        <Button Classes="backstageNav" Content="{l:T 'Speichern unter'}" IsEnabled="{Binding HasSelection}"
+                                Classes.selected="{Binding BackstagePage, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=SaveAs}"
+                                Command="{Binding ShowBackstageCommand}" CommandParameter="{x:Static vm:BackstagePage.SaveAs}">
+                            <ToolTip.Tip><l:T Text="Als neue Datei speichern, PDF-Version wählen (Strg+Umschalt+S)" /></ToolTip.Tip>
+                        </Button>
+                        <Button Classes="backstageNav" Content="{l:T 'Exportieren (Sicher, PDF/A)'}" IsEnabled="{Binding HasSelection}"
+                                Classes.selected="{Binding BackstagePage, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Export}"
+                                Command="{Binding ShowBackstageCommand}" CommandParameter="{x:Static vm:BackstagePage.Export}">
+                            <ToolTip.Tip><l:T Text="Als PDF aus Bildern (sicher), als PDF/A fürs Archiv oder als Bilddateien je Seite — die geöffnete Datei bleibt, wie sie ist" /></ToolTip.Tip>
+                        </Button>
+                        <Button Classes="backstageNav" Content="{l:T 'Drucken'}" Command="{Binding PrintCommand}">
+                            <ToolTip.Tip><l:T Text="Drucken mit Vorschau, mehreren Seiten pro Blatt oder als PDF (Strg+P)" /></ToolTip.Tip>
+                        </Button>
+                        <Button Classes="backstageNav" Content="{l:T 'Scanprofile'}"
+                                Classes.selected="{Binding BackstagePage, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=ScanProfiles}"
+                                Command="{Binding ShowBackstageCommand}" CommandParameter="{x:Static vm:BackstagePage.ScanProfiles}">
+                            <ToolTip.Tip><l:T Text="Gespeicherte Einstellungen zum Scannen exportieren, importieren oder löschen" /></ToolTip.Tip>
+                        </Button>
+                        <Button Classes="backstageNav" Content="{l:T 'Komprimieren'}" Command="{Binding CompressCommand}">
+                            <ToolTip.Tip><l:T Text="Datei verkleinern: Bilder, Schriften und Packen einstellen, mit Vorher/Nachher und Größenvorschau" /></ToolTip.Tip>
+                        </Button>
+                        <Button Classes="backstageNav" Content="{l:T 'Eigenschaften'}" IsEnabled="{Binding HasSelection}"
+                                Classes.selected="{Binding BackstagePage, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Properties}"
+                                Command="{Binding ShowBackstageCommand}" CommandParameter="{x:Static vm:BackstagePage.Properties}" />
+                    </StackPanel>
+                </DockPanel>
+            </Border>
+
+            <!-- Öffnen -->
+            <!-- the message bar of the window lies under this area: here as well, so that a message about what was done here is seen -->
+            <Border Grid.Column="1" Background="{DynamicResource DangerSoftBrush}" IsVisible="{Binding HasMessage}"
+                    BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1">
+                <DockPanel Margin="14,6">
+                    <Button DockPanel.Dock="Right" Classes="closeTab" Command="{Binding DismissMessageCommand}">
+                        <PathIcon Data="{StaticResource Icon.Dismiss}" Width="12" Height="12" />
+                    </Button>
+                    <PathIcon Data="{StaticResource Icon.Info}" Width="16" Height="16" Margin="0,0,8,0"
+                              Foreground="{DynamicResource DangerBrush}" />
+                    <TextBlock Text="{Binding Message}" TextWrapping="Wrap" VerticalAlignment="Center" />
+                </DockPanel>
+            </Border>
+            <ScrollViewer Grid.Column="1" Grid.Row="1"
+                          IsVisible="{Binding BackstagePage, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Open}">
+                <StackPanel Margin="48,36" Spacing="20" MaxWidth="760" HorizontalAlignment="Left">
+                    <TextBlock Classes="hero" Text="{l:T 'Öffnen'}" />
+                    <Button Classes="primary" HorizontalAlignment="Left" Click="OnOpenClick" AutomationProperties.Name="{l:T 'Durchsuchen …'}">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <PathIcon Data="{StaticResource Icon.Folder}" Width="16" Height="16"
+                                      Foreground="{DynamicResource OnAccentBrush}" />
+                            <TextBlock Text="{l:T 'Durchsuchen …'}" Foreground="{DynamicResource OnAccentBrush}" />
+                        </StackPanel>
+                    </Button>
+                    <DockPanel Margin="0,8,0,0">
+                        <Button DockPanel.Dock="Right" Classes="soft small" Command="{Binding ClearRecentCommand}"
+                                Content="{l:T 'Verlauf leeren'}" IsVisible="{Binding HasRecentFiles}">
+                            <ToolTip.Tip><l:T Text="Alle Einträge aus der Liste entfernen — die Dateien bleiben erhalten" /></ToolTip.Tip>
+                        </Button>
+                        <TextBlock Classes="section" VerticalAlignment="Center" Text="{l:T 'ZULETZT GEÖFFNET'}" />
+                    </DockPanel>
+                    <TextBlock Classes="muted" Text="{l:T 'Noch keine Dateien geöffnet.'}" IsVisible="{Binding !HasRecentFiles}" />
+                    <ItemsControl ItemsSource="{Binding RecentFiles}" ItemTemplate="{StaticResource RecentFileTemplate}" />
+                </StackPanel>
+            </ScrollViewer>
+
+            <!-- Speichern unter -->
+            <ScrollViewer Grid.Column="1" Grid.Row="1"
+                          IsVisible="{Binding BackstagePage, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=SaveAs}">
+                <StackPanel Margin="48,36" Spacing="20" MaxWidth="760" HorizontalAlignment="Left">
+                    <TextBlock Classes="hero" Text="{l:T 'Speichern unter'}" />
+                    <TextBlock Classes="title" Text="{Binding SelectedDocument.FileName, FallbackValue=''}" TextTrimming="CharacterEllipsis" />
+                    <Border Classes="card">
+                        <StackPanel Spacing="12">
+                            <TextBlock Classes="section" Text="{l:T 'PDF-VERSION'}" />
+                            <ListBox Classes="choices" ItemsSource="{Binding VersionOptions}" SelectedItem="{Binding SelectedVersion}">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:VersionOption">
+                                        <TextBlock TextWrapping="Wrap">
+                                            <TextBlock.Text>
+                                                <MultiBinding Converter="{x:Static l:T.Translate}">
+                                                    <Binding Path="Label" />
+                                                    <x:Static Member="l:T.LanguageVersion" />
+                                                </MultiBinding>
+                                            </TextBlock.Text>
+                                        </TextBlock>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                            <TextBlock Classes="section" Text="{l:T 'KOMPRIMIERUNG'}" Margin="0,8,0,0" />
+                            <ListBox Classes="choices" ItemsSource="{Binding CompressionOptions}" SelectedItem="{Binding SelectedCompression}"
+                                     AutomationProperties.Name="{l:T 'Komprimierung'}">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:CompressionOption">
+                                        <TextBlock TextWrapping="Wrap">
+                                            <TextBlock.Text>
+                                                <MultiBinding Converter="{x:Static l:T.Translate}">
+                                                    <Binding Path="Label" />
+                                                    <x:Static Member="l:T.LanguageVersion" />
+                                                </MultiBinding>
+                                            </TextBlock.Text>
+                                        </TextBlock>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                            <Button Classes="soft" HorizontalAlignment="Left" Command="{Binding CompressCommand}" Content="{l:T 'Mehr Einstellungen mit Vorher/Nachher …'}">
+                                <ToolTip.Tip><l:T Text="Datei → Komprimieren: alle Regler, Vorschau und Größen" /></ToolTip.Tip>
+                            </Button>
+                            <TextBlock Classes="muted small" TextWrapping="Wrap"
+                                       Text="{l:T 'Die Datei wird komplett neu geschrieben: Alte, nicht mehr sichtbare Fassungen fallen weg. Passwortschutz und Rechte bleiben erhalten. Die geöffnete Datei bleibt unverändert; danach zeigt der Reiter die neue Datei.'}" />
+                            <Button Classes="primary" HorizontalAlignment="Left" Command="{Binding SaveAsCommand}" AutomationProperties.Name="{l:T 'Speichern unter …'}">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <PathIcon Data="{StaticResource Icon.SaveEdit}" Width="16" Height="16"
+                                              Foreground="{DynamicResource OnAccentBrush}" />
+                                    <TextBlock Text="{l:T 'Speichern unter …'}" Foreground="{DynamicResource OnAccentBrush}" />
+                                </StackPanel>
+                            </Button>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
+
+            <!-- Exportieren -->
+            <ScrollViewer Grid.Column="1" Grid.Row="1"
+                          IsVisible="{Binding BackstagePage, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Export}">
+                <StackPanel Margin="48,36" Spacing="20" MaxWidth="760" HorizontalAlignment="Left">
+                    <TextBlock Classes="hero" Text="{l:T 'Exportieren'}" />
+                    <TextBlock Classes="title" Text="{Binding SelectedDocument.FileName, FallbackValue=''}" TextTrimming="CharacterEllipsis" />
+
+                    <Border Classes="card">
+                        <StackPanel Spacing="10">
+                            <TextBlock Classes="section" Text="{l:T 'PDF — NORMAL'}" />
+                            <TextBlock TextWrapping="Wrap"
+                                       Text="{l:T 'Text bleibt kopierbar und durchsuchbar, Lesezeichen, Formularfelder und Kommentare bleiben. Das ist „Speichern unter“ mit Wahl der PDF-Version.'}" />
+                            <Button HorizontalAlignment="Left" Command="{Binding ShowBackstageCommand}" CommandParameter="{x:Static vm:BackstagePage.SaveAs}"
+                                    AutomationProperties.Name="{l:T 'Zu „Speichern unter“'}">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <PathIcon Data="{StaticResource Icon.SaveEdit}" Width="16" Height="16" />
+                                    <TextBlock Text="{l:T 'Zu „Speichern unter“'}" />
+                                </StackPanel>
+                            </Button>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Classes="card">
+                        <StackPanel Spacing="10">
+                            <TextBlock Classes="section" Text="{l:T 'PDF ALS BILD — SICHER'}" />
+                            <TextBlock TextWrapping="Wrap"
+                                       Text="{l:T 'Eine neue PDF, jede Seite ein Bild: kein kopierbarer Text, keine verborgenen Daten. Markierte Schwärzungen werden dabei angewendet. Die geöffnete Datei bleibt, wie sie ist.'}" />
+                            <Button Classes="primary" HorizontalAlignment="Left" Command="{Binding ExportImagePdfCommand}"
+                                    AutomationProperties.Name="{l:T 'PDF als Bild exportieren …'}">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <PathIcon Data="{StaticResource Icon.ShieldLock}" Width="16" Height="16" Foreground="{DynamicResource OnAccentBrush}" />
+                                    <TextBlock Text="{l:T 'PDF als Bild exportieren …'}" Foreground="{DynamicResource OnAccentBrush}" />
+                                </StackPanel>
+                            </Button>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Classes="card">
+                        <StackPanel Spacing="10">
+                            <TextBlock Classes="section" Text="{l:T 'PDF/A — ARCHIV'}" />
+                            <TextBlock TextWrapping="Wrap"
+                                       Text="{l:T 'Eine Kopie nach der Norm für die Langzeit-Archivierung (PDF/A-1b bis -4e), wie Archive und Behörden sie verlangen. Erfüllt das Dokument die Regeln nicht, nennt das Programm die Gründe und speichert nichts.'}" />
+                            <Button HorizontalAlignment="Left" Command="{Binding ExportPdfACommand}"
+                                    AutomationProperties.Name="{l:T 'Als PDF/A speichern …'}">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <PathIcon Data="{StaticResource Icon.DocumentOnePage}" Width="16" Height="16" />
+                                    <TextBlock Text="{l:T 'Als PDF/A speichern …'}" />
+                                </StackPanel>
+                            </Button>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Classes="card">
+                        <StackPanel Spacing="10">
+                            <TextBlock Classes="section" Text="{l:T 'SEITEN ALS BILDER'}" />
+                            <TextBlock TextWrapping="Wrap"
+                                       Text="{l:T 'Alle oder die in der Seitenleiste gewählten Seiten als PNG, JPEG, TIFF (auch mehrseitig) oder WebP in einem Ordner, etwa für Präsentationen, Webseiten oder ein Archiv.'}" />
+                            <Button HorizontalAlignment="Left" Command="{Binding ExportImagesCommand}"
+                                    AutomationProperties.Name="{l:T 'Seiten als Bilder exportieren …'}">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <PathIcon Data="{StaticResource Icon.ImageMultiple}" Width="16" Height="16" />
+                                    <TextBlock Text="{l:T 'Seiten als Bilder exportieren …'}" />
+                                </StackPanel>
+                            </Button>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
+
+
+            <!-- Scanprofile: export, import, delete (KONZEPT §5.25) -->
+            <ScrollViewer Grid.Column="1" Grid.Row="1" DataContext="{Binding ScanProfiles}" x:DataType="vm:ScanProfilesViewModel"
+                          IsVisible="{Binding $parent[Window].((vm:MainViewModel)DataContext).BackstagePage, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=ScanProfiles}">
+                <StackPanel Margin="48,36" Spacing="20" MaxWidth="760" HorizontalAlignment="Left">
+                    <TextBlock Classes="hero" Text="{l:T 'Scanprofile'}" />
+                    <TextBlock TextWrapping="Wrap" Classes="muted"
+                               Text="{l:T 'Ein Scanprofil merkt sich Scanner, Quelle, Auflösung, Farbe, Format und die Einstellungen zu den Seiten. Angelegt wird es im Fenster „Scannen“ mit „Profil speichern“; hier lässt es sich in eine Datei exportieren und auf einem anderen Rechner importieren.'}" />
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button Classes="primary" Command="{Binding ExportCommand}" IsEnabled="{Binding HasProfiles}" AutomationProperties.Name="{l:T 'Exportieren …'}">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <PathIcon Data="{StaticResource Icon.ArrowExport}" Width="16" Height="16" Foreground="{DynamicResource OnAccentBrush}" />
+                                <TextBlock Text="{l:T 'Exportieren …'}" Foreground="{DynamicResource OnAccentBrush}" />
+                            </StackPanel>
+                            <ToolTip.Tip><l:T Text="Die angekreuzten Profile in eine Datei schreiben — ist keins angekreuzt, alle" /></ToolTip.Tip>
+                        </Button>
+                        <Button Classes="soft" Command="{Binding ImportCommand}" AutomationProperties.Name="{l:T 'Importieren …'}">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <PathIcon Data="{StaticResource Icon.Folder}" Width="16" Height="16" />
+                                <TextBlock Text="{l:T 'Importieren …'}" />
+                            </StackPanel>
+                            <ToolTip.Tip><l:T Text="Profile aus einer Datei übernehmen — vorhandene werden nie überschrieben, gleiche Namen bekommen eine Nummer" /></ToolTip.Tip>
+                        </Button>
+                        <Button Classes="soft" Command="{Binding DeleteCommand}" IsEnabled="{Binding HasProfiles}" AutomationProperties.Name="{l:T 'Löschen'}">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <PathIcon Data="{StaticResource Icon.Delete}" Width="16" Height="16" />
+                                <TextBlock Text="{l:T 'Löschen'}" />
+                            </StackPanel>
+                            <ToolTip.Tip><l:T Text="Die angekreuzten Profile löschen" /></ToolTip.Tip>
+                        </Button>
+                    </StackPanel>
+                    <TextBlock TextWrapping="Wrap" Text="{Binding Info}" IsVisible="{Binding Info, Converter={x:Static ObjectConverters.IsNotNull}}"
+                               Classes.danger="{Binding InfoIsError}" AutomationProperties.LiveSetting="Polite">
+                        <TextBlock.Styles>
+                            <Style Selector="TextBlock.danger">
+                                <Setter Property="Foreground" Value="{DynamicResource DangerBrush}" />
+                            </Style>
+                        </TextBlock.Styles>
+                    </TextBlock>
+                    <Border Classes="card">
+                        <StackPanel Spacing="8">
+                            <TextBlock Classes="section" Text="{l:T 'GESPEICHERTE PROFILE'}" />
+                            <TextBlock Classes="muted" IsVisible="{Binding !HasProfiles}"
+                                       Text="{l:T 'Noch keine Scanprofile. Im Fenster „Scannen“ die Einstellungen wählen und „Profil speichern“ drücken.'}" />
+                            <ItemsControl ItemsSource="{Binding Rows}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:ScanProfileRow">
+                                        <CheckBox IsChecked="{Binding IsChecked}" Margin="0,2" AutomationProperties.Name="{Binding Name}">
+                                            <StackPanel Spacing="2">
+                                                <TextBlock FontWeight="SemiBold" Text="{Binding Name}" />
+                                                <TextBlock Classes="muted small" TextWrapping="Wrap" Text="{Binding Summary}" />
+                                            </StackPanel>
+                                        </CheckBox>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
+
+            <!-- Info: Programm und Geräte-Kennung der Unterschriften -->
+            <ScrollViewer Grid.Column="1" Grid.Row="1" DataContext="{Binding Settings}" x:DataType="vm:SettingsViewModel"
+                          IsVisible="{Binding $parent[Window].((vm:MainViewModel)DataContext).BackstagePage, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Info}">
+                <StackPanel Margin="48,36" Spacing="20" MaxWidth="760" HorizontalAlignment="Left">
+                    <TextBlock Classes="hero" Text="{l:T 'Info'}" />
+
+                    <Border Classes="card">
+                        <StackPanel Spacing="8">
+                            <TextBlock Classes="section" Text="{l:T 'ÜBER PDF-KNEAD'}" />
+                            <TextBlock FontWeight="SemiBold" Text="{Binding VersionText}" />
+                            <TextBlock TextWrapping="Wrap"
+                                       Text="{l:T 'PDF-Editor für Windows und Linux. Lesen, Anzeigen und Schreiben von PDF-Dateien sind eigener Code; das Programm arbeitet ohne Internet.'}" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border Classes="card">
+                        <StackPanel Spacing="10">
+                            <TextBlock Classes="section" Text="{l:T 'UNTERSCHRIFTEN UND GERÄTE-KENNUNG'}" />
+                            <StackPanel Orientation="Horizontal" Spacing="10">
+                                <SelectableTextBlock Text="{Binding DeviceCode}" FontSize="20" FontWeight="SemiBold" FontFamily="Consolas, Liberation Mono, monospace" />
+                                <TextBlock Classes="muted" VerticalAlignment="Center" Text="{l:T 'Ihre Kennung: PC-Teil – Benutzer-Teil'}" />
+                            </StackPanel>
+                            <TextBlock TextWrapping="Wrap"
+                                       Text="{l:T 'Unter einer Unterschrift steht auf Wunsch ihre Herkunft: Name · Datum · Kennung, zum Beispiel „Max Mustermann · 16.10.2026 14:32 · Kennung 7F3A9C-12C4D7A8B9“.'}" />
+                            <TextBlock TextWrapping="Wrap">
+                                <Run FontWeight="SemiBold" Text="{l:T 'PC-Teil (die ersten sechs Zeichen):'}" />
+                                <Run Text="{l:T 'eindeutige Kennung für den Rechner. Berechnet aus der zufälligen Geräte-ID des Betriebssystems, nicht aus dem Rechnernamen; für alle Benutzer dieses PCs gleich.'}" />
+                            </TextBlock>
+                            <TextBlock TextWrapping="Wrap">
+                                <Run FontWeight="SemiBold" Text="{l:T 'Benutzer-Teil (die letzten zehn Zeichen):'}" />
+                                <Run Text="{l:T 'eindeutige Kennung für das angemeldete Konto. Bei Firmenkonten (Domäne, Microsoft Entra) an jedem PC gleich, bei lokalen Konten und unter Linux je PC verschieden.'}" />
+                            </TextBlock>
+                            <TextBlock TextWrapping="Wrap">
+                                <Run FontWeight="SemiBold" Text="{l:T 'Nicht zurückrechenbar:'}" />
+                                <Run Text="{l:T 'Beide Teile sind kryptografische Prüfsummen (HMAC-SHA256); Rechner- und Benutzername stehen nirgends in der Datei. Zuordnen kann, wer die Ausgangswerte kennt: die Geräte-ID am PC selbst — und in einer Firmen-Domäne jeder, der das Kontenverzeichnis lesen kann, denn die Kontokennungen lassen sich dort durchprobieren.'}" />
+                            </TextBlock>
+                            <TextBlock TextWrapping="Wrap">
+                                <Run FontWeight="SemiBold" Text="{l:T 'So liest man sie:'}" />
+                                <Run Text="{l:T 'Gleiche Kennung bei verschiedenen Namen — dasselbe Konto hat für jemand anderen unterschrieben. Gleicher Benutzer-Teil, anderer PC-Teil — dasselbe Konto an einem anderen PC. Gleicher PC-Teil, anderer Benutzer-Teil — derselbe PC, ein anderer Benutzer.'}" />
+                            </TextBlock>
+                            <TextBlock TextWrapping="Wrap" Classes="muted"
+                                       Text="{l:T 'Die Herkunft wird mit einem Schlüssel signiert, der diesen Rechner nicht verlässt (unter Windows an das Benutzerkonto gebunden) und in der Datei abgelegt; prüfen mit „pdf-knead herkunft datei.pdf“. Das ist ein Herkunftsnachweis, keine qualifizierte elektronische Signatur.'}" />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
+
+            <!-- Eigenschaften des gewählten Dokuments -->
+            <ScrollViewer Grid.Column="1" Grid.Row="1"
+                          IsVisible="{Binding BackstagePage, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Properties}">
+                <StackPanel Margin="48,36" Spacing="20" MaxWidth="760" HorizontalAlignment="Left">
+                    <TextBlock Classes="hero" Text="{l:T 'Eigenschaften'}" />
+                    <TextBlock Classes="title" Text="{Binding SelectedDocument.FileName}" TextTrimming="CharacterEllipsis" />
+                    <!-- Titel, Sprache und Titelanzeige für Bildschirmleser (Fehlergedächtnis 492) -->
+                    <Border Classes="card" IsVisible="{Binding SelectedDocument, Converter={x:Static ObjectConverters.IsNotNull}}">
+                        <StackPanel Spacing="10">
+                            <TextBlock FontWeight="SemiBold" Text="{l:T 'Für Bildschirmleser'}" />
+                            <Grid ColumnDefinitions="180,*,Auto" RowDefinitions="Auto,Auto,Auto" RowSpacing="8" ColumnSpacing="8">
+                                <TextBlock Classes="muted" VerticalAlignment="Center" Text="{l:T 'Titel'}" />
+                                <TextBox Grid.Column="1" Grid.ColumnSpan="2" Name="DocumentTitleBox" Text="{Binding SelectedDocument.EditTitle}"
+                                         AutomationProperties.Name="{l:T 'Titel'}" />
+                                <TextBlock Grid.Row="1" Classes="muted" VerticalAlignment="Center" Text="{l:T 'Sprache'}" />
+                                <views:LanguagePicker Grid.Row="1" Grid.Column="1" Name="DocumentLanguageBox" Value="{Binding SelectedDocument.EditLanguage}"
+                                                      AutomationProperties.Name="{l:T 'Sprache'}" />
+                                <Button Grid.Row="1" Grid.Column="2" Content="{l:T 'Vorschlagen'}" Command="{Binding SelectedDocument.ProposeLanguageCommand}">
+                                    <ToolTip.Tip><l:T Text="Die Sprache vorschlagen, in der der Text der Seiten steht" /></ToolTip.Tip>
+                                </Button>
+                                <CheckBox Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="2" IsChecked="{Binding SelectedDocument.EditDisplayTitle}"
+                                          Content="{l:T 'Titel statt Dateiname anzeigen'}" />
+                            </Grid>
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+                                <TextBlock Classes="muted" VerticalAlignment="Center" Text="{l:T 'Wird beim Speichern übernommen.'}"
+                                           IsVisible="{Binding SelectedDocument.DescriptionOnSave, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                                <Button Classes="primary" Content="{l:T 'Übernehmen'}" Command="{Binding SelectedDocument.ApplyDescriptionCommand}" />
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+                    <Border Classes="card">
+                        <ItemsControl ItemsSource="{Binding SelectedDocument.Properties}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:PropertyRow">
+                                    <Grid ColumnDefinitions="180,*" Margin="0,5">
+                                        <TextBlock Classes="muted" VerticalAlignment="Top">
+                                            <!-- deutscher Text aus dem Eintrag, übersetzt; wechselt mit der Sprache -->
+                                            <TextBlock.Text>
+                                                <MultiBinding Converter="{x:Static l:T.Translate}">
+                                                    <Binding Path="Label" />
+                                                    <x:Static Member="l:T.LanguageVersion" />
+                                                </MultiBinding>
+                                            </TextBlock.Text>
+                                        </TextBlock>
+                                        <SelectableTextBlock Grid.Column="1" Text="{Binding Value}" TextWrapping="Wrap" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
+
+            <!-- Einstellungen -->
+            <ScrollViewer Grid.Column="1" Grid.Row="1" DataContext="{Binding Settings}" x:DataType="vm:SettingsViewModel"
+                          IsVisible="{Binding $parent[Window].((vm:MainViewModel)DataContext).BackstagePage, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Settings}">
+                <StackPanel Margin="48,36" Spacing="20" MaxWidth="760" HorizontalAlignment="Left">
+                    <TextBlock Classes="hero" Text="{l:T 'Einstellungen'}" />
+
+                    <Border Classes="card">
+                        <StackPanel Spacing="12">
+                            <TextBlock Classes="section" Text="{l:T 'SPRACHE'}" />
+                            <ComboBox ItemsSource="{Binding Languages}" SelectedItem="{Binding SelectedLanguage}" MinWidth="260">
+                                <ComboBox.ItemTemplate>
+                                    <DataTemplate x:DataType="loc:Language">
+                                        <StackPanel Orientation="Horizontal" Spacing="10">
+                                            <c:FlagView Language="{Binding}" />
+                                            <TextBlock Text="{Binding Name}" VerticalAlignment="Center" />
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                            </ComboBox>
+                            <TextBlock Classes="small" Foreground="{DynamicResource DangerBrush}" TextWrapping="Wrap"
+                                       Text="{Binding LanguageProblems}" IsVisible="{Binding LanguageProblems, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+
+                            <Border Height="1" Background="{DynamicResource LineBrush}" Margin="0,4" />
+                            <TextBlock FontWeight="SemiBold" Text="{l:T 'Eigene Übersetzung'}" />
+                            <TextBlock Classes="muted" TextWrapping="Wrap"
+                                       Text="{l:T 'Vorlage mit allen Texten exportieren, übersetzen und als z. B. fr.json in diesen Ordner legen:'}" />
+                            <SelectableTextBlock Classes="small" Text="{Binding LanguageFolder}" TextWrapping="Wrap"
+                                                 Foreground="{DynamicResource TextMutedBrush}" />
+                            <WrapPanel>
+                                <Button Margin="0,0,8,8" Click="OnTemplateGermanClick" Content="{l:T 'Vorlage aus Deutsch …'}" />
+                                <Button Margin="0,0,8,8" Click="OnTemplateEnglishClick" Content="{l:T 'Vorlage aus Englisch …'}" />
+                                <Button Margin="0,0,8,8" Click="OnReloadLanguagesClick" Content="{l:T 'Sprachen neu laden'}" />
+                            </WrapPanel>
+                            <TextBlock Classes="small muted" TextWrapping="Wrap" Text="{Binding TemplateMessage}"
+                                       IsVisible="{Binding TemplateMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                        </StackPanel>
+                    </Border>
+
+                    <!-- updates (KONZEPT §5.26; decided on 18.11.2026: automatic, on at first) -->
+                    <Border Name="UpdateSettingsCard" Classes="card">
+                        <StackPanel Spacing="8">
+                            <TextBlock Classes="section" Text="{l:T 'UPDATES'}" />
+                            <CheckBox Name="UpdateCheckOption" IsChecked="{Binding UpdateCheck}" IsEnabled="{Binding !UpdateLocked}"
+                                      Content="{l:T 'Automatisch nach Updates suchen (höchstens einmal am Tag)'}" />
+                            <TextBlock Classes="small muted" TextWrapping="Wrap" IsVisible="{Binding UpdateLocked}"
+                                       Text="{l:T 'Auf diesem Rechner abgeschaltet (Einstellung der IT).'}" />
+                            <TextBlock Classes="small muted" TextWrapping="Wrap"
+                                       Text="{l:T 'Gefragt wird nur nach der Versionsdatei auf GitHub. Gesendet wird dabei nichts über Sie oder Ihre Dokumente; der Server sieht die Adresse Ihres Anschlusses, den Zeitpunkt und den Programmnamen mit Version. Updates sind signiert — ein Update ohne gültige Signatur wird nie installiert.'}" />
+                            <WrapPanel>
+                                <Button Margin="0,0,8,0" Content="{l:T 'Jetzt nach Updates suchen'}" Command="{Binding CheckForUpdatesCommand}" />
+                            </WrapPanel>
+                            <TextBlock Classes="small muted" TextWrapping="Wrap" Text="{Binding Updates.Message}"
+                                       IsVisible="{Binding Updates.Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                        </StackPanel>
+                    </Border>
+
+                    <!-- opening files from outside: a window of its own or the window used last (decided on 16.11.2026) -->
+                    <Border Name="OpenFilesCard" Classes="card">
+                        <StackPanel Spacing="8">
+                            <TextBlock Classes="section" Text="{l:T 'DATEIEN ÖFFNEN'}" />
+                            <TextBlock Classes="muted" TextWrapping="Wrap"
+                                       Text="{l:T 'Wenn eine PDF von außen geöffnet wird — per Doppelklick oder „Öffnen mit“:'}" />
+                            <RadioButton Name="OpenInOwnWindowOption" GroupName="OpenFiles" IsChecked="{Binding OpenInOwnWindow}"
+                                         Content="{l:T 'Jede Datei in einem eigenen Fenster'}" />
+                            <RadioButton Name="OpenInRunningWindowOption" GroupName="OpenFiles" IsChecked="{Binding OpenInRunningWindow}"
+                                         Content="{l:T 'Im zuletzt benutzten Fenster als neuer Reiter'}" />
+                            <TextBlock Classes="small muted" TextWrapping="Wrap"
+                                       Text="{l:T 'Ist kein Fenster offen, öffnet sich ein neues. Die Übergabe bleibt auf diesem Rechner und in Ihrem Benutzerkonto.'}" />
+                        </StackPanel>
+                    </Border>
+
+                    <!-- modules of their own: each tab can be hidden (KONZEPT §5.24 „Aufbau und Entfernen“) -->
+                    <Border Name="ModuleSettingsCard" Classes="card" IsVisible="{Binding HasModules}">
+                        <StackPanel Spacing="8">
+                            <TextBlock Classes="section" Text="{l:T 'ZUSÄTZLICHE REITER'}" />
+                            <TextBlock Classes="muted" TextWrapping="Wrap"
+                                       Text="{l:T 'Funktionen, die nicht jeder braucht, haben einen eigenen Reiter. Ausgeblendet ist der Reiter weg; die Funktion lässt sich hier jederzeit wieder einblenden.'}" />
+                            <ItemsControl ItemsSource="{Binding Modules}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:ModuleSetting">
+                                        <CheckBox IsChecked="{Binding Shown}" Content="{Binding Label}" />
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Classes="card">
+                        <StackPanel Spacing="12">
+                            <TextBlock Classes="section" Text="{l:T 'ERSCHEINUNGSBILD'}" />
+                            <ComboBox ItemsSource="{Binding Themes}" SelectedItem="{Binding SelectedTheme}" MinWidth="260">
+                                <ComboBox.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:ThemeOption">
+                                        <TextBlock>
+                                            <TextBlock.Text>
+                                                <MultiBinding Converter="{x:Static l:T.Translate}">
+                                                    <Binding Path="Label" />
+                                                    <x:Static Member="l:T.LanguageVersion" />
+                                                </MultiBinding>
+                                            </TextBlock.Text>
+                                        </TextBlock>
+                                    </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                            </ComboBox>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Schwärzungscodes je Land (Wunsch vom 4.11.2026): vorwählen, von Hand anpassen, weitergeben -->
+                    <Border Classes="card">
+                        <StackPanel Spacing="10">
+                            <TextBlock Classes="section" Text="{l:T 'SCHWÄRZUNGSCODES'}" />
+                            <TextBlock Classes="muted" TextWrapping="Wrap"
+                                       Text="{l:T 'Die Codes für die Gründe beim Schwärzen, je Land eine Textdatei mit einer Zeile je Code (Code, Kurztext, Bedeutung, Rechtsgrundlage, Fundarten — durch Tabulator getrennt, auch in einer Tabellenkalkulation zu bearbeiten). Eine eigene Fassung ersetzt die mitgelieferte.'}" />
+                            <ComboBox ItemsSource="{Binding CodeSets}" SelectedItem="{Binding SelectedCodeSet}" MinWidth="260"
+                                      AutomationProperties.Name="{l:T 'Landesschwärzungscodes'}" />
+                            <SelectableTextBlock Classes="small" Text="{Binding CodesFolder}" TextWrapping="Wrap" Foreground="{DynamicResource TextMutedBrush}" />
+                            <WrapPanel>
+                                <Button Margin="0,0,8,8" Click="OnEditCodesClick" Content="{l:T 'Bearbeiten …'}">
+                                    <ToolTip.Tip><l:T Text="Öffnet die Code-Datei im Texteditor; eine mitgelieferte wird dafür in den Ordner oben kopiert" /></ToolTip.Tip>
+                                </Button>
+                                <Button Margin="0,0,8,8" Click="OnReloadCodesClick" Content="{l:T 'Neu laden'}" />
+                                <Button Margin="0,0,8,8" Click="OnImportCodesClick" Content="{l:T 'Code-Datei hinzufügen …'}" />
+                                <Button Margin="0,0,8,8" Click="OnExportCodesClick" Content="{l:T 'Exportieren …'}" />
+                                <Button Margin="0,0,8,8" Click="OnCodesFolderClick" Content="{l:T 'Ordner öffnen'}" />
+                                <Button Margin="0,0,8,8" Click="OnRemoveOwnCodesClick" IsEnabled="{Binding CanRemoveOwnCodes}"
+                                        Content="{l:T 'Eigene Fassung beiseitelegen'}">
+                                    <ToolTip.Tip><l:T Text="Die eigene Datei wird in .bak umbenannt (nichts geht verloren); es gelten wieder die mitgelieferten Codes" /></ToolTip.Tip>
+                                </Button>
+                            </WrapPanel>
+                            <TextBlock Classes="small muted" TextWrapping="Wrap" Text="{Binding CodesMessage}"
+                                       IsVisible="{Binding CodesMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border Classes="card">
+                        <StackPanel Spacing="8">
+                            <TextBlock Classes="section" Text="{l:T 'DATENSCHUTZ'}" />
+                            <TextBlock TextWrapping="Wrap"
+                                       Text="{l:T 'PDF-Knead sendet keine Daten und baut von sich aus keine Verbindung ins Internet auf. Links in Dokumenten öffnet es nur nach Rückfrage.'}" />
+                        </StackPanel>
+                    </Border>
+
+                    <TextBlock Classes="muted small" Name="VersionText" />
+                </StackPanel>
+            </ScrollViewer>
+        </Grid>
+
+        <!-- Ablegen per Drag & Drop -->
+        <Border Grid.Row="0" Grid.RowSpan="5" Name="DropOverlay" IsVisible="False"
+                Background="{DynamicResource OverlayBrush}" IsHitTestVisible="False">
+            <Border Classes="card" HorizontalAlignment="Center" VerticalAlignment="Center" Padding="40,28"
+                    BorderBrush="{DynamicResource AccentBrush}" BorderThickness="2">
+                <StackPanel Spacing="12">
+                    <PathIcon Data="{StaticResource Icon.DocumentAdd}" Width="40" Height="40"
+                              Foreground="{DynamicResource AccentBrush}" />
+                    <TextBlock Classes="title" Text="{l:T 'Loslassen zum Öffnen'}" HorizontalAlignment="Center" />
+                </StackPanel>
+            </Border>
+        </Border>
+    </Grid>
+    </DockPanel>
+</Window>

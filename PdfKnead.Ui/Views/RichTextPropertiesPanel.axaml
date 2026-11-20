@@ -1,0 +1,181 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             Background="{DynamicResource SurfaceAltBrush}"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:l="using:PdfKnead.Localization"
+             xmlns:vm="using:PdfKnead.ViewModels"
+             xmlns:txt="using:PdfKnead.Core.Pdf.Text"
+             x:Class="PdfKnead.Views.RichTextPropertiesPanel"
+             x:DataType="vm:RichTextPropertiesViewModel">
+    <!-- Formatierung von bearbeitetem Text (KONZEPT §5.14, T2), rechts wie bei Formen und Feldern -->
+    <UserControl.Resources>
+        <DataTemplate x:Key="LabelTemplate" x:DataType="vm:ILabeled">
+            <TextBlock>
+                <TextBlock.Text>
+                    <MultiBinding Converter="{x:Static l:T.Translate}">
+                        <Binding Path="Label" />
+                        <x:Static Member="l:T.LanguageVersion" />
+                    </MultiBinding>
+                </TextBlock.Text>
+            </TextBlock>
+        </DataTemplate>
+        <DataTemplate x:Key="ColorTemplate" x:DataType="vm:FieldColorOption">
+            <StackPanel Orientation="Horizontal" Spacing="6">
+                <Border Width="14" Height="14" CornerRadius="3" Background="{Binding Brush}" BorderBrush="{DynamicResource LineStrongBrush}"
+                        BorderThickness="1" VerticalAlignment="Center" />
+                <TextBlock VerticalAlignment="Center">
+                    <TextBlock.Text>
+                        <MultiBinding Converter="{x:Static l:T.Translate}">
+                            <Binding Path="Label" />
+                            <x:Static Member="l:T.LanguageVersion" />
+                        </MultiBinding>
+                    </TextBlock.Text>
+                </TextBlock>
+                <TextBlock VerticalAlignment="Center" Text="{Binding Code}" IsVisible="{Binding IsCustom}" Foreground="{DynamicResource TextMutedBrush}" />
+            </StackPanel>
+        </DataTemplate>
+    </UserControl.Resources>
+    <UserControl.Styles>
+        <StyleInclude Source="avares://PdfKnead.Ui/Styles/PropertyPanel.axaml" />
+        <Style Selector="ToggleButton.seg">
+            <Setter Property="Padding" Value="8,5" />
+            <Setter Property="MinWidth" Value="34" />
+        </Style>
+        <Style Selector="ToggleButton.seg PathIcon">
+            <Setter Property="Width" Value="15" />
+            <Setter Property="Height" Value="15" />
+        </Style>
+        <!-- Pipette: neben dem Auswahlfeld, an = Akzentfarbe hinterlegt (wie bei Formen) -->
+        <Style Selector="ToggleButton.pipette">
+            <Setter Property="Margin" Value="6,0,0,0" />
+            <Setter Property="Padding" Value="6" />
+            <Setter Property="MinHeight" Value="30" />
+            <Setter Property="VerticalAlignment" Value="Stretch" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+        </Style>
+        <Style Selector="ToggleButton.pipette /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="Transparent" />
+        </Style>
+        <Style Selector="ToggleButton.pipette:pointerover /template/ ContentPresenter#PART_ContentPresenter, ToggleButton.pipette:checked /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}" />
+        </Style>
+        <Style Selector="ToggleButton.pipette PathIcon">
+            <Setter Property="Width" Value="18" />
+            <Setter Property="Height" Value="18" />
+            <Setter Property="Foreground" Value="{DynamicResource TextMutedBrush}" />
+        </Style>
+        <Style Selector="ToggleButton.pipette:checked PathIcon">
+            <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
+        </Style>
+    </UserControl.Styles>
+
+    <DockPanel>
+        <Border DockPanel.Dock="Top" Classes="propBanner">
+            <Grid ColumnDefinitions="Auto,*">
+                <Border Classes="bannerIcon"><PathIcon Data="{StaticResource Icon.TextEditStyle}" /></Border>
+                <TextBlock Grid.Column="1" Margin="10,0,0,0" FontWeight="SemiBold" FontSize="14" VerticalAlignment="Center" Text="{l:T 'Text'}" />
+            </Grid>
+        </Border>
+        <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+            <StackPanel Margin="0,0,0,12">
+                <!-- Schrift -->
+                <Border Classes="propCard">
+                    <StackPanel>
+                        <StackPanel Classes="propHeader">
+                            <Border Classes="propBadge"><PathIcon Data="{StaticResource Icon.TextT}" /></Border>
+                            <TextBlock Classes="propTitle" Text="{l:T 'Schrift'}" />
+                        </StackPanel>
+                        <TextBlock Classes="caption" Text="{l:T 'Schriftart'}" />
+                        <ComboBox ItemsSource="{x:Static vm:RichTextPropertiesViewModel.Families}" SelectedItem="{Binding Family}" DropDownClosed="OnFamilyClosed"
+                                  AutomationProperties.Name="{l:T 'Schriftart'}">
+                            <ToolTip.Tip><l:T Text="Schrift der Markierung bzw. des als Nächstes Getippten. Zur Wahl stehen die Schriften dieses Rechners, die eingebettet werden dürfen, und Liberation (immer dabei)." /></ToolTip.Tip>
+                        </ComboBox>
+                        <Grid ColumnDefinitions="Auto,8,*" Margin="0,6,0,0">
+                            <StackPanel Grid.Column="0">
+                                <TextBlock Classes="caption" Text="{l:T 'Größe (pt)'}" />
+                                <ComboBox Width="84" IsEditable="True" ItemsSource="{x:Static vm:RichTextPropertiesViewModel.Sizes}"
+                                          SelectedItem="{Binding Size}" Text="{Binding SizeText, UpdateSourceTrigger=LostFocus}"
+                                          AutomationProperties.Name="{l:T 'Schriftgröße'}">
+                                    <ToolTip.Tip><l:T Text="Schriftgröße in Punkt (auch eigene Werte eintippen)" /></ToolTip.Tip>
+                                </ComboBox>
+                            </StackPanel>
+                            <Border Grid.Column="2" Classes="segment" VerticalAlignment="Bottom" HorizontalAlignment="Right">
+                                <StackPanel Orientation="Horizontal" Spacing="2">
+                                    <ToggleButton Classes="seg" IsChecked="{Binding Bold}" AutomationProperties.Name="{l:T 'Fett'}">
+                                        <ToolTip.Tip><l:T Text="Fett (Strg+B)" /></ToolTip.Tip>
+                                        <PathIcon Data="{StaticResource Icon.TextBold}" />
+                                    </ToggleButton>
+                                    <ToggleButton Classes="seg" IsChecked="{Binding Italic}" AutomationProperties.Name="{l:T 'Kursiv'}">
+                                        <ToolTip.Tip><l:T Text="Kursiv (Strg+I)" /></ToolTip.Tip>
+                                        <PathIcon Data="{StaticResource Icon.TextItalic}" />
+                                    </ToggleButton>
+                                    <ToggleButton Classes="seg" IsChecked="{Binding Underline}" AutomationProperties.Name="{l:T 'Unterstrichen'}">
+                                        <ToolTip.Tip><l:T Text="Unterstrichen (Strg+U)" /></ToolTip.Tip>
+                                        <PathIcon Data="{StaticResource Icon.TextUnderline}" />
+                                    </ToggleButton>
+                                    <ToggleButton Classes="seg" IsChecked="{Binding Strikeout}" AutomationProperties.Name="{l:T 'Durchgestrichen'}">
+                                        <ToolTip.Tip><l:T Text="Durchgestrichen" /></ToolTip.Tip>
+                                        <PathIcon Data="{StaticResource Icon.TextStrikethrough}" />
+                                    </ToggleButton>
+                                </StackPanel>
+                            </Border>
+                        </Grid>
+                        <TextBlock Classes="caption" Text="{l:T 'Farbe'}" />
+                        <Grid ColumnDefinitions="*,Auto">
+                            <ComboBox ItemsSource="{x:Static vm:RichTextPropertiesViewModel.Colors}" SelectedItem="{Binding Color}"
+                                      ItemTemplate="{StaticResource ColorTemplate}" AutomationProperties.Name="{l:T 'Textfarbe'}">
+                                <ToolTip.Tip><l:T Text="Textfarbe" /></ToolTip.Tip>
+                            </ComboBox>
+                            <ToggleButton Grid.Column="1" Classes="pipette" IsChecked="{Binding IsPicking}"
+                                          AutomationProperties.Name="{l:T 'Textfarbe aus der Seite aufnehmen'}">
+                                <ToolTip.Tip><l:T Text="Pipette: in die Seite klicken, um eine Farbe von dort zu übernehmen — Esc bricht ab" /></ToolTip.Tip>
+                                <PathIcon Data="{StaticResource Icon.Eyedropper}" />
+                            </ToggleButton>
+                        </Grid>
+                        <TextBlock Classes="hint" Margin="0,8,0,0" Text="{Binding FontNote}" />
+                    </StackPanel>
+                </Border>
+
+                <!-- Absatz -->
+                <Border Classes="propCard">
+                    <StackPanel>
+                        <StackPanel Classes="propHeader">
+                            <Border Classes="propBadge"><PathIcon Data="{StaticResource Icon.TextAlignLeft}" /></Border>
+                            <TextBlock Classes="propTitle" Text="{l:T 'Absatz'}" />
+                        </StackPanel>
+                        <TextBlock Classes="caption" Text="{l:T 'Ausrichtung'}" />
+                        <Border Classes="segment">
+                            <StackPanel Orientation="Horizontal" Spacing="2">
+                                <ToggleButton Classes="seg" IsChecked="{Binding AlignLeft, Mode=OneWay}" AutomationProperties.Name="{l:T 'Linksbündig'}"
+                                              Command="{Binding SetAlignmentCommand}" CommandParameter="{x:Static txt:BlockAlignment.Left}">
+                                    <ToolTip.Tip><l:T Text="Linksbündig" /></ToolTip.Tip>
+                                    <PathIcon Data="{StaticResource Icon.TextAlignLeft}" />
+                                </ToggleButton>
+                                <ToggleButton Classes="seg" IsChecked="{Binding AlignCenter, Mode=OneWay}" AutomationProperties.Name="{l:T 'Zentriert'}"
+                                              Command="{Binding SetAlignmentCommand}" CommandParameter="{x:Static txt:BlockAlignment.Center}">
+                                    <ToolTip.Tip><l:T Text="Zentriert" /></ToolTip.Tip>
+                                    <PathIcon Data="{StaticResource Icon.TextAlignCenter}" />
+                                </ToggleButton>
+                                <ToggleButton Classes="seg" IsChecked="{Binding AlignRight, Mode=OneWay}" AutomationProperties.Name="{l:T 'Rechtsbündig'}"
+                                              Command="{Binding SetAlignmentCommand}" CommandParameter="{x:Static txt:BlockAlignment.Right}">
+                                    <ToolTip.Tip><l:T Text="Rechtsbündig" /></ToolTip.Tip>
+                                    <PathIcon Data="{StaticResource Icon.TextAlignRight}" />
+                                </ToggleButton>
+                                <ToggleButton Classes="seg" IsChecked="{Binding AlignJustify, Mode=OneWay}" AutomationProperties.Name="{l:T 'Blocksatz'}"
+                                              Command="{Binding SetAlignmentCommand}" CommandParameter="{x:Static txt:BlockAlignment.Justify}">
+                                    <ToolTip.Tip><l:T Text="Blocksatz: alle Zeilen außer der letzten eines Absatzes reichen von Rand zu Rand" /></ToolTip.Tip>
+                                    <PathIcon Data="{StaticResource Icon.TextAlignJustify}" />
+                                </ToggleButton>
+                            </StackPanel>
+                        </Border>
+                        <TextBlock Classes="caption" Text="{l:T 'Zeilenabstand'}" />
+                        <ComboBox ItemsSource="{x:Static vm:RichTextPropertiesViewModel.Spacings}" SelectedItem="{Binding Spacing}"
+                                  ItemTemplate="{StaticResource LabelTemplate}" AutomationProperties.Name="{l:T 'Zeilenabstand'}">
+                            <ToolTip.Tip><l:T Text="Abstand der Zeilen im Verhältnis zur Schriftgröße — vorgewählt ist der Abstand aus der Datei" /></ToolTip.Tip>
+                        </ComboBox>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+    </DockPanel>
+</UserControl>

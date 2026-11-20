@@ -1,0 +1,8 @@
+Wikidata (https://www.wikidata.org) — Vornamen, Nachnamen und Lexeme (gewöhnliche Wörter)
+
+Die strukturierten Daten von Wikidata stehen unter Creative Commons CC0 1.0 Universell (Public Domain Dedication):
+https://creativecommons.org/publicdomain/zero/1.0/legalcode
+
+Verwendung in PDF-Knead: über den öffentlichen SPARQL-Dienst abgefragte Namen und Wortformen (Abfragen in
+tools/ner-messung/LIESMICH.md), vereinheitlicht in die Nachschlagedatei der Erkennung von Personen, Firmen und Anschriften
+geschrieben (PdfKnead.Core/Pdf/Text/Entities/Data/lexikon.br). Eine Namensnennung ist nicht verlangt; sie steht hier dennoch.

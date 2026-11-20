@@ -1,0 +1,112 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             Background="{DynamicResource SurfaceAltBrush}"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:l="using:PdfKnead.Localization"
+             xmlns:vm="using:PdfKnead.ViewModels"
+             x:Class="PdfKnead.Views.FormProposalsPanel"
+             x:DataType="vm:DocumentViewModel">
+    <!-- Felder erkennen (KONZEPT §5.9a): die Vorschläge zum Anhaken und Benennen; auf der Seite gestrichelt, ein Klick hakt an oder ab -->
+    <UserControl.Styles>
+        <StyleInclude Source="avares://PdfKnead.Ui/Styles/PropertyPanel.axaml" />
+        <Style Selector="Button.bannerClose">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="6" />
+        </Style>
+        <Style Selector="Button.bannerClose PathIcon">
+            <Setter Property="Width" Value="14" />
+            <Setter Property="Height" Value="14" />
+            <Setter Property="Foreground" Value="{DynamicResource OnAccentBrush}" />
+        </Style>
+        <Style Selector="Button.pageLink">
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="Padding" Value="5,0" />
+            <Setter Property="MinHeight" Value="18" />
+            <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
+        </Style>
+    </UserControl.Styles>
+
+    <Grid RowDefinitions="Auto,Auto,*,Auto">
+        <Border Classes="propBanner">
+            <Grid ColumnDefinitions="Auto,*,Auto">
+                <Border Classes="bannerIcon"><PathIcon Data="{StaticResource Icon.Sparkle}" /></Border>
+                <TextBlock Grid.Column="1" Margin="10,0,0,0" FontWeight="SemiBold" FontSize="14" VerticalAlignment="Center" Text="{l:T 'Felder erkennen'}" />
+                <Button Grid.Column="2" Classes="bannerClose" VerticalAlignment="Center"
+                        Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).CloseFieldProposalsCommand, FallbackValue={x:Null}}"
+                        AutomationProperties.Name="{l:T 'Vorschläge schließen'}">
+                    <ToolTip.Tip><l:T Text="Schließen, ohne Felder anzulegen" /></ToolTip.Tip>
+                    <PathIcon Data="{StaticResource Icon.Dismiss}" />
+                </Button>
+            </Grid>
+        </Border>
+
+        <Border Grid.Row="1" Classes="propCard">
+            <StackPanel Spacing="6">
+                <TextBlock Classes="hint" TextWrapping="Wrap"
+                           Text="{l:T 'Vorschläge an Linien, Kästchen und Tabellen der Seiten, auch in Scans — gestrichelt auf der Seite, ein Klick dort hakt an oder ab. Erst „Übernehmen“ legt die Felder an.'}" />
+                <TextBlock TextWrapping="Wrap" Text="{Binding FieldRecognitionStatus}" />
+                <TextBlock Classes="hint" TextWrapping="Wrap" Text="{Binding FieldRecognitionHint}" IsVisible="{Binding FieldRecognitionHint, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                <CheckBox IsChecked="{Binding StoreRecognizedText}" IsVisible="{Binding HasRecognizedText}" Content="{l:T 'Erkannten Text mit ablegen'}"
+                          AutomationProperties.Name="{l:T 'Erkannten Text mit ablegen'}">
+                    <ToolTip.Tip><l:T Text="Legt den gelesenen Text der gescannten Seiten unsichtbar über das Bild — dann lässt sich das Formular durchsuchen und der Text kopieren (wie „Text erkennen“)." /></ToolTip.Tip>
+                </CheckBox>
+                <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding HasFieldProposals}">
+                    <Button Classes="soft small" Content="{l:T 'Alle'}" CommandParameter="true"
+                            Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).TickFieldProposalsCommand, FallbackValue={x:Null}}"
+                            AutomationProperties.Name="{l:T 'Alle Vorschläge anhaken'}" />
+                    <Button Classes="soft small" Content="{l:T 'Keine'}" CommandParameter="false"
+                            Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).TickFieldProposalsCommand, FallbackValue={x:Null}}"
+                            AutomationProperties.Name="{l:T 'Keinen Vorschlag anhaken'}" />
+                </StackPanel>
+            </StackPanel>
+        </Border>
+
+        <Border Grid.Row="2" Classes="propCard" VerticalAlignment="Stretch" IsVisible="{Binding HasFieldProposals}">
+            <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+                <ItemsControl ItemsSource="{Binding FieldProposals}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:FieldProposalRow">
+                            <Grid ColumnDefinitions="Auto,*" Margin="0,0,0,10">
+                                <CheckBox IsChecked="{Binding IsChecked}" VerticalAlignment="Top" Margin="0,4,0,0"
+                                          AutomationProperties.Name="{Binding Name}" />
+                                <StackPanel Grid.Column="1" Spacing="2">
+                                    <TextBox Text="{Binding Name}" AutomationProperties.Name="{l:T 'Feldname'}">
+                                        <ToolTip.Tip><l:T Text="Der Name des Felds; gibt es ihn schon, bekommt das neue Feld „_2“ angehängt." /></ToolTip.Tip>
+                                    </TextBox>
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <TextBlock Classes="muted" FontSize="12" VerticalAlignment="Center" Text="{Binding Kind}" />
+                                        <TextBlock FontSize="12" VerticalAlignment="Center" Foreground="{DynamicResource AccentBrush}" Text="{l:T 'KI'}" IsVisible="{Binding IsModel}">
+                                            <ToolTip.Tip><l:T Text="Nur der Feld-Erkenner hat dieses Feld gesehen — auf dem Blatt ist es nicht als Linie oder Kästchen gezeichnet." /></ToolTip.Tip>
+                                        </TextBlock>
+                                        <StackPanel Orientation="Horizontal" Spacing="3" IsVisible="{Binding IsLinked}" VerticalAlignment="Center">
+                                            <PathIcon Width="12" Height="12" Data="{StaticResource Icon.Link}" Foreground="{DynamicResource AccentBrush}" />
+                                            <TextBlock FontSize="12" Foreground="{DynamicResource AccentBrush}" Text="{l:T 'verbunden'}" />
+                                            <ToolTip.Tip><l:T Text="Gleiche Beschriftung an gleicher Stelle auf anderen Seiten: die Felder teilen ihren Wert. Ein anderer Name trennt das Feld." /></ToolTip.Tip>
+                                        </StackPanel>
+                                        <Button Classes="subtle pageLink" Content="{Binding PageText}"
+                                                Command="{Binding $parent[UserControl].((vm:DocumentViewModel)DataContext).ShowFieldProposalCommand, FallbackValue={x:Null}}"
+                                                CommandParameter="{Binding}" />
+                                    </StackPanel>
+                                    <TextBlock Classes="muted" FontSize="11" TextWrapping="Wrap" Text="{Binding Label}" />
+                                </StackPanel>
+                            </Grid>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+        </Border>
+
+        <Border Grid.Row="3" Classes="propCard">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+                <Button Content="{l:T 'Schließen'}"
+                        Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).CloseFieldProposalsCommand, FallbackValue={x:Null}}" />
+                <Button Classes="primary" Content="{l:T 'Übernehmen'}" IsEnabled="{Binding HasFieldProposals}"
+                        Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).AcceptFieldProposalsCommand, FallbackValue={x:Null}}"
+                        AutomationProperties.Name="{l:T 'Angehakte Felder übernehmen'}">
+                    <ToolTip.Tip><l:T Text="Die angehakten Vorschläge als Felder anlegen (ein Schritt, Strg+Z nimmt ihn zurück), dann weiter in „Formular bearbeiten“" /></ToolTip.Tip>
+                </Button>
+            </StackPanel>
+        </Border>
+    </Grid>
+</UserControl>

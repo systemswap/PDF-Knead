@@ -1,0 +1,32 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:l="using:PdfKnead.Localization"
+        x:Class="PdfKnead.Views.OpenAddressWindow"
+        Title="{l:T 'Adresse öffnen?'}"
+        Icon="/Assets/app.ico"
+        Width="520" SizeToContent="Height"
+        CanResize="False" ShowInTaskbar="False"
+        WindowStartupLocation="CenterOwner">
+    <!-- Vor dem Öffnen einer Adresse aus einem Code (KONZEPT §5.19): genaue Adresse und Warnungen; Vorgabe ist Abbrechen -->
+    <StackPanel Margin="24" Spacing="14">
+        <StackPanel Orientation="Horizontal" Spacing="12">
+            <Border Width="40" Height="40" CornerRadius="20" Background="{DynamicResource AccentSoftBrush}">
+                <PathIcon Data="{StaticResource Icon.Link}" Width="20" Height="20" Foreground="{DynamicResource AccentBrush}" />
+            </Border>
+            <TextBlock VerticalAlignment="Center" FontWeight="SemiBold" FontSize="15" Text="{l:T 'Adresse öffnen?'}" />
+        </StackPanel>
+        <TextBlock TextWrapping="Wrap" Text="{l:T 'Der Code führt zu dieser Adresse. Sie wird mit dem Programm des Systems geöffnet, genau so, wie sie hier steht:'}" />
+        <Border Padding="10,8" CornerRadius="{DynamicResource RadiusControl}" Background="{DynamicResource SurfaceAltBrush}"
+                BorderBrush="{DynamicResource LineBrush}" BorderThickness="1">
+            <SelectableTextBlock Name="TargetText" TextWrapping="Wrap" FontFamily="Consolas, DejaVu Sans Mono, Liberation Mono, monospace" />
+        </Border>
+        <Border Name="WarningBox" Padding="10,8" CornerRadius="{DynamicResource RadiusControl}" Background="{DynamicResource DangerSoftBrush}"
+                BorderBrush="{DynamicResource WarnBrush}" BorderThickness="1" IsVisible="False">
+            <TextBlock Name="WarningText" TextWrapping="Wrap" />
+        </Border>
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,4,0,0">
+            <Button Classes="primary" Content="{l:T 'Abbrechen'}" Click="OnCancel" IsCancel="True" IsDefault="True" />
+            <Button Name="OpenButton" Content="{l:T 'Öffnen'}" Click="OnOpen" />
+        </StackPanel>
+    </StackPanel>
+</Window>

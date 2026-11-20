@@ -1,0 +1,91 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             Background="{DynamicResource SurfaceAltBrush}"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:l="using:PdfKnead.Localization"
+             xmlns:vm="using:PdfKnead.ViewModels"
+             x:Class="PdfKnead.Views.NotesPanel"
+             x:DataType="vm:DocumentViewModel">
+    <!-- Notizen als Bereich rechts (KONZEPT §5.5a, Wunsch vom 30.10.2026): alle Notizen des Dokuments lesen; eine Zeile springt zur Notiz und rahmt sie -->
+    <UserControl.Styles>
+        <StyleInclude Source="avares://PdfKnead.Ui/Styles/PropertyPanel.axaml" />
+        <Style Selector="Button.bannerClose">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="6" />
+        </Style>
+        <Style Selector="Button.bannerClose PathIcon">
+            <Setter Property="Width" Value="14" />
+            <Setter Property="Height" Value="14" />
+            <Setter Property="Foreground" Value="{DynamicResource OnAccentBrush}" />
+        </Style>
+        <Style Selector="ListBox.notes">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+        </Style>
+        <Style Selector="ListBox.notes ListBoxItem">
+            <Setter Property="Padding" Value="6,4" />
+            <Setter Property="Cursor" Value="Hand" />
+        </Style>
+    </UserControl.Styles>
+
+    <Grid RowDefinitions="Auto,*,Auto">
+        <Border Classes="propBanner">
+            <Grid ColumnDefinitions="Auto,*,Auto">
+                <Border Classes="bannerIcon"><PathIcon Data="{StaticResource Icon.ChatEmpty}" /></Border>
+                <TextBlock Grid.Column="1" Margin="10,0,0,0" FontWeight="SemiBold" FontSize="14" VerticalAlignment="Center" Text="{l:T 'Notizen'}" />
+                <Button Grid.Column="2" Classes="bannerClose" VerticalAlignment="Center"
+                        Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).CloseNotesCommand, FallbackValue={x:Null}}"
+                        AutomationProperties.Name="{l:T 'Notizen schließen'}">
+                    <ToolTip.Tip><l:T Text="Notizen schließen" /></ToolTip.Tip>
+                    <PathIcon Data="{StaticResource Icon.Dismiss}" />
+                </Button>
+            </Grid>
+        </Border>
+
+        <Border Grid.Row="1" Classes="propCard" VerticalAlignment="Stretch">
+            <Grid RowDefinitions="Auto,*">
+                <TextBlock TextWrapping="Wrap" IsVisible="{Binding NotesNothing}" Text="{l:T 'Keine Notizen in diesem Dokument.'}" />
+                <TextBlock Classes="hint" IsVisible="{Binding !NotesNothing}" Text="{Binding NotesCountText}" Margin="0,0,0,6" />
+                <ListBox Grid.Row="1" Name="NotesList" Classes="notes" ItemsSource="{Binding NoteRows}" SelectedItem="{Binding SelectedNoteRow}"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled" AutomationProperties.Name="{l:T 'Notizen'}">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate x:DataType="vm:NoteRow">
+                            <StackPanel Spacing="1">
+                                <TextBlock Classes="muted" FontSize="11" TextWrapping="Wrap" Text="{Binding Header}" />
+                                <TextBlock FontSize="12" TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis" Text="{Binding Text}" />
+                            </StackPanel>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </Grid>
+        </Border>
+
+        <!-- die gewählte Notiz ganz; zum Kopieren markierbar -->
+        <Border Grid.Row="2" Classes="propCard" IsVisible="{Binding SelectedNoteRow, Converter={x:Static ObjectConverters.IsNotNull}}">
+            <ScrollViewer MaxHeight="280" HorizontalScrollBarVisibility="Disabled">
+                <StackPanel Spacing="4">
+                    <TextBlock Classes="muted" FontSize="11" TextWrapping="Wrap" Text="{Binding SelectedNoteRow.Header, FallbackValue={x:Null}}" />
+                    <TextBlock FontWeight="SemiBold" FontSize="12" TextWrapping="Wrap" Text="{Binding SelectedNoteRow.Subject, FallbackValue={x:Null}}"
+                               IsVisible="{Binding SelectedNoteRow.Subject, Converter={x:Static StringConverters.IsNotNullOrEmpty}, FallbackValue=False}" />
+                    <SelectableTextBlock TextWrapping="Wrap" Text="{Binding SelectedNoteRow.Text, FallbackValue={x:Null}}"
+                                         IsVisible="{Binding !SelectedNoteRow.IsOwn, FallbackValue=False}" />
+                    <!-- eine eigene Notiz: Text und Name ändern, löschen (je ein Rückgängig-Schritt) -->
+                    <StackPanel Spacing="6" IsVisible="{Binding SelectedNoteRow.IsOwn, FallbackValue=False}">
+                        <TextBox Name="NoteTextBox" Text="{Binding NoteText, UpdateSourceTrigger=LostFocus}" AcceptsReturn="True" TextWrapping="Wrap"
+                                 MinHeight="80" PlaceholderText="{l:T 'Text der Notiz'}" AutomationProperties.Name="{l:T 'Text der Notiz'}" />
+                        <TextBox Text="{Binding NoteAuthor, UpdateSourceTrigger=LostFocus}" PlaceholderText="{l:T 'Name (freiwillig)'}"
+                                 AutomationProperties.Name="{l:T 'Name zur Notiz'}">
+                            <ToolTip.Tip><l:T Text="Steht bei der Notiz und wird für weitere Notizen vorgeschlagen, solange das Programm läuft" /></ToolTip.Tip>
+                        </TextBox>
+                        <Button HorizontalAlignment="Right" Content="{l:T 'Notiz löschen'}" Command="{Binding DeleteNoteCommand}"
+                                AutomationProperties.Name="{l:T 'Notiz löschen'}" />
+                    </StackPanel>
+                    <StackPanel Spacing="2" Margin="0,6,0,0" IsVisible="{Binding SelectedNoteRow.HasReplies, FallbackValue=False}">
+                        <TextBlock Classes="muted" FontSize="11" Text="{l:T 'Antworten'}" />
+                        <SelectableTextBlock FontSize="12" TextWrapping="Wrap" Text="{Binding SelectedNoteRow.Replies, FallbackValue={x:Null}}" />
+                    </StackPanel>
+                </StackPanel>
+            </ScrollViewer>
+        </Border>
+    </Grid>
+</UserControl>

@@ -1,0 +1,22 @@
+# PDF-Knead – Schwärzungscodes
+# Eine Zeile je Code, Spalten durch Tabulator getrennt:
+#   Code	Kurztext	Bedeutung	Rechtsgrundlage	Fundarten (E-Mail, Telefon, IBAN, Karte, Datum, Person, Firma, Anschrift; mit Komma getrennt, leer: keine)
+# Der Code steht im Balken, Kurztext, Bedeutung und Rechtsgrundlage im Schwärzungsprotokoll.
+# Eigene Wörter und Namen bekommen den in „Suchen und schwärzen“ gewählten Code.
+# Ohne Gewähr – die Texte fassen die Vorschriften in eigenen Worten zusammen; vor dem Einsatz mit dem geltenden Recht abgleichen.
+Land	Österreich
+Stand	11/2026
+§ 6 Z 1 IFG	Integrations- und außenpolitische Gründe	Zwingende integrations- oder außenpolitische Gründe, auch nach Unionsrecht oder völkerrechtlichen Verpflichtungen.	Informationsfreiheitsgesetz (IFG), § 6 Abs. 1 Z 1
+§ 6 Z 2 IFG	Nationale Sicherheit	Im Interesse der nationalen Sicherheit.	Informationsfreiheitsgesetz (IFG), § 6 Abs. 1 Z 2
+§ 6 Z 3 IFG	Umfassende Landesverteidigung	Im Interesse der umfassenden Landesverteidigung.	Informationsfreiheitsgesetz (IFG), § 6 Abs. 1 Z 3
+§ 6 Z 4 IFG	Öffentliche Ordnung und Sicherheit	Zur Aufrechterhaltung der öffentlichen Ordnung und Sicherheit.	Informationsfreiheitsgesetz (IFG), § 6 Abs. 1 Z 4
+§ 6 Z 5a IFG	Vorbereitung einer Entscheidung	Zur unbeeinträchtigten Vorbereitung einer Entscheidung der Organe von Bund, Ländern, Gemeinden und Selbstverwaltung.	Informationsfreiheitsgesetz (IFG), § 6 Abs. 1 Z 5 lit. a
+§ 6 Z 5b IFG	Verfahren, Beratungen und Abstimmungen	Zur unbeeinträchtigten Durchführung behördlicher oder gerichtlicher Verfahren und zur Wahrung der Vertraulichkeit von Beratungen und Abstimmungen.	Informationsfreiheitsgesetz (IFG), § 6 Abs. 1 Z 5 lit. b
+§ 6 Z 6 IFG	Abwehr eines erheblichen Schadens	Zur Abwehr eines erheblichen wirtschaftlichen oder finanziellen Schadens einer Gebietskörperschaft oder eines anderen Rechtsträgers.	Informationsfreiheitsgesetz (IFG), § 6 Abs. 1 Z 6
+§ 6 Z 7a IFG	Personenbezogene Daten	Überwiegende berechtigte Interessen eines anderen, insbesondere das Recht auf Schutz der personenbezogenen Daten.	Informationsfreiheitsgesetz (IFG), § 6 Abs. 1 Z 7 lit. a	E-Mail, Telefon, IBAN, Karte, Datum, Person, Anschrift
+§ 6 Z 7b IFG	Berufs-, Geschäfts- oder Betriebsgeheimnisse	Überwiegende berechtigte Interessen eines anderen an Berufs-, Geschäfts- oder Betriebsgeheimnissen.	Informationsfreiheitsgesetz (IFG), § 6 Abs. 1 Z 7 lit. b
+§ 6 Z 7c IFG	Bankgeheimnis	Überwiegende berechtigte Interessen eines anderen am Bankgeheimnis.	Informationsfreiheitsgesetz (IFG), § 6 Abs. 1 Z 7 lit. c
+§ 6 Z 7d IFG	Redaktionsgeheimnis	Überwiegende berechtigte Interessen eines anderen am Redaktionsgeheimnis.	Informationsfreiheitsgesetz (IFG), § 6 Abs. 1 Z 7 lit. d
+§ 6 Z 7e IFG	Geistiges Eigentum	Überwiegende berechtigte Interessen eines anderen an Urheberrechten und anderen Rechten am geistigen Eigentum.	Informationsfreiheitsgesetz (IFG), § 6 Abs. 1 Z 7 lit. e
+§ 1 DSG	Grundrecht auf Datenschutz	Anspruch auf Geheimhaltung der eine Person betreffenden personenbezogenen Daten, soweit ein schutzwürdiges Interesse besteht.	Datenschutzgesetz (DSG), § 1
+Art. 9 DSGVO	Besondere Kategorien personenbezogener Daten	Gesundheit, ethnische Herkunft, politische Meinung, religiöse oder weltanschauliche Überzeugung, Gewerkschaftszugehörigkeit, genetische und biometrische Daten, Sexualleben oder sexuelle Orientierung.	Datenschutz-Grundverordnung (EU) 2016/679, Art. 9

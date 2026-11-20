@@ -1,0 +1,211 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:l="using:PdfKnead.Localization"
+        xmlns:c="using:PdfKnead.Controls"
+        xmlns:vm="using:PdfKnead.ViewModels"
+        x:Class="PdfKnead.Views.MergeWindow"
+        x:DataType="vm:MergeViewModel"
+        Title="{l:T 'Seiten zusammenführen'}"
+        Icon="/Assets/app.ico"
+        Width="1500" Height="900" MinWidth="1100" MinHeight="560"
+        ShowInTaskbar="False"
+        WindowStartupLocation="CenterOwner">
+    <!-- Seiten zusammenführen (KONZEPT §5.2): oben die Dateien als Reiter, unten das Ergebnis, rechts „Danach nicht mehr da“ -->
+    <Window.Styles>
+        <StyleInclude Source="avares://PdfKnead.Ui/Styles/PropertyPanel.axaml" />
+        <Style Selector="Border.area">
+            <Setter Property="Background" Value="{DynamicResource CanvasBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource LineBrush}" />
+            <Setter Property="BorderThickness" Value="0,1,0,1" />
+        </Style>
+        <Style Selector="Border.area.dropTarget">
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+        </Style>
+        <Style Selector="TextBlock.note">
+            <Setter Property="FontSize" Value="12.5" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+            <Setter Property="Margin" Value="0,2,0,0" />
+        </Style>
+        <!-- Reiter der Dateien: alle leicht getönt; der gewählte bekommt zusätzlich einen Rahmen in der Akzentfarbe -->
+        <Style Selector="ListBox.mergeTabs ListBoxItem">
+            <Setter Property="Margin" Value="0,6,4,0" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="1,1,1,0" />
+        </Style>
+        <Style Selector="ListBox.mergeTabs ListBoxItem /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource TabTint}" />
+        </Style>
+        <Style Selector="ListBox.mergeTabs ListBoxItem:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource TabTintHover}" />
+        </Style>
+        <Style Selector="ListBox.mergeTabs ListBoxItem:pointerover">
+            <Setter Property="BorderBrush" Value="{DynamicResource LineStrongBrush}" />
+        </Style>
+        <Style Selector="ListBox.mergeTabs ListBoxItem:selected">
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+        </Style>
+        <Style Selector="ListBox.mergeTabs ListBoxItem:selected /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource TabTintSelected}" />
+        </Style>
+        <Style Selector="ListBox.mergeTabs ListBoxItem:selected:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource TabTintSelected}" />
+        </Style>
+    </Window.Styles>
+    <Window.Resources>
+        <!-- Ton der Reiter aus der Akzentfarbe (in hellem wie dunklem Design sichtbar): alle leicht, der gewählte etwas kräftiger -->
+        <SolidColorBrush x:Key="TabTint" Color="{DynamicResource AccentColor}" Opacity="0.14" />
+        <SolidColorBrush x:Key="TabTintHover" Color="{DynamicResource AccentColor}" Opacity="0.2" />
+        <SolidColorBrush x:Key="TabTintSelected" Color="{DynamicResource AccentColor}" Opacity="0.22" />
+    </Window.Resources>
+
+    <Grid ColumnDefinitions="*,320" RowDefinitions="*,Auto">
+        <Grid Grid.Column="0" RowDefinitions="Auto,Auto,*,6,Auto,*">
+            <!-- Oben: die Dateien -->
+            <DockPanel Grid.Row="0" Margin="16,12,16,0">
+                <Button DockPanel.Dock="Right" Classes="primary" Click="OnAddFiles" VerticalAlignment="Center" AutomationProperties.Name="{l:T 'PDF laden …'}">
+                    <ToolTip.Tip><l:T Text="Weitere PDF-Dateien laden — oder einfach ins Fenster ziehen" /></ToolTip.Tip>
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <PathIcon Data="{StaticResource Icon.Add}" Width="14" Height="14" Foreground="{DynamicResource OnAccentBrush}" />
+                        <TextBlock Text="{l:T 'PDF laden …'}" Foreground="{DynamicResource OnAccentBrush}" />
+                    </StackPanel>
+                </Button>
+                <ListBox Classes="docTabs mergeTabs" ItemsSource="{Binding Sources}" SelectedItem="{Binding SelectedSource}" Margin="0,0,12,0"
+                         ScrollViewer.HorizontalScrollBarVisibility="Auto">
+                    <ListBox.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <StackPanel Orientation="Horizontal" />
+                        </ItemsPanelTemplate>
+                    </ListBox.ItemsPanel>
+                    <ListBox.ItemTemplate>
+                        <DataTemplate x:DataType="vm:MergeSourceViewModel">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <PathIcon Data="{StaticResource Icon.DocumentText}" Width="14" Height="14" Foreground="{DynamicResource AccentBrush}" />
+                                <TextBlock Text="{Binding Name}" MaxWidth="200" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                                <TextBlock Classes="muted" Text="{l:T '(geöffnet)'}" IsVisible="{Binding IsOpenDocument}" VerticalAlignment="Center" />
+                                <Button Classes="closeTab" Command="{Binding $parent[Window].((vm:MergeViewModel)DataContext).CloseSourceCommand}"
+                                        CommandParameter="{Binding}" AutomationProperties.Name="{l:T 'Reiter schließen'}">
+                                    <ToolTip.Tip><l:T Text="Reiter schließen" /></ToolTip.Tip>
+                                    <PathIcon Data="{StaticResource Icon.Dismiss}" Width="10" Height="10" />
+                                </Button>
+                            </StackPanel>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </DockPanel>
+            <!-- Knöpfe links, Größenregler rechts, der Hinweis dazwischen kürzt sich, statt unter den Regler zu laufen -->
+            <Grid Grid.Row="1" Margin="16,8,16,8" ColumnDefinitions="Auto,*,Auto">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <Button Content="{l:T 'Alle'}" Click="OnAll" />
+                    <Button Content="{l:T 'Keine'}" Click="OnNone" />
+                    <TextBox Name="RangeBox" Width="140" PlaceholderText="{l:T 'Bereich, z. B. 1-3, 7'}" TextChanged="OnRangeChanged" />
+                    <Button Command="{Binding AppendCommand}" Content="{l:T 'Am Ende anfügen'}">
+                        <ToolTip.Tip><l:T Text="Die gewählten Seiten unten ans Ende stellen" /></ToolTip.Tip>
+                    </Button>
+                    <Button Command="{Binding InsertAfterSelectionCommand}" Content="{l:T 'Hinter der Auswahl einfügen'}">
+                        <ToolTip.Tip><l:T Text="Die gewählten Seiten unten hinter die dort gewählten Seiten setzen" /></ToolTip.Tip>
+                    </Button>
+                </StackPanel>
+                <TextBlock Grid.Column="1" Classes="muted" Margin="12,0" VerticalAlignment="Center" Text="{Binding SourceText}"
+                           TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding SourceText}" />
+                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                    <PathIcon Data="{StaticResource Icon.ZoomOut}" Width="14" Height="14" Foreground="{DynamicResource TextMutedBrush}" />
+                    <Slider Name="SourceSize" Width="120" Minimum="70" Maximum="420" Value="140" VerticalAlignment="Center" />
+                    <PathIcon Data="{StaticResource Icon.ZoomIn}" Width="14" Height="14" Foreground="{DynamicResource TextMutedBrush}" />
+                </StackPanel>
+            </Grid>
+            <Border Grid.Row="2" Classes="area">
+                <c:PageGridView Name="SourceView" />
+            </Border>
+
+            <GridSplitter Grid.Row="3" ResizeDirection="Rows" Background="Transparent" />
+
+            <!-- Unten: das Ergebnis -->
+            <DockPanel Grid.Row="4" Margin="16,8,16,8">
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                    <PathIcon Data="{StaticResource Icon.ZoomOut}" Width="14" Height="14" Foreground="{DynamicResource TextMutedBrush}" />
+                    <Slider Name="ResultSize" Width="120" Minimum="70" Maximum="420" Value="140" VerticalAlignment="Center" />
+                    <PathIcon Data="{StaticResource Icon.ZoomIn}" Width="14" Height="14" Foreground="{DynamicResource TextMutedBrush}" />
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <TextBlock FontWeight="SemiBold" FontSize="14" VerticalAlignment="Center" Text="{Binding ResultText}" Margin="0,0,8,0" />
+                    <Button Command="{Binding RotateLeftCommand}" AutomationProperties.Name="{l:T 'Gewählte Seiten nach links drehen'}">
+                        <ToolTip.Tip><l:T Text="Gewählte Seiten nach links drehen" /></ToolTip.Tip>
+                        <PathIcon Data="{StaticResource Icon.ArrowRotateCounterclockwise}" Width="14" Height="14" />
+                    </Button>
+                    <Button Command="{Binding RotateRightCommand}" AutomationProperties.Name="{l:T 'Gewählte Seiten nach rechts drehen'}">
+                        <ToolTip.Tip><l:T Text="Gewählte Seiten nach rechts drehen" /></ToolTip.Tip>
+                        <PathIcon Data="{StaticResource Icon.ArrowRotateClockwise}" Width="14" Height="14" />
+                    </Button>
+                    <Button Command="{Binding RemoveSelectedCommand}" AutomationProperties.Name="{l:T 'Gewählte Seiten aus dem Ergebnis nehmen (Entf)'}">
+                        <ToolTip.Tip><l:T Text="Gewählte Seiten aus dem Ergebnis nehmen (Entf)" /></ToolTip.Tip>
+                        <PathIcon Data="{StaticResource Icon.Delete}" Width="14" Height="14" />
+                    </Button>
+                    <Button Command="{Binding UndoCommand}" AutomationProperties.Name="{l:T 'Rückgängig (Strg+Z)'}">
+                        <ToolTip.Tip><l:T Text="Rückgängig (Strg+Z)" /></ToolTip.Tip>
+                        <PathIcon Data="{StaticResource Icon.ArrowUndo}" Width="14" Height="14" />
+                    </Button>
+                    <Button Command="{Binding RedoCommand}" AutomationProperties.Name="{l:T 'Wiederholen (Strg+Y)'}">
+                        <ToolTip.Tip><l:T Text="Wiederholen (Strg+Y)" /></ToolTip.Tip>
+                        <PathIcon Data="{StaticResource Icon.ArrowRedo}" Width="14" Height="14" />
+                    </Button>
+                </StackPanel>
+            </DockPanel>
+            <Border Grid.Row="5" Name="ResultArea" Classes="area">
+                <Panel>
+                    <c:PageGridView Name="ResultView" />
+                    <TextBlock Classes="muted" HorizontalAlignment="Center" VerticalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap"
+                               MaxWidth="420" IsVisible="{Binding !HasResult}" IsHitTestVisible="False"
+                               Text="{l:T 'Noch leer — Seiten von oben hierher ziehen oder „Am Ende anfügen“ wählen.'}" />
+                </Panel>
+            </Border>
+        </Grid>
+
+        <!-- Rechts: was danach nicht mehr da ist -->
+        <Border Grid.Column="1" Grid.Row="0" Background="{DynamicResource SurfaceAltBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1,0,0,0">
+            <DockPanel Margin="0,12,0,0">
+                <StackPanel DockPanel.Dock="Top" Margin="16,0,16,8" Spacing="4">
+                    <TextBlock Classes="propTitle" Text="{l:T 'Danach nicht mehr da'}" />
+                    <TextBlock Classes="hint" Text="{l:T 'Was die eingefügten Dateien nach dem Zusammenführen nicht mehr haben. Nur zur Information.'}" />
+                </StackPanel>
+                <CheckBox DockPanel.Dock="Bottom" Margin="16,8,16,16" IsChecked="{Binding KeepBookmarks}" Content="{l:T 'Lesezeichen mitnehmen'}">
+                    <ToolTip.Tip><l:T Text="Die Lesezeichen der eingefügten Dateien als eigene Zweige übernehmen" /></ToolTip.Tip>
+                </CheckBox>
+                <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+                    <StackPanel>
+                        <TextBlock Classes="hint" Margin="16,4,16,0" IsVisible="{Binding !HasNotes}"
+                                   Text="{l:T 'Nichts — die eingefügten Seiten bringen keinen Schutz, keine Signatur und nichts mit, das wegfällt.'}" />
+                        <ItemsControl ItemsSource="{Binding Notes}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:MergeNoteGroup">
+                                    <Border Classes="propCard">
+                                        <StackPanel>
+                                            <TextBlock FontWeight="SemiBold" Text="{Binding File}" TextTrimming="CharacterEllipsis" />
+                                            <ItemsControl ItemsSource="{Binding Lines}">
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate x:DataType="x:String">
+                                                        <TextBlock Classes="note" Text="{Binding StringFormat='• {0}'}" />
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </ScrollViewer>
+            </DockPanel>
+        </Border>
+
+        <!-- Unten -->
+        <Border Grid.Row="1" Grid.ColumnSpan="2" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0">
+            <DockPanel Margin="20,12">
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8">
+                    <Button Content="{l:T 'Abbrechen'}" Click="OnCancel" IsCancel="True" />
+                    <Button Classes="primary" Content="{l:T 'OK …'}" Command="{Binding OkCommand}" />
+                </StackPanel>
+                <TextBlock Foreground="{DynamicResource DangerBrush}" Text="{Binding Message}" VerticalAlignment="Center" TextWrapping="Wrap" />
+            </DockPanel>
+        </Border>
+    </Grid>
+</Window>

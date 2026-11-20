@@ -1,0 +1,14 @@
+Die XML-Schemata der Schemaprüfung der E-Rechnung (Stufe 4, Teil f; KONZEPT.md §5.24, „Weg für Stufe 4, Teil f“) — Byte für Byte wie vom
+Herausgeber (Prüfsummen in SHA256SUMS; .gitattributes nimmt den Ordner von der Zeilenend-Umwandlung aus). Als Ressourcen in den Baustein
+eingebettet (PdfKnead.EInvoice.csproj), gelesen nur von dort.
+
+ubl-2.1/        OASIS Universal Business Language 2.1, Laufzeitfassung „xsdrt“ (os-UBL-2.1, 4. November 2013): Invoice und CreditNote mit
+                allem, was sie einbinden — ohne die XAdES-Schemata von ETSI (Lizenz nicht geklärt; die XAdES-Teile einer Signatur bleiben
+                ungeprüft). Lizenz: packaging/licenses/OASIS-UBL-2.1.txt; das xmldsig-Schema: W3C-XML-Signatur-Schema.txt.
+cii-d16b/       UN/CEFACT Cross Industry Invoice D16B, SCRDM-Teilmenge „uncoupled“ (10. Oktober 2016) — dieselben Dateien wie in der
+                Konfiguration des Referenz-Prüfers der KoSIT (XRechnung 3.0.2). Lizenz: packaging/licenses/UN-CEFACT-CII-Schemata.txt.
+facturx-1.09.2/ die Profilschemata von Factur-X 1.09.2 / ZUGFeRD 2.5.2 (MINIMUM, BASICWL, BASIC, EN16931, EXTENDED; je vier Dateien) aus dem
+                Paket von FNFE-MPE und FeRD (4. August 2026). Lizenz: Apache-2.0, packaging/licenses/ZUGFeRD-Factur-X-Apache-2.0.txt.
+
+Neu erzeugen: die Abschlüsse der Hauptschemata über import/include aus den Quellen kopieren (lokal in Normen-ISO/erechnung bzw.
+tools/pruefer/erechnung/kosit), SHA256SUMS neu schreiben, InvoiceSchemaTests.ShippedSchemas_UnchangedAsPublished laufen lassen.

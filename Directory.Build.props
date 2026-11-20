@@ -1,0 +1,18 @@
+<Project>
+    <!-- Zentrale Versionsnummer für alle Projekte.
+         Der pre-commit-Hook zählt die letzte Zahl bei jedem Commit um eins hoch.
+         Meilensteine ohne Zusatz (von Hand gesetzt), dazwischen -beta; nach einem Meilenstein
+         haengt der Hook beim naechsten Commit wieder -beta an (docs/ENTSCHEIDUNGEN.md, Versionen).
+         Erscheint in der Titelleiste. -->
+    <PropertyGroup>
+        <Version>1.2.210-beta</Version>
+    </PropertyGroup>
+
+    <!-- Brotli-Lücke CVE-2026-111497: Der Brotli-Decoder der .NET-Laufzeit bis 10.0.13 schreibt bei präparierten Daten außerhalb des
+         Puffers, und PdfKnead entpackt /BrotliDecode aus jeder geöffneten Datei. Das AOT-Programm und die eigenständigen Builds tragen
+         die Laufzeit des SDK fest in sich – darum kein Build mit einem SDK, das eine ältere Laufzeit mitbringt (docs/FEHLERGEDAECHTNIS.md). -->
+    <Target Name="BrotliLueckeGeschlossen" BeforeTargets="PrepareForBuild"
+            Condition="'$(BundledNETCoreAppPackageVersion)' != '' and $([MSBuild]::VersionLessThan('$(BundledNETCoreAppPackageVersion)', '10.0.14'))">
+        <Error Text="Das .NET-SDK $(NETCoreSdkVersion) bringt die Laufzeit $(BundledNETCoreAppPackageVersion) mit, deren Brotli-Decoder die Lücke CVE-2026-111497 hat. Bitte SDK 10.0.403 oder 10.0.114 (Laufzeit 10.0.14) oder neuer installieren." />
+    </Target>
+</Project>

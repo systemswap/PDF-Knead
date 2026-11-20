@@ -1,0 +1,19 @@
+Codelisten der EN 16931 der Europäischen Kommission (Digital Building Blocks, „Registry of supporting artefacts to implement EN16931“)
+https://ec.europa.eu/digital-building-blocks/sites/display/DIGITAL/Registry+of+supporting+artefacts+to+implement+EN16931
+Fassung 2026-11-15 (Genericode)
+
+Die Inhalte der Europäischen Union stehen, soweit nicht anders angegeben, unter der Lizenz Creative Commons Namensnennung 4.0
+International (CC BY 4.0; Beschluss 2011/833/EU der Kommission über die Weiterverwendung von Kommissionsdokumenten):
+https://creativecommons.org/licenses/by/4.0/legalcode
+
+Namensnennung: Europäische Kommission, Codelisten der EN 16931, Fassung 2026-11-15.
+
+Verwendung in PDF-Knead: Codes und ihre englischen Namen wurden aus den Genericode-Dateien entnommen und in
+PdfKnead.EInvoice/Zuordnung/codes.tsv geschrieben (Werkzeug: PdfKnead.EInvoice/Zuordnung/codelisten.py); verändert wurde nur die Form.
+Die Werte stammen teils aus fremden Listen (UNTDID, UNECE Empfehlung 20 und 21, ISO 3166, ISO 4217, ISO/IEC 6523, IANA).
+Ohne Gewähr.
+
+Herkunft der Werte (recherchiert am 14.11.2026, docs/PATENTE.md): Die Codes aus UN/CEFACT-Standards (UNTDID, UNECE Empfehlung 20
+und 21) sind nach der UNECE frei nutzbar unter CC BY 4.0 („All UN/CEFACT standards are free to use under CC By 4.0 license“,
+https://unlocode.unece.org/) — Namensnennung: Wirtschaftskommission der Vereinten Nationen für Europa (UNECE), UN/CEFACT. Die
+Länder- und Währungscodes (ISO 3166, ISO 4217) sind nach der Erklärung der ISO vom September 2003 frei in Software nutzbar.

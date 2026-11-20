@@ -1,0 +1,100 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:l="using:PdfKnead.Localization"
+        xmlns:vm="using:PdfKnead.ViewModels"
+        x:Class="PdfKnead.Views.SignaturesWindow"
+        x:DataType="vm:SignaturesViewModel"
+        Title="{l:T 'Digitale Signaturen'}"
+        Icon="/Assets/app.ico"
+        Width="620" Height="560" MinWidth="480" MinHeight="300"
+        ShowInTaskbar="False"
+        WindowStartupLocation="CenterOwner">
+    <Grid RowDefinitions="Auto,*,Auto" Margin="24">
+        <StackPanel Spacing="2" Margin="0,0,0,14">
+            <TextBlock FontWeight="SemiBold" FontSize="15" Text="{l:T 'Digitale Signaturen'}" />
+            <TextBlock Classes="muted" Text="{Binding FileName}" TextTrimming="CharacterEllipsis" />
+        </StackPanel>
+
+        <ScrollViewer Grid.Row="1">
+            <StackPanel Spacing="10">
+                <TextBlock Classes="muted" Text="{Binding EmptyText}" TextWrapping="Wrap"
+                           IsVisible="{Binding EmptyText, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                <ItemsControl ItemsSource="{Binding Rows}">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <StackPanel Spacing="10" />
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:SignatureRow">
+                            <Border Background="{DynamicResource SurfaceAltBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1"
+                                    CornerRadius="{DynamicResource RadiusControl}" Padding="14,12">
+                                <StackPanel Spacing="8">
+                                    <Grid ColumnDefinitions="Auto,*,Auto">
+                                        <Panel Width="20" Height="20" Margin="0,2,10,0" VerticalAlignment="Top">
+                                            <PathIcon Data="{StaticResource Icon.CheckmarkCircle}" Width="18" Height="18" Foreground="{DynamicResource GoodBrush}" IsVisible="{Binding IsGood}" />
+                                            <PathIcon Data="{StaticResource Icon.Info}" Width="18" Height="18" Foreground="{DynamicResource WarnBrush}" IsVisible="{Binding IsWarn}" />
+                                            <PathIcon Data="{StaticResource Icon.Info}" Width="18" Height="18" Foreground="{DynamicResource DangerBrush}" IsVisible="{Binding IsBad}" />
+                                        </Panel>
+                                        <StackPanel Grid.Column="1" Spacing="2">
+                                            <TextBlock FontWeight="SemiBold" Text="{Binding Title}" TextWrapping="Wrap" />
+                                            <TextBlock Text="{Binding Line}" TextWrapping="Wrap" Classes.good="{Binding IsGood}" Classes.warn="{Binding IsWarn}" Classes.bad="{Binding IsBad}" />
+                                        </StackPanel>
+                                        <Button Grid.Column="2" VerticalAlignment="Top" Content="{l:T 'Anzeigen'}" IsVisible="{Binding HasPage}"
+                                                Command="{Binding $parent[ItemsControl].((vm:SignaturesViewModel)DataContext).ShowPageCommand}" CommandParameter="{Binding}"
+                                                ToolTip.Tip="{l:T 'Zur sichtbaren Unterschrift im Dokument'}" />
+                                    </Grid>
+                                    <Expander Header="{l:T 'Einzelheiten'}" Margin="30,0,0,0" Padding="0,6,0,0" HorizontalAlignment="Stretch">
+                                    <StackPanel Spacing="8">
+                                    <ItemsControl ItemsSource="{Binding Notes}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate x:DataType="x:String">
+                                                <TextBlock Text="{Binding}" TextWrapping="Wrap" FontSize="12" Margin="0,0,0,2" />
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                    <ItemsControl ItemsSource="{Binding Details}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate x:DataType="vm:SignatureDetail">
+                                                <Grid ColumnDefinitions="130,*">
+                                                    <TextBlock Classes="muted" FontSize="12" Text="{Binding Label}" />
+                                                    <SelectableTextBlock Grid.Column="1" FontSize="12" Text="{Binding Value}" TextWrapping="Wrap" />
+                                                </Grid>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                    </StackPanel>
+                                    </Expander>
+                                </StackPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+        </ScrollViewer>
+
+        <Grid Grid.Row="2" ColumnDefinitions="*,Auto,8,Auto,8,Auto,8,Auto" Margin="0,14,0,0">
+            <TextBlock Classes="muted" FontSize="11" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,0,16,0"
+                       Text="{l:T 'Geprüft ohne Internet: Vertrauen über die Stammzertifikate dieses Systems und, wenn geladen, die EU-Vertrauensliste; Sperrstatus nur, was die Datei mitbringt. Ohne Zeitstempel hat der Unterzeichner die Zeit selbst angegeben.'}" />
+            <Button Grid.Column="1" Content="{l:T 'EU-Vertrauensliste …'}" Command="{Binding ShowTrustListsCommand}"
+                    ToolTip.Tip="{l:T 'Die Liste der qualifizierten Vertrauensdiensteanbieter der EU laden: dann zeigt die Prüfung, ob eine Signatur qualifiziert ist.'}" />
+            <Button Grid.Column="3" Content="{l:T 'Archiv-Zeitstempel …'}" Command="{Binding AddArchiveTimestampCommand}"
+                    IsVisible="{Binding HasRows}" AutomationProperties.Name="{l:T 'Archiv-Zeitstempel hinzufügen'}"
+                    ToolTip.Tip="{l:T 'Hängt den aktuellen Sperrstatus und einen Zeitstempel über das ganze Dokument an — so bleiben die Unterschriften auch nach Ablauf der Zertifikate prüfbar. Vor dem Ablauf des letzten Zeitstempels wiederholen. Die Unterschriften bleiben gültig.'}" />
+            <Button Grid.Column="5" Content="{l:T 'Prüfbericht speichern …'}" Command="{Binding SaveValidationReportCommand}" IsVisible="{Binding HasRows}"
+                    ToolTip.Tip="{l:T 'Das Ergebnis mit allen Einzelheiten als HTML-Seite oder Text (.txt) speichern — für die Akte. Technische Prüfung, keine Rechtsberatung.'}" />
+            <Button Grid.Column="7" Classes="primary" Content="{l:T 'Schließen'}" Click="OnClose" IsDefault="True" IsCancel="True" />
+        </Grid>
+    </Grid>
+    <Window.Styles>
+        <Style Selector="TextBlock.good">
+            <Setter Property="Foreground" Value="{DynamicResource GoodBrush}" />
+        </Style>
+        <Style Selector="TextBlock.warn">
+            <Setter Property="Foreground" Value="{DynamicResource WarnBrush}" />
+        </Style>
+        <Style Selector="TextBlock.bad">
+            <Setter Property="Foreground" Value="{DynamicResource DangerBrush}" />
+        </Style>
+    </Window.Styles>
+</Window>

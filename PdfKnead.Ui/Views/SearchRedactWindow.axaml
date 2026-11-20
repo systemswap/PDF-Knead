@@ -1,0 +1,112 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:l="using:PdfKnead.Localization"
+        xmlns:vm="using:PdfKnead.ViewModels"
+        xmlns:v="using:PdfKnead.Views"
+        x:Class="PdfKnead.Views.SearchRedactWindow"
+        Title="{l:T 'Suchen und schwärzen'}"
+        Icon="/Assets/app.ico"
+        Width="1000" Height="780" MinWidth="700" MinHeight="580"
+        ShowInTaskbar="False"
+        WindowStartupLocation="CenterOwner">
+    <Grid RowDefinitions="Auto,Auto,Auto,*,Auto" Margin="24" RowSpacing="12">
+        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
+            <Border Width="40" Height="40" CornerRadius="20" Background="{DynamicResource AccentSoftBrush}">
+                <PathIcon Data="{StaticResource Icon.Search}" Width="20" Height="20" Foreground="{DynamicResource AccentBrush}" />
+            </Border>
+            <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+                <TextBlock FontWeight="SemiBold" FontSize="15" Text="{l:T 'Suchen und schwärzen'}" />
+                <TextBlock Name="IntroText" Classes="muted" TextWrapping="Wrap"
+                           Text="{l:T 'Wörter, Namen oder Muster suchen; die gewählten Funde werden zum Schwärzen markiert (bis zum Speichern rückgängig zu machen).'}" />
+                <!-- the search is a help, not a guarantee: whoever redacts checks the result (decided on 13.11.2026) -->
+                <TextBlock Name="NoGuaranteeText" TextWrapping="Wrap" Foreground="{DynamicResource WarnBrush}"
+                           Text="{l:T 'Hilfe ohne Gewähr – nicht jede Stelle wird sicher erkannt. Bitte das Ergebnis immer selbst prüfen.'}" />
+            </StackPanel>
+        </Grid>
+
+        <Grid Grid.Row="1" ColumnDefinitions="*,16,Auto,20,Auto">
+            <StackPanel Spacing="6">
+                <TextBox Name="WordsBox" AcceptsReturn="True" Height="118" TextWrapping="Wrap"
+                         PlaceholderText="{l:T 'Wörter oder Namen, je Zeile eines'}" AutomationProperties.Name="{l:T 'Wörter oder Namen'}" />
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <Button Content="{l:T 'Liste laden …'}" Click="OnLoadList" AutomationProperties.Name="{l:T 'Wortliste laden'}"
+                            ToolTip.Tip="{l:T 'Wörter oder Namen aus einer Textdatei übernehmen (je Zeile einer) oder aus einer Tabelle, als CSV mit Semikolon gespeichert.'}" />
+                    <Button Content="{l:T 'Liste speichern …'}" Click="OnSaveList" AutomationProperties.Name="{l:T 'Wortliste speichern'}"
+                            ToolTip.Tip="{l:T 'Die Wörter als Textdatei speichern, um sie beim nächsten Dokument wieder zu laden.'}" />
+                </StackPanel>
+            </StackPanel>
+            <StackPanel Grid.Column="2" Spacing="4">
+                <CheckBox Name="EmailBox" Content="{l:T 'E-Mail-Adressen'}" />
+                <CheckBox Name="PhoneBox" Content="{l:T 'Telefonnummern'}" />
+                <CheckBox Name="IbanBox" Content="{l:T 'IBAN (mit Prüfziffer)'}"
+                          ToolTip.Tip="{l:T 'Kontonummern im IBAN-Format; passt die Prüfziffer nicht, erscheint der Fund ohne Haken (vielleicht ein Tippfehler, vielleicht keine IBAN).'}" />
+                <CheckBox Name="CardBox" Content="{l:T 'Kartennummern'}"
+                          ToolTip.Tip="{l:T 'Kredit- und Bankkartennummern (13 bis 19 Ziffern) mit gültiger Prüfziffer — andere lange Nummern werden nicht gemeldet.'}" />
+                <CheckBox Name="DateBox" Content="{l:T 'Datumsangaben'}"
+                          ToolTip.Tip="{l:T 'Zum Beispiel 24.12.2026, 24/12/26, 2026-12-24, 24. Dezember 2026'}" />
+                <CheckBox Name="CaseBox" Content="{l:T 'Groß- und Kleinschreibung beachten'}" />
+            </StackPanel>
+            <!-- Personen, Firmen, Anschriften (KONZEPT §5.23): Regeln und Listen ohne KI; jeder Teil einer Anschrift ein eigener Fund -->
+            <StackPanel Grid.Column="4" Spacing="4">
+                <CheckBox Name="PersonBox" Content="{l:T 'Personen'}"
+                          ToolTip.Tip="{l:T 'Namen von Personen, erkannt an Anrede, Titel, Feldnamen und Namenslisten vieler Sprachen — ohne KI. Unsichere Funde erscheinen ohne Haken, mit dem Grund daneben.'}" />
+                <CheckBox Name="CompanyBox" Content="{l:T 'Firmen und Organisationen'}"
+                          ToolTip.Tip="{l:T 'Namen vor einer Rechtsform (GmbH, AG, Ltd., S.r.l. …) und Einrichtungen mit einem Namen daneben (Sparkasse …, Amtsgericht …).'}" />
+                <CheckBox Name="AddressBox" Content="{l:T 'Adresse'}" IsCheckedChanged="OnAddressChanged"
+                          ToolTip.Tip="{l:T 'Alle Teile einer Anschrift; jeder Teil wird ein eigener Fund mit eigenem Haken.'}" />
+                <Grid Margin="24,0,0,0" ColumnDefinitions="Auto,12,Auto" RowDefinitions="Auto,Auto,Auto">
+                    <CheckBox Name="StreetBox" Content="{l:T 'Straße'}" IsCheckedChanged="OnAddressPartChanged" />
+                    <CheckBox Name="NumberBox" Grid.Column="2" Content="{l:T 'Hausnummer'}" IsCheckedChanged="OnAddressPartChanged" />
+                    <CheckBox Name="PostcodeBox" Grid.Row="1" Content="{l:T 'PLZ'}" IsCheckedChanged="OnAddressPartChanged"
+                              ToolTip.Tip="{l:T 'Postleitzahlen in den Formaten vieler Länder — nur neben einem Ort oder nach einer Straße, sonst wäre jede Zahl eine.'}" />
+                    <CheckBox Name="PlaceBox" Grid.Row="1" Grid.Column="2" Content="{l:T 'Ort'}" IsCheckedChanged="OnAddressPartChanged"
+                              ToolTip.Tip="{l:T 'Der Ort einer Anschrift (nach der Postleitzahl, nach Straße und Komma) oder ein bekannter Ort nach „in“, „aus“ …'}" />
+                    <CheckBox Name="CountryBox" Grid.Row="2" Content="{l:T 'Land'}" IsCheckedChanged="OnAddressPartChanged" />
+                    <CheckBox Name="PostBoxBox" Grid.Row="2" Grid.Column="2" Content="{l:T 'Postfach'}" IsCheckedChanged="OnAddressPartChanged" />
+                </Grid>
+                <CheckBox Name="PlacesBox" Content="{l:T 'Orte (überall)'}"
+                          ToolTip.Tip="{l:T 'Bekannte Ortsnamen auch außerhalb von Anschriften.'}" />
+                <CheckBox Name="ThoroughBox" Content="{l:T 'Gründlich (unbekannte Namen vorschlagen)'}"
+                          ToolTip.Tip="{l:T 'Zusätzlich jedes großgeschriebene Wort, das kein bekanntes Wort ist, als Vorschlag ohne Haken — findet auch Namen, die keine Liste kennt, bringt aber viele Vorschläge. Für heikle Dokumente.'}" />
+            </StackPanel>
+        </Grid>
+
+        <TextBlock Grid.Row="2" Name="StatusText" Classes="muted" VerticalAlignment="Center" TextWrapping="Wrap" />
+
+        <Border Grid.Row="3" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="6">
+            <ListBox Name="HitList" Background="Transparent" AutomationProperties.Name="{l:T 'Funde'}">
+                <ListBox.ItemTemplate>
+                    <DataTemplate x:DataType="v:RedactionChoice">
+                        <CheckBox IsChecked="{Binding Chosen}" IsEnabled="{Binding CanChoose}">
+                            <StackPanel Spacing="1">
+                                <TextBlock FontWeight="SemiBold" Text="{Binding Title}" />
+                                <TextBlock Classes="muted" FontSize="12" TextTrimming="CharacterEllipsis" Text="{Binding Hit.Context}" />
+                            </StackPanel>
+                        </CheckBox>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+        </Border>
+
+        <Grid Grid.Row="4" ColumnDefinitions="*,Auto" ColumnSpacing="16">
+        <StackPanel Spacing="4" VerticalAlignment="Bottom">
+            <TextBlock Name="UnreadableText" IsVisible="False" TextWrapping="Wrap" FontSize="12"
+                       Foreground="{DynamicResource DangerBrush}" />
+            <TextBlock Name="MisreadText" IsVisible="False" TextWrapping="Wrap" FontSize="12"
+                       Foreground="{DynamicResource DangerBrush}" />
+            <!-- Grund für die gewählten Funde (Wunsch vom 4.11.2026): Land, Code, eigener Grund, Code im Balken, Code je Fundart -->
+            <TextBlock FontWeight="SemiBold" Text="{l:T 'Schwärzungsgrund für die gewählten Funde (freiwillig)'}" />
+            <v:RedactionReasonPicker Name="ReasonPicker" OffersAuto="True" MaxWidth="420" HorizontalAlignment="Left" />
+        </StackPanel>
+        <StackPanel Grid.Column="1" Spacing="8" VerticalAlignment="Bottom">
+            <!-- Suchen als blauer Knopf über „Gewählte schwärzen“ (Wunsch vom 4.11.2026) -->
+            <Button Name="SearchButton" Classes="primary" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                    Content="{l:T 'Suchen'}" Click="OnSearch" />
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+                <Button Content="{l:T 'Abbrechen'}" Click="OnCancel" IsCancel="True" />
+                <Button Name="ApplyButton" Classes="primary" Content="{l:T 'Gewählte schwärzen'}" Click="OnApply" IsEnabled="False" />
+            </StackPanel>
+        </StackPanel>
+        </Grid>
+    </Grid>
+</Window>

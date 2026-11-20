@@ -1,0 +1,699 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:l="using:PdfKnead.Localization"
+        xmlns:c="using:PdfKnead.Controls"
+        xmlns:vm="using:PdfKnead.ViewModels"
+        xmlns:scan="using:PdfKnead.Core.Scanning"
+        xmlns:proc="using:PdfKnead.Core.Scanning.Processing"
+        x:Class="PdfKnead.Views.ScanWindow"
+        x:DataType="vm:ScanViewModel"
+        Title="{l:T 'Scannen'}"
+        Icon="/Assets/app.ico"
+        Width="1320" Height="760" MinWidth="1000" MinHeight="600"
+        ShowInTaskbar="False"
+        WindowStartupLocation="CenterOwner">
+    <Window.Styles>
+        <Style Selector="Grid.row">
+            <Setter Property="Margin" Value="0,0,0,8" />
+        </Style>
+        <Style Selector="Grid.row > TextBlock">
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+        <Style Selector="Grid.row ComboBox">
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+        </Style>
+        <Style Selector="TextBlock.error">
+            <Setter Property="Foreground" Value="{DynamicResource DangerBrush}" />
+        </Style>
+        <!-- the divider between tiles and preview: a bar with a grip, highlighted under the mouse -->
+        <Style Selector="GridSplitter.divider">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Height" Value="12" />
+            <Setter Property="Cursor" Value="SizeNorthSouth" />
+        </Style>
+        <Style Selector="GridSplitter.divider:pointerover">
+            <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}" />
+        </Style>
+        <!-- the check of a scanner found in a network (No. 926): grey and open when off, green when it is in the list of scanners -->
+        <Style Selector="ToggleButton.foundCheck">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+        </Style>
+        <!-- the theme colours the content of a pressed or hovered toggle itself (white on the accent): set on the presenter in every state -->
+        <Style Selector="ToggleButton.foundCheck /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="{DynamicResource TextMutedBrush}" />
+            <Setter Property="Opacity" Value="0.7" />
+        </Style>
+        <Style Selector="ToggleButton.foundCheck:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="{DynamicResource TextMutedBrush}" />
+            <Setter Property="Opacity" Value="1" />
+        </Style>
+        <Style Selector="ToggleButton.foundCheck:pressed /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="Transparent" />
+        </Style>
+        <Style Selector="ToggleButton.foundCheck:checked /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="{DynamicResource GoodBrush}" />
+            <Setter Property="Opacity" Value="1" />
+        </Style>
+        <Style Selector="ToggleButton.foundCheck:checked:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="{DynamicResource GoodBrush}" />
+        </Style>
+        <Style Selector="ToggleButton.foundCheck:focus-visible /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Opacity" Value="1" />
+        </Style>
+        <!-- the header of „Nachbearbeitung“ holds two texts: its toggle needs the name for screen readers itself -->
+        <Style Selector="Expander#ProcessingGroup /template/ ToggleButton#ExpanderHeader">
+            <Setter Property="AutomationProperties.Name" Value="{l:T 'Nachbearbeitung'}" />
+        </Style>
+    </Window.Styles>
+
+    <!-- Laid out for 1366 × 768 and usable down to 1280 × 720 (14-inch laptops with scaling): the left column scrolls between its fixed head and
+         foot, a divider shares the height of the right side between tiles and preview (KONZEPT §5.25) -->
+    <Grid RowDefinitions="*,Auto">
+    <Grid Grid.Row="0" ColumnDefinitions="330,Auto,*">
+        <!-- ============================ left: settings ============================ -->
+        <Grid Grid.Column="0" RowDefinitions="Auto,*,Auto">
+            <StackPanel Grid.Row="0" Margin="20,16,16,8" Spacing="6">
+                <StackPanel Orientation="Horizontal" Spacing="12" Margin="0,0,0,6">
+                    <Border Width="40" Height="40" CornerRadius="20" Background="{DynamicResource AccentSoftBrush}">
+                        <PathIcon Data="{StaticResource Icon.ScanDash}" Width="20" Height="20" Foreground="{DynamicResource AccentBrush}" />
+                    </Border>
+                    <TextBlock VerticalAlignment="Center" FontWeight="SemiBold" FontSize="15" Text="{l:T 'Scannen'}" />
+                </StackPanel>
+                <Grid Classes="row" ColumnDefinitions="64,*">
+                    <TextBlock Text="{l:T 'Profil'}" />
+                    <ComboBox Grid.Column="1" ItemsSource="{Binding Profiles}" SelectedItem="{Binding SelectedProfile}"
+                              PlaceholderText="{l:T 'Zuletzt benutzte Einstellungen'}" IsEnabled="{Binding !IsScanning}"
+                              AutomationProperties.Name="{l:T 'Profil'}">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate x:DataType="scan:ScanProfile">
+                                <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                        <ToolTip.Tip><l:T Text="Gespeicherte Einstellungen für Scanner, Quelle, Auflösung, Farbe, Format und Seiten — „Profil speichern“ legt eins an, Datei → Scanprofile exportiert und importiert sie" /></ToolTip.Tip>
+                    </ComboBox>
+                </Grid>
+            </StackPanel>
+
+            <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled">
+                <StackPanel Margin="20,0,16,12" Spacing="6">
+                    <!-- SANE / WIA missing: what to install -->
+                    <Border Classes="card" IsVisible="{Binding !IsAvailable}" Padding="12" Margin="0,0,0,8">
+                        <StackPanel Spacing="8">
+                            <TextBlock FontWeight="SemiBold" Text="{l:T 'Scannen ist hier noch nicht möglich'}" />
+                            <SelectableTextBlock TextWrapping="Wrap" Text="{Binding InstallHint}" />
+                        </StackPanel>
+                    </Border>
+
+                    <!-- the own eSCL access (KONZEPT §5.25, S9): folded, it is needed only in company networks or for a scanner the search misses -->
+                    <Expander Name="NetworkGroup" IsExpanded="False" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" Padding="12,10,12,10"
+                              IsVisible="{Binding Network, Converter={x:Static ObjectConverters.IsNotNull}}"
+                              AutomationProperties.Name="{l:T 'Netzwerk-Scanner (erweitert)'}">
+                        <Expander.Header>
+                            <TextBlock Classes="section" Text="{l:T 'NETZWERK-SCANNER (ERWEITERT)'}" />
+                        </Expander.Header>
+                        <StackPanel Spacing="6" IsEnabled="{Binding !IsScanning}">
+                            <CheckBox IsChecked="{Binding Network.Direct, FallbackValue=False}" Content="{l:T 'Netzwerk-Scanner direkt ansprechen'}">
+                                <ToolTip.Tip><l:T Text="PDF-Knead spricht Netzwerk-Scanner selbst an: Papier im Einzug, Stau und Klappe werden angezeigt, Abbrechen wirkt sofort. Aus: nur über den Scanner-Treiber des Systems." /></ToolTip.Tip>
+                            </CheckBox>
+
+                            <TextBlock Classes="muted small" Margin="0,6,0,0" Text="{l:T 'Netze der Scanner (nur Firmennetz)'}" />
+                            <Grid ColumnDefinitions="*,Auto">
+                                <TextBox Name="NetworkInput" Text="{Binding Network.NetworkInput, FallbackValue=''}" PlaceholderText="{l:T 'z. B. 192.168.178.0'}"
+                                         MaxLength="1000" AutomationProperties.Name="{l:T 'Netz der Scanner'}">
+                                    <TextBox.KeyBindings>
+                                        <KeyBinding Gesture="Enter" Command="{Binding Network.AddNetworkCommand, FallbackValue={x:Null}}" />
+                                    </TextBox.KeyBindings>
+                                    <ToolTip.Tip><l:T Text="Eine Suche über ein ganzes Netz sieht für die Überwachung eines Firmennetzes wie ein Angriff aus — bitte nur in Absprache mit der IT." /></ToolTip.Tip>
+                                </TextBox>
+                                <Button Grid.Column="1" Classes="soft" Margin="6,0,0,0" Command="{Binding Network.AddNetworkCommand, FallbackValue={x:Null}}"
+                                        AutomationProperties.Name="{l:T 'Netz hinzufügen'}">
+                                    <PathIcon Data="{StaticResource Icon.Add}" Width="14" Height="14" />
+                                    <ToolTip.Tip><l:T Text="Netz hinzufügen" /></ToolTip.Tip>
+                                </Button>
+                            </Grid>
+                            <TextBlock Classes="error small" TextWrapping="Wrap" Text="{Binding Network.NetworkError, FallbackValue={x:Null}}"
+                                       IsVisible="{Binding Network.NetworkError, Converter={x:Static ObjectConverters.IsNotNull}, FallbackValue=False}" />
+                            <ItemsControl ItemsSource="{Binding Network.Networks, FallbackValue={x:Null}}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:NetworkRow">
+                                        <DockPanel Margin="4,0,0,0">
+                                            <Button DockPanel.Dock="Right" Classes="soft" Padding="6,2"
+                                                    Command="{Binding $parent[Window].((vm:ScanViewModel)DataContext).Network.RemoveNetworkCommand, FallbackValue={x:Null}}"
+                                                    CommandParameter="{Binding}" AutomationProperties.Name="{l:T 'Netz entfernen'}">
+                                                <PathIcon Data="{StaticResource Icon.Dismiss}" Width="10" Height="10" />
+                                                <ToolTip.Tip><l:T Text="Netz entfernen" /></ToolTip.Tip>
+                                            </Button>
+                                            <PathIcon Data="{StaticResource Icon.CheckmarkCircle}" Width="12" Height="12" Foreground="{DynamicResource AccentBrush}" Margin="0,0,6,0" />
+                                            <TextBlock VerticalAlignment="Center" Text="{Binding Display}" />
+                                        </DockPanel>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <TextBlock Classes="muted small" TextWrapping="Wrap"
+                                       Text="{l:T 'Nur ausfüllen, wenn Drucker und Scanner im Firmennetz in einem eigenen Netz (VLAN) liegen und die Suche sie nicht findet. Es zählen die ersten drei Teile der Adresse, zum Beispiel 192.168.178.0 — durchsucht wird dann 192.168.178.1 bis 254. Mehrere Netze mit Komma trennen.'}" />
+                            <Button Name="SearchNetworks" Classes="soft" HorizontalAlignment="Left" Command="{Binding SearchNetworksCommand}">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <PathIcon Data="{StaticResource Icon.Search}" Width="14" Height="14" />
+                                    <TextBlock Text="{l:T 'Netz durchsuchen'}" />
+                                </StackPanel>
+                                <ToolTip.Tip><l:T Text="Sucht in den eingetragenen Netzen nach Scannern und zeigt sie hier; mit dem grünen Haken kommen sie in die Scannerauswahl. Ein Netz dauert etwa 10 Sekunden." /></ToolTip.Tip>
+                            </Button>
+                            <TextBlock Classes="muted small" TextWrapping="Wrap" Text="{Binding Network.SearchStatus, FallbackValue={x:Null}}"
+                                       IsVisible="{Binding Network.SearchStatus, Converter={x:Static ObjectConverters.IsNotNull}, FallbackValue=False}" />
+                            <!-- the scanners found (No. 926): the green check on the right takes one into the list of scanners below -->
+                            <ItemsControl Name="FoundScanners" ItemsSource="{Binding Network.Found, FallbackValue={x:Null}}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:FoundScannerRow">
+                                        <DockPanel Margin="4,2,0,2">
+                                            <ToggleButton DockPanel.Dock="Right" Classes="foundCheck" IsChecked="{Binding IsChosen}" Padding="4" Margin="6,0,0,0"
+                                                          VerticalAlignment="Center" AutomationProperties.Name="{Binding CheckName}">
+                                                <PathIcon Data="{StaticResource Icon.CheckmarkCircle}" Width="18" Height="18" />
+                                                <ToolTip.Tip><l:T Text="Haken: dieser Scanner kommt in die Scannerauswahl" /></ToolTip.Tip>
+                                            </ToggleButton>
+                                            <StackPanel VerticalAlignment="Center">
+                                                <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                                                <TextBlock Classes="muted small" Text="{Binding Address}" TextTrimming="CharacterEllipsis"
+                                                           ToolTip.Tip="{Binding AddressFull}" />
+                                                <TextBlock Classes="muted small" TextWrapping="Wrap" Text="{Binding Note}"
+                                                           IsVisible="{Binding Note, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                                            </StackPanel>
+                                        </DockPanel>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+
+                            <TextBlock Classes="muted small" Margin="0,8,0,0" Text="{l:T 'Scanner-Adresse'}" />
+                            <Grid ColumnDefinitions="*,Auto">
+                                <TextBox Text="{Binding Network.AddressInput, FallbackValue=''}" PlaceholderText="{l:T 'z. B. 192.168.178.20'}" MaxLength="512"
+                                         AutomationProperties.Name="{l:T 'Scanner-Adresse'}">
+                                    <TextBox.KeyBindings>
+                                        <KeyBinding Gesture="Enter" Command="{Binding Network.AddAddressCommand, FallbackValue={x:Null}}" />
+                                    </TextBox.KeyBindings>
+                                    <ToolTip.Tip><l:T Text="Für einen Scanner, den die Suche nicht findet: seine IP-Adresse oder sein Name im Netzwerk, wahlweise mit Port oder als http- bzw. https-Adresse" /></ToolTip.Tip>
+                                </TextBox>
+                                <Button Grid.Column="1" Classes="soft" Margin="6,0,0,0" Command="{Binding Network.AddAddressCommand, FallbackValue={x:Null}}"
+                                        AutomationProperties.Name="{l:T 'Adresse hinzufügen'}">
+                                    <PathIcon Data="{StaticResource Icon.Add}" Width="14" Height="14" />
+                                    <ToolTip.Tip><l:T Text="Adresse hinzufügen" /></ToolTip.Tip>
+                                </Button>
+                            </Grid>
+                            <TextBlock Classes="error small" TextWrapping="Wrap" Text="{Binding Network.AddressError, FallbackValue={x:Null}}"
+                                       IsVisible="{Binding Network.AddressError, Converter={x:Static ObjectConverters.IsNotNull}, FallbackValue=False}" />
+                            <ItemsControl ItemsSource="{Binding Network.Addresses, FallbackValue={x:Null}}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:AddressRow">
+                                        <DockPanel Margin="4,0,0,0">
+                                            <Button DockPanel.Dock="Right" Classes="soft" Padding="6,2"
+                                                    Command="{Binding $parent[Window].((vm:ScanViewModel)DataContext).Network.RemoveAddressCommand, FallbackValue={x:Null}}"
+                                                    CommandParameter="{Binding}" AutomationProperties.Name="{l:T 'Adresse entfernen'}">
+                                                <PathIcon Data="{StaticResource Icon.Dismiss}" Width="10" Height="10" />
+                                                <ToolTip.Tip><l:T Text="Adresse entfernen" /></ToolTip.Tip>
+                                            </Button>
+                                            <PathIcon Data="{StaticResource Icon.CheckmarkCircle}" Width="12" Height="12" Foreground="{DynamicResource AccentBrush}" Margin="0,0,6,0" />
+                                            <TextBlock VerticalAlignment="Center" Text="{Binding Text}" TextTrimming="CharacterEllipsis" />
+                                        </DockPanel>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+
+                            <Button Classes="soft" HorizontalAlignment="Left" Margin="0,8,0,0" Command="{Binding Network.SaveDiagnosisCommand, FallbackValue={x:Null}}"
+                                    Content="{l:T 'Diagnose speichern …'}">
+                                <ToolTip.Tip><l:T Text="Speichert, was PDF-Knead zuletzt mit Netzwerk-Scannern getan hat — für die Fehlersuche. Die Datei enthält Gerätenamen und Adressen im eigenen Netz, keine Bilder." /></ToolTip.Tip>
+                            </Button>
+                        </StackPanel>
+                    </Expander>
+
+                    <!-- what acts while scanning -->
+                    <Expander Name="ScannerGroup" IsExpanded="True" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" Padding="12,10,12,10"
+                              AutomationProperties.Name="{l:T 'Scanner-Optionen'}">
+                        <Expander.Header>
+                            <TextBlock Classes="section" Text="{l:T 'SCANNER-OPTIONEN'}" />
+                        </Expander.Header>
+                    <StackPanel Spacing="6">
+                    <Grid ColumnDefinitions="*,Auto" Margin="0,0,0,8">
+                        <ComboBox Name="DeviceChoice" HorizontalAlignment="Stretch" ItemsSource="{Binding Devices}" SelectedItem="{Binding SelectedDevice}"
+                                  PlaceholderText="{Binding DevicePlaceholder}" AutomationProperties.Name="{l:T 'Scanner'}" IsEnabled="{Binding !IsScanning}">
+                            <ComboBox.ItemTemplate>
+                                <DataTemplate x:DataType="scan:ScanDevice">
+                                    <!-- „×“ only in the open list, not in the closed box (No. 926, design decision) -->
+                                    <DockPanel>
+                                        <Button DockPanel.Dock="Right" Classes="soft" Padding="6,2" Margin="8,0,0,0"
+                                                IsVisible="{Binding $parent[ComboBoxItem], Converter={x:Static ObjectConverters.IsNotNull}, FallbackValue=False}"
+                                                Command="{Binding $parent[Window].((vm:ScanViewModel)DataContext).RemoveDeviceCommand, FallbackValue={x:Null}}"
+                                                CommandParameter="{Binding}" AutomationProperties.Name="{l:T 'Scanner aus der Liste entfernen'}">
+                                            <PathIcon Data="{StaticResource Icon.Dismiss}" Width="10" Height="10" />
+                                            <ToolTip.Tip><l:T Text="Scanner aus der Liste entfernen — ein im System eingerichteter wird hier nur ausgeblendet" /></ToolTip.Tip>
+                                        </Button>
+                                        <TextBlock VerticalAlignment="Center" Text="{Binding DisplayName}" TextTrimming="CharacterEllipsis" />
+                                    </DockPanel>
+                                </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                        </ComboBox>
+                        <Button Grid.Column="1" Classes="soft" Margin="6,0,0,0" Command="{Binding SearchCommand}" AutomationProperties.Name="{l:T 'Scanner suchen'}">
+                            <PathIcon Data="{StaticResource Icon.Search}" Width="14" Height="14" />
+                            <ToolTip.Tip><l:T Text="Scanner neu suchen — Netzwerkscanner brauchen dafür einige Sekunden" /></ToolTip.Tip>
+                        </Button>
+                    </Grid>
+                    <Button Name="ShowHidden" Classes="subtle" HorizontalAlignment="Left" Margin="0,-4,0,4" Command="{Binding ShowHiddenDevicesCommand}"
+                            Content="{Binding ShowHiddenText}" IsVisible="{Binding HiddenCount}" />
+                    <Grid Classes="row" ColumnDefinitions="96,*" IsVisible="{Binding Sources.Count}">
+                        <TextBlock Text="{l:T 'Quelle'}" />
+                        <ComboBox Grid.Column="1" ItemsSource="{Binding Sources}" SelectedItem="{Binding SelectedSource}" AutomationProperties.Name="{l:T 'Quelle'}"
+                                  IsEnabled="{Binding !IsScanning}">
+                            <ComboBox.ItemTemplate>
+                                <DataTemplate x:DataType="scan:ScanSource">
+                                    <TextBlock Text="{Binding DisplayName}" />
+                                </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                            <ToolTip.Tip><l:T Text="Flachbett oder Einzug — der Einzug bietet oft weniger Auflösung als das Flachbett" /></ToolTip.Tip>
+                        </ComboBox>
+                    </Grid>
+                    <!-- the feeder state as the scanner reports it (eSCL only) -->
+                    <Grid ColumnDefinitions="96,*" IsVisible="{Binding FeederState, Converter={x:Static ObjectConverters.IsNotNull}}" Margin="0,-4,0,4">
+                        <TextBlock Grid.Column="1" Margin="8,0,0,0" Classes="small" Classes.muted="{Binding !FeederProblem}" Classes.error="{Binding FeederProblem}"
+                                   Text="{Binding FeederState}" />
+                    </Grid>
+                    <!-- both sides by turning the stack: belongs to the feeder, so right under the source, a little indented -->
+                    <Grid ColumnDefinitions="96,*" IsVisible="{Binding ManualDuplexPossible}">
+                        <CheckBox Grid.Column="1" Margin="8,0,0,0" IsChecked="{Binding ManualDuplex}" IsEnabled="{Binding !IsScanning}"
+                                  Content="{l:T 'Manueller Duplex'}">
+                            <ToolTip.Tip><l:T Text="Beidseitig scannen mit einem Einzug, der nur eine Seite liest: Erst scannt PDF-Knead alle Vorderseiten. Dann nehmen Sie den Stapel aus der Ablage, wenden ihn wie eine Buchseite und legen ihn wieder ein — die Rückseiten werden gescannt und Blatt für Blatt hinter ihre Vorderseiten sortiert. Stehen Seiten auf dem Kopf oder an der falschen Stelle, korrigiert die Leiste „Lage-Korrektur“ das; wie die Rückseiten liegen, merkt sich das Profil. Leere Seiten fallen erst nach dem Einsortieren weg. Jeder Stapel bleibt eine eigene Gruppe in den Kacheln." /></ToolTip.Tip>
+                        </CheckBox>
+                    </Grid>
+                    <Grid Classes="row" ColumnDefinitions="96,*">
+                        <TextBlock Text="{l:T 'Auflösung'}" />
+                        <ComboBox Grid.Column="1" ItemsSource="{Binding Resolutions}" SelectedItem="{Binding SelectedResolution}"
+                                  AutomationProperties.Name="{l:T 'Auflösung'}" IsEnabled="{Binding !IsScanning}">
+                            <ComboBox.ItemTemplate>
+                                <DataTemplate x:DataType="x:Int32">
+                                    <TextBlock Text="{Binding StringFormat={}{0} dpi}" />
+                                </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                            <ToolTip.Tip><l:T Text="Nur die Auflösungen, die der Scanner für diese Quelle anbietet. 300 dpi genügen für Texte und die Texterkennung." /></ToolTip.Tip>
+                        </ComboBox>
+                    </Grid>
+                    <Grid Classes="row" ColumnDefinitions="96,*">
+                        <TextBlock Text="{l:T 'Farbe'}" />
+                        <ComboBox Grid.Column="1" ItemsSource="{Binding ColorModes}" SelectedItem="{Binding SelectedColorMode}"
+                                  AutomationProperties.Name="{l:T 'Farbe'}" IsEnabled="{Binding !IsScanning}">
+                            <ComboBox.ItemTemplate>
+                                <DataTemplate x:DataType="vm:ColorModeChoice">
+                                    <TextBlock Text="{Binding DisplayName}" />
+                                </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                        </ComboBox>
+                    </Grid>
+                    <Grid Classes="row" ColumnDefinitions="96,*">
+                        <TextBlock Text="{l:T 'Format'}" />
+                        <ComboBox Grid.Column="1" ItemsSource="{Binding Formats}" SelectedItem="{Binding SelectedFormat}"
+                                  AutomationProperties.Name="{l:T 'Format'}" IsEnabled="{Binding !IsScanning}">
+                            <ComboBox.ItemTemplate>
+                                <DataTemplate x:DataType="scan:ScanFormat">
+                                    <TextBlock Text="{Binding DisplayName}" />
+                                </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                            <ToolTip.Tip><l:T Text="Papierformat: gescannt wird ab der linken oberen Ecke; „Ganze Fläche“ nimmt alles, was der Scanner erreicht" /></ToolTip.Tip>
+                        </ComboBox>
+                    </Grid>
+
+                    <TextBlock Classes="section" Margin="0,8,0,0" Text="{l:T 'SEITEN'}" />
+                    <CheckBox IsChecked="{Binding SkipBlank}" IsEnabled="{Binding !IsScanning}" Content="{l:T 'Leere Seiten weglassen'}">
+                        <ToolTip.Tip><l:T Text="Seiten ohne Inhalt kommen nicht in die Kacheln — etwa leere Rückseiten beim beidseitigen Scannen" /></ToolTip.Tip>
+                    </CheckBox>
+                    <StackPanel Margin="28,0,0,0" Spacing="2" IsVisible="{Binding SkipBlank}">
+                        <Slider Minimum="0.05" Maximum="1" TickFrequency="0.05" IsSnapToTickEnabled="True" Value="{Binding BlankLimit}"
+                                IsEnabled="{Binding !IsScanning}" AutomationProperties.Name="{l:T 'Schwelle für leere Seiten'}">
+                            <ToolTip.Tip><l:T Text="Wie viel einer Seite bedruckt sein darf, damit sie noch als leer gilt — weiter rechts fallen auch Seiten mit einer Seitenzahl oder Flecken weg" /></ToolTip.Tip>
+                        </Slider>
+                        <TextBlock Classes="muted small" Text="{Binding BlankLimitText}" />
+                    </StackPanel>
+                    </StackPanel>
+                    </Expander>
+
+                    <!-- processing per page: the sliders show the shown page and act on the selected pages -->
+                    <Expander Name="ProcessingGroup" IsExpanded="True" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" Padding="12,10,12,10"
+                              AutomationProperties.Name="{l:T 'Nachbearbeitung'}">
+                        <Expander.Header>
+                            <DockPanel>
+                                <TextBlock DockPanel.Dock="Right" Classes="muted small" VerticalAlignment="Center" Text="{Binding AdjustmentsTarget}" />
+                                <TextBlock Classes="section" Text="{l:T 'NACHBEARBEITUNG'}" />
+                            </DockPanel>
+                        </Expander.Header>
+                        <StackPanel Spacing="4">
+                            <Grid Classes="row" ColumnDefinitions="96,*">
+                                <TextBlock Text="{l:T 'Begradigen'}" />
+                                <ComboBox Grid.Column="1" ItemsSource="{Binding StraightenMethods}" SelectedItem="{Binding SelectedStraightener}"
+                                          AutomationProperties.Name="{l:T 'Begradigen'}">
+                                    <ComboBox.ItemTemplate>
+                                        <DataTemplate x:DataType="proc:IStraightener">
+                                            <TextBlock Text="{Binding DisplayName}" />
+                                        </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                    <ToolTip.Tip><l:T Text="Schräglage ausgleichen: schräg eingelegte Blätter gerade drehen. Buchseite entzerren: gebogene Zeilen am Buchrücken gerade ziehen und den Bund aufhellen (auch Doppelseiten). Beides nur bei sicherem Ergebnis; je Seite am Symbol der Kachel verwerfbar." /></ToolTip.Tip>
+                                </ComboBox>
+                            </Grid>
+                            <CheckBox IsChecked="{Binding CropBorders}" Content="{l:T 'Ränder abschneiden'}">
+                                <ToolTip.Tip><l:T Text="Dunkle Ränder wegschneiden — Kante des Glases, Schatten des Deckels, dunkler Deckel um ein kleineres Blatt" /></ToolTip.Tip>
+                            </CheckBox>
+                            <CheckBox IsChecked="{Binding AutoEnhance}" Content="{l:T 'Automatisch verbessern'}">
+                                <ToolTip.Tip><l:T Text="Macht das Papier weiß und die Schrift schwarz — auch in Schatten und am Buchrücken; die Regler darunter verfeinern" /></ToolTip.Tip>
+                            </CheckBox>
+                            <Grid Classes="row" ColumnDefinitions="96,*,36">
+                                <TextBlock Text="{l:T 'Helligkeit'}" />
+                                <Slider Grid.Column="1" Minimum="-100" Maximum="100" Value="{Binding Brightness}" AutomationProperties.Name="{l:T 'Helligkeit'}">
+                                    <ToolTip.Tip><l:T Text="Mitteltöne heller oder dunkler — Schwarz und Weiß bleiben" /></ToolTip.Tip>
+                                </Slider>
+                                <TextBlock Grid.Column="2" Classes="muted small" TextAlignment="Right" Text="{Binding Brightness, StringFormat={}{0:0}}" />
+                            </Grid>
+                            <Grid Classes="row" ColumnDefinitions="96,*,36">
+                                <TextBlock Text="{l:T 'Luminanz'}" />
+                                <Slider Grid.Column="1" Minimum="-100" Maximum="100" Value="{Binding Luminance}" AutomationProperties.Name="{l:T 'Luminanz'}">
+                                    <ToolTip.Tip><l:T Text="Wie mehr oder weniger Licht: alles im gleichen Verhältnis, Weiß läuft weich aus — eher für Farbfotos; für Text passt meist die Helligkeit besser" /></ToolTip.Tip>
+                                </Slider>
+                                <TextBlock Grid.Column="2" Classes="muted small" TextAlignment="Right" Text="{Binding Luminance, StringFormat={}{0:0}}" />
+                            </Grid>
+                            <Grid Classes="row" ColumnDefinitions="96,*,36">
+                                <TextBlock Text="{l:T 'Kontrast'}" />
+                                <Slider Grid.Column="1" Minimum="-100" Maximum="100" Value="{Binding Contrast}" AutomationProperties.Name="{l:T 'Kontrast'}">
+                                    <ToolTip.Tip><l:T Text="Helle Töne heller, dunkle dunkler (oder umgekehrt)" /></ToolTip.Tip>
+                                </Slider>
+                                <TextBlock Grid.Column="2" Classes="muted small" TextAlignment="Right" Text="{Binding Contrast, StringFormat={}{0:0}}" />
+                            </Grid>
+                            <Grid Classes="row" ColumnDefinitions="96,*,36" IsEnabled="{Binding ColourAdjustable}">
+                                <TextBlock Text="{l:T 'Sättigung'}" />
+                                <Slider Grid.Column="1" Minimum="-100" Maximum="100" Value="{Binding Saturation}" AutomationProperties.Name="{l:T 'Sättigung'}">
+                                    <ToolTip.Tip><l:T Text="Alle Farben kräftiger oder blasser — ganz links grau; Farbton und Helligkeit bleiben" /></ToolTip.Tip>
+                                </Slider>
+                                <TextBlock Grid.Column="2" Classes="muted small" TextAlignment="Right" Text="{Binding Saturation, StringFormat={}{0:0}}" />
+                            </Grid>
+                            <Grid Classes="row" ColumnDefinitions="96,*,36" IsEnabled="{Binding ColourAdjustable}">
+                                <TextBlock Text="{l:T 'Dynamik'}" />
+                                <Slider Grid.Column="1" Minimum="-100" Maximum="100" Value="{Binding Vibrance}" AutomationProperties.Name="{l:T 'Dynamik'}">
+                                    <ToolTip.Tip><l:T Text="Blasse Farben deutlich kräftiger, kräftige kaum — Hauttöne werden geschont" /></ToolTip.Tip>
+                                </Slider>
+                                <TextBlock Grid.Column="2" Classes="muted small" TextAlignment="Right" Text="{Binding Vibrance, StringFormat={}{0:0}}" />
+                            </Grid>
+                            <Grid Classes="row" ColumnDefinitions="96,*,36">
+                                <TextBlock Text="{l:T 'Schärfen'}" />
+                                <Slider Grid.Column="1" Minimum="0" Maximum="100" Value="{Binding Sharpen}" AutomationProperties.Name="{l:T 'Schärfen'}">
+                                    <ToolTip.Tip><l:T Text="Kanten der Schrift schärfer — flache Flächen und Rauschen bleiben, wie sie sind" /></ToolTip.Tip>
+                                </Slider>
+                                <TextBlock Grid.Column="2" Classes="muted small" TextAlignment="Right" Text="{Binding Sharpen, StringFormat={}{0:0}}" />
+                            </Grid>
+                            <Grid Classes="row" ColumnDefinitions="96,*,36">
+                                <TextBlock Text="{l:T 'Durchscheinen'}" TextTrimming="CharacterEllipsis" />
+                                <Slider Grid.Column="1" Minimum="0" Maximum="100" Value="{Binding ShowThrough}" AutomationProperties.Name="{l:T 'Durchscheinen verhindern'}">
+                                    <ToolTip.Tip><l:T Text="Durchscheinen verhindern: blasse, farblose Schrift der Rückseite verschwindet im Papier — echte Striche, Textmarker und Stempel bleiben. Bei beidseitig gescannten Blättern wird die Rückseite einbezogen und genau dort herausgerechnet, wo sie bedruckt ist." /></ToolTip.Tip>
+                                </Slider>
+                                <TextBlock Grid.Column="2" Classes="muted small" TextAlignment="Right" Text="{Binding ShowThrough, StringFormat={}{0:0} %}" />
+                            </Grid>
+                            <CheckBox IsChecked="{Binding Grayscale}" Content="{l:T 'Graustufen'}" IsEnabled="{Binding !BlackWhite}">
+                                <ToolTip.Tip><l:T Text="Die Farbe herausnehmen: die Seite als Graustufenbild — kleinere Dateien, gut für Texte mit Bildern" /></ToolTip.Tip>
+                            </CheckBox>
+                            <Grid Classes="row" ColumnDefinitions="96,*,36">
+                                <CheckBox IsChecked="{Binding BlackWhite}" Content="{l:T 'Schwarzweiß'}">
+                                    <ToolTip.Tip><l:T Text="Nur Schwarz und Weiß: sehr kleine Dateien und scharfe Schrift — für Textseiten" /></ToolTip.Tip>
+                                </CheckBox>
+                                <Slider Grid.Column="1" Minimum="0" Maximum="100" Value="{Binding Threshold}" IsEnabled="{Binding BlackWhite}"
+                                        AutomationProperties.Name="{l:T 'Schwelle für Schwarzweiß'}" Margin="8,0,0,0">
+                                    <ToolTip.Tip><l:T Text="Schwelle: alles, was dunkler ist als dieser Anteil von Weiß, wird schwarz — weiter rechts mehr schwarz (dünne Schrift kräftiger), weiter links mehr weiß (Flecken und Grauschleier verschwinden)" /></ToolTip.Tip>
+                                </Slider>
+                                <TextBlock Grid.Column="2" Classes="muted small" TextAlignment="Right" Text="{Binding Threshold, StringFormat={}{0:0} %}" />
+                            </Grid>
+                            <Grid ColumnDefinitions="*,8,*" Margin="0,4,0,0">
+                                <Button Classes="soft" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Command="{Binding ResetAdjustmentsCommand}"
+                                        Content="{l:T 'Zurücksetzen'}">
+                                    <ToolTip.Tip><l:T Text="Nachbearbeitung der gewählten Seiten zurücknehmen — die Seite wie gescannt" /></ToolTip.Tip>
+                                </Button>
+                                <Button Grid.Column="2" Classes="soft" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                                        Command="{Binding ApplyAdjustmentsToAllCommand}" Content="{l:T 'Für alle übernehmen'}">
+                                    <ToolTip.Tip><l:T Text="Diese Einstellungen auf alle gescannten Seiten anwenden" /></ToolTip.Tip>
+                                </Button>
+                            </Grid>
+                        </StackPanel>
+                    </Expander>
+                </StackPanel>
+            </ScrollViewer>
+
+            <!-- fixed foot: always visible -->
+            <Border Grid.Row="2" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0">
+                <StackPanel Margin="20,12,16,12" Spacing="10">
+                <!-- the name of the profile to save, above the buttons -->
+                <StackPanel Spacing="6" IsVisible="{Binding IsNamingProfile}">
+                    <TextBlock Classes="muted small" Text="{l:T 'Name des Profils'}" />
+                    <TextBox Name="ProfileName" Text="{Binding NewProfileName}" MaxLength="80" PlaceholderText="{l:T 'z. B. Briefe A4 Graustufen'}"
+                             AutomationProperties.Name="{l:T 'Name des Profils'}">
+                        <TextBox.KeyBindings>
+                            <KeyBinding Gesture="Enter" Command="{Binding ConfirmProfileCommand}" />
+                            <KeyBinding Gesture="Escape" Command="{Binding CancelProfileCommand}" />
+                        </TextBox.KeyBindings>
+                    </TextBox>
+                    <Grid ColumnDefinitions="*,8,*">
+                        <Button Grid.Column="0" Classes="soft" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                                Command="{Binding CancelProfileCommand}" Content="{l:T 'Abbrechen'}" />
+                        <Button Grid.Column="2" Classes="primary" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                                Command="{Binding ConfirmProfileCommand}" Content="{Binding ConfirmProfileText}" />
+                    </Grid>
+                </StackPanel>
+                <Grid ColumnDefinitions="*,8,*">
+                    <Button Grid.Column="0" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Command="{Binding SaveProfileCommand}"
+                            Content="{l:T 'Profil speichern'}">
+                        <ToolTip.Tip><l:T Text="Die Einstellungen links unter einem Namen speichern, um sie oben unter „Profil“ wieder zu wählen" /></ToolTip.Tip>
+                    </Button>
+                    <Button Grid.Column="2" Classes="primary" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                            Command="{Binding ScanCommand}" Content="{Binding ScanButtonText}" IsDefault="{Binding !IsNamingProfile}" IsVisible="{Binding !IsScanning}">
+                        <ToolTip.Tip><l:T Text="Scannt mit diesen Einstellungen — aus dem Einzug alle Blätter; neue Seiten kommen hinter die gewählte Seite. Beim beidseitigen Scannen durch Wenden scannt der zweite Druck die Rückseiten." /></ToolTip.Tip>
+                    </Button>
+                    <!-- while scanning, the same place stops the scanner (no Esc: pressed by mistake it would stop a feeder job); pages already scanned stay -->
+                    <Button Grid.Column="2" Classes="danger" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                            Command="{Binding CancelCommand}" Content="{l:T 'Scannen abbrechen'}" IsVisible="{Binding IsScanning}">
+                        <ToolTip.Tip><l:T Text="Den Scanner anhalten — schon gescannte Seiten bleiben" /></ToolTip.Tip>
+                    </Button>
+                </Grid>
+                </StackPanel>
+            </Border>
+        </Grid>
+
+        <Border Grid.Column="1" Width="1" Background="{DynamicResource LineBrush}" />
+
+        <!-- ============================ right: tiles and preview ============================ -->
+        <Grid Grid.Column="2" Name="RightSide">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="2*" MinHeight="110" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="3*" MinHeight="160" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+            <DockPanel Grid.Row="0" Margin="16,12,16,6">
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                    <TextBlock Classes="muted small" VerticalAlignment="Center" Text="{l:T 'Kacheln'}" />
+                    <PathIcon Data="{StaticResource Icon.ZoomOut}" Width="14" Height="14" Foreground="{DynamicResource TextMutedBrush}" />
+                    <Slider Name="TileSlider" Width="140" Minimum="70" Maximum="420" Value="130" VerticalAlignment="Center"
+                            AutomationProperties.Name="{l:T 'Kachelgröße'}">
+                        <ToolTip.Tip><l:T Text="Kachelgröße — auch mit Strg+Mausrad" /></ToolTip.Tip>
+                    </Slider>
+                    <PathIcon Data="{StaticResource Icon.ZoomIn}" Width="14" Height="14" Foreground="{DynamicResource TextMutedBrush}" />
+                </StackPanel>
+                <TextBlock FontWeight="SemiBold" VerticalAlignment="Center" Text="{Binding PageCountText}" />
+            </DockPanel>
+            <Border Grid.Row="1" Background="{DynamicResource CanvasBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1">
+                <Grid>
+                    <c:PageGridView Name="GridView" />
+                    <TextBlock Classes="muted" HorizontalAlignment="Center" VerticalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap" MaxWidth="420"
+                               IsVisible="{Binding !HasPages}"
+                               Text="{l:T 'Noch keine Seiten. Links Scanner und Einstellungen wählen und „Scannen“ drücken.'}" />
+                </Grid>
+            </Border>
+
+            <!-- divider: drag up or down to share the height between tiles and preview -->
+            <!-- the splitter must be a direct child of the grid whose rows it resizes; the grip is drawn on top without taking the mouse -->
+            <GridSplitter Grid.Row="2" Name="Divider" Classes="divider" Margin="16,0" ResizeDirection="Rows" ResizeBehavior="PreviousAndNext"
+                          AutomationProperties.Name="{l:T 'Teiler zwischen Kacheln und Vorschau'}">
+                <ToolTip.Tip><l:T Text="Nach oben oder unten ziehen: mehr Platz für die Vorschau bzw. für die Kacheln" /></ToolTip.Tip>
+            </GridSplitter>
+            <Border Grid.Row="2" Width="44" Height="4" CornerRadius="2" Background="{DynamicResource LineStrongBrush}" IsHitTestVisible="False"
+                    HorizontalAlignment="Center" VerticalAlignment="Center" />
+
+            <Grid Grid.Row="3" RowDefinitions="Auto,Auto,Auto,Auto,*">
+                <StackPanel Grid.Row="0">
+                    <!-- while the backs are put between the fronts and their tiles computed: a quiet hint, so nobody goes on unaware -->
+                    <TextBlock Name="SortingHint" Margin="16,0,16,6" Classes="small" Foreground="{DynamicResource WarnBrush}" IsVisible="{Binding IsSorting}"
+                               Text="{l:T 'Seiten werden einsortiert … einen Moment, bevor Sie weitermachen.'}" />
+                    <!-- both sides by turning the stack: what to do after the fronts -->
+                    <Border Margin="16,0,16,8" Padding="12,8" Classes="card" IsVisible="{Binding AwaitingBacks}">
+                        <DockPanel>
+                            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="6" Margin="12,0,0,0" VerticalAlignment="Center">
+                                <Button Classes="soft" Command="{Binding TurnFrontsCommand}" Content="{Binding TurnFrontsText}">
+                                    <ToolTip.Tip><l:T Text="Die Vorderseiten dieses Stapels um 180° drehen — wenn er verkehrt herum eingelegt war; legen Sie ihn für die Rückseiten genauso ein, kommen auch sie gleich richtig" /></ToolTip.Tip>
+                                </Button>
+                                <Button Classes="soft" Command="{Binding EndDuplexCommand}" Content="{Binding EndDuplexText}">
+                                    <ToolTip.Tip><l:T Text="Keine Rückseiten scannen — die Vorderseiten bleiben, wie sie sind; beim erneuten Scannen der Rückseiten bleiben die bisherigen" /></ToolTip.Tip>
+                                </Button>
+                                <Button Classes="primary" Command="{Binding ScanCommand}" Content="{l:T 'Rückseiten scannen'}" />
+                            </StackPanel>
+                            <TextBlock TextWrapping="Wrap" VerticalAlignment="Center" Text="{Binding BacksText}" />
+                        </DockPanel>
+                    </Border>
+                    <!-- after the backs were put between the fronts: correct the last stack (turn, pair the other way round, scan the backs
+                         anew); how the backs lie is remembered in the profile; with the next scan the stack is done with -->
+                    <Border Name="DuplexCorrection" Margin="16,0,16,8" Padding="12,8" Classes="card" IsVisible="{Binding CanCorrectDuplex}">
+                        <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto">
+                            <StackPanel VerticalAlignment="Center" Spacing="2">
+                                <TextBlock FontWeight="SemiBold" Text="{l:T 'Lage-Korrektur manueller Duplex-Scan'}" />
+                                <TextBlock Classes="muted small" TextWrapping="Wrap"
+                                           Text="{l:T 'Stehen Seiten dieses Stapels auf dem Kopf oder an der falschen Stelle, hier korrigieren — wie die Rückseiten liegen, wird gemerkt. Mit dem nächsten Scan ist der Stapel fertig; danach nur noch über „Drehen“ an ausgewählten Seiten.'}" />
+                            </StackPanel>
+                            <Button Grid.Column="1" Classes="soft small" Margin="12,0,0,0" VerticalAlignment="Top" Command="{Binding HideDuplexCorrectionCommand}"
+                                    Content="✕" AutomationProperties.Name="{l:T 'Lage-Korrektur ausblenden'}">
+                                <ToolTip.Tip><l:T Text="Ausblenden — die Seiten bleiben, wie sie sind" /></ToolTip.Tip>
+                            </Button>
+                            <WrapPanel Grid.Row="1" Grid.ColumnSpan="2" Margin="0,6,0,0">
+                                <Button Classes="soft" Margin="0,0,6,6" Command="{Binding TurnFrontsCommand}" Content="{Binding TurnFrontsText}">
+                                    <ToolTip.Tip><l:T Text="Alle Vorderseiten dieses Stapels um 180° drehen — wenn der Stapel verkehrt herum eingelegt war; gilt nur für diesen Stapel" /></ToolTip.Tip>
+                                </Button>
+                                <Button Classes="soft" Margin="0,0,6,6" Command="{Binding TurnBacksCommand}" Content="{Binding TurnBacksText}">
+                                    <ToolTip.Tip><l:T Text="Alle Rückseiten dieses Stapels um 180° drehen — wenn sie auf dem Kopf stehen; gemerkt wird, wie die Rückseiten zu den Vorderseiten liegen" /></ToolTip.Tip>
+                                </Button>
+                                <Button Classes="soft" Margin="0,0,6,6" Command="{Binding SwapBacksCommand}" Content="{Binding SwapBacksText}">
+                                    <ToolTip.Tip><l:T Text="Die Rückseiten in umgekehrter Reihenfolge den Vorderseiten zuordnen — je nach Papierweg des Scanners; wird im Profil gemerkt" /></ToolTip.Tip>
+                                </Button>
+                                <Button Classes="soft" Margin="0,0,6,6" Command="{Binding RescanBacksCommand}" Content="{l:T 'Rückseiten neu scannen'}">
+                                    <ToolTip.Tip><l:T Text="Die Rückseiten dieses Stapels noch einmal scannen (Stau, falsch gewendet, ein Blatt fehlt) — die Vorderseiten bleiben" /></ToolTip.Tip>
+                                </Button>
+                            </WrapPanel>
+                        </Grid>
+                    </Border>
+                </StackPanel>
+                <!-- progress of the sheet being scanned, between tiles and preview -->
+                <Border Grid.Row="1" Margin="16,0,16,8" Padding="12,8" Classes="card" IsVisible="{Binding IsScanning}">
+                    <DockPanel>
+                        <Button DockPanel.Dock="Right" Classes="soft small" Command="{Binding CancelCommand}" Content="{l:T 'Abbrechen'}" Margin="12,0,0,0">
+                            <ToolTip.Tip><l:T Text="Den Scanner anhalten — schon gescannte Seiten bleiben" /></ToolTip.Tip>
+                        </Button>
+                        <StackPanel Spacing="6">
+                            <TextBlock FontWeight="SemiBold" Text="{Binding ProgressText}" />
+                            <ProgressBar Minimum="0" Maximum="1" Value="{Binding Progress}" IsIndeterminate="{Binding ProgressUnknown}"
+                                         AutomationProperties.Name="{l:T 'Fortschritt des Blatts'}" />
+                        </StackPanel>
+                    </DockPanel>
+                </Border>
+                <!-- turning by hand: the angle, the grid lies over the preview -->
+                <Border Grid.Row="2" Margin="16,0,16,8" Padding="12,8" Classes="card" IsVisible="{Binding IsFreeRotating}">
+                    <DockPanel>
+                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="6" Margin="12,0,0,0" VerticalAlignment="Center">
+                            <Button Classes="soft" Command="{Binding AutoAngleCommand}" Content="{l:T 'Automatisch'}">
+                                <ToolTip.Tip><l:T Text="Den von Hand gesetzten Winkel vergessen — die Seite wird wieder automatisch begradigt" /></ToolTip.Tip>
+                            </Button>
+                            <Button Classes="soft" Command="{Binding CancelFreeRotateCommand}" Content="{l:T 'Abbrechen'}" />
+                            <Button Classes="primary" Command="{Binding ConfirmFreeRotateCommand}" Content="{l:T 'Übernehmen'}" />
+                        </StackPanel>
+                        <TextBlock DockPanel.Dock="Left" VerticalAlignment="Center" FontWeight="SemiBold" Text="{l:T 'Frei drehen'}" Margin="0,0,12,0" />
+                        <TextBlock DockPanel.Dock="Right" VerticalAlignment="Center" Width="56" TextAlignment="Right" Text="{Binding FreeAngleText}" />
+                        <Slider Minimum="-20" Maximum="20" SmallChange="0.1" LargeChange="1" Value="{Binding FreeAngle}" VerticalAlignment="Center"
+                                AutomationProperties.Name="{l:T 'Winkel'}">
+                            <ToolTip.Tip><l:T Text="Die Seite am Gitter ausrichten — Pfeiltasten 0,1°, Bild auf/ab 1°, Enter übernimmt, Esc bricht ab" /></ToolTip.Tip>
+                        </Slider>
+                    </DockPanel>
+                </Border>
+                <DockPanel Grid.Row="3" Margin="16,0,16,6">
+                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="6">
+                        <!-- zoom of the preview: 100 % fits the page into the area; Ctrl+wheel zooms too, dragging moves the page -->
+                        <PathIcon Data="{StaticResource Icon.ZoomOut}" Width="14" Height="14" Foreground="{DynamicResource TextMutedBrush}" VerticalAlignment="Center" />
+                        <Slider Name="PreviewZoom" Width="120" Minimum="1" Maximum="8" Value="{Binding #PreviewView.Zoom}" VerticalAlignment="Center"
+                                AutomationProperties.Name="{l:T 'Zoom der Vorschau'}">
+                            <ToolTip.Tip><l:T Text="Vorschau vergrößern — auch mit Strg+Mausrad; die Seite mit der Maus frei verschieben" /></ToolTip.Tip>
+                        </Slider>
+                        <PathIcon Data="{StaticResource Icon.ZoomIn}" Width="14" Height="14" Foreground="{DynamicResource TextMutedBrush}" VerticalAlignment="Center" />
+                        <TextBlock Name="PreviewZoomText" Classes="muted small" Width="40" VerticalAlignment="Center" TextAlignment="Right"
+                                   Text="{Binding #PreviewView.Zoom, StringFormat={}{0:P0}}" />
+                        <Button Name="PreviewFit" Classes="soft" AutomationProperties.Name="{l:T 'Ganze Seite'}" Margin="0,0,10,0">
+                            <PathIcon Data="{StaticResource Icon.ArrowAutofitHeight}" Width="16" Height="16" />
+                            <ToolTip.Tip><l:T Text="Ganze Seite zeigen" /></ToolTip.Tip>
+                        </Button>
+                        <Button Classes="soft" Command="{Binding ToggleStraightenCommand}" IsVisible="{Binding CurrentStraightened}"
+                                AutomationProperties.Name="{Binding StraightenToggleText}">
+                            <PathIcon Data="{StaticResource Icon.ArrowReset}" Width="16" Height="16" />
+                            <ToolTip.Tip><TextBlock Text="{Binding StraightenToggleText}" /></ToolTip.Tip>
+                        </Button>
+                        <Button Classes="soft" Command="{Binding SplitAtSpineCommand}" AutomationProperties.Name="{l:T 'Am Bund teilen'}">
+                            <PathIcon Data="{StaticResource Icon.SplitVertical}" Width="16" Height="16" />
+                            <ToolTip.Tip><l:T Text="Doppelseite teilen: die gewählten Seiten am Bund in je zwei Seiten teilen (ohne erkennbaren Bund in der Mitte)" /></ToolTip.Tip>
+                        </Button>
+                        <Button Classes="soft" Command="{Binding StartFreeRotateCommand}" AutomationProperties.Name="{l:T 'Frei drehen'}">
+                            <PathIcon Data="{StaticResource Icon.Angle}" Width="16" Height="16" />
+                            <ToolTip.Tip><l:T Text="Frei drehen: die Seite von Hand an einem Gitter ausrichten, wenn das automatische Begradigen nicht passt" /></ToolTip.Tip>
+                        </Button>
+                        <Button Classes="soft" Command="{Binding RotateLeftCommand}" AutomationProperties.Name="{l:T 'Nach links drehen'}">
+                            <PathIcon Data="{StaticResource Icon.ArrowRotateCounterclockwise}" Width="16" Height="16" />
+                            <ToolTip.Tip><l:T Text="Gewählte Seiten um 90° nach links drehen" /></ToolTip.Tip>
+                        </Button>
+                        <Button Classes="soft" Command="{Binding RotateRightCommand}" AutomationProperties.Name="{l:T 'Nach rechts drehen'}">
+                            <PathIcon Data="{StaticResource Icon.ArrowRotateClockwise}" Width="16" Height="16" />
+                            <ToolTip.Tip><l:T Text="Gewählte Seiten um 90° nach rechts drehen" /></ToolTip.Tip>
+                        </Button>
+                        <Button Classes="soft" Command="{Binding DeleteCommand}" AutomationProperties.Name="{l:T 'Seiten löschen'}">
+                            <PathIcon Data="{StaticResource Icon.Delete}" Width="16" Height="16" />
+                            <ToolTip.Tip><l:T Text="Gewählte Seiten löschen (Entf)" /></ToolTip.Tip>
+                        </Button>
+                        <!-- before/after, rightmost in the bar above the preview -->
+                        <ToggleButton Name="CompareToggle" Classes="soft" Margin="10,0,0,0" IsChecked="{Binding Compare}" IsEnabled="{Binding !IsFreeRotating}"
+                                      Content="{l:T '◧  Vorher / Nachher'}" AutomationProperties.Name="{l:T 'Vorher / Nachher'}">
+                            <ToolTip.Tip><l:T Text="Vergleich mit Trennlinie: links vorher (wie gescannt, nur begradigt), rechts nach der Nachbearbeitung. Die Linie mit der Maus über die Seite ziehen; Zoom und Ausschnitt bleiben gleich." /></ToolTip.Tip>
+                        </ToggleButton>
+                    </StackPanel>
+                    <TextBlock VerticalAlignment="Center" Classes="muted" Text="{Binding CurrentText}" />
+                </DockPanel>
+                <Border Grid.Row="4" Margin="16,0,16,0" Background="{DynamicResource CanvasBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1"
+                        CornerRadius="{DynamicResource RadiusSmall}" ClipToBounds="True">
+                    <Panel>
+                        <c:ScanPreview Name="PreviewView" After="{Binding Preview}" Before="{Binding PreviewBefore}" Compare="{Binding Compare}"
+                                       Rotation="{Binding PreviewRotation}" BeforeLabel="{l:T 'Vorher'}" AfterLabel="{l:T 'Nachher'}"
+                                       AutomationProperties.Name="{l:T 'Vorschau der Seite'}">
+                            <ToolTip.Tip><l:T Text="Ziehen verschiebt die Seite (bis zur Mitte ihrer Ränder), Strg+Mausrad zoomt, Doppelklick zeigt die ganze Seite" /></ToolTip.Tip>
+                        </c:ScanPreview>
+                        <c:GridOverlay Name="RotateGrid" IsVisible="{Binding IsFreeRotating}" Spacing="32" />
+                    </Panel>
+                </Border>
+            </Grid>
+
+            <!-- fixed foot: taking over -->
+            <Border Grid.Row="4" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0" Margin="0,10,0,0">
+                <DockPanel Margin="16,12">
+                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8">
+                        <Button Classes="soft" Command="{Binding SaveImagesCommand}" Content="{l:T 'Als Bild speichern …'}">
+                            <ToolTip.Tip><l:T Text="Alle oder die gewählten Seiten aufbereitet als PNG, JPEG, TIFF oder WebP in einen Ordner speichern" /></ToolTip.Tip>
+                        </Button>
+                        <Button Classes="soft" Command="{Binding TakeOverAppendCommand}" IsVisible="{Binding CanAppend}"
+                                Content="{l:T 'An offenes Dokument anhängen'}">
+                            <ToolTip.Tip><l:T Text="Die Seiten ans Ende des geöffneten Dokuments setzen — Strg+Z nimmt es zurück" /></ToolTip.Tip>
+                        </Button>
+                        <Button Classes="primary" Command="{Binding TakeOverNewCommand}" Content="{l:T 'Als neues Dokument übernehmen'}">
+                            <ToolTip.Tip><l:T Text="Die Seiten als neues, noch nicht gespeichertes Dokument in PDF-Knead öffnen" /></ToolTip.Tip>
+                        </Button>
+                    </StackPanel>
+                    <CheckBox VerticalAlignment="Center" IsChecked="{Binding RecognizeAfter}" Content="{l:T 'Texterkennung nach der Übernahme starten'}">
+                        <ToolTip.Tip><l:T Text="Macht den Text der gescannten Seiten durchsuchbar und kopierbar" /></ToolTip.Tip>
+                    </CheckBox>
+                </DockPanel>
+            </Border>
+        </Grid>
+    </Grid>
+
+    <!-- ============================ status bar: what is happening, progress per page ============================ -->
+    <Border Grid.Row="1" Background="{DynamicResource SurfaceAltBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0">
+        <DockPanel Margin="16,6" MinHeight="26">
+            <!-- searching and connecting: only that something happens -->
+            <ProgressBar DockPanel.Dock="Right" Width="160" IsIndeterminate="True" IsVisible="{Binding ShowsProgress}" VerticalAlignment="Center"
+                         AutomationProperties.Name="{l:T 'Fortschritt'}" />
+            <TextBlock VerticalAlignment="Center" TextWrapping="Wrap" Text="{Binding Status}" Classes.error="{Binding StatusIsError}"
+                       AutomationProperties.LiveSetting="Polite" />
+        </DockPanel>
+    </Border>
+    </Grid>
+</Window>

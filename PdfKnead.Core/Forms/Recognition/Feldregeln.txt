@@ -1,0 +1,25 @@
+# Regeln der Formularerkennung (KONZEPT.md, Abschnitt 5.9a): welche Beschriftung welche Art von Feld meint.
+# Je Zeile eine Art, dann Stichwörter, durch Semikolon getrennt. Ein Stichwort trifft, wenn es in der Beschriftung vorkommt
+# (Groß- und Kleinschreibung egal); Stichwörter bis drei Zeichen nur als ganzes Wort. Die erste passende Art gilt.
+# Arten: text, unterschrift, datum, datum-en, betrag, betrag-en, zahl, plz, email, telefon, iban, mehrzeilig, pflicht, option
+# „text“ zuerst: Beschriftungen, die ein Stichwort einer anderen Art enthalten, aber freien Text meinen („Ort, Datum“).
+text: ort, datum; ort und datum; ort/datum; ort / datum; place, date; place and date; place/date
+# Hausnummern haben oft Buchstaben („12a“): Text, keine Zahl
+text: hausnummer; hausnr; house number
+unterschrift: unterschrift; unterzeichn; signatur
+unterschrift: signature; sign here; signed by
+datum: datum; geboren am; geburtstag; gültig bis; gültig ab; ausgestellt am
+datum-en: date; date of birth; valid until
+betrag: betrag; summe; preis; gesamtbetrag; gesamtpreis; gesamt; kosten; gebühr; euro; eur; €
+betrag-en: amount; total; price; fee; sum
+zahl: anzahl; menge; stück; alter; nr.; anzahl der
+zahl: quantity; qty; number of; age
+plz: plz; postleitzahl
+plz: zip; postal code; postcode
+email: e-mail; email; mail
+telefon: telefon; tel.; tel:; mobil; handy; fax; phone; mobile
+iban: iban
+mehrzeilig: bemerkung; bemerkungen; anmerkung; begründung; beschreibung; kommentar; sonstiges
+mehrzeilig: remarks; comments; notes; description; reason
+pflicht: *; pflichtfeld; pflichtangabe; required; mandatory
+option: ja; nein; männlich; weiblich; divers; keine angabe; frau; herr; yes; no; male; female; other; mr; mrs; ms

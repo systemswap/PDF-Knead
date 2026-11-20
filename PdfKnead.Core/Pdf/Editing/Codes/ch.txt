@@ -1,0 +1,19 @@
+# PDF-Knead – Schwärzungscodes
+# Eine Zeile je Code, Spalten durch Tabulator getrennt:
+#   Code	Kurztext	Bedeutung	Rechtsgrundlage	Fundarten (E-Mail, Telefon, IBAN, Karte, Datum, Person, Firma, Anschrift; mit Komma getrennt, leer: keine)
+# Der Code steht im Balken, Kurztext, Bedeutung und Rechtsgrundlage im Schwärzungsprotokoll.
+# Eigene Wörter und Namen bekommen den in „Suchen und schwärzen“ gewählten Code.
+# Ohne Gewähr – die Texte fassen die Vorschriften in eigenen Worten zusammen; vor dem Einsatz mit dem geltenden Recht abgleichen.
+Land	Schweiz (Bund)
+Stand	11/2026
+Art. 7 Abs. 1 Bst. a BGÖ	Meinungs- und Willensbildung einer Behörde	Der Zugang würde die freie Meinungs- und Willensbildung einer Behörde wesentlich beeinträchtigen.	Öffentlichkeitsgesetz (BGÖ), Art. 7 Abs. 1 Bst. a
+Art. 7 Abs. 1 Bst. b BGÖ	Durchführung behördlicher Massnahmen	Der Zugang würde die zielkonforme Durchführung konkreter behördlicher Massnahmen beeinträchtigen.	Öffentlichkeitsgesetz (BGÖ), Art. 7 Abs. 1 Bst. b
+Art. 7 Abs. 1 Bst. c BGÖ	Innere oder äussere Sicherheit	Der Zugang könnte die innere oder äussere Sicherheit der Schweiz gefährden.	Öffentlichkeitsgesetz (BGÖ), Art. 7 Abs. 1 Bst. c
+Art. 7 Abs. 1 Bst. d BGÖ	Aussenpolitische Interessen	Der Zugang könnte aussenpolitische Interessen oder internationale Beziehungen der Schweiz beeinträchtigen.	Öffentlichkeitsgesetz (BGÖ), Art. 7 Abs. 1 Bst. d
+Art. 7 Abs. 1 Bst. e BGÖ	Beziehungen zwischen Bund und Kantonen	Der Zugang könnte die Beziehungen zwischen dem Bund und den Kantonen oder zwischen Kantonen beeinträchtigen.	Öffentlichkeitsgesetz (BGÖ), Art. 7 Abs. 1 Bst. e
+Art. 7 Abs. 1 Bst. f BGÖ	Wirtschafts-, Geld- und Währungspolitik	Der Zugang könnte wirtschafts-, geld- oder währungspolitische Interessen der Schweiz gefährden.	Öffentlichkeitsgesetz (BGÖ), Art. 7 Abs. 1 Bst. f
+Art. 7 Abs. 1 Bst. g BGÖ	Berufs-, Geschäfts- oder Fabrikationsgeheimnisse	Der Zugang würde Berufs-, Geschäfts- oder Fabrikationsgeheimnisse offenbaren.	Öffentlichkeitsgesetz (BGÖ), Art. 7 Abs. 1 Bst. g
+Art. 7 Abs. 1 Bst. h BGÖ	Vertraulich mitgeteilte Informationen	Informationen, die Dritte der Behörde freiwillig mitgeteilt haben und deren Geheimhaltung die Behörde zugesichert hat.	Öffentlichkeitsgesetz (BGÖ), Art. 7 Abs. 1 Bst. h
+Art. 7 Abs. 2 BGÖ	Privatsphäre Dritter	Der Zugang würde die Privatsphäre Dritter beeinträchtigen.	Öffentlichkeitsgesetz (BGÖ), Art. 7 Abs. 2
+Art. 9 BGÖ	Schutz von Personendaten	Personendaten und Daten juristischer Personen werden vor der Einsichtnahme nach Möglichkeit anonymisiert.	Öffentlichkeitsgesetz (BGÖ), Art. 9	E-Mail, Telefon, IBAN, Karte, Datum, Person, Firma, Anschrift
+Art. 5 Bst. c DSG	Besonders schützenswerte Personendaten	Etwa Gesundheit, religiöse, weltanschauliche oder politische Ansichten, Herkunft, genetische und biometrische Daten, Massnahmen der sozialen Hilfe, strafrechtliche Verfolgung.	Datenschutzgesetz (DSG), Art. 5 Bst. c

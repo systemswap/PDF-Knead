@@ -1,0 +1,47 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Tests des abtrennbaren Bausteins „E-Rechnung prüfen“ (KONZEPT.md §5.24). Wird mit dem Baustein gelöscht; die allgemeinen
+       Testhilfen kommen verlinkt aus PdfKnead.Tests, damit dort nichts vom Baustein abhängt. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <!-- the interface tests run headless, as in the main tests -->
+    <PackageReference Include="Avalonia.Headless" />
+    <PackageReference Include="Avalonia.Skia" />
+    <!-- Skias native Bibliothek unter Linux: das SkiaSharp-Paket von PdfKnead.Rendering bringt keine für Linux mit, das Haupttestprojekt bekommt sie über
+         Avalonia.Skia (Fehlergedächtnis 852) -->
+    <PackageReference Include="SkiaSharp.NativeAssets.Linux" Condition="$([MSBuild]::IsOSPlatform('Linux'))" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PdfKnead.EInvoice\PdfKnead.EInvoice.csproj" />
+    <!-- the interface of the module (stage 5): its tab and area in the main window, tested headless -->
+    <ProjectReference Include="..\PdfKnead.EInvoice.Ui\PdfKnead.EInvoice.Ui.csproj" />
+    <ProjectReference Include="..\PdfKnead.Core\PdfKnead.Core.csproj" />
+    <!-- hidden text is measured by drawing (stage 3), as in the program -->
+    <ProjectReference Include="..\PdfKnead.Rendering\PdfKnead.Rendering.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- allgemeine Testhilfen (Testdateien bauen, lokale Testsammlung, Zeitfaktor) -->
+    <Compile Include="..\PdfKnead.Tests\TestFiles.cs" Link="Shared\TestFiles.cs" />
+    <Compile Include="..\PdfKnead.Tests\TestPdfs.cs" Link="Shared\TestPdfs.cs" />
+    <Compile Include="..\PdfKnead.Tests\TestKind.cs" Link="Shared\TestKind.cs" />
+    <Compile Include="..\PdfKnead.Tests\VisibilitySetup.cs" Link="Shared\VisibilitySetup.cs" />
+    <Compile Include="..\PdfKnead.Tests\Ui\UiSession.cs" Link="Shared\UiSession.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+    <Using Include="PdfKnead.Core.Localization" />
+    <Using Include="PdfKnead.Core.Platform" />
+  </ItemGroup>
+
+</Project>

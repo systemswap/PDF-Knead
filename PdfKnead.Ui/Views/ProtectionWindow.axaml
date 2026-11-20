@@ -1,0 +1,69 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:l="using:PdfKnead.Localization"
+        x:Class="PdfKnead.Views.ProtectionWindow"
+        Title="{l:T 'Passwort und Rechte'}"
+        Icon="/Assets/app.ico"
+        Width="520" SizeToContent="Height"
+        CanResize="False" ShowInTaskbar="False"
+        WindowStartupLocation="CenterOwner">
+    <StackPanel Margin="24" Spacing="14">
+        <StackPanel Orientation="Horizontal" Spacing="12">
+            <Border Width="40" Height="40" CornerRadius="20" Background="{DynamicResource AccentSoftBrush}">
+                <PathIcon Data="{StaticResource Icon.LockClosed}" Width="20" Height="20" Foreground="{DynamicResource AccentBrush}" />
+            </Border>
+            <StackPanel VerticalAlignment="Center" Spacing="2">
+                <TextBlock FontWeight="SemiBold" FontSize="15" Text="{l:T 'Passwort und Rechte'}" />
+                <TextBlock Name="CipherText" Classes="muted" />
+            </StackPanel>
+        </StackPanel>
+
+        <!-- Öffnen-Passwort -->
+        <StackPanel Spacing="6">
+            <CheckBox Name="OpenBox" Content="{l:T 'Zum Öffnen ein Passwort verlangen'}" />
+            <Grid ColumnDefinitions="*,8,*" IsEnabled="{Binding #OpenBox.IsChecked}" Margin="28,0,0,0">
+                <TextBox Name="OpenPassword" PasswordChar="•" Classes="revealPasswordButton"
+                         PlaceholderText="{l:T 'Passwort'}" AutomationProperties.Name="{l:T 'Passwort zum Öffnen'}" />
+                <TextBox Grid.Column="2" Name="OpenRepeat" PasswordChar="•" Classes="revealPasswordButton"
+                         PlaceholderText="{l:T 'Wiederholen'}" AutomationProperties.Name="{l:T 'Passwort zum Öffnen wiederholen'}" />
+            </Grid>
+        </StackPanel>
+
+        <!-- Rechte -->
+        <StackPanel Spacing="6">
+            <CheckBox Name="RightsBox" Content="{l:T 'Rechte einschränken'}" />
+            <StackPanel Spacing="6" Margin="28,0,0,0" IsEnabled="{Binding #RightsBox.IsChecked}">
+                <Grid ColumnDefinitions="*,8,*">
+                    <TextBox Name="OwnerPassword" PasswordChar="•" Classes="revealPasswordButton"
+                             PlaceholderText="{l:T 'Rechte-Passwort'}" AutomationProperties.Name="{l:T 'Rechte-Passwort'}" />
+                    <TextBox Grid.Column="2" Name="OwnerRepeat" PasswordChar="•" Classes="revealPasswordButton"
+                             PlaceholderText="{l:T 'Wiederholen'}" AutomationProperties.Name="{l:T 'Rechte-Passwort wiederholen'}" />
+                </Grid>
+                <Grid ColumnDefinitions="Auto,*" Margin="0,4,0,0">
+                    <TextBlock VerticalAlignment="Center" Text="{l:T 'Drucken'}" Margin="0,0,12,0" />
+                    <ComboBox Grid.Column="1" Name="PrintChoice" MinWidth="220" AutomationProperties.Name="{l:T 'Drucken'}" />
+                </Grid>
+                <CheckBox Name="CopyBox" Content="{l:T 'Text und Bilder kopieren'}" />
+                <CheckBox Name="ModifyBox" Content="{l:T 'Inhalt ändern'}" />
+                <CheckBox Name="AnnotateBox" Content="{l:T 'Kommentieren'}" />
+                <CheckBox Name="FormsBox" Content="{l:T 'Formulare ausfüllen und unterschreiben'}" />
+                <CheckBox Name="AssembleBox" Content="{l:T 'Seiten einfügen, drehen und löschen'}" />
+            </StackPanel>
+        </StackPanel>
+
+        <Border Background="{DynamicResource AccentSoftBrush}" CornerRadius="{DynamicResource RadiusControl}" Padding="12,8">
+            <TextBlock TextWrapping="Wrap" FontSize="12"
+                       Text="{l:T 'Ohne Passwort zum Öffnen sind Rechte nur eine Bitte an das Anzeigeprogramm — nicht jedes hält sich daran. Wirklich nicht mehr kopierbar ist nur „Flachlegen als Bild“.'}" />
+        </Border>
+
+        <TextBlock Name="ErrorText" Foreground="{DynamicResource DangerBrush}" TextWrapping="Wrap" IsVisible="False" />
+
+        <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,4,0,0">
+            <Button Name="RemoveButton" Content="{l:T 'Schutz entfernen'}" Click="OnRemove" />
+            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8">
+                <Button Content="{l:T 'Abbrechen'}" Click="OnCancel" IsCancel="True" />
+                <Button Classes="primary" Content="{l:T 'Übernehmen'}" Click="OnApply" IsDefault="True" />
+            </StackPanel>
+        </Grid>
+    </StackPanel>
+</Window>

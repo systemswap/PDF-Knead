@@ -1,0 +1,161 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             Background="{DynamicResource SurfaceAltBrush}"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:l="using:PdfKnead.Localization"
+             xmlns:vm="using:PdfKnead.ViewModels"
+             x:Class="PdfKnead.Views.CodePropertiesPanel"
+             x:DataType="vm:CodePropertiesViewModel">
+    <!-- Eigenschaften des ausgewählten Codes (KONZEPT §5.19), rechts wie bei Formen und Bildern -->
+    <UserControl.Resources>
+        <DataTemplate x:Key="LabelTemplate" x:DataType="vm:ILabeled">
+            <TextBlock>
+                <TextBlock.Text>
+                    <MultiBinding Converter="{x:Static l:T.Translate}">
+                        <Binding Path="Label" />
+                        <x:Static Member="l:T.LanguageVersion" />
+                    </MultiBinding>
+                </TextBlock.Text>
+            </TextBlock>
+        </DataTemplate>
+        <DataTemplate x:Key="ColorTemplate" x:DataType="vm:FieldColorOption">
+            <StackPanel Orientation="Horizontal" Spacing="6">
+                <Border Width="14" Height="14" CornerRadius="3" Background="{Binding Brush}" BorderBrush="{DynamicResource LineStrongBrush}"
+                        BorderThickness="1" VerticalAlignment="Center" />
+                <TextBlock VerticalAlignment="Center">
+                    <TextBlock.Text>
+                        <MultiBinding Converter="{x:Static l:T.Translate}">
+                            <Binding Path="Label" />
+                            <x:Static Member="l:T.LanguageVersion" />
+                        </MultiBinding>
+                    </TextBlock.Text>
+                </TextBlock>
+            </StackPanel>
+        </DataTemplate>
+    </UserControl.Resources>
+    <UserControl.Styles>
+        <StyleInclude Source="avares://PdfKnead.Ui/Styles/PropertyPanel.axaml" />
+    </UserControl.Styles>
+
+    <DockPanel>
+        <Border DockPanel.Dock="Top" Classes="propBanner">
+            <Grid ColumnDefinitions="Auto,*">
+                <Border Classes="bannerIcon"><PathIcon Data="{StaticResource Icon.QrCode}" /></Border>
+                <TextBlock Grid.Column="1" Margin="10,0,0,0" FontWeight="SemiBold" FontSize="14" VerticalAlignment="Center" Text="{Binding Title}" />
+            </Grid>
+        </Border>
+        <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+            <StackPanel Margin="0,0,0,12">
+                <!-- Art und Inhalt -->
+                <Border Classes="propCard">
+                    <StackPanel>
+                        <StackPanel Classes="propHeader">
+                            <Border Classes="propBadge"><PathIcon Data="{StaticResource Icon.TextField}" /></Border>
+                            <TextBlock Classes="propTitle" Text="{l:T 'Inhalt'}" />
+                        </StackPanel>
+                        <TextBlock Classes="caption" Text="{l:T 'Codeart'}" />
+                        <ComboBox Name="FormatBox" ItemsSource="{x:Static vm:CodePropertiesViewModel.Formats}" SelectedItem="{Binding Format}"
+                                  ItemTemplate="{StaticResource LabelTemplate}" AutomationProperties.Name="{l:T 'Codeart'}">
+                            <ToolTip.Tip><l:T Text="QR-Code und Data Matrix für Text und Adressen; EAN und UPC für Artikelnummern; Code 128, Code 39 und ITF für Nummern und Etiketten" /></ToolTip.Tip>
+                        </ComboBox>
+                        <TextBlock Classes="caption" Margin="0,8,0,0" Text="{l:T 'Inhalt'}" />
+                        <TextBox Name="ContentBox" Text="{Binding Text, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="{Binding IsMatrix}" TextWrapping="Wrap"
+                                 MinHeight="30" MaxHeight="160" AutomationProperties.Name="{l:T 'Inhalt des Codes'}">
+                            <ToolTip.Tip><l:T Text="Was der Code enthält — er ändert sich beim Tippen" /></ToolTip.Tip>
+                        </TextBox>
+                        <TextBlock Classes="hint" Margin="0,4,0,0" Text="{Binding ContentHint}" />
+                        <TextBlock Margin="0,6,0,0" FontSize="12" TextWrapping="Wrap" Foreground="{DynamicResource DangerBrush}"
+                                   Text="{Binding Error}" IsVisible="{Binding HasError}" />
+                        <TextBlock Margin="0,6,0,0" FontSize="12" TextWrapping="Wrap" Foreground="{DynamicResource WarnBrush}" Text="{Binding BesideHint}"
+                                   IsVisible="{Binding BesideHint, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                        <CheckBox Margin="0,8,0,0" IsChecked="{Binding Gs1}" IsVisible="{Binding IsMatrix}" Content="{l:T 'GS1-Daten'}"
+                                  AutomationProperties.Name="{l:T 'GS1-Daten'}">
+                            <ToolTip.Tip><l:T Text="Für Waren und Logistik: Datenbezeichner in Klammern, z. B. (01) für die Artikelnummer, (17) für das Verfallsdatum" /></ToolTip.Tip>
+                        </CheckBox>
+                    </StackPanel>
+                </Border>
+
+                <!-- Einstellungen der Codeart -->
+                <Border Classes="propCard">
+                    <StackPanel>
+                        <StackPanel Classes="propHeader">
+                            <Border Classes="propBadge"><PathIcon Data="{StaticResource Icon.Settings}" /></Border>
+                            <TextBlock Classes="propTitle" Text="{l:T 'Darstellung'}" />
+                        </StackPanel>
+                        <StackPanel IsVisible="{Binding IsQr}">
+                            <TextBlock Classes="caption" Text="{l:T 'Fehlerkorrektur'}" />
+                            <ComboBox ItemsSource="{x:Static vm:CodePropertiesViewModel.Levels}" SelectedItem="{Binding Level}"
+                                      ItemTemplate="{StaticResource LabelTemplate}" AutomationProperties.Name="{l:T 'Fehlerkorrektur'}">
+                                <ToolTip.Tip><l:T Text="Wie viel eines beschädigten Codes noch gelesen werden kann — höher macht den Code dichter" /></ToolTip.Tip>
+                            </ComboBox>
+                        </StackPanel>
+                        <StackPanel IsVisible="{Binding IsDataMatrix}">
+                            <TextBlock Classes="caption" Text="{l:T 'Form'}" />
+                            <ComboBox ItemsSource="{x:Static vm:CodePropertiesViewModel.Shapes}" SelectedItem="{Binding Shape}"
+                                      ItemTemplate="{StaticResource LabelTemplate}" AutomationProperties.Name="{l:T 'Form des Codes'}">
+                                <ToolTip.Tip><l:T Text="Rechteckig passt in schmale Felder, etwa auf Etiketten" /></ToolTip.Tip>
+                            </ComboBox>
+                        </StackPanel>
+                        <Grid ColumnDefinitions="*,8,*" Margin="0,6,0,0">
+                            <StackPanel Grid.Column="0">
+                                <TextBlock Classes="caption" Text="{l:T 'Farbe'}" />
+                                <ComboBox ItemsSource="{x:Static vm:CodePropertiesViewModel.Colors}" SelectedItem="{Binding Color}"
+                                          ItemTemplate="{StaticResource ColorTemplate}" AutomationProperties.Name="{l:T 'Farbe des Codes'}" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="2">
+                                <TextBlock Classes="caption" Text="{l:T 'Hintergrund'}" />
+                                <ComboBox ItemsSource="{x:Static vm:CodePropertiesViewModel.Backgrounds}" SelectedItem="{Binding Background}"
+                                          ItemTemplate="{StaticResource ColorTemplate}" AutomationProperties.Name="{l:T 'Hintergrund des Codes'}">
+                                    <ToolTip.Tip><l:T Text="„Keine“ lässt die Seite durchscheinen" /></ToolTip.Tip>
+                                </ComboBox>
+                            </StackPanel>
+                        </Grid>
+                        <CheckBox Margin="0,8,0,0" IsChecked="{Binding QuietZone}" Content="{l:T 'Ruhezone (freier Rand)'}"
+                                  AutomationProperties.Name="{l:T 'Ruhezone'}">
+                            <ToolTip.Tip><l:T Text="Freier Rand um den Code, den Scanner brauchen — nur weglassen, wenn um den Code ohnehin Platz ist" /></ToolTip.Tip>
+                        </CheckBox>
+                        <CheckBox Margin="0,4,0,0" IsChecked="{Binding Caption}" IsVisible="{Binding IsLinear}" Content="{l:T 'Klartext darunter'}"
+                                  AutomationProperties.Name="{l:T 'Klartext darunter'}">
+                            <ToolTip.Tip><l:T Text="Die Ziffern bzw. der Text unter den Strichen, zum Abtippen" /></ToolTip.Tip>
+                        </CheckBox>
+                    </StackPanel>
+                </Border>
+
+                <!-- Alternativtext -->
+                <Border Classes="propCard">
+                    <StackPanel>
+                        <StackPanel Classes="propHeader">
+                            <Border Classes="propBadge"><PathIcon Data="{StaticResource Icon.ImageAltText}" /></Border>
+                            <TextBlock Classes="propTitle" Text="{l:T 'Alternativtext'}" />
+                        </StackPanel>
+                        <TextBox Text="{Binding AltText, UpdateSourceTrigger=LostFocus}" PlaceholderText="{Binding AltTextDefault}" TextWrapping="Wrap"
+                                 AutomationProperties.Name="{l:T 'Alternativtext für Bildschirmleser'}">
+                            <ToolTip.Tip><l:T Text="Was Bildschirmleser vorlesen — leer: die Codeart und der Inhalt" /></ToolTip.Tip>
+                        </TextBox>
+                    </StackPanel>
+                </Border>
+
+                <!-- Prüfung -->
+                <Border Classes="propCard" IsVisible="{Binding !HasError}">
+                    <StackPanel Spacing="4">
+                        <StackPanel Classes="propHeader">
+                            <Border Classes="propBadge"><PathIcon Data="{StaticResource Icon.CheckmarkCircle}" /></Border>
+                            <TextBlock Classes="propTitle" Text="{l:T 'Prüfung'}" />
+                        </StackPanel>
+                        <TextBlock FontSize="12" Text="{Binding ModuleText}" />
+                        <TextBlock FontSize="12" TextWrapping="Wrap" Foreground="{DynamicResource WarnBrush}" Text="{Binding ModuleWarning}"
+                                   IsVisible="{Binding ModuleWarning, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                        <TextBlock FontSize="12" TextWrapping="Wrap" Foreground="{DynamicResource WarnBrush}" Text="{Binding ContrastWarning}"
+                                   IsVisible="{Binding ContrastWarning, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                        <TextBlock Name="CheckLine" FontSize="12" TextWrapping="Wrap" Text="{Binding CheckText}" Classes.failed="{Binding CheckFailed}">
+                            <TextBlock.Styles>
+                                <Style Selector="TextBlock.failed">
+                                    <Setter Property="Foreground" Value="{DynamicResource DangerBrush}" />
+                                </Style>
+                            </TextBlock.Styles>
+                        </TextBlock>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+    </DockPanel>
+</UserControl>

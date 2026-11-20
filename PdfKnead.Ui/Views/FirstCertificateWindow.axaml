@@ -1,0 +1,28 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:l="using:PdfKnead.Localization"
+        x:Class="PdfKnead.Views.FirstCertificateWindow"
+        Title="{l:T 'Ihr Name für Unterschriften'}"
+        Icon="/Assets/app.ico"
+        Width="520" SizeToContent="Height"
+        CanResize="False" ShowInTaskbar="False"
+        WindowStartupLocation="CenterOwner">
+    <StackPanel Margin="24" Spacing="14">
+        <StackPanel Orientation="Horizontal" Spacing="12">
+            <Border Width="40" Height="40" CornerRadius="20" Background="{DynamicResource AccentSoftBrush}">
+                <PathIcon Data="{StaticResource Icon.ShieldLock}" Width="20" Height="20" Foreground="{DynamicResource AccentBrush}" />
+            </Border>
+            <TextBlock VerticalAlignment="Center" FontWeight="SemiBold" FontSize="15" Text="{l:T 'Ihr Name für Unterschriften'}" />
+        </StackPanel>
+        <TextBlock TextWrapping="Wrap"
+                   Text="{l:T 'Mit Ihrem Namen legt PDF-Knead Ihr eigenes Zertifikat an. Damit können Sie Unterschriften digital signieren: PDF-Leser zeigen dann, wer unterschrieben hat und ob das Dokument danach geändert wurde. Der Name steht im Zertifikat und unter Ihren Unterschriften.'}" />
+        <TextBox Name="NameBox" PlaceholderText="{l:T 'Vor- und Nachname'}" AutomationProperties.Name="{l:T 'Ihr Name'}" />
+        <TextBlock Classes="muted" FontSize="12" TextWrapping="Wrap"
+                   Text="{l:T 'Ein Firmenzertifikat können Sie später im Reiter Unterschrift unter „Zertifikat“ wählen.'}" />
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,4,0,0">
+            <Button Content="{l:T 'Später'}" Click="OnLater" IsCancel="True"
+                    ToolTip.Tip="{l:T 'Dann wird das Zertifikat beim ersten digitalen Signieren angelegt.'}" />
+            <Button Name="CreateButton" Classes="primary" Content="{l:T 'Zertifikat anlegen'}" Click="OnCreate" IsDefault="True" />
+        </StackPanel>
+    </StackPanel>
+</Window>

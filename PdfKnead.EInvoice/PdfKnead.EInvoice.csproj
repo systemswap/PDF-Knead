@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <!-- E-Rechnung prüfen (KONZEPT.md §5.24) als abtrennbarer Baustein: der ganze Prüfer mit eigenen englischen Texten und dem Befehl
+         der Kommandozeile. Der Kern kennt ihn nicht; angedockt wird er nur an den Stellen, die KONZEPT §5.24 „Aufbau und Entfernen“
+         nennt (der Test EInvoiceModuleTests wacht darüber). Entfernen: diesen Ordner und PdfKnead.EInvoice.Tests löschen, die
+         Andockstellen streichen. -->
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <LangVersion>latest</LangVersion>
+        <IsAotCompatible>true</IsAotCompatible>
+        <RootNamespace>PdfKnead.EInvoice</RootNamespace>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\PdfKnead.Core\PdfKnead.Core.csproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <InternalsVisibleTo Include="PdfKnead.EInvoice.Tests" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <!-- die Zuordnungstabellen (erzeugt von Zuordnung/erzeugen.py aus der Visualisierung der KoSIT, Apache-2.0) -->
+        <EmbeddedResource Include="Zuordnung\*.tsv" LogicalName="Zuordnung.%(Filename)%(Extension)" WithCulture="false" />
+        <!-- die XML-Schemata der Schemaprüfung (Stufe 4, Teil f), unverändert wie vom Herausgeber: UBL 2.1 (OASIS), CII D16B (UN/CEFACT),
+             die Profilschemata von Factur-X 1.09.2 / ZUGFeRD 2.5.2 (FNFE-MPE, FeRD); Herkunft und Prüfsummen in Schemata/ -->
+        <EmbeddedResource Include="Schemata\**\*.xsd" LogicalName="Schemata/%(RecursiveDir)%(Filename)%(Extension)" WithCulture="false" />
+    </ItemGroup>
+</Project>

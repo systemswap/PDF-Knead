@@ -1,0 +1,163 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:l="using:PdfKnead.Localization"
+        xmlns:vm="using:PdfKnead.ViewModels"
+        xmlns:cv="using:PdfKnead.Converters"
+        xmlns:v="using:PdfKnead.Views"
+        x:Class="PdfKnead.Views.PdfAWindow"
+        x:DataType="vm:PdfAViewModel"
+        Title="{l:T 'Als PDF/A speichern'}"
+        Icon="/Assets/app.ico"
+        Width="780" SizeToContent="Height"
+        CanResize="False" ShowInTaskbar="False"
+        WindowStartupLocation="CenterOwner">
+    <StackPanel Margin="24" Spacing="14">
+        <StackPanel Orientation="Horizontal" Spacing="12">
+            <Border Width="40" Height="40" CornerRadius="20" Background="{DynamicResource AccentSoftBrush}">
+                <PathIcon Data="{StaticResource Icon.DocumentOnePage}" Width="20" Height="20" Foreground="{DynamicResource AccentBrush}" />
+            </Border>
+            <StackPanel VerticalAlignment="Center" Spacing="2">
+                <TextBlock FontWeight="SemiBold" FontSize="15" Text="{l:T 'Als PDF/A speichern'}" />
+                <TextBlock Classes="muted" TextWrapping="Wrap" MaxWidth="660"
+                           Text="{l:T 'Eine Kopie für die Langzeit-Archivierung, die überall gleich aussieht. Die geöffnete Datei bleibt, wie sie ist.'}" />
+            </StackPanel>
+        </StackPanel>
+        <!-- a module's advice (e.g. which parts keep its attachments): at the top, where it is read before choosing -->
+        <Border Name="AdviceBox" IsVisible="{Binding HasAdvice}" Background="{DynamicResource AccentSoftBrush}" CornerRadius="{DynamicResource RadiusControl}" Padding="12,8">
+            <TextBlock TextWrapping="Wrap" FontWeight="SemiBold" Text="{Binding Advice}" />
+        </Border>
+
+        <Grid ColumnDefinitions="*,16,*">
+            <StackPanel Spacing="6">
+                <TextBlock FontWeight="SemiBold" Text="{l:T 'Für diese Datei möglich'}" />
+                <ItemsControl ItemsSource="{Binding Possible}" AutomationProperties.Name="{l:T 'Für diese Datei möglich'}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:PdfAOption">
+                            <StackPanel Spacing="1" Margin="0,2">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <RadioButton GroupName="part" IsChecked="{Binding IsSelected}" Content="{Binding Title}" ToolTip.Tip="{Binding Tip}"
+                                                 AutomationProperties.Name="{Binding Title}" />
+                                    <Border Background="{DynamicResource AccentSoftBrush}" CornerRadius="8" Padding="6,1" VerticalAlignment="Center"
+                                            IsVisible="{Binding IsRecommended}">
+                                        <TextBlock FontSize="11" Foreground="{DynamicResource AccentBrush}" Text="{l:T 'passend für diese Datei'}" />
+                                    </Border>
+                                    <TextBlock FontSize="11" Classes="muted" VerticalAlignment="Center" Text="{l:T 'wird geprüft …'}" IsVisible="{Binding Pending}" />
+                                    <TextBlock FontSize="11" Classes="muted" VerticalAlignment="Center" Text="{l:T 'in der Warteschlange'}" IsVisible="{Binding Waiting}" />
+                                    <TextBlock FontSize="11" Classes="muted" VerticalAlignment="Center" Text="{Binding Size, StringFormat='≈ {0}'}" IsVisible="{Binding HasSize}" />
+                                </StackPanel>
+                                <TextBlock Margin="28,0,0,0" FontSize="11" TextWrapping="Wrap" Classes="muted" Text="{Binding Note}" IsVisible="{Binding HasNote}" />
+                            </StackPanel>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <TextBlock FontSize="11" Classes="muted" TextWrapping="Wrap" IsVisible="{Binding Probing}"
+                           Text="{l:T 'Jede Fassung wird einmal probeweise geschrieben und geprüft …'}" />
+                <TextBlock FontSize="11" Classes="muted" Text="{Binding Progress}" />
+                <Button HorizontalAlignment="Left" Content="{l:T 'Alle Fassungen prüfen'}" Command="{Binding ProbeAllCommand}" IsVisible="{Binding PartlyProbed}"
+                        ToolTip.Tip="{l:T 'Bei großen Dateien wird zunächst nur die passende Fassung geprüft. Die übrigen zu prüfen kann einige Minuten dauern.'}" />
+            </StackPanel>
+            <StackPanel Grid.Column="2" Spacing="6">
+                <TextBlock FontWeight="SemiBold" Text="{l:T 'Für diese Datei nicht normkonform'}" />
+                <TextBlock FontSize="11" Classes="muted" TextWrapping="Wrap" IsVisible="{Binding !HasNotPossible}"
+                           Text="{l:T 'Bisher keine — jede geprüfte Fassung ist möglich.'}" />
+                <ItemsControl ItemsSource="{Binding NotPossible}" AutomationProperties.Name="{l:T 'Für diese Datei nicht normkonform'}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:PdfAOption">
+                            <StackPanel Spacing="1" Margin="0,2">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <RadioButton GroupName="part" IsChecked="{Binding IsSelected}" Content="{Binding Title}" ToolTip.Tip="{Binding Tip}"
+                                                 AutomationProperties.Name="{Binding Title}" />
+                                    <Border Background="{DynamicResource AccentSoftBrush}" CornerRadius="8" Padding="6,1" VerticalAlignment="Center"
+                                            IsVisible="{Binding IsRecommended}">
+                                        <TextBlock FontSize="11" Foreground="{DynamicResource AccentBrush}" Text="{l:T 'passend für diese Datei'}" />
+                                    </Border>
+                                    <TextBlock FontSize="11" Classes="muted" VerticalAlignment="Center" Text="{l:T 'wird geprüft …'}" IsVisible="{Binding Pending}" />
+                                    <TextBlock FontSize="11" Classes="muted" VerticalAlignment="Center" Text="{l:T 'in der Warteschlange'}" IsVisible="{Binding Waiting}" />
+                                    <TextBlock FontSize="11" Classes="muted" VerticalAlignment="Center" Text="{Binding Size, StringFormat='≈ {0}'}" IsVisible="{Binding HasSize}" />
+                                </StackPanel>
+                                <TextBlock Margin="28,0,0,0" FontSize="11" TextWrapping="Wrap" Classes="muted" Text="{Binding Note}" IsVisible="{Binding HasNote}" />
+                            </StackPanel>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+        </Grid>
+
+        <!-- Level a: the language and, per figure, a short text or „nur Schmuck“ -->
+        <Border BorderBrush="{DynamicResource LineBrush}" BorderThickness="1" CornerRadius="{DynamicResource RadiusControl}" Padding="12,10"
+                IsVisible="{Binding Accessible}">
+            <StackPanel Spacing="8">
+                <StackPanel Orientation="Horizontal" Spacing="10">
+                    <TextBlock VerticalAlignment="Center" Text="{l:T 'Sprache des Dokuments:'}" />
+                    <v:LanguagePicker Value="{Binding Language}" AutomationProperties.Name="{l:T 'Sprache des Dokuments'}"
+                                      ToolTip.Tip="{l:T 'Die Sprache, in der der Text steht. Vorgeschlagen aus dem Text.'}" />
+                </StackPanel>
+                <TextBlock TextWrapping="Wrap" FontSize="12" Classes="muted"
+                           Text="{l:T 'Vorleseprogramme lesen für jedes Bild den Text vor, den Sie hier eingeben. Bilder ohne Aussage (Linien, Muster, Hintergründe) als „nur Schmuck“ kennzeichnen.'}" />
+                <TextBlock Classes="muted" Text="{l:T 'Bilder werden gesucht …'}" IsVisible="{Binding LoadingFigures}" />
+                <TextBlock Classes="muted" Text="{l:T 'Keine Bilder, die einen Text brauchen.'}" IsVisible="{Binding NoFigures}" />
+                <ScrollViewer MaxHeight="300">
+                    <ItemsControl ItemsSource="{Binding Figures}" AutomationProperties.Name="{l:T 'Bilder'}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:PdfAFigureItem">
+                                <Grid ColumnDefinitions="104,*,Auto" Margin="0,4">
+                                    <Border Width="96" Height="72" Background="{DynamicResource SurfaceAltBrush}" HorizontalAlignment="Left">
+                                        <Image Source="{Binding Picture, Converter={x:Static cv:RasterAreaToBitmap.Instance}}" Stretch="Uniform" />
+                                    </Border>
+                                    <StackPanel Grid.Column="1" Spacing="4" VerticalAlignment="Center">
+                                        <TextBlock FontSize="12" Classes="muted" Text="{Binding Place}" />
+                                        <TextBox Text="{Binding AltText}" PlaceholderText="{l:T 'Was zeigt das Bild?'}" IsEnabled="{Binding !Decorative}"
+                                                 AutomationProperties.Name="{Binding Place}" />
+                                    </StackPanel>
+                                    <CheckBox Grid.Column="2" Margin="10,0,0,0" VerticalAlignment="Center" IsChecked="{Binding Decorative}"
+                                              Content="{l:T 'nur Schmuck'}" />
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+                <CheckBox IsChecked="{Binding OthersDecorative}" Content="{l:T 'Alle übrigen Bilder sind nur Schmuck'}" IsVisible="{Binding !NoFigures}" />
+            </StackPanel>
+        </Border>
+
+        <Border Background="{DynamicResource AccentSoftBrush}" CornerRadius="{DynamicResource RadiusControl}" Padding="12,8">
+            <StackPanel Spacing="4">
+                <TextBlock TextWrapping="Wrap" FontSize="12"
+                           Text="{l:T 'Skripte und Aktionen, die PDF/A nicht erlaubt, entfallen, ebenso verborgene Kommentare. Schriften, die nicht in der Datei stecken oder sich nicht lesen lassen, werden so eingebettet, wie PDF-Knead sie zeigt; welche, steht nach dem Speichern in der Meldung.'}" />
+                <ItemsControl ItemsSource="{Binding Notes}" IsVisible="{Binding HasNotes}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="x:String">
+                            <TextBlock TextWrapping="Wrap" FontSize="12" FontWeight="SemiBold" Text="{Binding}" />
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+        </Border>
+
+        <!-- Not a PDF/A file: the reasons; nothing was saved -->
+        <Border Background="{DynamicResource DangerSoftBrush}" CornerRadius="{DynamicResource RadiusControl}" Padding="12,8" IsVisible="{Binding Failed}">
+            <StackPanel Spacing="6">
+                <TextBlock FontWeight="SemiBold" TextWrapping="Wrap"
+                           Text="{l:T 'Die Kopie erfüllt PDF/A nicht und wurde nicht gespeichert:'}" />
+                <ScrollViewer MaxHeight="220">
+                    <ItemsControl ItemsSource="{Binding Reasons}" AutomationProperties.Name="{l:T 'Gründe'}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="x:String">
+                                <SelectableTextBlock TextWrapping="Wrap" FontSize="12" Margin="0,2" Text="{Binding}" />
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+                <TextBlock TextWrapping="Wrap" FontSize="12"
+                           Text="{l:T 'Trotzdem speichern: Die Datei trägt dann die Kennung PDF/A, erfüllt die Norm aber nicht — Archive und Prüfprogramme lehnen sie ab.'}" />
+                <Button HorizontalAlignment="Left" Content="{l:T 'Trotzdem speichern …'}" Command="{Binding SaveAnywayCommand}" />
+            </StackPanel>
+        </Border>
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,4,0,0">
+            <TextBlock VerticalAlignment="Center" Classes="muted" Text="{l:T 'Wird geprüft …'}" IsVisible="{Binding Checking}" />
+            <Button Content="{l:T 'Abbrechen'}" Click="OnCancel" IsCancel="True" />
+            <Button Classes="primary" Content="{l:T 'Prüfen und speichern …'}" Command="{Binding CheckCommand}" IsDefault="True" />
+        </StackPanel>
+    </StackPanel>
+</Window>

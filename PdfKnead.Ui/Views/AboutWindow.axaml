@@ -1,0 +1,45 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:l="using:PdfKnead.Localization"
+        xmlns:c="using:PdfKnead.Controls"
+        xmlns:s="using:PdfKnead.Services"
+        xmlns:vm="using:PdfKnead.ViewModels"
+        x:Class="PdfKnead.Views.AboutWindow"
+        x:DataType="vm:AboutViewModel"
+        Title="{l:T 'Über PDF-Knead'}"
+        Icon="/Assets/app.ico"
+        Width="920" Height="660" MinWidth="680" MinHeight="440"
+        ShowInTaskbar="False"
+        WindowStartupLocation="CenterOwner">
+    <DockPanel Margin="24">
+        <!-- Program and version -->
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="14">
+            <c:AppLogo Width="44" Height="44" VerticalAlignment="Center" />
+            <StackPanel VerticalAlignment="Center" Spacing="2">
+                <SelectableTextBlock FontSize="18" FontWeight="SemiBold" Text="{Binding Title}" />
+                <TextBlock Classes="muted" Text="{l:T 'Läuft vollständig auf diesem Rechner und sendet keine Daten.'}" />
+            </StackPanel>
+        </StackPanel>
+
+        <Button DockPanel.Dock="Bottom" HorizontalAlignment="Right" Margin="0,16,0,0" MinWidth="96" Content="{l:T 'Schließen'}"
+                IsDefault="True" IsCancel="True" Click="OnClose" />
+
+        <Grid ColumnDefinitions="260,16,*" Margin="0,20,0,0">
+            <Border Classes="card" Padding="4">
+                <ListBox ItemsSource="{Binding Entries}" SelectedItem="{Binding Selected}" AutomationProperties.Name="{l:T 'Lizenzen'}">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate x:DataType="s:LicenseTexts+Entry">
+                            <TextBlock Text="{Binding Title}" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Title}" />
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </Border>
+            <Border Grid.Column="2" Classes="card" Padding="0">
+                <ScrollViewer Name="TextScroller">
+                    <SelectableTextBlock Margin="16,12" FontSize="12" TextWrapping="Wrap" Text="{Binding Text}"
+                                         FontFamily="Consolas, Liberation Mono, monospace" AutomationProperties.Name="{l:T 'Lizenztext'}" />
+                </ScrollViewer>
+            </Border>
+        </Grid>
+    </DockPanel>
+</Window>

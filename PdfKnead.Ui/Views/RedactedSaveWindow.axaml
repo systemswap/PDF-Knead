@@ -1,0 +1,36 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:l="using:PdfKnead.Localization"
+        x:Class="PdfKnead.Views.RedactedSaveWindow"
+        Title="{l:T 'Geschwärztes endgültig löschen?'}"
+        Icon="/Assets/app.ico"
+        Width="480" SizeToContent="Height"
+        CanResize="False" ShowInTaskbar="False"
+        WindowStartupLocation="CenterOwner">
+    <StackPanel Margin="24" Spacing="14">
+        <StackPanel Orientation="Horizontal" Spacing="12">
+            <Border Width="40" Height="40" CornerRadius="20" Background="{DynamicResource AccentSoftBrush}">
+                <PathIcon Data="{StaticResource Icon.ShieldLock}" Width="20" Height="20" Foreground="{DynamicResource AccentBrush}" />
+            </Border>
+            <StackPanel VerticalAlignment="Center" Spacing="2">
+                <TextBlock FontWeight="SemiBold" FontSize="15" Text="{l:T 'Geschwärztes endgültig löschen?'}" />
+                <TextBlock Name="FileText" Classes="muted" TextTrimming="CharacterEllipsis" MaxWidth="360" />
+            </StackPanel>
+        </StackPanel>
+
+        <TextBlock Name="DeleteText" TextWrapping="Wrap" />
+        <TextBlock TextWrapping="Wrap"
+                   Text="{l:T 'Wer das Original behalten möchte, speichert als neue Datei.'}" />
+
+        <Border Name="SyncHint" IsVisible="False" Background="{DynamicResource AccentSoftBrush}" CornerRadius="{DynamicResource RadiusControl}" Padding="12,8">
+            <TextBlock TextWrapping="Wrap" FontSize="12" FontWeight="SemiBold"
+                       Text="{l:T 'Die Datei liegt in einem Sync-Ordner (etwa OneDrive): Der ungeschwärzte Stand bleibt dort im Versionsverlauf und im Papierkorb. Besser als neue Datei speichern und nur diese weitergeben.'}" />
+        </Border>
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,4,0,0">
+            <Button Content="{l:T 'Abbrechen'}" Click="OnCancel" IsCancel="True" />
+            <Button Name="OverwriteButton" Content="{l:T 'Überschreiben'}" Click="OnOverwrite" />
+            <Button Classes="primary" Content="{l:T 'Als neue Datei speichern …'}" Click="OnSaveAsNew" IsDefault="True" />
+        </StackPanel>
+    </StackPanel>
+</Window>

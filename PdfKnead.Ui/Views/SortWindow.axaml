@@ -1,0 +1,52 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:l="using:PdfKnead.Localization"
+        xmlns:c="using:PdfKnead.Controls"
+        xmlns:vm="using:PdfKnead.ViewModels"
+        x:Class="PdfKnead.Views.SortWindow"
+        x:DataType="vm:SortViewModel"
+        Title="{l:T 'Seiten sortieren'}"
+        Icon="/Assets/app.ico"
+        Width="1180" Height="780" MinWidth="640" MinHeight="420"
+        ShowInTaskbar="False"
+        WindowStartupLocation="CenterOwner">
+    <Grid RowDefinitions="Auto,Auto,*,Auto">
+        <StackPanel Grid.Row="0" Margin="20,18,20,4" Spacing="2">
+            <TextBlock FontWeight="SemiBold" FontSize="15" Text="{Binding FileName}" TextTrimming="CharacterEllipsis" />
+            <TextBlock Classes="muted" Text="{Binding SelectionText}" />
+        </StackPanel>
+        <DockPanel Grid.Row="1" Margin="20,6,20,8">
+            <!-- Kachelgröße: nur hier, die Seitenleiste bleibt, wie sie ist (auch Strg+Mausrad) -->
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                <PathIcon Data="{StaticResource Icon.ZoomOut}" Width="14" Height="14" Foreground="{DynamicResource TextMutedBrush}" />
+                <Slider Name="SizeSlider" Width="160" Minimum="70" Maximum="420" Value="150"
+                        VerticalAlignment="Center" AutomationProperties.Name="{l:T 'Kachelgröße'}">
+                    <ToolTip.Tip><l:T Text="Kachelgröße — auch mit Strg+Mausrad" /></ToolTip.Tip>
+                </Slider>
+                <PathIcon Data="{StaticResource Icon.ZoomIn}" Width="14" Height="14" Foreground="{DynamicResource TextMutedBrush}" />
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <Button Content="{l:T 'An den Anfang'}" Command="{Binding ToStartCommand}">
+                    <ToolTip.Tip><l:T Text="Die gewählten Seiten an den Anfang setzen" /></ToolTip.Tip>
+                </Button>
+                <Button Content="{l:T 'Ans Ende'}" Command="{Binding ToEndCommand}">
+                    <ToolTip.Tip><l:T Text="Die gewählten Seiten ans Ende setzen" /></ToolTip.Tip>
+                </Button>
+                <Button Content="{l:T 'Zurücksetzen'}" Command="{Binding ResetCommand}">
+                    <ToolTip.Tip><l:T Text="Wieder die Reihenfolge des Dokuments" /></ToolTip.Tip>
+                </Button>
+            </StackPanel>
+        </DockPanel>
+        <Border Grid.Row="2" Background="{DynamicResource CanvasBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1">
+            <c:PageGridView Name="GridView" />
+        </Border>
+        <DockPanel Grid.Row="3" Margin="20,12">
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8">
+                <Button Content="{l:T 'Abbrechen'}" Click="OnCancel" IsCancel="True" />
+                <Button Classes="primary" Content="{l:T 'Übernehmen'}" Click="OnApply" IsDefault="True" />
+            </StackPanel>
+            <TextBlock Classes="muted" VerticalAlignment="Center" TextWrapping="Wrap"
+                       Text="{l:T 'Die Nummern unter den Kacheln sind die bisherigen Seitenzahlen. „Übernehmen“ stellt die Seitenleiste um — Strg+Z nimmt es zurück, gespeichert wird wie gewohnt.'}" />
+        </DockPanel>
+    </Grid>
+</Window>

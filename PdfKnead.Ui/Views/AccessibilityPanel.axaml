@@ -1,0 +1,161 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             Background="{DynamicResource SurfaceAltBrush}"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:l="using:PdfKnead.Localization"
+             xmlns:vm="using:PdfKnead.ViewModels"
+             x:Class="PdfKnead.Views.AccessibilityPanel"
+             x:DataType="vm:DocumentViewModel">
+    <!-- Barrierefreiheit als Bereich rechts (Ablaufplan 6.7 Schritte 6, 7, 10): Kopfzeile in Worten, Funde in Gruppen mit Seite, Regel und
+         Reparatur; geprüft wird die Datei, wie sie gespeichert würde -->
+    <UserControl.Styles>
+        <StyleInclude Source="avares://PdfKnead.Ui/Styles/PropertyPanel.axaml" />
+        <Style Selector="Button.bannerClose">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="6" />
+        </Style>
+        <Style Selector="Button.bannerClose PathIcon">
+            <Setter Property="Width" Value="14" />
+            <Setter Property="Height" Value="14" />
+            <Setter Property="Foreground" Value="{DynamicResource OnAccentBrush}" />
+        </Style>
+        <Style Selector="Button.pageLink">
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="Padding" Value="5,0" />
+            <Setter Property="MinHeight" Value="18" />
+            <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
+        </Style>
+    </UserControl.Styles>
+
+    <Grid RowDefinitions="Auto,Auto,*,Auto">
+        <Border Classes="propBanner">
+            <Grid ColumnDefinitions="Auto,*,Auto">
+                <Border Classes="bannerIcon"><PathIcon Data="{StaticResource Icon.CheckmarkCircle}" /></Border>
+                <TextBlock Grid.Column="1" Margin="10,0,0,0" FontWeight="SemiBold" FontSize="14" VerticalAlignment="Center" Text="{l:T 'Barrierefreiheit'}" />
+                <Button Grid.Column="2" Classes="bannerClose" VerticalAlignment="Center"
+                        Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).CloseAccessibilityCommand, FallbackValue={x:Null}}"
+                        AutomationProperties.Name="{l:T 'Barrierefreiheit schließen'}">
+                    <ToolTip.Tip><l:T Text="Schließen" /></ToolTip.Tip>
+                    <PathIcon Data="{StaticResource Icon.Dismiss}" />
+                </Button>
+            </Grid>
+        </Border>
+
+        <Border Grid.Row="1" Classes="propCard">
+            <StackPanel Spacing="8">
+                <TextBlock Name="Headline" FontWeight="SemiBold" TextWrapping="Wrap" Text="{Binding AccessibilityHeadline}"
+                           />
+                <TextBlock Classes="hint" TextWrapping="Wrap" Foreground="{DynamicResource DangerBrush}" Text="{Binding AccessibilityProblem}"
+                           IsVisible="{Binding AccessibilityProblem, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="6" ColumnSpacing="8">
+                    <TextBlock VerticalAlignment="Center" Text="{l:T 'Prüfen nach'}" />
+                    <ComboBox Name="ProfileBox" Grid.Column="1" HorizontalAlignment="Stretch" ItemsSource="{x:Static vm:DocumentViewModel.AccessibilityProfiles}"
+                              SelectedItem="{Binding ChosenAccessibilityProfile}" IsEnabled="{Binding AccessibilityIdle}"
+                              AutomationProperties.Name="{l:T 'Prüfen nach'}" />
+                    <TextBlock Grid.Row="1" VerticalAlignment="Center" Text="{l:T 'Titel'}" />
+                    <TextBox Name="TitleBox" Grid.Row="1" Grid.Column="1" Text="{Binding AccessibilityTitle}" AutomationProperties.Name="{l:T 'Titel'}">
+                        <ToolTip.Tip><l:T Text="Den Titel nennen Bildschirmleser statt des Dateinamens — „Titel eintragen“ übernimmt ihn" /></ToolTip.Tip>
+                    </TextBox>
+                    <TextBlock Grid.Row="2" VerticalAlignment="Center" Text="{l:T 'Sprache'}" />
+                    <Grid Grid.Row="2" Grid.Column="1" ColumnDefinitions="*,Auto" ColumnSpacing="4">
+                        <TextBox Name="LanguageBox" Text="{Binding AccessibilityLanguage}" PlaceholderText="de-DE" AutomationProperties.Name="{l:T 'Sprache'}">
+                            <ToolTip.Tip><l:T Text="Die Sprache des Texts als Kürzel, etwa de-DE oder en — „Sprache eintragen“ übernimmt sie" /></ToolTip.Tip>
+                        </TextBox>
+                        <Button Grid.Column="1" Classes="subtle" Content="{l:T 'Vorschlagen'}" Command="{Binding ProposeAccessibilityLanguageCommand}">
+                            <ToolTip.Tip><l:T Text="Die Sprache aus dem Text der Seiten vorschlagen" /></ToolTip.Tip>
+                        </Button>
+                    </Grid>
+                </Grid>
+            </StackPanel>
+        </Border>
+
+        <Border Grid.Row="2" Classes="propCard" VerticalAlignment="Stretch">
+            <ScrollViewer Name="FindingsScroll" HorizontalScrollBarVisibility="Disabled">
+                <StackPanel>
+                <ItemsControl Name="Groups" ItemsSource="{Binding AccessibilityGroups}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:AccessibilityGroup">
+                            <StackPanel Spacing="6" Margin="0,0,0,12">
+                                <TextBlock Classes="section" Text="{Binding Title}" />
+                                <ItemsControl ItemsSource="{Binding Rows}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:AccessibilityRow">
+                                            <StackPanel Spacing="3" Margin="0,0,0,10" Focusable="True" AutomationProperties.Name="{Binding Name}">
+                                                <TextBlock Text="{Binding Text}" TextWrapping="Wrap" />
+                                                <WrapPanel>
+                                                    <Button Classes="subtle pageLink" Margin="0,0,6,2" Content="{Binding PageLabel}" IsVisible="{Binding HasPage}"
+                                                            AutomationProperties.Name="{Binding PageLabel}"
+                                                            Command="{Binding $parent[UserControl].((vm:DocumentViewModel)DataContext).ShowAccessibilityPageCommand, FallbackValue={x:Null}}"
+                                                            CommandParameter="{Binding}">
+                                                        <ToolTip.Tip><l:T Text="Die Seite zeigen" /></ToolTip.Tip>
+                                                    </Button>
+                                                    <Button Classes="primary" Margin="0,0,6,2" Padding="8,2" Content="{Binding RepairLabel}" IsVisible="{Binding HasRepair}"
+                                                            AutomationProperties.Name="{Binding RepairLabel}"
+                                                            IsEnabled="{Binding $parent[UserControl].((vm:DocumentViewModel)DataContext).AccessibilityIdle, FallbackValue=False}"
+                                                            Command="{Binding $parent[UserControl].((vm:DocumentViewModel)DataContext).RepairAccessibilityCommand, FallbackValue={x:Null}}"
+                                                            CommandParameter="{Binding}" />
+                                                </WrapPanel>
+                                                <TextBlock Classes="muted" FontSize="12" TextWrapping="Wrap" Text="{Binding Guidance}" IsVisible="{Binding HasGuidance}" />
+                                                <SelectableTextBlock Classes="muted" FontSize="11" TextWrapping="Wrap" Text="{Binding Rule}" />
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <!-- Von Ihnen zu bestätigen (Ablaufplan 6.7 Schritt 5): nur ein Mensch kann es beurteilen; die Antworten verfallen mit jeder Änderung -->
+                <StackPanel Spacing="6" IsVisible="{Binding HasAccessibilityReport}">
+                    <TextBlock Classes="section" Text="{Binding AccessibilityQuestionsTitle}" />
+                    <TextBlock Classes="hint" TextWrapping="Wrap" Text="{Binding AccessibilityAnswersLapsed}"
+                               IsVisible="{Binding AccessibilityAnswersLapsed, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                    <ItemsControl Name="Questions" ItemsSource="{Binding AccessibilityQuestionRows}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:AccessibilityQuestionRow">
+                                <StackPanel Spacing="2" Margin="0,0,0,10">
+                                    <TextBlock Text="{Binding Text}" TextWrapping="Wrap" FontWeight="SemiBold" />
+                                    <TextBlock Classes="muted" FontSize="12" TextWrapping="Wrap" Text="{Binding Help}" />
+                                    <Button Classes="subtle" HorizontalAlignment="Left" Padding="6,1" Content="{Binding HelpLabel}" IsVisible="{Binding HasHelp}"
+                                            AutomationProperties.Name="{Binding HelpLabel}"
+                                            Command="{Binding $parent[UserControl].((vm:DocumentViewModel)DataContext).ToggleAccessibilityHelpCommand, FallbackValue={x:Null}}"
+                                            CommandParameter="{Binding}" />
+                                    <WrapPanel>
+                                        <RadioButton Margin="0,0,12,0" GroupName="{Binding Group}" IsChecked="{Binding IsYes}" Content="{l:T 'Ja'}"
+                                                     AutomationProperties.Name="{Binding Text, StringFormat='{}{0} – Ja'}" />
+                                        <RadioButton Margin="0,0,12,0" GroupName="{Binding Group}" IsChecked="{Binding IsNo}" Content="{l:T 'Nein'}"
+                                                     AutomationProperties.Name="{Binding Text, StringFormat='{}{0} – Nein'}" />
+                                        <RadioButton GroupName="{Binding Group}" IsChecked="{Binding IsNotApplicable}" Content="{l:T 'Trifft nicht zu'}"
+                                                     IsVisible="{Binding CanNotApply}"
+                                                     AutomationProperties.Name="{Binding Text, StringFormat='{}{0} – Trifft nicht zu'}" />
+                                    </WrapPanel>
+                                </StackPanel>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+                </StackPanel>
+            </ScrollViewer>
+        </Border>
+
+        <Border Grid.Row="3" Classes="propCard">
+            <StackPanel Spacing="8">
+                <TextBlock Classes="hint" TextWrapping="Wrap"
+                           Text="{l:T 'Geprüft wird maschinell, was die Normen festlegen. Ob Ersatztexte stimmen, die Lesereihenfolge passt und Überschriften Sinn ergeben, kann nur ein Mensch beurteilen. Reparaturen werden beim Speichern geschrieben.'}" />
+                <Button Name="ReportButton" HorizontalAlignment="Left" Content="{l:T 'Bericht speichern …'}" IsEnabled="{Binding HasAccessibilityReport}"
+                        Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).SaveAccessibilityReportCommand, FallbackValue={x:Null}}">
+                    <ToolTip.Tip><l:T Text="Das Ergebnis als Webseite oder Text für die Akte speichern" /></ToolTip.Tip>
+                </Button>
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+                    <Button Content="{l:T 'Schließen'}"
+                            Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).CloseAccessibilityCommand, FallbackValue={x:Null}}" />
+                    <Button Name="RecheckButton" Classes="primary" Content="{l:T 'Erneut prüfen'}" IsEnabled="{Binding AccessibilityIdle}"
+                            Command="{Binding CheckAccessibilityCommand}" AutomationProperties.Name="{l:T 'Erneut prüfen'}">
+                        <ToolTip.Tip><l:T Text="Die Datei, wie sie jetzt gespeichert würde, noch einmal prüfen" /></ToolTip.Tip>
+                    </Button>
+                </StackPanel>
+            </StackPanel>
+        </Border>
+    </Grid>
+</UserControl>

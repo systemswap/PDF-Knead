@@ -1,0 +1,307 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:l="using:PdfKnead.Localization"
+        xmlns:c="using:PdfKnead.Controls"
+        xmlns:vm="using:PdfKnead.ViewModels"
+        x:Class="PdfKnead.Views.CompressWindow"
+        x:DataType="vm:CompressViewModel"
+        Title="{l:T 'Komprimieren'}"
+        Icon="/Assets/app.ico"
+        Width="1180" Height="800" MinWidth="820" MinHeight="750"
+        ShowInTaskbar="False"
+        WindowStartupLocation="CenterOwner">
+    <Window.Styles>
+        <Style Selector="Grid.row">
+            <Setter Property="Margin" Value="0,0,0,6" />
+        </Style>
+        <Style Selector="Grid.row > TextBlock">
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+        <Style Selector="Grid.size > TextBlock">
+            <Setter Property="Margin" Value="0,2" />
+        </Style>
+        <!-- „Zurücksetzen“ blau, auch beim Darüberfahren (Wunsch vom 20.10.2026: soll sich hervorheben) -->
+        <Style Selector="Button#ResetButton:pointerover /template/ ContentPresenter#PART_ContentPresenter, Button#ResetButton:pressed /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
+        </Style>
+    </Window.Styles>
+
+    <Grid RowDefinitions="*,Auto">
+        <Grid ColumnDefinitions="370,Auto,*">
+            <!-- Einstellungen -->
+            <ScrollViewer Grid.Column="0" HorizontalScrollBarVisibility="Disabled">
+                <StackPanel Margin="20,18,16,18" Spacing="6" IsEnabled="{Binding !Saving}">
+                    <StackPanel Orientation="Horizontal" Spacing="12" Margin="0,0,0,10">
+                        <Border Width="40" Height="40" CornerRadius="20" Background="{DynamicResource AccentSoftBrush}">
+                            <PathIcon Data="{StaticResource Icon.ArrowMinimize}" Width="20" Height="20" Foreground="{DynamicResource AccentBrush}" />
+                        </Border>
+                        <StackPanel VerticalAlignment="Center" Spacing="2" MaxWidth="280">
+                            <TextBlock FontWeight="SemiBold" FontSize="15" Text="{l:T 'Komprimieren'}" />
+                            <TextBlock Classes="muted" Text="{Binding FileName}" TextTrimming="CharacterEllipsis" />
+                        </StackPanel>
+                    </StackPanel>
+
+                    <Border IsVisible="{Binding AsImages}" Background="{DynamicResource SurfaceAltBrush}" CornerRadius="6" Padding="10,6" Margin="0,0,0,8">
+                        <TextBlock TextWrapping="Wrap" Text="{l:T '„Flachlegen als Bild“ ist vorgemerkt: Die Kopie besteht aus Seitenbildern, ohne Text.'}" />
+                    </Border>
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock Classes="section" Text="{l:T 'VOREINSTELLUNG'}" VerticalAlignment="Center" />
+                        <Button Name="ResetButton" Grid.Column="1" Classes="subtle" Padding="6,2" Command="{Binding ResetCommand}"
+                                Foreground="{DynamicResource AccentBrush}"
+                                AutomationProperties.Name="{l:T 'Zurücksetzen'}">
+                            <ToolTip.Tip><l:T Text="Alle Einstellungen auf die Vorgabe „E-Book“ zurückstellen" /></ToolTip.Tip>
+                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                <PathIcon Data="{StaticResource Icon.ArrowReset}" Width="14" Height="14" />
+                                <TextBlock Classes="small" Text="{l:T 'Zurücksetzen'}" VerticalAlignment="Center" FontWeight="SemiBold" />
+                            </StackPanel>
+                        </Button>
+                    </Grid>
+                    <ComboBox Name="PresetChoice" HorizontalAlignment="Stretch" ItemsSource="{Binding Presets}" SelectedItem="{Binding SelectedPreset}"
+                              AutomationProperties.Name="{l:T 'Voreinstellung'}" Margin="0,0,0,4">
+                        <ToolTip.Tip><l:T Text="Ausgangspunkt — jeder Regler darunter lässt sich danach selbst verstellen („Eigene“)" /></ToolTip.Tip>
+                    </ComboBox>
+
+                    <!-- Bildgröße: gilt für alle Bilder; darunter je Bildart das Verfahren mit seinen Reglern (KONZEPT §5.12, wie beim Drucken:
+                         alle Regler des gewählten Verfahrens sichtbar, was nicht greift, ausgegraut — nie Regler eines anderen Verfahrens) -->
+                    <TextBlock Classes="section" Text="{l:T 'BILDGRÖSSE'}" Margin="0,10,0,0" />
+                    <CheckBox Name="DownsampleBox" IsChecked="{Binding Downsample}" Content="{l:T 'Bilder verkleinern und neu packen'}">
+                        <ToolTip.Tip><l:T Text="Bilder, die schärfer sind als nötig (mehr als das 1,5-Fache der Auflösung), werden verkleinert und neu gepackt. Aus: Bilder bleiben, wie sie sind — nur verlustfreie Schritte." /></ToolTip.Tip>
+                    </CheckBox>
+                    <Grid Classes="row" ColumnDefinitions="112,*,64" IsEnabled="{Binding Downsample}">
+                        <TextBlock Text="{l:T 'Auflösung'}" />
+                        <Slider ToolTip.ShowOnDisabled="True" Name="DpiSlider" Grid.Column="1" Minimum="72" Maximum="600" Value="{Binding Dpi}" SmallChange="1" LargeChange="25"
+                                TickFrequency="1" IsSnapToTickEnabled="True" AutomationProperties.Name="{l:T 'Auflösung der Bilder'}">
+                            <ToolTip.Tip><l:T Text="Wie viele Bildpunkte je Zoll übrig bleiben: Bildschirm 96–120 dpi, Tablet 150 dpi, Druck 300 dpi. Weniger heißt kleiner, aber unschärfer." /></ToolTip.Tip>
+                        </Slider>
+                        <TextBlock Grid.Column="2" TextAlignment="Right" Text="{Binding DpiText}" />
+                    </Grid>
+
+                    <!-- Fotos -->
+                    <TextBlock Classes="section" Text="{l:T 'FOTOS'}" Margin="0,10,0,0" />
+                    <Grid Classes="row" ColumnDefinitions="112,*,Auto">
+                        <TextBlock Text="{l:T 'Verfahren'}" />
+                        <ComboBox Name="PhotoBox" Grid.Column="1" HorizontalAlignment="Stretch" ItemsSource="{Binding PhotoMethods}" SelectedItem="{Binding SelectedPhotoMethod}"
+                                  AutomationProperties.Name="{l:T 'Verfahren für Fotos'}" />
+                        <Button Grid.Column="2" Classes="subtle info" Name="PhotoInfo" AutomationProperties.Name="{l:T 'Mehr über das Verfahren für Fotos'}" ToolTip.Tip="{l:T 'Mehr über das Verfahren für Fotos'}">
+                            <PathIcon Data="{StaticResource Icon.Info}" Width="16" Height="16" />
+                        </Button>
+                    </Grid>
+                    <Grid Classes="row" ColumnDefinitions="112,*,64" IsEnabled="{Binding Downsample}">
+                        <TextBlock Text="{l:T 'Qualität'}" />
+                        <Slider ToolTip.ShowOnDisabled="True" Name="QualitySlider" Grid.Column="1" Minimum="30" Maximum="98" Value="{Binding Quality}" SmallChange="1" LargeChange="5"
+                                TickFrequency="1" IsSnapToTickEnabled="True" AutomationProperties.Name="{l:T 'JPEG-Qualität'}">
+                            <ToolTip.Tip><l:T Text="Weniger heißt kleiner, aber mit sichtbaren Blöcken und Schlieren an Kanten — im Vorher/Nachher hineinzoomen. Greift nur, wenn Bilder neu gepackt werden dürfen." /></ToolTip.Tip>
+                        </Slider>
+                        <TextBlock Grid.Column="2" TextAlignment="Right" Text="{Binding QualityText}" />
+                    </Grid>
+
+                    <!-- Grafiken und Bildschirmfotos -->
+                    <TextBlock Classes="section" Text="{l:T 'GRAFIKEN UND BILDSCHIRMFOTOS'}" Margin="0,10,0,0" />
+                    <Grid Classes="row" ColumnDefinitions="112,*,Auto">
+                        <TextBlock Text="{l:T 'Verfahren'}" />
+                        <ComboBox ToolTip.ShowOnDisabled="True" Name="GraphicsBox" Grid.Column="1" HorizontalAlignment="Stretch" ItemsSource="{Binding GraphicsMethods}" SelectedItem="{Binding SelectedGraphicsMethod}"
+                                  AutomationProperties.Name="{l:T 'Verfahren für Grafiken'}" />
+                        <Button Grid.Column="2" Classes="subtle info" Name="GraphicsInfo" AutomationProperties.Name="{l:T 'Mehr über das Verfahren für Grafiken'}" ToolTip.Tip="{l:T 'Mehr über das Verfahren für Grafiken'}">
+                            <PathIcon Data="{StaticResource Icon.Info}" Width="16" Height="16" />
+                        </Button>
+                    </Grid>
+                    <TextBlock Classes="muted small" TextWrapping="Wrap" IsVisible="{Binding IsFlate}"
+                               Text="{l:T 'Verlustfrei, ohne Einstellungen: das Bild bleibt Punkt für Punkt gleich.'}" />
+                    <StackPanel Spacing="0" IsVisible="{Binding IsPalette}">
+                        <Grid Classes="row" ColumnDefinitions="112,*,64" IsEnabled="{Binding Downsample}">
+                            <TextBlock Text="{l:T 'Farben'}" />
+                            <Slider ToolTip.ShowOnDisabled="True" Grid.Column="1" Minimum="2" Maximum="256" Value="{Binding PaletteColors}" SmallChange="1" LargeChange="16"
+                                    TickFrequency="1" IsSnapToTickEnabled="True" AutomationProperties.Name="{l:T 'Höchstens so viele Farben'}">
+                                <ToolTip.Tip><l:T Text="Höchstens so viele Farben in der Farbliste. Weniger heißt kleiner, aber Verläufe werden stufig. Bilder mit weniger Farben bleiben genau." /></ToolTip.Tip>
+                            </Slider>
+                            <TextBlock Grid.Column="2" TextAlignment="Right" Text="{Binding PaletteColorsText}" />
+                        </Grid>
+                        <Grid Classes="row" ColumnDefinitions="112,*,64" IsEnabled="{Binding Downsample}">
+                            <TextBlock Text="{l:T 'Glätten'}" />
+                            <Slider ToolTip.ShowOnDisabled="True" Grid.Column="1" Minimum="0" Maximum="100" Value="{Binding PaletteDither}" SmallChange="1" LargeChange="10"
+                                    TickFrequency="1" IsSnapToTickEnabled="True" AutomationProperties.Name="{l:T 'Glätten'}">
+                                <ToolTip.Tip><l:T Text="Streut feine Punkte, damit Verläufe weich statt streifig aussehen. Macht die Datei aber deutlich größer — meist ist 0 % richtig." /></ToolTip.Tip>
+                            </Slider>
+                            <TextBlock Grid.Column="2" TextAlignment="Right" Text="{Binding PaletteDitherText}" />
+                        </Grid>
+                        <Grid Classes="row" ColumnDefinitions="112,*,64" IsEnabled="{Binding Downsample}">
+                            <TextBlock Text="{l:T 'Mindestqualität'}" />
+                            <Slider ToolTip.ShowOnDisabled="True" Grid.Column="1" Minimum="0" Maximum="100" Value="{Binding PaletteQuality}" SmallChange="1" LargeChange="5"
+                                    TickFrequency="1" IsSnapToTickEnabled="True" AutomationProperties.Name="{l:T 'Mindestqualität der Palette'}">
+                                <ToolTip.Tip><l:T Text="So gut muss die Palette das Bild treffen. Schafft sie es nicht (etwa bei Fotos), wird das Bild als JPEG gepackt. Höher heißt: seltener Palette, dafür nie sichtbar anders." /></ToolTip.Tip>
+                            </Slider>
+                            <TextBlock Grid.Column="2" TextAlignment="Right" Text="{Binding PaletteQualityText}" />
+                        </Grid>
+                    </StackPanel>
+
+                    <!-- Schwarzweiß-Scans -->
+                    <TextBlock Classes="section" Text="{l:T 'SCHWARZWEISS-SCANS'}" Margin="0,10,0,0" />
+                    <Grid Classes="row" ColumnDefinitions="112,*,Auto">
+                        <TextBlock Text="{l:T 'Verfahren'}" />
+                        <ComboBox Name="BilevelBox" Grid.Column="1" HorizontalAlignment="Stretch" ItemsSource="{Binding BilevelMethods}" SelectedItem="{Binding SelectedBilevelMethod}"
+                                  AutomationProperties.Name="{l:T 'Verfahren für Schwarzweiß-Scans'}" />
+                        <Button Grid.Column="2" Classes="subtle info" Name="BilevelInfo" AutomationProperties.Name="{l:T 'Mehr über das Verfahren für Schwarzweiß-Scans'}" ToolTip.Tip="{l:T 'Mehr über das Verfahren für Schwarzweiß-Scans'}">
+                            <PathIcon Data="{StaticResource Icon.Info}" Width="16" Height="16" />
+                        </Button>
+                    </Grid>
+                    <CheckBox IsChecked="{Binding Bilevel}" Content="{l:T 'Schwarzweiß-Scans als 1-Bit-Bild'}">
+                        <ToolTip.Tip><l:T Text="Scans, die nur aus Schwarz und Weiß bestehen, werden viel kleiner. Fast schwarzweiße (leichtes Grau vom Scanner) nur, wenn Bilder neu gepackt werden dürfen." /></ToolTip.Tip>
+                    </CheckBox>
+
+                    <!-- Farbscans -->
+                    <TextBlock Classes="section" Text="{l:T 'FARBSCANS'}" Margin="0,10,0,0" />
+                    <Grid Classes="row" ColumnDefinitions="112,*,Auto">
+                        <TextBlock Text="{l:T 'Verfahren'}" />
+                        <ComboBox Name="ScanBox" Grid.Column="1" HorizontalAlignment="Stretch" ItemsSource="{Binding ScanMethods}" SelectedItem="{Binding SelectedScanMethod}"
+                                  AutomationProperties.Name="{l:T 'Verfahren für Farbscans'}" />
+                        <Button Grid.Column="2" Classes="subtle info" Name="ScanInfo" AutomationProperties.Name="{l:T 'Mehr über das Verfahren für Farbscans'}" ToolTip.Tip="{l:T 'Mehr über das Verfahren für Farbscans'}">
+                            <PathIcon Data="{StaticResource Icon.Info}" Width="16" Height="16" />
+                        </Button>
+                    </Grid>
+                    <TextBlock Classes="muted small" TextWrapping="Wrap" IsVisible="{Binding IsAsPhotos}"
+                               Text="{l:T 'Farbige Scans werden wie Fotos behandelt — mit Auflösung und Qualität von oben.'}" />
+                    <StackPanel Spacing="0" IsVisible="{Binding IsMrc}">
+                        <Grid Classes="row" ColumnDefinitions="112,*,64" IsEnabled="{Binding Downsample}">
+                            <TextBlock Text="{l:T 'Erkennung'}" />
+                            <Slider ToolTip.ShowOnDisabled="True" Grid.Column="1" Minimum="0" Maximum="100" Value="{Binding MrcSensitivity}" SmallChange="1" LargeChange="10"
+                                    TickFrequency="1" IsSnapToTickEnabled="True" AutomationProperties.Name="{l:T 'Empfindlichkeit der Schrift-Erkennung'}">
+                                <ToolTip.Tip><l:T Text="Höher findet auch blasse Schrift und Bleistift, nimmt aber eher Flecken und Papierstruktur mit. Niedriger lässt Blasses im weichen Hintergrund." /></ToolTip.Tip>
+                            </Slider>
+                            <TextBlock Grid.Column="2" TextAlignment="Right" Text="{Binding MrcSensitivityText}" />
+                        </Grid>
+                        <Grid Classes="row" ColumnDefinitions="112,*,64" IsEnabled="{Binding Downsample}">
+                            <TextBlock Text="{l:T 'Schriftfarben'}" />
+                            <Slider ToolTip.ShowOnDisabled="True" Grid.Column="1" Minimum="1" Maximum="8" Value="{Binding MrcColors}" SmallChange="1" LargeChange="1"
+                                    TickFrequency="1" IsSnapToTickEnabled="True" AutomationProperties.Name="{l:T 'Höchstens so viele Schriftfarben'}">
+                                <ToolTip.Tip><l:T Text="1: alle Schrift in einer Farbe. Mehr hält Kuli, Stempel und farbige Markierungen in ihrer Farbe." /></ToolTip.Tip>
+                            </Slider>
+                            <TextBlock Grid.Column="2" TextAlignment="Right" Text="{Binding MrcColorsText}" />
+                        </Grid>
+                        <CheckBox IsChecked="{Binding MrcSmoothText}" IsEnabled="{Binding Downsample}" ToolTip.ShowOnDisabled="True"
+                                  Content="{l:T 'Schrift glätten (600 dpi)'}">
+                            <ToolTip.Tip><l:T Text="Schrift doppelt so fein wie ein 300-dpi-Scan: glatte Kanten wie im Original, die Datei wird etwas größer (etwa ein Sechstel). Aus: Schrift in 300 dpi, kantiger." /></ToolTip.Tip>
+                        </CheckBox>
+                        <CheckBox IsChecked="{Binding MrcFlattenPaper}" IsEnabled="{Binding Downsample}" ToolTip.ShowOnDisabled="True"
+                                  Content="{l:T 'Papier glätten'}">
+                            <ToolTip.Tip><l:T Text="Körnung des Papiers und durchscheinende Rückseiten werden zu einem gleichmäßigen Papierton — ruhiger und etwas kleiner. Stempel, Markierungen und getönte Felder bleiben." /></ToolTip.Tip>
+                        </CheckBox>
+                        <TextBlock Classes="muted small" TextWrapping="Wrap"
+                                   Text="{l:T 'Nur Seiten, die als Textscan erkannt werden; Fotos und Grafiken bleiben beim üblichen Weg. Die Schrift bleibt scharf, das Papier wird klein; ein unsichtbarer OCR-Text bleibt erhalten. Greift nur, wenn Bilder neu gepackt werden dürfen.'}" />
+                    </StackPanel>
+
+                    <TextBlock Classes="section" Text="{l:T 'SCHRIFTEN UND PACKEN'}" Margin="0,10,0,0" />
+                    <CheckBox IsChecked="{Binding SubsetFonts}" Content="{l:T 'Schriften auf benutzte Zeichen kürzen'}">
+                        <ToolTip.Tip><l:T Text="Ganz eingebettete TrueType-Schriften behalten nur die Zeichen, die das Dokument zeigt — Schriften von Formularfeldern bleiben ganz" /></ToolTip.Tip>
+                    </CheckBox>
+                    <Grid Classes="row" ColumnDefinitions="112,*,Auto">
+                        <TextBlock Text="{l:T 'Packen'}" />
+                        <ComboBox Name="PackBox" Grid.Column="1" HorizontalAlignment="Stretch" ItemsSource="{Binding PackMethods}" SelectedItem="{Binding SelectedPackMethod}"
+                                  AutomationProperties.Name="{l:T 'Packverfahren'}">
+                            <ToolTip.Tip><l:T Text="Wie Text, Schriften und Zeichnungen gepackt werden. Flate kann jedes Programm lesen." /></ToolTip.Tip>
+                        </ComboBox>
+                        <Button Grid.Column="2" Classes="subtle info" Name="PackInfo" AutomationProperties.Name="{l:T 'Mehr über das Packverfahren'}" ToolTip.Tip="{l:T 'Mehr über das Packverfahren'}">
+                            <PathIcon Data="{StaticResource Icon.Info}" Width="16" Height="16" />
+                        </Button>
+                    </Grid>
+                    <Border IsVisible="{Binding Brotli}" Background="{DynamicResource DangerSoftBrush}" CornerRadius="6" Padding="10,6" Margin="0,2,0,0">
+                        <TextBlock TextWrapping="Wrap"
+                                   Text="{l:T 'Viele PDF-Programme und Browser können mit Brotli gepackte Dateien noch nicht öffnen. Nur wählen, wenn die Datei hier oder in einem passenden Programm gelesen wird.'}" />
+                    </Border>
+                    <TextBlock Classes="muted small" TextWrapping="Wrap" Margin="0,4,0,0"
+                               Text="{l:T 'Immer dabei und verlustfrei: Doppeltes zusammenlegen, Vorschaubilder und Daten anderer Programme entfernen, stärkste Packstufe, Objekt-Streams.'}" />
+
+                    <!-- Größenvorschau -->
+                    <TextBlock Classes="section" Text="{l:T 'GRÖSSE'}" Margin="0,14,0,0" />
+                    <TextBlock Name="TotalText" FontSize="17" FontWeight="SemiBold" Text="{Binding TotalText}" TextWrapping="Wrap" />
+                    <Grid Classes="size" ColumnDefinitions="*,Auto,Auto,Auto" Margin="0,4,0,0">
+                        <TextBlock Classes="muted small" Text="" />
+                        <TextBlock Grid.Column="1" Classes="muted small" TextAlignment="Right" MinWidth="70" Text="{l:T 'Vorher'}" />
+                        <TextBlock Grid.Column="2" Classes="muted small" TextAlignment="Right" MinWidth="70" Text="{l:T 'Nachher'}" />
+                        <TextBlock Grid.Column="3" Classes="muted small" TextAlignment="Right" MinWidth="56" Text="" />
+                    </Grid>
+                    <ItemsControl ItemsSource="{Binding Rows}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:SizeRow">
+                                <Grid Classes="size" ColumnDefinitions="*,Auto,Auto,Auto">
+                                    <TextBlock Text="{Binding Label}" />
+                                    <TextBlock Grid.Column="1" TextAlignment="Right" MinWidth="70" Text="{Binding BeforeText}" />
+                                    <TextBlock Grid.Column="2" TextAlignment="Right" MinWidth="70" Text="{Binding AfterText}" />
+                                    <TextBlock Grid.Column="3" Classes="muted" TextAlignment="Right" MinWidth="56" Text="{Binding ChangeText}" />
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <TextBlock Classes="muted" Margin="0,6,0,0" TextWrapping="Wrap" Text="{Binding PageText}" />
+                </StackPanel>
+            </ScrollViewer>
+
+            <Rectangle Grid.Column="1" Width="1" Fill="{DynamicResource LineBrush}" />
+
+            <!-- Vorher/Nachher -->
+            <DockPanel Grid.Column="2">
+                <Border DockPanel.Dock="Bottom" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0" Padding="10,6">
+                    <Grid ColumnDefinitions="*,Auto,*">
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                            <Button Classes="subtle" Command="{Binding PreviousPageCommand}" AutomationProperties.Name="{l:T 'Vorherige Seite'}">
+                                <PathIcon Data="{StaticResource Icon.ChevronDown}" Width="14" Height="14" RenderTransform="rotate(90deg)" />
+                                <ToolTip.Tip><l:T Text="Vorherige Seite (Bild auf)" /></ToolTip.Tip>
+                            </Button>
+                            <TextBlock MinWidth="120" TextAlignment="Center" VerticalAlignment="Center" Text="{Binding PageInfo}" />
+                            <Button Classes="subtle" Command="{Binding NextPageCommand}" AutomationProperties.Name="{l:T 'Nächste Seite'}">
+                                <PathIcon Data="{StaticResource Icon.ChevronDown}" Width="14" Height="14" RenderTransform="rotate(-90deg)" />
+                                <ToolTip.Tip><l:T Text="Nächste Seite (Bild ab)" /></ToolTip.Tip>
+                            </Button>
+                        </StackPanel>
+                        <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="4">
+                            <Button Classes="subtle" Click="OnZoomOut" AutomationProperties.Name="{l:T 'Verkleinern'}">
+                                <PathIcon Data="{StaticResource Icon.ZoomOut}" Width="16" Height="16" />
+                                <ToolTip.Tip><l:T Text="Verkleinern (−)" /></ToolTip.Tip>
+                            </Button>
+                            <TextBlock Name="ZoomText" MinWidth="52" TextAlignment="Center" VerticalAlignment="Center" />
+                            <Button Classes="subtle" Click="OnZoomIn" AutomationProperties.Name="{l:T 'Vergrößern'}">
+                                <PathIcon Data="{StaticResource Icon.ZoomIn}" Width="16" Height="16" />
+                                <ToolTip.Tip><l:T Text="Vergrößern (+) — oder mit dem Mausrad an der Stelle, die man genauer sehen will" /></ToolTip.Tip>
+                            </Button>
+                            <Button Classes="subtle" Click="OnFit" AutomationProperties.Name="{l:T 'Ganze Seite'}">
+                                <PathIcon Data="{StaticResource Icon.FullScreenMaximize}" Width="16" Height="16" />
+                                <ToolTip.Tip><l:T Text="Ganze Seite (0 oder Doppelklick)" /></ToolTip.Tip>
+                            </Button>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+                <Border Background="{DynamicResource CanvasBrush}">
+                    <Grid>
+                        <c:ComparePreview Name="Preview" BeforeImage="{Binding BeforeImage}" AfterImage="{Binding AfterImage}" Region="{Binding Region}"
+                                          PageWidth="{Binding PageWidth}" PageHeight="{Binding PageHeight}"
+                                          BeforeLabel="{l:T 'Vorher'}" AfterLabel="{l:T 'Nachher'}"
+                                          AutomationProperties.Name="{l:T 'Vorher und nachher'}">
+                            <ToolTip.Tip><l:T Text="Linie ziehen: links vorher, rechts nachher. Mausrad zoomt, Ziehen verschiebt." /></ToolTip.Tip>
+                        </c:ComparePreview>
+                        <ProgressBar IsIndeterminate="True" IsVisible="{Binding Busy}" VerticalAlignment="Top" Height="3" MinHeight="3" CornerRadius="0" />
+                    </Grid>
+                </Border>
+            </DockPanel>
+        </Grid>
+
+        <!-- Fuß -->
+        <Border Grid.Row="1" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0" Padding="20,12">
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                    <Button Content="{l:T 'Abbrechen'}" Click="OnCancel" IsCancel="True" />
+                    <Button Name="SaveButton" Classes="primary" Content="{l:T 'Speichern unter …'}" Command="{Binding SaveCommand}" IsDefault="True">
+                        <ToolTip.Tip><l:T Text="Als neue Datei speichern — die geöffnete Datei bleibt, wie sie ist" /></ToolTip.Tip>
+                    </Button>
+                </StackPanel>
+                <StackPanel VerticalAlignment="Center" Spacing="4" Margin="0,0,16,0">
+                    <StackPanel Orientation="Horizontal" Spacing="10" IsVisible="{Binding Saving}">
+                        <ProgressBar IsIndeterminate="True" Width="140" />
+                        <TextBlock Classes="muted" VerticalAlignment="Center" Text="{l:T 'Wird gespeichert …'}" />
+                    </StackPanel>
+                    <TextBlock Classes="muted" IsVisible="{Binding !Saving}" TextWrapping="Wrap"
+                               Text="{l:T 'Die Vorschau zeigt genau die Datei, die gespeichert wird.'}" />
+                    <TextBlock Foreground="{DynamicResource DangerBrush}" TextWrapping="Wrap" Text="{Binding Problem}" IsVisible="{Binding HasProblem}" />
+                </StackPanel>
+            </DockPanel>
+        </Border>
+    </Grid>
+</Window>

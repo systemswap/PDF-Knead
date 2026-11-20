@@ -1,0 +1,111 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!-- Design-Tokens. Alles Sichtbare benutzt diese Namen, damit Hell/Dunkel und die
+         Akzentfarbe an genau einer Stelle stehen. Raster: 4/8 px. -->
+    <ResourceDictionary.ThemeDictionaries>
+
+        <ResourceDictionary x:Key="Light">
+            <Color x:Key="AppBackgroundColor">#F3F4F7</Color>
+            <Color x:Key="SurfaceColor">#FFFFFF</Color>
+            <Color x:Key="SurfaceAltColor">#F8F9FB</Color>
+            <Color x:Key="CanvasColor">#E9EBF0</Color>
+            <Color x:Key="HoverColor">#EEF0F4</Color>
+            <Color x:Key="PressedColor">#E3E6EC</Color>
+            <Color x:Key="BorderColor">#E1E4EA</Color>
+            <Color x:Key="BorderStrongColor">#C9CED8</Color>
+            <Color x:Key="TextColor">#1A1C21</Color>
+            <Color x:Key="TextMutedColor">#667085</Color>
+            <Color x:Key="TextDisabledColor">#A9AFBB</Color>
+            <Color x:Key="AccentColor">#4F46E5</Color>
+            <Color x:Key="AccentHoverColor">#4338CA</Color>
+            <Color x:Key="AccentSoftColor">#EEF0FF</Color>
+            <Color x:Key="OnAccentColor">#FFFFFF</Color>
+            <Color x:Key="DangerColor">#D92D20</Color>
+            <Color x:Key="DangerSoftColor">#FEF1F0</Color>
+            <Color x:Key="GoodColor">#12805C</Color>
+            <Color x:Key="WarnColor">#B54708</Color>
+            <Color x:Key="WarnSoftColor">#FDE8D2</Color>
+            <Color x:Key="ShadowColor">#1A101828</Color>
+            <Color x:Key="OverlayColor">#66101828</Color>
+        </ResourceDictionary>
+
+        <ResourceDictionary x:Key="Dark">
+            <Color x:Key="AppBackgroundColor">#17181C</Color>
+            <Color x:Key="SurfaceColor">#212328</Color>
+            <Color x:Key="SurfaceAltColor">#1C1E22</Color>
+            <Color x:Key="CanvasColor">#111215</Color>
+            <Color x:Key="HoverColor">#2B2E35</Color>
+            <Color x:Key="PressedColor">#343841</Color>
+            <Color x:Key="BorderColor">#30333A</Color>
+            <Color x:Key="BorderStrongColor">#454A54</Color>
+            <Color x:Key="TextColor">#ECEDF0</Color>
+            <Color x:Key="TextMutedColor">#9BA1AD</Color>
+            <Color x:Key="TextDisabledColor">#5C626E</Color>
+            <Color x:Key="AccentColor">#8B85FF</Color>
+            <Color x:Key="AccentHoverColor">#A09BFF</Color>
+            <Color x:Key="AccentSoftColor">#272645</Color>
+            <Color x:Key="OnAccentColor">#14131F</Color>
+            <Color x:Key="DangerColor">#FF6B5E</Color>
+            <Color x:Key="DangerSoftColor">#3A2120</Color>
+            <Color x:Key="GoodColor">#4CC79A</Color>
+            <Color x:Key="WarnColor">#F5A524</Color>
+            <Color x:Key="WarnSoftColor">#3D2C12</Color>
+            <Color x:Key="ShadowColor">#66000000</Color>
+            <Color x:Key="OverlayColor">#99000000</Color>
+        </ResourceDictionary>
+
+    </ResourceDictionary.ThemeDictionaries>
+
+    <!-- Brushes auf die Theme-Farben -->
+    <SolidColorBrush x:Key="AppBackgroundBrush" Color="{DynamicResource AppBackgroundColor}" />
+    <SolidColorBrush x:Key="SurfaceBrush"       Color="{DynamicResource SurfaceColor}" />
+    <SolidColorBrush x:Key="SurfaceAltBrush"    Color="{DynamicResource SurfaceAltColor}" />
+    <SolidColorBrush x:Key="CanvasBrush"        Color="{DynamicResource CanvasColor}" />
+    <SolidColorBrush x:Key="HoverBrush"         Color="{DynamicResource HoverColor}" />
+    <SolidColorBrush x:Key="PressedBrush"       Color="{DynamicResource PressedColor}" />
+    <SolidColorBrush x:Key="LineBrush"          Color="{DynamicResource BorderColor}" />
+    <SolidColorBrush x:Key="LineStrongBrush"    Color="{DynamicResource BorderStrongColor}" />
+    <SolidColorBrush x:Key="TextBrush"          Color="{DynamicResource TextColor}" />
+    <SolidColorBrush x:Key="TextMutedBrush"     Color="{DynamicResource TextMutedColor}" />
+    <SolidColorBrush x:Key="TextDisabledBrush"  Color="{DynamicResource TextDisabledColor}" />
+    <SolidColorBrush x:Key="AccentBrush"        Color="{DynamicResource AccentColor}" />
+    <SolidColorBrush x:Key="AccentHoverBrush"   Color="{DynamicResource AccentHoverColor}" />
+    <SolidColorBrush x:Key="AccentSoftBrush"    Color="{DynamicResource AccentSoftColor}" />
+    <SolidColorBrush x:Key="OnAccentBrush"      Color="{DynamicResource OnAccentColor}" />
+    <SolidColorBrush x:Key="DangerBrush"        Color="{DynamicResource DangerColor}" />
+    <SolidColorBrush x:Key="DangerSoftBrush"    Color="{DynamicResource DangerSoftColor}" />
+    <SolidColorBrush x:Key="GoodBrush"          Color="{DynamicResource GoodColor}" />
+    <SolidColorBrush x:Key="WarnBrush"          Color="{DynamicResource WarnColor}" />
+    <SolidColorBrush x:Key="WarnSoftBrush"      Color="{DynamicResource WarnSoftColor}" />
+    <SolidColorBrush x:Key="OverlayBrush"       Color="{DynamicResource OverlayColor}" />
+
+    <!-- Maße -->
+    <CornerRadius x:Key="RadiusCard">10</CornerRadius>
+    <CornerRadius x:Key="RadiusControl">6</CornerRadius>
+    <CornerRadius x:Key="RadiusSmall">4</CornerRadius>
+    <x:Double x:Key="FontSizeSmall">11</x:Double>
+    <x:Double x:Key="FontSizeBody">13</x:Double>
+    <x:Double x:Key="FontSizeTitle">20</x:Double>
+    <x:Double x:Key="FontSizeHero">26</x:Double>
+    <x:Double x:Key="RibbonHeight">100</x:Double>
+    <x:Double x:Key="IconSmall">16</x:Double>
+    <x:Double x:Key="IconLarge">26</x:Double>
+
+    <!-- Regler: Fluent setzt einen 20-px-Knopf und je 15 px Rand darüber und darunter;
+         mit kleinem Knopf und schmalem Rand passt der Regler in jede Zeile, ohne abgeschnitten zu werden -->
+    <x:Double x:Key="SliderHorizontalThumbWidth">14</x:Double>
+    <x:Double x:Key="SliderHorizontalThumbHeight">14</x:Double>
+    <x:Double x:Key="SliderVerticalThumbWidth">14</x:Double>
+    <x:Double x:Key="SliderVerticalThumbHeight">14</x:Double>
+    <CornerRadius x:Key="SliderThumbCornerRadius">7</CornerRadius>
+    <x:Double x:Key="SliderHorizontalHeight">20</x:Double>
+    <x:Double x:Key="SliderVerticalWidth">20</x:Double>
+    <GridLength x:Key="SliderPreContentMargin">3</GridLength>
+    <GridLength x:Key="SliderPostContentMargin">3</GridLength>
+
+    <!-- Schatten für schwebende Flächen (Backstage, eingeklapptes Ribbon) -->
+    <BoxShadows x:Key="ShadowFloating">0 8 24 0 #22101828, 0 2 6 0 #14101828</BoxShadows>
+    <BoxShadows x:Key="ShadowCard">0 1 3 0 #12101828</BoxShadows>
+
+</ResourceDictionary>

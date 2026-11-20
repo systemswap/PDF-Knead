@@ -1,0 +1,72 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <PropertyGroup>
+        <OutputType>WinExe</OutputType>
+        <TargetFramework>net10.0</TargetFramework>
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+
+        <AssemblyName>PDF-Knead</AssemblyName>
+        <RootNamespace>PdfKnead.Desktop</RootNamespace>
+        <Company>PDF-Knead</Company>
+        <Product>PDF-Knead</Product>
+        <RuntimeIdentifiers>win-x64;linux-x64;linux-arm64</RuntimeIdentifiers>
+    </PropertyGroup>
+
+    <!-- Zwei Bauarten (publish.ps1 / publish.sh wählen):
+         Native AOT (PublishAot=true) – nur für das eigene Betriebssystem: Maschinencode, Start
+           ~0,3 s statt ~1 s; daneben liegen nur die nativen Skia-/HarfBuzz-/ANGLE-Bibliotheken.
+         Eine Datei mit ReadyToRun – für das jeweils andere Betriebssystem (AOT kann nicht
+           über Betriebssysteme hinweg übersetzen) oder wenn der C-Linker fehlt.
+         InvariantGlobalization bleibt aus – Kulturen braucht die Lokalisierung. -->
+    <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+        <SelfContained>true</SelfContained>
+        <InvariantGlobalization>false</InvariantGlobalization>
+        <DebugType>none</DebugType>
+    </PropertyGroup>
+
+    <PropertyGroup Condition="'$(Configuration)' == 'Release' and '$(PublishAot)' != 'true'">
+        <PublishSingleFile>true</PublishSingleFile>
+        <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+        <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+        <!-- ReadyToRun: schnellerer Start -->
+        <PublishReadyToRun>true</PublishReadyToRun>
+        <PublishTrimmed>false</PublishTrimmed>
+    </PropertyGroup>
+
+    <PropertyGroup Condition="'$(PublishAot)' == 'true'">
+        <PublishTrimmed>true</PublishTrimmed>
+        <!-- Ressourcen-Texte von .NET (Fehlermeldungen) bleiben drin: das Log soll lesbar sein -->
+        <UseSystemResourceKeys>false</UseSystemResourceKeys>
+    </PropertyGroup>
+
+    <!-- AOT-Binary als eine Datei: native Bibliotheken der Pakete (Skia, HarfBuzz, ANGLE) als
+         Ressource ins Programm statt daneben; EmbeddedNativeLibraries.cs legt sie beim ersten
+         Start ab und lädt sie. -->
+    <Target Name="EmbedNativeLibraries" AfterTargets="ResolvePackageAssets" Condition="'$(PublishAot)' == 'true'">
+        <ItemGroup>
+            <_KneadNative Include="@(NativeCopyLocalItems)" Condition="'%(Extension)' == '.dll' or '%(Extension)' == '.so'" />
+            <EmbeddedResource Include="@(_KneadNative)" LogicalName="native/%(Filename)%(Extension)" WithCulture="false" />
+        </ItemGroup>
+    </Target>
+
+    <Target Name="KeepNativeLibrariesInside" AfterTargets="ComputeResolvedFilesToPublishList" Condition="'$(PublishAot)' == 'true'">
+        <ItemGroup>
+            <ResolvedFileToPublish Remove="@(NativeCopyLocalItems)" />
+        </ItemGroup>
+    </Target>
+
+    <PropertyGroup>
+        <ApplicationManifest>app.manifest</ApplicationManifest>
+        <!-- Programmsymbol der exe (Explorer, Taskleiste); erzeugt von AppIconTests -->
+        <ApplicationIcon>../PdfKnead.Ui/Assets/app.ico</ApplicationIcon>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Avalonia.Desktop" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\PdfKnead.Ui\PdfKnead.Ui.csproj" />
+        <ProjectReference Include="..\PdfKnead.EInvoice.Ui\PdfKnead.EInvoice.Ui.csproj" />   <!-- Andockstelle E-Rechnung (KONZEPT §5.24) -->
+    </ItemGroup>
+</Project>

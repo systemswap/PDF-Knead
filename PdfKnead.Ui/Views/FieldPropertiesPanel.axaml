@@ -1,0 +1,490 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             Background="{DynamicResource SurfaceAltBrush}"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:l="using:PdfKnead.Localization"
+             xmlns:vm="using:PdfKnead.ViewModels"
+             x:Class="PdfKnead.Views.FieldPropertiesPanel" Focusable="True"
+             x:DataType="vm:FieldPropertiesViewModel">
+    <!-- Eigenschaften der ausgewählten Formularfelder (M6d), rechts im Modus „Formular bearbeiten“ -->
+    <UserControl.Resources>
+        <DataTemplate x:Key="LabelTemplate" x:DataType="vm:ILabeled">
+            <TextBlock>
+                <TextBlock.Text>
+                    <MultiBinding Converter="{x:Static l:T.Translate}">
+                        <Binding Path="Label" />
+                        <x:Static Member="l:T.LanguageVersion" />
+                    </MultiBinding>
+                </TextBlock.Text>
+            </TextBlock>
+        </DataTemplate>
+        <DataTemplate x:Key="ColorTemplate" x:DataType="vm:FieldColorOption">
+            <StackPanel Orientation="Horizontal" Spacing="6">
+                <Border Width="14" Height="14" CornerRadius="3" Background="{Binding Brush}" BorderBrush="{DynamicResource LineStrongBrush}"
+                        BorderThickness="1" VerticalAlignment="Center" />
+                <TextBlock VerticalAlignment="Center">
+                    <TextBlock.Text>
+                        <MultiBinding Converter="{x:Static l:T.Translate}">
+                            <Binding Path="Label" />
+                            <x:Static Member="l:T.LanguageVersion" />
+                        </MultiBinding>
+                    </TextBlock.Text>
+                </TextBlock>
+            </StackPanel>
+        </DataTemplate>
+        <DataTemplate x:Key="FontTemplate" x:DataType="vm:FontOption">
+            <TextBlock>
+                <TextBlock.Text>
+                    <MultiBinding Converter="{x:Static l:T.Translate}">
+                        <Binding Path="Label" />
+                        <x:Static Member="l:T.LanguageVersion" />
+                    </MultiBinding>
+                </TextBlock.Text>
+            </TextBlock>
+        </DataTemplate>
+    </UserControl.Resources>
+    <UserControl.Styles>
+        <StyleInclude Source="avares://PdfKnead.Ui/Styles/PropertyPanel.axaml" />
+    </UserControl.Styles>
+
+    <Panel>
+    <Border Classes="propCard" Margin="12,14,12,0" VerticalAlignment="Top" IsVisible="{Binding !HasField}">
+        <StackPanel Spacing="10">
+            <Border Classes="propBadge" Width="40" Height="40" CornerRadius="12" HorizontalAlignment="Left">
+                <PathIcon Data="{StaticResource Icon.Form}" Width="20" Height="20" />
+            </Border>
+            <TextBlock Classes="propTitle" Text="{l:T 'Formular bearbeiten'}" />
+            <TextBlock Classes="hint"
+                       Text="{l:T 'Ein Feld anklicken, um seine Eigenschaften zu bearbeiten. Mit Strg+Klick oder einem aufgezogenen Rahmen mehrere wählen.'}" />
+        </StackPanel>
+    </Border>
+    <DockPanel IsVisible="{Binding HasField}">
+        <Border DockPanel.Dock="Top" Classes="propBanner">
+            <Grid ColumnDefinitions="Auto,*">
+                <Border Classes="bannerIcon"><PathIcon Data="{Binding KindIcon}" /></Border>
+                <StackPanel Grid.Column="1" Margin="10,0,0,0" Spacing="0" VerticalAlignment="Center">
+                    <TextBlock FontWeight="SemiBold" FontSize="14" Text="{Binding Title}" />
+                    <TextBlock FontSize="11" Opacity="0.85" Text="{Binding FullName}" TextTrimming="CharacterEllipsis" IsVisible="{Binding IsSingle}" />
+                    <TextBlock FontSize="11" Opacity="0.9" TextWrapping="Wrap" IsVisible="{Binding IsMixed}"
+                               Text="{l:T 'Verschiedene Feldarten: hier steht nur, was alle gemeinsam haben. Eine Änderung gilt nur für diese eine Eigenschaft.'}" />
+                </StackPanel>
+            </Grid>
+        </Border>
+        <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+            <StackPanel Margin="0,0,0,12">
+
+                <!-- Allgemein -->
+                <Border Classes="propCard">
+                    <StackPanel>
+                        <StackPanel Classes="propHeader">
+                            <Border Classes="propBadge"><PathIcon Data="{StaticResource Icon.Info}" /></Border>
+                            <TextBlock Classes="propTitle" Text="{l:T 'Allgemein'}" />
+                        </StackPanel>
+                        <TextBlock Classes="caption" Text="{l:T 'Name'}" />
+                        <TextBox Name="NameBox" Text="{Binding Name, UpdateSourceTrigger=LostFocus}" IsEnabled="{Binding IsSingle}"
+                                 AutomationProperties.Name="{l:T 'Name'}"
+                                 ToolTip.Tip="{l:T 'Unter diesem Namen lesen andere Programme den Wert. Gleichnamige Felder teilen sich ihren Wert.'}" />
+                        <!-- Verbundene Felder (KONZEPT §5.4a): gleicher Name und gleiche Art = ein Feld mit einem Wert -->
+                        <StackPanel IsVisible="{Binding IsLinked}" Margin="0,8,0,0" Spacing="4">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <PathIcon Width="14" Height="14" Data="{StaticResource Icon.Link}" Foreground="{DynamicResource AccentBrush}" />
+                                <TextBlock FontSize="12" TextWrapping="Wrap" MaxWidth="240" Text="{Binding LinkText}" />
+                            </StackPanel>
+                            <ItemsControl ItemsSource="{Binding LinkedFields}" AutomationProperties.Name="{l:T 'Verbundene Felder'}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:LinkedFieldRow">
+                                        <Button Classes="soft" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="6,2" Margin="0,0,0,2"
+                                                Content="{Binding Text}" AutomationProperties.Name="{Binding Text}"
+                                                Command="{Binding $parent[UserControl].((vm:FieldPropertiesViewModel)DataContext).GoToLinkedCommand}"
+                                                CommandParameter="{Binding}" ToolTip.Tip="{l:T 'Zu diesem Feld springen'}" />
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <WrapPanel IsVisible="{Binding CanSeparate}">
+                                <Button Classes="soft" Margin="0,4,6,0" Content="{l:T 'Von den anderen trennen'}" Command="{Binding SeparateOneCommand}"
+                                        ToolTip.Tip="{l:T 'Das Feld bekommt einen eigenen Namen und behält seinen Wert; danach füllt man es für sich aus.'}" />
+                                <Button Classes="soft" Margin="0,4,0,0" Content="{l:T 'Alle trennen'}" Command="{Binding SeparateAllCommand}"
+                                        ToolTip.Tip="{l:T 'Jedes dieser Felder bekommt einen eigenen Namen und behält seinen Wert.'}" />
+                            </WrapPanel>
+                        </StackPanel>
+                        <StackPanel IsVisible="{Binding !IsOwnSignature}">
+                            <TextBlock Classes="caption" Text="{l:T 'Beschriftung (für Bildschirmleser)'}" />
+                            <TextBox Text="{Binding Tooltip, UpdateSourceTrigger=LostFocus}" AutomationProperties.Name="{l:T 'Beschriftung (für Bildschirmleser)'}"
+                                     PlaceholderText="{l:T 'Ohne Beschriftung nennen Bildschirmleser nur die Feldart'}"
+                                     ToolTip.Tip="{l:T 'Erscheint beim Darüberfahren mit der Maus und wird von Screenreadern vorgelesen'}" />
+                            <CheckBox Margin="0,8,0,0" IsChecked="{Binding Required}" Content="{l:T 'Pflichtfeld'}" />
+                            <CheckBox IsChecked="{Binding ReadOnly}" Content="{l:T 'Schreibgeschützt'}" />
+                            <TextBlock Classes="caption" Text="{l:T 'Sichtbarkeit'}" />
+                            <ComboBox ItemsSource="{x:Static vm:FieldPropertiesViewModel.Visibilities}" SelectedItem="{Binding Visibility}"
+                                      ItemTemplate="{StaticResource LabelTemplate}" AutomationProperties.Name="{l:T 'Sichtbarkeit'}" />
+                        </StackPanel>
+                        <StackPanel IsVisible="{Binding IsOwnSignature}">
+                            <TextBlock Classes="caption" Text="{l:T 'Beschriftung'}" />
+                            <TextBox Text="{Binding SignatureLabel, UpdateSourceTrigger=LostFocus}" AutomationProperties.Name="{l:T 'Beschriftung'}" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- Code-Feld (KONZEPT §5.19, Schritt 4): Art, Inhalt und Aussehen des Codes wie bei einem eingefügten Code -->
+                <Border Classes="propCard" IsVisible="{Binding IsCode}">
+                    <StackPanel>
+                        <StackPanel Classes="propHeader">
+                            <Border Classes="propBadge"><PathIcon Data="{StaticResource Icon.QrCode}" /></Border>
+                            <TextBlock Classes="propTitle" Text="{l:T 'Code'}" />
+                        </StackPanel>
+                        <TextBlock Classes="caption" Text="{l:T 'Codeart'}" />
+                        <ComboBox ItemsSource="{x:Static vm:CodePropertiesViewModel.Formats}" SelectedItem="{Binding CodeFormat}"
+                                  ItemTemplate="{StaticResource LabelTemplate}" AutomationProperties.Name="{l:T 'Codeart'}" />
+                        <TextBlock Classes="caption" Margin="0,8,0,0" Text="{l:T 'Inhalt'}" />
+                        <TextBox Name="CodeContentBox" Text="{Binding CodeContent, UpdateSourceTrigger=LostFocus}" AcceptsReturn="{Binding IsCodeMatrix}"
+                                 TextWrapping="Wrap" MinHeight="30" MaxHeight="160" AutomationProperties.Name="{l:T 'Inhalt des Codes'}">
+                            <ToolTip.Tip><l:T Text="Was der Code enthält — beim Ausfüllen kann es jeder ändern, der das Formular in PDF-Knead öffnet" /></ToolTip.Tip>
+                        </TextBox>
+                        <TextBlock Classes="hint" Margin="0,4,0,0" Text="{Binding CodeContentHint}" />
+                        <TextBlock Margin="0,6,0,0" FontSize="12" TextWrapping="Wrap" Foreground="{DynamicResource DangerBrush}"
+                                   Text="{Binding CodeError}" IsVisible="{Binding HasCodeError}" />
+                        <CheckBox Margin="0,8,0,0" IsChecked="{Binding CodeGs1}" IsVisible="{Binding IsCodeMatrix}" Content="{l:T 'GS1-Daten'}"
+                                  AutomationProperties.Name="{l:T 'GS1-Daten'}" />
+                        <StackPanel IsVisible="{Binding IsCodeQr}">
+                            <TextBlock Classes="caption" Text="{l:T 'Fehlerkorrektur'}" />
+                            <ComboBox ItemsSource="{x:Static vm:CodePropertiesViewModel.Levels}" SelectedItem="{Binding CodeLevel}"
+                                      ItemTemplate="{StaticResource LabelTemplate}" AutomationProperties.Name="{l:T 'Fehlerkorrektur'}" />
+                        </StackPanel>
+                        <StackPanel IsVisible="{Binding IsCodeDataMatrix}">
+                            <TextBlock Classes="caption" Text="{l:T 'Form'}" />
+                            <ComboBox ItemsSource="{x:Static vm:CodePropertiesViewModel.Shapes}" SelectedItem="{Binding CodeShape}"
+                                      ItemTemplate="{StaticResource LabelTemplate}" AutomationProperties.Name="{l:T 'Form des Codes'}" />
+                        </StackPanel>
+                        <Grid ColumnDefinitions="*,8,*" Margin="0,6,0,0">
+                            <StackPanel Grid.Column="0">
+                                <TextBlock Classes="caption" Text="{l:T 'Farbe'}" />
+                                <ComboBox ItemsSource="{x:Static vm:CodePropertiesViewModel.Colors}" SelectedItem="{Binding CodeColor}"
+                                          ItemTemplate="{StaticResource ColorTemplate}" AutomationProperties.Name="{l:T 'Farbe des Codes'}" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="2">
+                                <TextBlock Classes="caption" Text="{l:T 'Hintergrund'}" />
+                                <ComboBox ItemsSource="{x:Static vm:CodePropertiesViewModel.Backgrounds}" SelectedItem="{Binding CodeBackground}"
+                                          ItemTemplate="{StaticResource ColorTemplate}" AutomationProperties.Name="{l:T 'Hintergrund des Codes'}" />
+                            </StackPanel>
+                        </Grid>
+                        <CheckBox Margin="0,8,0,0" IsChecked="{Binding CodeQuietZone}" Content="{l:T 'Ruhezone (freier Rand)'}"
+                                  AutomationProperties.Name="{l:T 'Ruhezone'}" />
+                        <CheckBox Margin="0,4,0,0" IsChecked="{Binding CodeCaption}" IsVisible="{Binding IsCodeLinear}" Content="{l:T 'Klartext darunter'}"
+                                  AutomationProperties.Name="{l:T 'Klartext darunter'}" />
+                        <TextBlock Margin="0,8,0,0" FontSize="12" Text="{Binding CodeModuleText}" />
+                        <TextBlock FontSize="12" TextWrapping="Wrap" Foreground="{DynamicResource WarnBrush}" Text="{Binding CodeModuleWarning}"
+                                   IsVisible="{Binding CodeModuleWarning, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                        <TextBlock FontSize="12" TextWrapping="Wrap" Foreground="{DynamicResource WarnBrush}" Text="{Binding CodeContrastWarning}"
+                                   IsVisible="{Binding CodeContrastWarning, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                        <TextBlock Name="CodeCheckLine" FontSize="12" TextWrapping="Wrap" Text="{Binding CodeCheckText}" Classes.failed="{Binding CodeCheckFailed}">
+                            <TextBlock.Styles>
+                                <Style Selector="TextBlock.failed">
+                                    <Setter Property="Foreground" Value="{DynamicResource DangerBrush}" />
+                                </Style>
+                            </TextBlock.Styles>
+                        </TextBlock>
+                        <TextBlock Classes="hint" Margin="0,8,0,0" TextWrapping="Wrap"
+                                   Text="{l:T 'Andere PDF-Programme zeigen den zuletzt gespeicherten Code; dort ist das Feld schreibgeschützt.'}" />
+                    </StackPanel>
+                </Border>
+
+                <!-- Beschriftung neben Options- und Kontrollkästchen: gleich beim Klick aufs Kästchen -->
+                <Border Classes="propCard" IsVisible="{Binding IsCheck}">
+                    <StackPanel>
+                        <StackPanel Classes="propHeader">
+                            <Border Classes="propBadge"><PathIcon Data="{StaticResource Icon.TextT}" /></Border>
+                            <TextBlock Classes="propTitle" Text="{l:T 'Beschriftung'}" />
+                        </StackPanel>
+                        <CheckBox IsChecked="{Binding ShowLabel}" Content="{l:T 'Beschriftung anzeigen'}"
+                                  ToolTip.Tip="{l:T 'Text neben dem Kästchen — steht auf der Seite, zieht beim Verschieben mit und lässt sich waagerecht verschieben. Ein Klick darauf kreuzt an.'}" />
+                        <StackPanel IsVisible="{Binding ShowLabel}">
+                            <TextBox Margin="0,4,0,0" Text="{Binding LabelText, UpdateSourceTrigger=LostFocus}"
+                                     AutomationProperties.Name="{l:T 'Beschriftung'}" />
+                            <Grid ColumnDefinitions="*,8,76" Margin="0,6,0,0">
+                                <ComboBox Grid.Column="0" ItemsSource="{x:Static vm:MainViewModel.FontOptions}" SelectedItem="{Binding LabelFont}"
+                                          ItemTemplate="{StaticResource FontTemplate}" AutomationProperties.Name="{l:T 'Schriftart'}" />
+                                <ComboBox Grid.Column="2" ItemsSource="{x:Static vm:MainViewModel.FontSizes}" SelectedItem="{Binding LabelSize}"
+                                          AutomationProperties.Name="{l:T 'Schriftgröße'}" />
+                            </Grid>
+                            <ComboBox Margin="0,6,0,0" ItemsSource="{x:Static vm:MainViewModel.ColorOptions}" SelectedItem="{Binding LabelColor}"
+                                      AutomationProperties.Name="{l:T 'Textfarbe'}">
+                                <ComboBox.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:ColorOption">
+                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                            <Border Width="14" Height="14" CornerRadius="3" Background="{Binding Brush}" VerticalAlignment="Center" />
+                                            <TextBlock VerticalAlignment="Center">
+                                                <TextBlock.Text>
+                                                    <MultiBinding Converter="{x:Static l:T.Translate}">
+                                                        <Binding Path="Label" />
+                                                        <x:Static Member="l:T.LanguageVersion" />
+                                                    </MultiBinding>
+                                                </TextBlock.Text>
+                                            </TextBlock>
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                            </ComboBox>
+                            <TextBlock Classes="caption" Text="{l:T 'Lage'}" />
+                            <Border Classes="segment">
+                                <StackPanel Orientation="Horizontal" Spacing="2">
+                                    <ToggleButton Classes="seg" IsChecked="{Binding LabelLeft}" Content="{l:T 'links'}" />
+                                    <ToggleButton Classes="seg" IsChecked="{Binding LabelRight}" Content="{l:T 'rechts'}" />
+                                </StackPanel>
+                            </Border>
+                            <TextBlock Classes="caption" Text="{l:T 'Abstand zum Kästchen (Punkt)'}" />
+                            <NumericUpDown Value="{Binding LabelGap}" Minimum="0" Maximum="500" Increment="1" FormatString="0.#"
+                                           Width="130" HorizontalAlignment="Left" AutomationProperties.Name="{l:T 'Abstand zum Kästchen (Punkt)'}"
+                                           ToolTip.Tip="{l:T 'Abstand zwischen Kästchen und Text in Punkt (1/72 Zoll; bei 100 % etwa 1,3 Bildschirmpixel) — Pfeile oder Mausrad für feine Schritte'}" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- Aussehen (Code-Felder: Farben bei „Code“) -->
+                <Border Classes="propCard" IsVisible="{Binding ShowAppearance}">
+                    <StackPanel>
+                        <StackPanel Classes="propHeader">
+                            <Border Classes="propBadge"><PathIcon Data="{StaticResource Icon.Color}" /></Border>
+                            <TextBlock Classes="propTitle" Text="{l:T 'Aussehen'}" />
+                        </StackPanel>
+                        <Grid ColumnDefinitions="*,8,*">
+                            <StackPanel Grid.Column="0">
+                                <TextBlock Classes="caption" Text="{l:T 'Rahmen'}" />
+                                <ComboBox ItemsSource="{x:Static vm:FieldPropertiesViewModel.Colors}" SelectedItem="{Binding BorderColor}"
+                                          ItemTemplate="{StaticResource ColorTemplate}" AutomationProperties.Name="{l:T 'Rahmenfarbe'}" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="2">
+                                <TextBlock Classes="caption" Text="{l:T 'Füllung'}" />
+                                <ComboBox ItemsSource="{x:Static vm:FieldPropertiesViewModel.Colors}" SelectedItem="{Binding FillColor}"
+                                          ItemTemplate="{StaticResource ColorTemplate}" AutomationProperties.Name="{l:T 'Füllfarbe'}" />
+                            </StackPanel>
+                        </Grid>
+                        <Grid ColumnDefinitions="*,8,*">
+                            <StackPanel Grid.Column="0">
+                                <TextBlock Classes="caption" Text="{l:T 'Rahmenbreite'}" />
+                                <ComboBox ItemsSource="{x:Static vm:FieldPropertiesViewModel.BorderWidths}" SelectedItem="{Binding BorderWidth}"
+                                          ItemTemplate="{StaticResource LabelTemplate}" AutomationProperties.Name="{l:T 'Rahmenbreite'}" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="2">
+                                <TextBlock Classes="caption" Text="{l:T 'Rahmenstil'}" />
+                                <ComboBox ItemsSource="{x:Static vm:FieldPropertiesViewModel.BorderStyles}" SelectedItem="{Binding BorderStyle}"
+                                          ItemTemplate="{StaticResource LabelTemplate}" AutomationProperties.Name="{l:T 'Rahmenstil'}" />
+                            </StackPanel>
+                        </Grid>
+                        <StackPanel IsVisible="{Binding HasTextStyle}">
+                            <TextBlock Classes="caption" Text="{l:T 'Schrift'}" />
+                            <Grid ColumnDefinitions="*,8,136">
+                                <ComboBox Grid.Column="0" ItemsSource="{x:Static vm:MainViewModel.FontOptions}" SelectedItem="{Binding Font}"
+                                          ItemTemplate="{StaticResource FontTemplate}" AutomationProperties.Name="{l:T 'Schriftart'}" />
+                                <ComboBox Grid.Column="2" ItemsSource="{x:Static vm:FieldPropertiesViewModel.FontSizes}" SelectedItem="{Binding FontSize}"
+                                          ItemTemplate="{StaticResource LabelTemplate}" AutomationProperties.Name="{l:T 'Schriftgröße'}" />
+                            </Grid>
+                            <CheckBox Margin="0,6,0,0" IsChecked="{Binding ShrinkToFit}" IsEnabled="{Binding CanShrinkToFit}"
+                                      Content="{l:T 'Schrift automatisch verkleinern'}" AutomationProperties.Name="{l:T 'Schrift automatisch verkleinern'}">
+                                <ToolTip.Tip><l:T Text="Die gewählte Größe ist die Startgröße — passt der Text nicht mehr hinein, wird die Schrift kleiner (auch mehrzeilig). Bei „Automatisch“ geschieht das ohnehin. In manchen anderen PDF-Programmen richtet sich die Startgröße beim Tippen nach der Feldhöhe." /></ToolTip.Tip>
+                            </CheckBox>
+                        </StackPanel>
+                        <TextBlock Classes="caption" Text="{l:T 'Textfarbe'}" />
+                        <ComboBox ItemsSource="{x:Static vm:FieldPropertiesViewModel.Colors}" SelectedItem="{Binding TextColor}"
+                                  ItemTemplate="{StaticResource ColorTemplate}" AutomationProperties.Name="{l:T 'Textfarbe'}" />
+                        <Border Classes="segment" IsVisible="{Binding HasTextStyle}" Margin="0,10,0,0">
+                            <StackPanel Orientation="Horizontal" Spacing="2">
+                                <ToggleButton Classes="seg" IsChecked="{Binding AlignLeft}" AutomationProperties.Name="{l:T 'Linksbündig'}">
+                                    <PathIcon Data="{StaticResource Icon.TextAlignLeft}" Width="14" Height="14" />
+                                </ToggleButton>
+                                <ToggleButton Classes="seg" IsChecked="{Binding AlignCenter}" AutomationProperties.Name="{l:T 'Zentriert'}">
+                                    <PathIcon Data="{StaticResource Icon.TextAlignCenter}" Width="14" Height="14" />
+                                </ToggleButton>
+                                <ToggleButton Classes="seg" IsChecked="{Binding AlignRight}" AutomationProperties.Name="{l:T 'Rechtsbündig'}">
+                                    <PathIcon Data="{StaticResource Icon.TextAlignRight}" Width="14" Height="14" />
+                                </ToggleButton>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </Border>
+
+                <!-- Optionen: Textfeld -->
+                <Border Classes="propCard" IsVisible="{Binding IsPlainText}">
+                    <StackPanel>
+                        <StackPanel Classes="propHeader">
+                            <Border Classes="propBadge"><PathIcon Data="{StaticResource Icon.Settings}" /></Border>
+                            <TextBlock Classes="propTitle" Text="{l:T 'Optionen'}" />
+                        </StackPanel>
+                        <TextBlock Classes="caption" Text="{l:T 'Standardwert'}" />
+                        <TextBox Text="{Binding DefaultValue, UpdateSourceTrigger=LostFocus}" AutomationProperties.Name="{l:T 'Standardwert'}" />
+                        <CheckBox Margin="0,8,0,0" IsChecked="{Binding Multiline}" Content="{l:T 'Mehrzeilig'}" />
+                        <CheckBox IsChecked="{Binding DoNotScroll}" Content="{l:T 'Nur so viel Text, wie hineinpasst'}" />
+                        <CheckBox IsChecked="{Binding Password}" Content="{l:T 'Kennwort (Sternchen)'}" />
+                        <CheckBox IsChecked="{Binding Comb}" Content="{l:T 'Kammfeld (ein Zeichen je Kästchen)'}" />
+                        <CheckBox IsChecked="{Binding DoNotSpellCheck}" Content="{l:T 'Keine Rechtschreibprüfung'}" />
+                        <TextBlock Classes="caption" Text="{l:T 'Höchstens Zeichen'}" />
+                        <TextBox Text="{Binding MaxLength, UpdateSourceTrigger=LostFocus}" Width="96" HorizontalAlignment="Left"
+                                 PlaceholderText="{l:T 'beliebig'}" AutomationProperties.Name="{l:T 'Höchstens Zeichen'}" />
+                    </StackPanel>
+                </Border>
+
+                <!-- Optionen: Kästchen -->
+                <Border Classes="propCard" IsVisible="{Binding IsCheck}">
+                    <StackPanel>
+                        <StackPanel Classes="propHeader">
+                            <Border Classes="propBadge"><PathIcon Data="{StaticResource Icon.Settings}" /></Border>
+                            <TextBlock Classes="propTitle" Text="{l:T 'Optionen'}" />
+                        </StackPanel>
+                        <TextBlock Classes="caption" Text="{l:T 'Zeichen'}" />
+                        <ComboBox ItemsSource="{x:Static vm:FieldPropertiesViewModel.CheckStyles}" SelectedItem="{Binding Mark}"
+                                  ItemTemplate="{StaticResource LabelTemplate}" AutomationProperties.Name="{l:T 'Zeichen'}" />
+                        <TextBlock Classes="caption" Text="{l:T 'Export-Wert'}" />
+                        <TextBox Text="{Binding ExportValue, UpdateSourceTrigger=LostFocus}" AutomationProperties.Name="{l:T 'Export-Wert'}"
+                                 ToolTip.Tip="{l:T 'Wert, der gespeichert wird, wenn das Feld gewählt ist'}" />
+                        <CheckBox Margin="0,8,0,0" IsChecked="{Binding DefaultOn}" Content="{l:T 'Standardmäßig gewählt'}" />
+                        <CheckBox IsChecked="{Binding NoToggleToOff}" Content="{l:T 'Gewähltes nicht abwählbar'}" IsVisible="{Binding IsRadio}" />
+                        <CheckBox IsChecked="{Binding RadiosInUnison}" Content="{l:T 'Gleiche Export-Werte gemeinsam wählen'}" IsVisible="{Binding IsRadio}" />
+                    </StackPanel>
+                </Border>
+
+                <!-- Optionen: Auswahl -->
+                <Border Classes="propCard" IsVisible="{Binding IsChoice}">
+                    <StackPanel>
+                        <StackPanel Classes="propHeader">
+                            <Border Classes="propBadge"><PathIcon Data="{StaticResource Icon.Settings}" /></Border>
+                            <TextBlock Classes="propTitle" Text="{l:T 'Optionen'}" />
+                        </StackPanel>
+                        <TextBlock Classes="caption" Text="{l:T 'Einträge (je Zeile einer; Export-Wert nach „|“)'}" TextWrapping="Wrap" />
+                        <TextBox Text="{Binding OptionsText, UpdateSourceTrigger=LostFocus}" AcceptsReturn="True" TextWrapping="NoWrap"
+                                 MinHeight="96" MaxHeight="220" AutomationProperties.Name="{l:T 'Einträge'}" />
+                        <CheckBox Margin="0,8,0,0" IsChecked="{Binding Sort}" Content="{l:T 'Einträge sortieren'}" />
+                        <CheckBox IsChecked="{Binding Editable}" Content="{l:T 'Eigenen Text erlauben'}" IsVisible="{Binding IsCombo}" />
+                        <CheckBox IsChecked="{Binding MultiSelect}" Content="{l:T 'Mehrere wählbar'}" IsVisible="{Binding IsList}" />
+                        <CheckBox IsChecked="{Binding CommitOnSelect}" Content="{l:T 'Auswahl sofort übernehmen'}" />
+                        <TextBlock Classes="caption" Text="{l:T 'Standardwert (Export-Wert)'}" />
+                        <TextBox Text="{Binding DefaultValue, UpdateSourceTrigger=LostFocus}" AutomationProperties.Name="{l:T 'Standardwert'}" />
+                    </StackPanel>
+                </Border>
+
+                <!-- Optionen: Schaltfläche -->
+                <Border Classes="propCard" IsVisible="{Binding IsButton}">
+                    <StackPanel>
+                        <StackPanel Classes="propHeader">
+                            <Border Classes="propBadge"><PathIcon Data="{StaticResource Icon.Settings}" /></Border>
+                            <TextBlock Classes="propTitle" Text="{l:T 'Optionen'}" />
+                        </StackPanel>
+                        <TextBlock Classes="caption" Text="{l:T 'Beschriftung'}" />
+                        <TextBox Text="{Binding Caption, UpdateSourceTrigger=LostFocus}" AutomationProperties.Name="{l:T 'Beschriftung'}" />
+                        <TextBlock Classes="hint" Margin="0,8,0,0"
+                                   Text="{l:T 'Setzt beim Klicken alle Felder auf ihren Standardwert zurück — ohne Skript.'}" />
+                    </StackPanel>
+                </Border>
+
+                <!-- Format -->
+                <Border Classes="propCard" IsVisible="{Binding IsPlainText}">
+                    <StackPanel>
+                        <StackPanel Classes="propHeader">
+                            <Border Classes="propBadge"><PathIcon Data="{StaticResource Icon.NumberSymbol}" /></Border>
+                            <TextBlock Classes="propTitle" Text="{l:T 'Format'}" />
+                        </StackPanel>
+                        <StackPanel IsVisible="{Binding CanFormat}">
+                            <ComboBox ItemsSource="{x:Static vm:FieldPropertiesViewModel.FormatKinds}" SelectedItem="{Binding FormatKind}"
+                                      ItemTemplate="{StaticResource LabelTemplate}" AutomationProperties.Name="{l:T 'Format'}" />
+                            <StackPanel IsVisible="{Binding IsNumberFormat}">
+                                <Grid ColumnDefinitions="*,8,*">
+                                    <StackPanel Grid.Column="0">
+                                        <TextBlock Classes="caption" Text="{l:T 'Nachkommastellen'}" />
+                                        <ComboBox ItemsSource="{x:Static vm:FieldPropertiesViewModel.DecimalChoices}" SelectedItem="{Binding Decimals}"
+                                                  ItemTemplate="{StaticResource LabelTemplate}" AutomationProperties.Name="{l:T 'Nachkommastellen'}" />
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="2">
+                                        <TextBlock Classes="caption" Text="{l:T 'Trennzeichen'}" />
+                                        <ComboBox ItemsSource="{x:Static vm:FieldPropertiesViewModel.Separators}" SelectedItem="{Binding Separator}"
+                                                  ItemTemplate="{StaticResource LabelTemplate}" AutomationProperties.Name="{l:T 'Trennzeichen'}" />
+                                    </StackPanel>
+                                </Grid>
+                                <StackPanel IsVisible="{Binding IsCurrencyFormat}">
+                                    <TextBlock Classes="caption" Text="{l:T 'Währung'}" />
+                                    <Grid ColumnDefinitions="96,8,*">
+                                        <TextBox Grid.Column="0" Text="{Binding Currency, UpdateSourceTrigger=LostFocus}" PlaceholderText="{l:T 'keine'}"
+                                                 AutomationProperties.Name="{l:T 'Währung'}" ToolTip.Tip="{l:T 'Zeichen samt Leerzeichen, etwa „ €“'}" />
+                                        <CheckBox Grid.Column="2" IsChecked="{Binding CurrencyFirst}" Content="{l:T 'davor'}" />
+                                    </Grid>
+                                </StackPanel>
+                            </StackPanel>
+                            <StackPanel IsVisible="{Binding IsDateFormat}">
+                                <TextBlock Classes="caption" Text="{l:T 'Muster'}" />
+                                <ComboBox ItemsSource="{x:Static vm:FieldPropertiesViewModel.DatePatterns}" SelectedItem="{Binding Pattern}"
+                                          AutomationProperties.Name="{l:T 'Muster'}" />
+                            </StackPanel>
+                            <StackPanel IsVisible="{Binding IsTimeFormat}">
+                                <TextBlock Classes="caption" Text="{l:T 'Muster'}" />
+                                <ComboBox ItemsSource="{x:Static vm:FieldPropertiesViewModel.TimePatterns}" SelectedItem="{Binding Pattern}"
+                                          AutomationProperties.Name="{l:T 'Muster'}" />
+                            </StackPanel>
+                            <StackPanel IsVisible="{Binding IsSpecialFormat}">
+                                <ComboBox Margin="0,6,0,0" ItemsSource="{x:Static vm:FieldPropertiesViewModel.Specials}" SelectedItem="{Binding Special}"
+                                          ItemTemplate="{StaticResource LabelTemplate}" AutomationProperties.Name="{l:T 'Spezial'}" />
+                            </StackPanel>
+                            <TextBlock Classes="hint" Margin="0,6,0,0" Text="{Binding FormatExample}" />
+                        </StackPanel>
+                        <StackPanel IsVisible="{Binding HasCustomFormat}">
+                            <TextBlock Classes="hint"
+                                       Text="{l:T 'Eigenes Format-Skript — PDF-Knead führt es nicht aus und lässt es unverändert:'}" />
+                            <TextBox Text="{Binding CustomFormatScript, Mode=OneWay}" IsReadOnly="True" TextWrapping="Wrap" MaxHeight="120"
+                                     FontSize="11" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- Berechnen -->
+                <Border Classes="propCard" IsVisible="{Binding IsPlainText}">
+                    <StackPanel>
+                        <StackPanel Classes="propHeader">
+                            <Border Classes="propBadge"><PathIcon Data="{StaticResource Icon.Add}" /></Border>
+                            <TextBlock Classes="propTitle" Text="{l:T 'Berechnen'}" />
+                        </StackPanel>
+                        <StackPanel IsVisible="{Binding CanCalculate}">
+                            <ComboBox ItemsSource="{x:Static vm:FieldPropertiesViewModel.Operations}" SelectedItem="{Binding Operation}"
+                                      ItemTemplate="{StaticResource LabelTemplate}" AutomationProperties.Name="{l:T 'Berechnung'}"
+                                      ToolTip.Tip="{l:T 'Summe, Produkt, Mittelwert, Minimum, Maximum: darunter bei „aus den Feldern“ die Felder ankreuzen, die einfließen. Formel: eine eigene Rechnung mit Feldnamen, etwa (Menge * Preis - Rabatt) * 1.19. Das Feld wird schreibgeschützt; PDF-Knead und andere PDF-Programme mit Formularberechnung rechnen es beim Ausfüllen selbst.'}" />
+                            <StackPanel IsVisible="{Binding IsFormula}">
+                                <TextBlock Classes="caption" Text="{l:T 'Formel'}" />
+                                <TextBox Name="FormulaBox" Text="{Binding FormulaText, UpdateSourceTrigger=LostFocus}" TextWrapping="Wrap"
+                                         AutomationProperties.Name="{l:T 'Formel'}"
+                                         ToolTip.Tip="{l:T 'Beispiel: (Menge * Einzelpreis - Rabatt) * 1.19 + Versand. Erlaubt: + - * / und Klammern ( ), Punkt vor Strich, gleichrangige von links nach rechts, Vorzeichen (-Rabatt), Zahlen mit Punkt oder Komma (1.19 oder 1,19). Quadrieren: Seite * Seite — ein Zeichen für Potenzen (^) kennt die übliche Formelschreibweise in PDF-Formularen nicht. Feldnamen mit Leer- oder Sonderzeichen am besten über „Feld einfügen“ (sie bekommen dabei das nötige Zeichen davor).'}" />
+                                <TextBlock Classes="formulaError" Text="{Binding FormulaError}" IsVisible="{Binding HasFormulaError}" />
+                                <ComboBox Name="FormulaInsert" Margin="0,6,0,0" HorizontalAlignment="Stretch" ItemsSource="{Binding FormulaFields}"
+                                          PlaceholderText="{l:T 'Feld einfügen …'}" AutomationProperties.Name="{l:T 'Feld einfügen'}"
+                                          ToolTip.Tip="{l:T 'Setzt den Namen an der Stelle des Cursors in die Formel (Leer- und Sonderzeichen schon maskiert).'}" />
+                                <TextBlock Classes="hint" Margin="0,6,0,0"
+                                           Text="{l:T 'Beispiel: (Menge * Preis - Rabatt) * 1.19 — Punkt vor Strich, Klammern; Quadrieren als Feld * Feld. Wird in der üblichen Form gespeichert, damit auch andere PDF-Programme mitrechnen.'}" />
+                            </StackPanel>
+                            <StackPanel IsVisible="{Binding IsListCalculation}">
+                                <TextBlock Classes="caption" Text="{l:T 'aus den Feldern'}" />
+                                <TextBlock Classes="hint" Margin="0,0,0,4" Text="{l:T 'Häkchen setzen: diese Felder fließen ein.'}" />
+                                <!-- Virtualisiert und mit eigener Bildlaufleiste: bei Tausenden Feldern nur die sichtbaren Kästchen (Runde M6d) -->
+                                <ScrollViewer MaxHeight="260" HorizontalScrollBarVisibility="Disabled">
+                                    <ItemsControl ItemsSource="{Binding CalculationSources}">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                                <VirtualizingStackPanel />
+                                            </ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate x:DataType="vm:CalculationSource">
+                                                <CheckBox IsChecked="{Binding Included}" Content="{Binding Name}" />
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </ScrollViewer>
+                                <TextBlock Classes="hint" Margin="0,6,0,0"
+                                           Text="{l:T 'PDF-Knead rechnet selbst nach (ohne Skript); andere Programme rechnen mit dem üblichen Formularskript.'}" />
+                            </StackPanel>
+                        </StackPanel>
+                        <StackPanel IsVisible="{Binding HasCustomCalculation}">
+                            <TextBlock Classes="hint"
+                                       Text="{l:T 'Eigenes Berechnungsskript — PDF-Knead führt es nicht aus und lässt es unverändert:'}" />
+                            <TextBox Text="{Binding CustomCalculationScript, Mode=OneWay}" IsReadOnly="True" TextWrapping="Wrap" MaxHeight="120"
+                                     FontSize="11" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+    </DockPanel>
+    </Panel>
+</UserControl>

@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <!-- Die Oberfläche des E-Rechnungs-Prüfers (KONZEPT.md §5.24, „Oberfläche“) als Teil des abtrennbaren Bausteins: der Reiter
+         „E-Rechnung“ und das Feld des Prüfers. Das Hauptprogramm kennt ihn nicht; er meldet sich über PdfKnead.Modules (UiModules) an,
+         aufgerufen an einer markierten Andockstelle von PdfKnead.Desktop. Entfernen: tools/erechnung-entfernen.py. -->
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <LangVersion>latest</LangVersion>
+        <RootNamespace>PdfKnead.EInvoice.Ui</RootNamespace>
+        <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+        <IsAotCompatible>true</IsAotCompatible>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Avalonia" />
+        <PackageReference Include="CommunityToolkit.Mvvm" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\PdfKnead.Ui\PdfKnead.Ui.csproj" />
+        <ProjectReference Include="..\PdfKnead.EInvoice\PdfKnead.EInvoice.csproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <InternalsVisibleTo Include="PdfKnead.EInvoice.Tests" />
+    </ItemGroup>
+</Project>

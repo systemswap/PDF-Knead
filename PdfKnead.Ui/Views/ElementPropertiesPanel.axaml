@@ -1,0 +1,254 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             Background="{DynamicResource SurfaceAltBrush}"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:l="using:PdfKnead.Localization"
+             xmlns:vm="using:PdfKnead.ViewModels"
+             xmlns:v="using:PdfKnead.Views"
+             x:Class="PdfKnead.Views.ElementPropertiesPanel"
+             x:DataType="vm:ElementPropertiesViewModel">
+    <!-- Eigenschaften der ausgewählten Form (KONZEPT §5.13), rechts wie bei Formularfeldern -->
+    <UserControl.Resources>
+        <DataTemplate x:Key="LabelTemplate" x:DataType="vm:ILabeled">
+            <TextBlock>
+                <TextBlock.Text>
+                    <MultiBinding Converter="{x:Static l:T.Translate}">
+                        <Binding Path="Label" />
+                        <x:Static Member="l:T.LanguageVersion" />
+                    </MultiBinding>
+                </TextBlock.Text>
+            </TextBlock>
+        </DataTemplate>
+        <DataTemplate x:Key="ColorTemplate" x:DataType="vm:FieldColorOption">
+            <StackPanel Orientation="Horizontal" Spacing="6">
+                <Border Width="14" Height="14" CornerRadius="3" Background="{Binding Brush}" BorderBrush="{DynamicResource LineStrongBrush}"
+                        BorderThickness="1" VerticalAlignment="Center" />
+                <TextBlock VerticalAlignment="Center">
+                    <TextBlock.Text>
+                        <MultiBinding Converter="{x:Static l:T.Translate}">
+                            <Binding Path="Label" />
+                            <x:Static Member="l:T.LanguageVersion" />
+                        </MultiBinding>
+                    </TextBlock.Text>
+                </TextBlock>
+                <TextBlock VerticalAlignment="Center" Text="{Binding Code}" IsVisible="{Binding IsCustom}" Foreground="{DynamicResource TextMutedBrush}" />
+            </StackPanel>
+        </DataTemplate>
+    </UserControl.Resources>
+    <UserControl.Styles>
+        <StyleInclude Source="avares://PdfKnead.Ui/Styles/PropertyPanel.axaml" />
+        <!-- Pipette: neben dem Auswahlfeld, an = Akzentfarbe hinterlegt -->
+        <Style Selector="ToggleButton.pipette">
+            <Setter Property="Margin" Value="6,0,0,0" />
+            <Setter Property="Padding" Value="6" />
+            <Setter Property="MinHeight" Value="30" />
+            <Setter Property="VerticalAlignment" Value="Stretch" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+        </Style>
+        <Style Selector="ToggleButton.pipette /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="Transparent" />
+        </Style>
+        <Style Selector="ToggleButton.pipette:pointerover /template/ ContentPresenter#PART_ContentPresenter, ToggleButton.pipette:checked /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}" />
+        </Style>
+        <Style Selector="ToggleButton.pipette PathIcon">
+            <Setter Property="Width" Value="18" />
+            <Setter Property="Height" Value="18" />
+            <Setter Property="Foreground" Value="{DynamicResource TextMutedBrush}" />
+        </Style>
+        <Style Selector="ToggleButton.pipette:checked PathIcon">
+            <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
+        </Style>
+    </UserControl.Styles>
+
+    <DockPanel>
+        <Border DockPanel.Dock="Top" Classes="propBanner">
+            <Grid ColumnDefinitions="Auto,*">
+                <Border Classes="bannerIcon"><PathIcon Data="{Binding KindIcon}" /></Border>
+                <TextBlock Grid.Column="1" Margin="10,0,0,0" FontWeight="SemiBold" FontSize="14" VerticalAlignment="Center" Text="{Binding Title}" />
+            </Grid>
+        </Border>
+        <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+            <StackPanel Margin="0,0,0,12">
+                <!-- Schwärzung (KONZEPT §5.6, B-14): Grund aus der Liste oder frei -->
+                <Border Classes="propCard" IsVisible="{Binding IsRedaction}">
+                    <StackPanel Spacing="6">
+                        <StackPanel Classes="propHeader">
+                            <TextBlock Classes="propTitle" Text="{l:T 'Grund'}" />
+                        </StackPanel>
+                        <v:RedactionReasonPicker Name="ReasonPicker" Choice="{Binding ReasonChoice}" Bars="{Binding RedactionBars}" />
+                        <TextBlock Classes="hint" TextWrapping="Wrap"
+                                   Text="{l:T 'Ohne eigenen Grund gilt der Grund, der beim Anwenden für alle angegeben wird. Nie etwas vom geschwärzten Inhalt hineinschreiben.'}" />
+                        <Button Classes="soft small" HorizontalAlignment="Left" Command="{Binding ReasonForAllCommand}"
+                                Content="{l:T 'Für alle Markierungen ohne Grund'}">
+                            <ToolTip.Tip><l:T Text="Diesen Grund allen Markierungen im Dokument geben, die noch keinen eigenen haben" /></ToolTip.Tip>
+                        </Button>
+                    </StackPanel>
+                </Border>
+                <!-- Bild: Größe mit Kette (zu = proportional, offen = frei) -->
+                <Border Classes="propCard" IsVisible="{Binding IsImage}">
+                    <StackPanel>
+                        <StackPanel Classes="propHeader">
+                            <Border Classes="propBadge"><PathIcon Data="{StaticResource Icon.ArrowAutofitWidth}" /></Border>
+                            <TextBlock Classes="propTitle" Text="{l:T 'Größe'}" />
+                        </StackPanel>
+                        <Grid ColumnDefinitions="*,Auto,*" Margin="0,4,0,0">
+                            <StackPanel Grid.Column="0">
+                                <TextBlock Classes="caption" Text="{l:T 'Breite (mm)'}" />
+                                <TextBox Text="{Binding WidthMm, UpdateSourceTrigger=LostFocus}" AutomationProperties.Name="{l:T 'Breite in Millimetern'}">
+                                    <ToolTip.Tip><l:T Text="Breite des Bilds — mit geschlossener Kette ändert sich die Höhe mit" /></ToolTip.Tip>
+                                </TextBox>
+                            </StackPanel>
+                            <ToggleButton Grid.Column="1" Name="Chain" Classes="chain" VerticalAlignment="Bottom" Margin="6,0,6,1" Padding="6" MinHeight="30"
+                                          Background="Transparent" BorderThickness="0" IsChecked="{Binding KeepAspect}"
+                                          AutomationProperties.Name="{l:T 'Seitenverhältnis beibehalten'}">
+                                <ToolTip.Tip><l:T Text="Kette geschlossen: Seitenverhältnis bleibt, auch an den Griffen (Umschalt beim Ziehen kehrt es um). Kette offen: Breite und Höhe frei — das Bild wird gestreckt." /></ToolTip.Tip>
+                                <Panel>
+                                    <PathIcon Data="{StaticResource Icon.Link}" Width="18" Height="18" IsVisible="{Binding KeepAspect}"
+                                              Foreground="{DynamicResource AccentBrush}" />
+                                    <PathIcon Data="{StaticResource Icon.LinkDismiss}" Width="18" Height="18" IsVisible="{Binding !KeepAspect}"
+                                              Foreground="{DynamicResource TextMutedBrush}" />
+                                </Panel>
+                            </ToggleButton>
+                            <StackPanel Grid.Column="2">
+                                <TextBlock Classes="caption" Text="{l:T 'Höhe (mm)'}" />
+                                <TextBox Text="{Binding HeightMm, UpdateSourceTrigger=LostFocus}" AutomationProperties.Name="{l:T 'Höhe in Millimetern'}">
+                                    <ToolTip.Tip><l:T Text="Höhe des Bilds — mit geschlossener Kette ändert sich die Breite mit" /></ToolTip.Tip>
+                                </TextBox>
+                            </StackPanel>
+                        </Grid>
+                        <TextBlock Classes="hint" Margin="0,8,0,0"
+                                   Text="{l:T 'Gespeichert wird das Bild mit 300 dpi in dieser Größe (mit Lanczos verkleinert) — scharf im Druck, die Datei bleibt schlank.'}" />
+                    </StackPanel>
+                </Border>
+
+                <!-- Bild: Schärfen -->
+                <Border Classes="propCard" IsVisible="{Binding IsImage}">
+                    <StackPanel>
+                        <StackPanel Classes="propHeader">
+                            <Border Classes="propBadge"><PathIcon Data="{StaticResource Icon.ImageEdit}" /></Border>
+                            <TextBlock Classes="propTitle" Text="{l:T 'Schärfen'}" />
+                        </StackPanel>
+                        <Grid ColumnDefinitions="*,Auto" Margin="0,6,0,0">
+                            <Slider Minimum="0" Maximum="100" TickFrequency="5" IsSnapToTickEnabled="True" Value="{Binding Sharpness}"
+                                    AutomationProperties.Name="{l:T 'Schärfen'}">
+                                <ToolTip.Tip><l:T Text="Kanten betonen, etwa bei leicht unscharfen Fotos — 0 % lässt das Bild, wie es ist" /></ToolTip.Tip>
+                            </Slider>
+                            <TextBlock Grid.Column="1" Margin="10,0,0,0" VerticalAlignment="Center" MinWidth="40" TextAlignment="Right"
+                                       Text="{Binding Sharpness, StringFormat='{}{0:0} %'}" />
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <!-- Bild: Alternativtext (FG 631) — was Bildschirmleser zum Stempel vorlesen -->
+                <Border Classes="propCard" IsVisible="{Binding IsImage}">
+                    <StackPanel>
+                        <StackPanel Classes="propHeader">
+                            <Border Classes="propBadge"><PathIcon Data="{StaticResource Icon.ImageAltText}" /></Border>
+                            <TextBlock Classes="propTitle" Text="{l:T 'Alternativtext'}" />
+                        </StackPanel>
+                        <TextBox Name="ImageAltTextBox" Text="{Binding ImageAltText, UpdateSourceTrigger=LostFocus}" PlaceholderText="{l:T 'Bild'}" TextWrapping="Wrap"
+                                 AutomationProperties.Name="{l:T 'Alternativtext für Bildschirmleser'}">
+                            <ToolTip.Tip><l:T Text="Was Bildschirmleser zum Bild vorlesen — leer: „Bild“ in der Sprache des Dokuments" /></ToolTip.Tip>
+                        </TextBox>
+                    </StackPanel>
+                </Border>
+
+                <!-- Bild: am Blattrand (FG 622) — der Teil außerhalb des Blatts ist unsichtbar, bliebe aber in der Datei -->
+                <Border Classes="propCard" IsVisible="{Binding IsImage}">
+                    <StackPanel Spacing="6">
+                        <StackPanel Classes="propHeader">
+                            <Border Classes="propBadge"><PathIcon Data="{StaticResource Icon.Image}" /></Border>
+                            <TextBlock Classes="propTitle" Text="{l:T 'Blattrand'}" />
+                        </StackPanel>
+                        <Button Name="CropAtPageEdgeButton" Content="{l:T 'Am Blattrand abschneiden'}" Command="{Binding CropAtPageEdgeCommand}"
+                                IsVisible="{Binding ImageOverhangsPage}" HorizontalAlignment="Left">
+                            <ToolTip.Tip><l:T Text="Den Teil des Bildes außerhalb des Blatts entfernen — unsichtbar bliebe er in der Datei und ließe sich herauslösen" /></ToolTip.Tip>
+                        </Button>
+                        <CheckBox Name="AskCropAtPageEdgeBox" IsChecked="{Binding AskCropAtPageEdge}" Content="{l:T 'Fragen, wenn ein Bild über den Blattrand ragt'}">
+                            <ToolTip.Tip><l:T Text="Aus, etwa bei Anschnitt für den Druck: das Bild bleibt ganz, ohne Frage" /></ToolTip.Tip>
+                        </CheckBox>
+                    </StackPanel>
+                </Border>
+
+                <!-- Rahmen bzw. Linie -->
+                <Border Classes="propCard" IsVisible="{Binding IsShape}">
+                    <StackPanel>
+                        <StackPanel Classes="propHeader">
+                            <Border Classes="propBadge"><PathIcon Data="{StaticResource Icon.BorderOutside}" /></Border>
+                            <TextBlock Classes="propTitle" Text="{l:T 'Rahmen'}" IsVisible="{Binding !IsLine}" />
+                            <TextBlock Classes="propTitle" Text="{l:T 'Linie'}" IsVisible="{Binding IsLine}" />
+                        </StackPanel>
+                        <TextBlock Classes="caption" Text="{l:T 'Farbe'}" />
+                        <Grid ColumnDefinitions="*,Auto">
+                            <ComboBox ItemsSource="{x:Static vm:ElementPropertiesViewModel.Colors}" SelectedItem="{Binding StrokeColor}" IsVisible="{Binding !IsLine}"
+                                      ItemTemplate="{StaticResource ColorTemplate}" AutomationProperties.Name="{l:T 'Rahmenfarbe'}">
+                                <ToolTip.Tip><l:T Text="Farbe des Rahmens — „Keine“ zeigt nur die Füllung" /></ToolTip.Tip>
+                            </ComboBox>
+                            <ComboBox ItemsSource="{x:Static vm:ElementPropertiesViewModel.LineColors}" SelectedItem="{Binding StrokeColor}" IsVisible="{Binding IsLine}"
+                                      ItemTemplate="{StaticResource ColorTemplate}" AutomationProperties.Name="{l:T 'Linienfarbe'}">
+                                <ToolTip.Tip><l:T Text="Farbe der Linie" /></ToolTip.Tip>
+                            </ComboBox>
+                            <ToggleButton Grid.Column="1" Classes="pipette" IsChecked="{Binding IsPickingStroke}"
+                                          AutomationProperties.Name="{l:T 'Rahmenfarbe aus der Seite aufnehmen'}">
+                                <ToolTip.Tip><l:T Text="Pipette: in die Seite klicken, um eine Farbe von dort zu übernehmen — Esc bricht ab" /></ToolTip.Tip>
+                                <PathIcon Data="{StaticResource Icon.Eyedropper}" />
+                            </ToggleButton>
+                        </Grid>
+                        <Grid ColumnDefinitions="*,8,*">
+                            <StackPanel Grid.Column="0">
+                                <TextBlock Classes="caption" Text="{l:T 'Dicke (pt)'}" />
+                                <ComboBox ItemsSource="{x:Static vm:ElementPropertiesViewModel.StrokeWidths}" SelectedItem="{Binding StrokeWidth}"
+                                          ItemTemplate="{StaticResource LabelTemplate}" AutomationProperties.Name="{l:T 'Rahmendicke'}">
+                                    <ToolTip.Tip><l:T Text="Strichbreite in Punkt (1 pt ≈ 0,35 mm)" /></ToolTip.Tip>
+                                </ComboBox>
+                            </StackPanel>
+                            <CheckBox Grid.Column="2" VerticalAlignment="Bottom" Margin="0,0,0,4" IsChecked="{Binding Dashed}"
+                                      Content="{l:T 'Gestrichelt'}" AutomationProperties.Name="{l:T 'Gestrichelt'}" />
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <!-- Füllung -->
+                <Border Classes="propCard" IsVisible="{Binding HasFill}">
+                    <StackPanel>
+                        <StackPanel Classes="propHeader">
+                            <Border Classes="propBadge"><PathIcon Data="{StaticResource Icon.PaintBucket}" /></Border>
+                            <TextBlock Classes="propTitle" Text="{l:T 'Füllung'}" />
+                        </StackPanel>
+                        <TextBlock Classes="caption" Text="{l:T 'Farbe'}" />
+                        <Grid ColumnDefinitions="*,Auto">
+                            <ComboBox ItemsSource="{x:Static vm:ElementPropertiesViewModel.Colors}" SelectedItem="{Binding FillColor}"
+                                      ItemTemplate="{StaticResource ColorTemplate}" AutomationProperties.Name="{l:T 'Füllfarbe'}">
+                                <ToolTip.Tip><l:T Text="Farbe innen — „Keine“ lässt die Seite durchscheinen" /></ToolTip.Tip>
+                            </ComboBox>
+                            <ToggleButton Grid.Column="1" Classes="pipette" IsChecked="{Binding IsPickingFill}"
+                                          AutomationProperties.Name="{l:T 'Füllfarbe aus der Seite aufnehmen'}">
+                                <ToolTip.Tip><l:T Text="Pipette: in die Seite klicken, um eine Farbe von dort zu übernehmen — Esc bricht ab" /></ToolTip.Tip>
+                                <PathIcon Data="{StaticResource Icon.Eyedropper}" />
+                            </ToggleButton>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <!-- Deckkraft -->
+                <Border Classes="propCard" IsVisible="{Binding !IsRedaction}">
+                    <StackPanel>
+                        <StackPanel Classes="propHeader">
+                            <Border Classes="propBadge"><PathIcon Data="{StaticResource Icon.Layer}" /></Border>
+                            <TextBlock Classes="propTitle" Text="{l:T 'Deckkraft'}" />
+                        </StackPanel>
+                        <Grid ColumnDefinitions="*,Auto" Margin="0,6,0,0">
+                            <Slider Minimum="10" Maximum="100" TickFrequency="5" IsSnapToTickEnabled="True" Value="{Binding Opacity}"
+                                    AutomationProperties.Name="{l:T 'Deckkraft'}">
+                                <ToolTip.Tip><l:T Text="Wie stark die Form deckt: 100 % voll, weniger lässt die Seite darunter durchscheinen" /></ToolTip.Tip>
+                            </Slider>
+                            <TextBlock Grid.Column="1" Margin="10,0,0,0" VerticalAlignment="Center" MinWidth="40" TextAlignment="Right"
+                                       Text="{Binding Opacity, StringFormat='{}{0:0} %'}" />
+                        </Grid>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+    </DockPanel>
+</UserControl>

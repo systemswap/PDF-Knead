@@ -1,0 +1,117 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             Background="{DynamicResource SurfaceAltBrush}"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:l="using:PdfKnead.Localization"
+             xmlns:vm="using:PdfKnead.ViewModels"
+             x:Class="PdfKnead.Views.CleanupPanel"
+             x:DataType="vm:DocumentViewModel">
+    <!-- Dokument bereinigen als Bereich rechts (KONZEPT §5.18, Wunsch vom 29.10.2026): die Funde zum Anhaken, je Fund die Seiten als Knöpfe;
+         auf der Seite rot umrandete Stellen, das „x“ am Rahmen behält eine Stelle -->
+    <UserControl.Styles>
+        <StyleInclude Source="avares://PdfKnead.Ui/Styles/PropertyPanel.axaml" />
+        <Style Selector="Button.bannerClose">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="6" />
+        </Style>
+        <Style Selector="Button.bannerClose PathIcon">
+            <Setter Property="Width" Value="14" />
+            <Setter Property="Height" Value="14" />
+            <Setter Property="Foreground" Value="{DynamicResource OnAccentBrush}" />
+        </Style>
+        <Style Selector="Button.pageLink">
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="Padding" Value="5,0" />
+            <Setter Property="MinHeight" Value="18" />
+            <Setter Property="Margin" Value="0,0,2,2" />
+            <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
+        </Style>
+    </UserControl.Styles>
+
+    <Grid RowDefinitions="Auto,Auto,*,Auto">
+        <Border Classes="propBanner">
+            <Grid ColumnDefinitions="Auto,*,Auto">
+                <Border Classes="bannerIcon"><PathIcon Data="{StaticResource Icon.Broom}" /></Border>
+                <TextBlock Grid.Column="1" Margin="10,0,0,0" FontWeight="SemiBold" FontSize="14" VerticalAlignment="Center" Text="{l:T 'Dokument bereinigen'}" />
+                <Button Grid.Column="2" Classes="bannerClose" VerticalAlignment="Center"
+                        Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).CloseCleanupCommand, FallbackValue={x:Null}}"
+                        AutomationProperties.Name="{l:T 'Bereinigen schließen'}">
+                    <ToolTip.Tip><l:T Text="Schließen, ohne etwas zu entfernen" /></ToolTip.Tip>
+                    <PathIcon Data="{StaticResource Icon.Dismiss}" />
+                </Button>
+            </Grid>
+        </Border>
+
+        <Border Grid.Row="1" Classes="propCard">
+            <StackPanel Spacing="6">
+                <TextBlock Classes="hint" TextWrapping="Wrap"
+                           Text="{l:T 'Verborgene Daten, die beim Weitergeben mitgehen würden. Entfernt wird gleich im Dokument — Strg+Z nimmt es zurück, endgültig erst beim Speichern.'}" />
+                <TextBlock Classes="hint" TextWrapping="Wrap" IsVisible="{Binding CleanupSearching}" Text="{l:T 'Suche verborgene Daten …'}" />
+                <TextBlock TextWrapping="Wrap" IsVisible="{Binding CleanupNothing}" Text="{l:T 'Keine verborgenen Daten gefunden.'}" />
+            </StackPanel>
+        </Border>
+
+        <Border Grid.Row="2" Classes="propCard" VerticalAlignment="Stretch" IsVisible="{Binding !CleanupNothing}">
+            <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+                <ItemsControl ItemsSource="{Binding CleanupRows}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:CleanupRow">
+                            <StackPanel Spacing="2" Margin="0,0,0,10">
+                                <CheckBox IsChecked="{Binding IsChecked}" AutomationProperties.Name="{Binding Title}">
+                                    <StackPanel Spacing="1">
+                                        <TextBlock Text="{Binding Title}" TextWrapping="Wrap" />
+                                        <TextBlock Classes="muted" FontSize="12" TextWrapping="Wrap" Text="{Binding Detail}"
+                                                   IsVisible="{Binding Detail, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                        <TextBlock Classes="muted" FontSize="11" TextWrapping="Wrap" Text="{Binding Note}"
+                                                   IsVisible="{Binding Note, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                    </StackPanel>
+                                </CheckBox>
+                                <WrapPanel Margin="28,0,0,0" IsVisible="{Binding HasPages}">
+                                    <TextBlock Classes="muted" FontSize="11" VerticalAlignment="Center" Margin="0,0,4,0" Text="{l:T 'Seiten:'}" />
+                                    <ItemsControl ItemsSource="{Binding Pages}">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate x:DataType="vm:CleanupPageLink">
+                                                <Button Classes="subtle pageLink" Content="{Binding Number}" AutomationProperties.Name="{Binding Tip}"
+                                                        ToolTip.Tip="{Binding Tip}"
+                                                        Command="{Binding $parent[UserControl].((vm:DocumentViewModel)DataContext).ShowCleanupPageCommand, FallbackValue={x:Null}}"
+                                                        CommandParameter="{Binding}" />
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                    <TextBlock Classes="muted" Text="…" VerticalAlignment="Center" IsVisible="{Binding MorePages}" />
+                                </WrapPanel>
+                                <TextBlock Classes="muted" FontSize="11" Margin="28,0,0,0" TextWrapping="Wrap" Text="{Binding Result}"
+                                           IsVisible="{Binding Result, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                            </StackPanel>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+        </Border>
+
+        <Border Grid.Row="3" Classes="propCard">
+            <StackPanel Spacing="8">
+                <TextBlock Classes="hint" TextWrapping="Wrap" Text="{Binding CleanupKeptText}"
+                           IsVisible="{Binding CleanupKeptText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                <TextBlock Classes="hint" TextWrapping="Wrap"
+                           Text="{l:T 'Frühere Fassungen der Datei (inkrementelles Speichern) entfernt PDF-Knead beim Speichern immer.'}" />
+                <CheckBox Name="KeepTitleBox" IsChecked="{Binding KeepTitleOnCleanup}" Content="{l:T 'Titel behalten'}">
+                    <ToolTip.Tip><l:T Text="Beim Entfernen der Dokumenteigenschaften bleibt der Titel — Bildschirmleser nennen ihn statt des Dateinamens. Prüfen Sie, ob er persönliche Daten enthält." /></ToolTip.Tip>
+                </CheckBox>
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+                    <Button Content="{l:T 'Schließen'}"
+                            Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).CloseCleanupCommand, FallbackValue={x:Null}}" />
+                    <Button Classes="primary" Content="{l:T 'Bereinigen'}" IsEnabled="{Binding !CleanupNothing}"
+                            Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).ApplyCleanupCommand, FallbackValue={x:Null}}"
+                            AutomationProperties.Name="{l:T 'Bereinigen'}">
+                        <ToolTip.Tip><l:T Text="Das Angehakte gleich im Dokument entfernen — außer den Stellen, die auf der Seite mit „x“ abgewählt sind" /></ToolTip.Tip>
+                    </Button>
+                </StackPanel>
+            </StackPanel>
+        </Border>
+    </Grid>
+</UserControl>

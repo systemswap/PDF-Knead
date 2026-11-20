@@ -1,0 +1,47 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:l="using:PdfKnead.Localization"
+        xmlns:vm="using:PdfKnead.ViewModels"
+        x:Class="PdfKnead.Views.TrustListWindow"
+        x:DataType="vm:TrustListViewModel"
+        Title="{l:T 'EU-Vertrauensliste'}"
+        Icon="/Assets/app.ico"
+        Width="600" SizeToContent="Height"
+        CanResize="False" ShowInTaskbar="False"
+        WindowStartupLocation="CenterOwner">
+    <StackPanel Margin="24" Spacing="14">
+        <StackPanel Orientation="Horizontal" Spacing="12">
+            <Border Width="40" Height="40" CornerRadius="20" Background="{DynamicResource AccentSoftBrush}">
+                <PathIcon Data="{StaticResource Icon.ShieldLock}" Width="20" Height="20" Foreground="{DynamicResource AccentBrush}" />
+            </Border>
+            <StackPanel VerticalAlignment="Center" Spacing="2">
+                <TextBlock FontWeight="SemiBold" FontSize="15" Text="{l:T 'EU-Vertrauensliste'}" />
+                <TextBlock Classes="muted" TextWrapping="Wrap" MaxWidth="480"
+                           Text="{l:T 'Die EU und ihre Länder veröffentlichen, welche Anbieter qualifizierte Zertifikate und Zeitstempel ausgeben dürfen. Mit der Liste zeigt die Prüfung, ob eine Signatur wirklich qualifiziert ist (sie ersetzt dann die handschriftliche Unterschrift).'}" />
+            </StackPanel>
+        </StackPanel>
+
+        <Border Classes="card" Padding="16,12">
+            <TextBlock Text="{Binding State}" TextWrapping="Wrap" />
+        </Border>
+
+        <TextBlock Classes="muted" FontSize="12" TextWrapping="Wrap"
+                   Text="{l:T 'Geladen wird nur auf Klick, von den Adressen, die die EU-Kommission veröffentlicht (rund 30 MB). Jede Liste ist signiert und wird geprüft, bevor sie zählt; gespeichert wird sie auf diesem Rechner.'}" />
+
+        <TextBlock Text="{Binding Message}" TextWrapping="Wrap" IsVisible="{Binding Message, Converter={x:Static ObjectConverters.IsNotNull}}"
+                   Foreground="{DynamicResource TextMutedBrush}" Classes.error="{Binding IsError}" />
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+            <Button Content="{l:T 'Entfernen'}" Command="{Binding RemoveCommand}" IsVisible="{Binding HasLists}"
+                    ToolTip.Tip="{l:T 'Die gespeicherte Liste löschen; die Prüfung zeigt dann wieder nur, was das Zertifikat über sich sagt.'}" />
+            <Button Content="{l:T 'Abbrechen'}" Command="{Binding CancelCommand}" IsVisible="{Binding Busy}" />
+            <Button Classes="primary" Content="{l:T 'Laden'}" Command="{Binding LoadCommand}" AutomationProperties.Name="{l:T 'EU-Vertrauensliste laden'}" />
+            <Button Content="{l:T 'Schließen'}" Click="OnClose" IsCancel="True" />
+        </StackPanel>
+    </StackPanel>
+    <Window.Styles>
+        <Style Selector="TextBlock.error">
+            <Setter Property="Foreground" Value="{DynamicResource DangerBrush}" />
+        </Style>
+    </Window.Styles>
+</Window>

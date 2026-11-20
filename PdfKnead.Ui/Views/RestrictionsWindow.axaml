@@ -1,0 +1,49 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:l="using:PdfKnead.Localization"
+        x:Class="PdfKnead.Views.RestrictionsWindow"
+        Title="{l:T 'Einschränkungen entfernen'}"
+        Icon="/Assets/app.ico"
+        Width="500" SizeToContent="Height"
+        CanResize="False" ShowInTaskbar="False"
+        WindowStartupLocation="CenterOwner">
+    <StackPanel Margin="24" Spacing="14">
+        <StackPanel Orientation="Horizontal" Spacing="12">
+            <Border Width="40" Height="40" CornerRadius="20" Background="{DynamicResource AccentSoftBrush}">
+                <PathIcon Data="{StaticResource Icon.LockOpen}" Width="20" Height="20" Foreground="{DynamicResource AccentBrush}" />
+            </Border>
+            <StackPanel VerticalAlignment="Center" Spacing="2">
+                <TextBlock FontWeight="SemiBold" FontSize="15" Text="{l:T 'Einschränkungen entfernen'}" />
+                <TextBlock Name="FileText" Classes="muted" TextTrimming="CharacterEllipsis" MaxWidth="360" />
+            </StackPanel>
+        </StackPanel>
+
+        <TextBlock Name="LockedText" TextWrapping="Wrap" />
+
+        <!-- Rechte-Passwort, falls bekannt -->
+        <StackPanel Spacing="6">
+            <TextBlock Text="{l:T 'Rechte-Passwort, falls bekannt'}" />
+            <TextBox Name="OwnerPassword" PasswordChar="•" Classes="revealPasswordButton"
+                     PlaceholderText="{l:T 'Rechte-Passwort'}" AutomationProperties.Name="{l:T 'Rechte-Passwort'}" />
+            <TextBlock Name="OwnerState" FontSize="12" TextWrapping="Wrap" IsVisible="False" />
+        </StackPanel>
+
+        <!-- Ohne Passwort: ausdrücklich bestätigen -->
+        <CheckBox Name="ConsentBox">
+            <TextBlock TextWrapping="Wrap"
+                       Text="{l:T 'Ich bin berechtigt, die Einschränkungen zu entfernen (z. B. eigenes Dokument oder Erlaubnis des Rechteinhabers).'}" />
+        </CheckBox>
+
+        <CheckBox Name="RemoveOpenBox" Content="{l:T 'Auch das Passwort zum Öffnen entfernen'}" />
+
+        <Border Background="{DynamicResource AccentSoftBrush}" CornerRadius="{DynamicResource RadiusControl}" Padding="12,8">
+            <TextBlock TextWrapping="Wrap" FontSize="12"
+                       Text="{l:T 'Gilt sofort in der offenen Datei, in der Datei selbst ab dem nächsten Speichern. Schutzmaßnahmen an fremden, urheberrechtlich geschützten Werken zu umgehen, ist ohne Erlaubnis nicht erlaubt.'}" />
+        </Border>
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,4,0,0">
+            <Button Content="{l:T 'Abbrechen'}" Click="OnCancel" IsCancel="True" />
+            <Button Name="LiftButton" Classes="primary" Content="{l:T 'Entfernen'}" Click="OnLift" IsDefault="True" IsEnabled="False" />
+        </StackPanel>
+    </StackPanel>
+</Window>

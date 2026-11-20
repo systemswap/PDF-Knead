@@ -1,0 +1,89 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:l="using:PdfKnead.Localization"
+        xmlns:v="using:PdfKnead.Views"
+        x:Class="PdfKnead.Views.NewDocumentWindow"
+        Title="{l:T 'Neues Dokument'}"
+        Icon="/Assets/app.ico"
+        Width="540" SizeToContent="Height"
+        CanResize="False" ShowInTaskbar="False"
+        WindowStartupLocation="CenterOwner">
+    <StackPanel Margin="24" Spacing="16">
+        <StackPanel Orientation="Horizontal" Spacing="12">
+            <Border Width="40" Height="40" CornerRadius="20" Background="{DynamicResource AccentSoftBrush}">
+                <PathIcon Name="HeadIcon" Data="{StaticResource Icon.Document}" Width="20" Height="20" Foreground="{DynamicResource AccentBrush}" />
+            </Border>
+            <StackPanel VerticalAlignment="Center" Spacing="2">
+                <TextBlock Name="HeadText" FontWeight="SemiBold" FontSize="15" Text="{l:T 'Neues Dokument'}" />
+                <TextBlock Name="SubText" Classes="muted" TextWrapping="Wrap" MaxWidth="400"
+                           Text="{l:T 'Leere Seiten im gewählten Format — danach Text, Bilder, Unterschriften und Formularfelder einfügen.'}" />
+            </StackPanel>
+        </StackPanel>
+
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="20">
+            <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="10">
+                <TextBlock VerticalAlignment="Center" Margin="0,0,12,0" Text="{l:T 'Format'}" />
+                <ComboBox Grid.Column="1" Name="FormatChoice" HorizontalAlignment="Stretch" AutomationProperties.Name="{l:T 'Format'}" />
+
+                <TextBlock Grid.Row="1" Name="SizeLabel" VerticalAlignment="Center" Margin="0,0,12,0" Text="{l:T 'Größe'}" />
+                <StackPanel Grid.Row="1" Grid.Column="1" Name="SizePanel" Orientation="Horizontal" Spacing="6">
+                    <NumericUpDown Name="WidthBox" Width="104" Minimum="10" Maximum="5000" Increment="1" FormatString="0.#"
+                                   AutomationProperties.Name="{l:T 'Breite in mm'}">
+                        <ToolTip.Tip><l:T Text="Breite in mm" /></ToolTip.Tip>
+                    </NumericUpDown>
+                    <TextBlock VerticalAlignment="Center" Text="×" />
+                    <NumericUpDown Name="HeightBox" Width="104" Minimum="10" Maximum="5000" Increment="1" FormatString="0.#"
+                                   AutomationProperties.Name="{l:T 'Höhe in mm'}">
+                        <ToolTip.Tip><l:T Text="Höhe in mm" /></ToolTip.Tip>
+                    </NumericUpDown>
+                    <TextBlock VerticalAlignment="Center" Text="mm" />
+                </StackPanel>
+
+                <TextBlock Grid.Row="2" VerticalAlignment="Center" Margin="0,0,12,0" Text="{l:T 'Ausrichtung'}" />
+                <StackPanel Grid.Row="2" Grid.Column="1" Orientation="Horizontal" Spacing="16">
+                    <RadioButton Name="PortraitChoice" GroupName="orientation" IsChecked="True" Content="{l:T 'Hochformat'}" />
+                    <RadioButton Name="LandscapeChoice" GroupName="orientation" Content="{l:T 'Querformat'}" />
+                </StackPanel>
+
+                <TextBlock Grid.Row="3" VerticalAlignment="Center" Margin="0,0,12,0" Text="{l:T 'Seiten'}" />
+                <NumericUpDown Grid.Row="3" Grid.Column="1" Name="CountBox" Width="104" HorizontalAlignment="Left"
+                               Minimum="1" Maximum="999" Increment="1" FormatString="0" Value="1"
+                               AutomationProperties.Name="{l:T 'Anzahl der Seiten'}">
+                    <ToolTip.Tip><l:T Text="Anzahl der Seiten (1 bis 999)" /></ToolTip.Tip>
+                </NumericUpDown>
+
+                <TextBlock Grid.Row="4" Name="PositionLabel" VerticalAlignment="Top" Margin="0,4,12,0" Text="{l:T 'Einfügen'}" IsVisible="False" />
+                <StackPanel Grid.Row="4" Grid.Column="1" Name="PositionPanel" Spacing="4" IsVisible="False">
+                    <RadioButton Name="BeforeChoice" GroupName="position" Content="{l:T 'Vor der aktuellen Seite'}" />
+                    <RadioButton Name="AfterChoice" GroupName="position" IsChecked="True" Content="{l:T 'Nach der aktuellen Seite'}" />
+                    <RadioButton Name="EndChoice" GroupName="position" Content="{l:T 'Am Ende'}" />
+                </StackPanel>
+
+                <!-- Titel und Sprache für Bildschirmleser (nur beim neuen Dokument; Fehlergedächtnis 492) -->
+                <TextBlock Grid.Row="5" Name="TitleLabel" VerticalAlignment="Center" Margin="0,0,12,0" Text="{l:T 'Titel'}" />
+                <TextBox Grid.Row="5" Grid.Column="1" Name="TitleBox" AutomationProperties.Name="{l:T 'Titel'}">
+                    <ToolTip.Tip><l:T Text="Bildschirmleser nennen den Titel statt des Dateinamens" /></ToolTip.Tip>
+                </TextBox>
+                <TextBlock Grid.Row="6" Name="LanguageLabel" VerticalAlignment="Center" Margin="0,0,12,0" Text="{l:T 'Sprache'}" />
+                <v:LanguagePicker Grid.Row="6" Grid.Column="1" Name="LanguageBox" HorizontalAlignment="Left" AutomationProperties.Name="{l:T 'Sprache'}">
+                    <ToolTip.Tip><l:T Text="Sprache des Dokuments" /></ToolTip.Tip>
+                </v:LanguagePicker>
+            </Grid>
+
+            <!-- Vorschau: Seitenverhältnis im Kasten -->
+            <StackPanel Grid.Column="1" Spacing="8" VerticalAlignment="Top">
+                <Panel Width="120" Height="120">
+                    <Border Name="PreviewPage" Background="White" BorderBrush="{DynamicResource LineStrongBrush}" BorderThickness="1"
+                            CornerRadius="2" BoxShadow="{DynamicResource ShadowCard}"
+                            HorizontalAlignment="Center" VerticalAlignment="Center" />
+                </Panel>
+                <TextBlock Name="SizeText" Classes="muted small" HorizontalAlignment="Center" />
+            </StackPanel>
+        </Grid>
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,4,0,0">
+            <Button Content="{l:T 'Abbrechen'}" Click="OnCancel" IsCancel="True" />
+            <Button Name="ApplyButton" Classes="primary" Content="{l:T 'Erstellen'}" Click="OnApply" IsDefault="True" />
+        </StackPanel>
+    </StackPanel>
+</Window>

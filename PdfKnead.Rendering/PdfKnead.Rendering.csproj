@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <!-- Zeichnet Zeichenlisten (Core) mit Skia. Kennt kein Avalonia: auch von der
+         Kommandozeile und den Tests nutzbar. -->
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <LangVersion>latest</LangVersion>
+        <IsAotCompatible>true</IsAotCompatible>
+        <!-- JPEG direkt in ein verwaltetes Feld entpacken (Zeiger) -->
+        <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="SkiaSharp" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\PdfKnead.Core\PdfKnead.Core.csproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <InternalsVisibleTo Include="PdfKnead.Tests" />
+    </ItemGroup>
+</Project>

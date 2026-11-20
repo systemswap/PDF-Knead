@@ -1,0 +1,52 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:l="using:PdfKnead.Localization"
+        xmlns:vm="using:PdfKnead.ViewModels"
+        x:Class="PdfKnead.Views.RecognizeTextWindow"
+        x:DataType="vm:RecognizeTextViewModel"
+        Title="{l:T 'Text erkennen'}"
+        Icon="/Assets/app.ico"
+        Width="500" SizeToContent="Height"
+        CanResize="False" ShowInTaskbar="False"
+        WindowStartupLocation="CenterOwner">
+    <StackPanel Margin="24" Spacing="14">
+        <StackPanel Orientation="Horizontal" Spacing="12">
+            <Border Width="40" Height="40" CornerRadius="20" Background="{DynamicResource AccentSoftBrush}">
+                <PathIcon Data="{StaticResource Icon.Search}" Width="20" Height="20" Foreground="{DynamicResource AccentBrush}" />
+            </Border>
+            <StackPanel VerticalAlignment="Center" Spacing="2">
+                <TextBlock FontWeight="SemiBold" FontSize="15" Text="{l:T 'Text in Scans erkennen'}" />
+                <TextBlock Classes="muted" TextWrapping="Wrap" MaxWidth="380"
+                           Text="{l:T 'Der erkannte Text liegt unsichtbar über der Seite: suchen, markieren und kopieren geht danach — auch in anderen Programmen. Die Seite sieht aus wie vorher.'}" />
+            </StackPanel>
+        </StackPanel>
+
+        <StackPanel Spacing="6">
+            <TextBlock Classes="section" Text="{l:T 'SEITEN'}" />
+            <RadioButton GroupName="Seiten" IsChecked="{Binding IsAll}" Content="{l:T 'Alle Seiten'}" />
+            <RadioButton GroupName="Seiten" IsChecked="{Binding IsCurrent}" Content="{Binding CurrentText}" />
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <RadioButton GroupName="Seiten" IsChecked="{Binding IsRange}" Content="{l:T 'Seiten:'}" VerticalAlignment="Center" />
+                <TextBox Width="160" Text="{Binding RangeText}" IsEnabled="{Binding IsRange}" AutomationProperties.Name="{l:T 'Seiten'}" />
+            </StackPanel>
+            <TextBlock Classes="muted" FontSize="12" TextWrapping="Wrap"
+                       Text="{l:T 'Gelesen werden nur Seiten mit Bildern; vorhandener echter Text bleibt, wie er ist. Eine ältere Texterkennung dieser Seiten wird ersetzt.'}" />
+        </StackPanel>
+
+        <StackPanel Spacing="6">
+            <TextBlock Classes="section" Text="{l:T 'GENAUIGKEIT'}" />
+            <RadioButton GroupName="Stufe" IsChecked="{Binding IsSmall}" IsEnabled="{Binding SmallInstalled}" Content="{l:T 'Paddle 6: small — schnell (Vorgabe)'}" />
+            <RadioButton GroupName="Stufe" IsChecked="{Binding IsMedium}" IsEnabled="{Binding MediumInstalled}" Content="{l:T 'Paddle 6: medium — am genauesten, langsamer'}" />
+        </StackPanel>
+
+        <TextBlock TextWrapping="Wrap" Foreground="{DynamicResource DangerBrush}" Text="{Binding Error}"
+                   IsVisible="{Binding Error, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="10">
+            <Button Classes="primary" MinWidth="96" IsDefault="True" Command="{Binding StartCommand}" Content="{l:T 'Erkennen'}">
+                <ToolTip.Tip><l:T Text="Läuft im Hintergrund, unten in der Statuszeile steht der Fortschritt; Abbrechen behält, was schon erkannt ist. Strg+Z nimmt es zurück." /></ToolTip.Tip>
+            </Button>
+            <Button MinWidth="96" IsCancel="True" Content="{l:T 'Abbrechen'}" Click="OnCancel" />
+        </StackPanel>
+    </StackPanel>
+</Window>

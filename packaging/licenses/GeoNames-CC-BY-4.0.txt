@@ -1,0 +1,11 @@
+GeoNames (https://www.geonames.org) — Ortsnamen und Länderangaben (cities1000.txt, countryInfo.txt)
+
+Die Daten stehen unter der Lizenz Creative Commons Namensnennung 4.0 International (CC BY 4.0):
+https://creativecommons.org/licenses/by/4.0/legalcode
+
+Namensnennung: GeoNames, https://www.geonames.org
+
+Verwendung in PDF-Knead: Aus den Dateien wurden die Ortsnamen (Name, ASCII-Name und — bei Orten ab 15 000 Einwohnern — weitere
+Namen) und die Ländernamen entnommen, vereinheitlicht und in die Nachschlagedatei der Erkennung von Personen, Firmen und Anschriften
+geschrieben (PdfKnead.Core/Pdf/Text/Entities/Data/lexikon.br; Werkzeug: pdf-knead lexikon). Es wurden nur Einträge ausgewählt und
+umkodiert; die Angaben selbst sind nicht verändert. Ohne Gewähr: GeoNames gibt die Daten „wie sie sind“ weiter.
