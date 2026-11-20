@@ -67,6 +67,7 @@ public sealed partial class MainViewModel
         set
         {
             if (value is null || SelectedDocument is not { } doc) return;
+            if (!IsFormDesign && !EnsureFormsLicensed()) return;
             if (!IsFormDesign) Tool = ViewTool.DesignForm;
             doc.SelectFields([new ElementRef(value.Page, value.Element)]);
             doc.ScrollToPage(value.Page);
@@ -115,14 +116,24 @@ public sealed partial class MainViewModel
     [RelayCommand(CanExecute = nameof(HasSelection))]
     private void ToggleEdit()
     {
+        if (!IsEditTool && !EnsureAllowed("start.edit")) return;
+        // „Bearbeiten“ is a licensed feature (LICENSE, section 1 (5)): checked when it is switched on
+        if (!IsEditTool && !EnsureLicensed(Core.Licensing.LicensedFeature.Editing)) return;
         SelectedDocument?.SelectFields([]);
         Tool = IsEditTool ? ViewTool.SelectText : ViewTool.Edit;
     }
+
+    /// <summary>
+    /// Creating forms is a licensed feature (LICENSE, section 1 (5)): checked when „Formular bearbeiten“, a field tool, the tab order or
+    /// „Felder erkennen“ starts. Filling in forms stays free.
+    /// </summary>
+    private bool EnsureFormsLicensed() => EnsureAllowed("form.all") && EnsureLicensed(Core.Licensing.LicensedFeature.Forms);
 
     /// <summary>Switches „Formular bearbeiten“ on and off.</summary>
     [RelayCommand(CanExecute = nameof(HasSelection))]
     private void ToggleFormDesign()
     {
+        if (!IsFormDesign && !EnsureFormsLicensed()) return;
         SelectedDocument?.SelectFields([]);
         Tool = IsFormDesign ? ViewTool.SelectText : ViewTool.DesignForm;
     }
@@ -136,6 +147,8 @@ public sealed partial class MainViewModel
             Tool = ViewTool.DesignForm;
             return;
         }
+        // a signature field belongs to signing, which stays free; every other field creates a form
+        if (preset != FieldPreset.Signature && !EnsureFormsLicensed()) return;
         _fieldPreset = preset;
         foreach (var doc in Documents)
         {
@@ -155,6 +168,7 @@ public sealed partial class MainViewModel
     private void ToggleTabOrder()
     {
         if (SelectedDocument is not { } doc) return;
+        if (!doc.ShowTabOrder && !EnsureFormsLicensed()) return;
         if (!IsFormDesign) Tool = ViewTool.DesignForm;
         doc.SetShowTabOrder(!doc.ShowTabOrder);
         if (doc.ShowTabOrder) doc.Notify(TabOrderHint);
@@ -199,7 +213,10 @@ public sealed partial class MainViewModel
     private bool CanDuplicate => SelectedDocument is { IsFieldDesign: true, FieldSelection.Count: > 0 };
 
     [RelayCommand(CanExecute = nameof(CanDuplicate))]
-    private void DuplicateFields() => SelectedDocument?.DuplicateSelectedFields();
+    private void DuplicateFields()
+    {
+        if (EnsureFormsLicensed()) SelectedDocument?.DuplicateSelectedFields();
+    }
     /// <summary>
     /// Reiter „Formular“ → „Felder erkennen“ (KONZEPT.md, section 5.9a): proposals for fields at lines, boxes and tables of the pages, in the
     /// area on the right; a second click closes it.
@@ -213,6 +230,7 @@ public sealed partial class MainViewModel
             doc.CloseFieldProposals();
             return;
         }
+        if (!EnsureFormsLicensed()) return;
         if (doc.IsCleanupOpen) doc.CloseCleanup();
         if (doc.IsNotesOpen) doc.CloseNotes();
         if (doc.IsAccessibilityOpen) doc.CloseAccessibility();

@@ -17,7 +17,7 @@
         </c:RibbonGroup>
         <c:RibbonGroup Header="{l:T 'Datei'}">
             <StackPanel Orientation="Horizontal" Spacing="2">
-                <c:RibbonButton Name="SaveXmlButton" Classes="large" Icon="{StaticResource Icon.Save}" Label="{l:T 'XML speichern …'}"
+                <c:RibbonButton Name="SaveXmlButton" c:PolicyLock.Id="einvoice.save-xml" Classes="large" Icon="{StaticResource Icon.Save}" Label="{l:T 'XML speichern …'}"
                                 Command="{Binding SaveXmlCommand}">
                     <ToolTip.Tip><l:T Text="Eine Kopie der eingebetteten Rechnungs-XML speichern, Byte für Byte wie eingebettet — die PDF bleibt unverändert" /></ToolTip.Tip>
                 </c:RibbonButton>

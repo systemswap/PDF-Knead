@@ -490,3 +490,6 @@ Schriften/Handschriften-lizenziert/
 # Geheime Schlüssel (Release-Signatur, KONZEPT §5.26) nie ins Repository
 *.pem
 release-schluessel*/
+
+# Keymaker: Protokoll der ausgestellten Lizenzschlüssel (Kundendaten), liegt neben dem Programm
+protokoll.csv

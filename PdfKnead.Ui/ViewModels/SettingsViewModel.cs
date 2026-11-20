@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 using PdfKnead.Services;
 
 namespace PdfKnead.ViewModels;
@@ -51,6 +52,49 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     /// <summary>A module tab was shown or hidden.</summary>
     public event Action? ModulesChanged;
+
+    /// <summary>„Nutzungsart ändern“ (set by the main view model).</summary>
+    public Func<Task>? ChangeUsage { get; set; }
+
+    /// <summary>„Lizenz eintragen“ (set by the main view model).</summary>
+    public Func<Task>? EnterLicense { get; set; }
+
+    /// <summary>„Berechtigungen anzeigen“ (set by the main view model).</summary>
+    public Func<Task>? ShowPermissions { get; set; }
+
+    /// <summary>„Funktionsdatei einspielen …“ (set by the main view model).</summary>
+    public Func<Task>? ImportPolicy { get; set; }
+
+    /// <summary>The kind of use that applies (LICENSE, section 3 (3)); set by a function file of the organization when there is one.</summary>
+    public string UsageName => Services.Licensing.UsageName(Services.Licensing.Usage);
+
+    /// <summary>Whether a function file sets the kind of use: „Nutzungsart ändern“ is off.</summary>
+    public bool UsageFixed => Services.Licensing.UsageFixed;
+
+    /// <summary>One line about the function file of the organization (or that there is none).</summary>
+    public string PolicySummary => MainViewModel.PolicySummary();
+
+    /// <summary>The state of the license in one line.</summary>
+    public string LicenseStatus => Services.Licensing.StatusText();
+
+    /// <summary>After the kind of use, the key or the end of the introductory period changed.</summary>
+    public void RefreshLicense()
+    {
+        OnPropertyChanged(nameof(UsageName));
+        OnPropertyChanged(nameof(LicenseStatus));
+    }
+
+    [RelayCommand]
+    private Task ChangeUsageNow() => ChangeUsage?.Invoke() ?? Task.CompletedTask;
+
+    [RelayCommand]
+    private Task EnterLicenseNow() => EnterLicense?.Invoke() ?? Task.CompletedTask;
+
+    [RelayCommand]
+    private Task ShowPermissionsNow() => ShowPermissions?.Invoke() ?? Task.CompletedTask;
+
+    [RelayCommand]
+    private Task ImportPolicyNow() => ImportPolicy?.Invoke() ?? Task.CompletedTask;
 
     public static readonly IReadOnlyList<ThemeOption> ThemeOptions =
     [

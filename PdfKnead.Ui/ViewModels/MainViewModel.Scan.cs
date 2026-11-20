@@ -26,7 +26,8 @@ public partial class MainViewModel
     [RelayCommand]
     private async Task Scan()
     {
-        if (ShowScan is null) return;
+        if (!EnsureAllowed("start.scan")) return;
+        if (ShowScan is null || !EnsureLicensed(Core.Licensing.LicensedFeature.Scanning)) return;
         var target = SelectedDocument is { CanEditPages: true, IsWorking: false } open ? open : null;
         var scan = new ScanViewModel(ScanBackend(), target is not null);
         BackstageOpen = false;

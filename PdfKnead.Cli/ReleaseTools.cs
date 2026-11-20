@@ -36,15 +36,22 @@ internal static class ReleaseTools
     private static readonly Regex PackageName = new(@"^PDF-Knead-(?<version>[0-9][0-9A-Za-z.\-]*)-(?<platform>(windows|linux|macos)-(x64|arm64))\.(zip|tar\.gz)$");
 
     /// <summary>
-    /// <c>pdf-knead release-signieren &lt;paketordner&gt; --schluessel &lt;geheim.pem&gt; [--hinweise &lt;datei&gt;]</c>: writes
+    /// <c>pdf-knead release-signieren &lt;paketordner&gt; --schluessel &lt;geheim.pem&gt; [--hinweise &lt;datei&gt;] [--einfuehrung-bis &lt;yyyy-MM-dd&gt;]</c>: writes
     /// <c>version.json</c> and <c>version.json.sig</c> for the packages in the folder (PDF-Knead-&lt;version&gt;-&lt;plattform&gt;.zip/.tar.gz, all of one
-    /// version), checks the signature with the public key of the program, and says what to upload where.
+    /// version), checks the signature with the public key of the program, and says what to upload where. <c>--einfuehrung-bis</c> announces a
+    /// later end of the free introductory period for the licensed features (LICENSE, section 3 (5)); the programs take it over at their next
+    /// check, also versions already installed. Without it, the version file says nothing about it, and the programs keep what they know.
     /// </summary>
-    public static int Sign(string folder, string? keyFile, string? notesFile)
+    public static int Sign(string folder, string? keyFile, string? notesFile, string? introductionUntil = null)
     {
+        if (introductionUntil is not null && (!DateOnly.TryParseExact(introductionUntil, "yyyy-MM-dd", out var end) || end <= PdfKnead.Core.Licensing.LicensePolicy.IntroductionEnd))
+        {
+            Console.Error.WriteLine($"--einfuehrung-bis: ein Datum yyyy-MM-dd nach dem {PdfKnead.Core.Licensing.LicensePolicy.IntroductionEnd:yyyy-MM-dd} (verlängern, nie verkürzen).");
+            return 2;
+        }
         if (keyFile is null || !File.Exists(keyFile))
         {
-            Console.Error.WriteLine("Aufruf: pdf-knead release-signieren <paketordner> --schluessel <geheim.pem> [--hinweise <datei>]");
+            Console.Error.WriteLine("Aufruf: pdf-knead release-signieren <paketordner> --schluessel <geheim.pem> [--hinweise <datei>] [--einfuehrung-bis <yyyy-MM-dd>]");
             return 2;
         }
         var packages = new List<UpdatePackage>();
@@ -69,7 +76,10 @@ internal static class ReleaseTools
             return 1;
         }
         var notes = notesFile is not null && File.Exists(notesFile) ? File.ReadAllText(notesFile).Trim() : "";
-        var manifest = new UpdateManifest(found, DateTime.UtcNow.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), notes, packages);
+        var manifest = new UpdateManifest(found, DateTime.UtcNow.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), notes, packages)
+        {
+            IntroductionUntil = introductionUntil,
+        };
         var json = manifest.ToJson();
         if (UpdateManifest.Parse(json) is null)
         {
@@ -94,7 +104,54 @@ internal static class ReleaseTools
         File.WriteAllBytes(Path.Combine(folder, "version.json"), json);
         File.WriteAllBytes(Path.Combine(folder, "version.json.sig"), signature);
         Console.WriteLine($"version.json und version.json.sig für {found} ({string.Join(", ", packages.Select(p => p.Platform))}) geschrieben.");
-        Console.WriteLine($"Hochladen: die Pakete in den Release v{found}, version.json und version.json.sig in den Release „aktuell“ (ersetzen).");
+        Console.WriteLine($"Hochladen: version.json und version.json.sig in den Release v{found} zu den Paketen; ihn als neueste Version veröffentlichen.");
         return 0;
+    }
+
+    /// <summary>
+    /// <c>pdf-knead release-pruefen &lt;ordner&gt;</c>: checks a downloaded <c>version.json</c> with its <c>version.json.sig</c> as the update
+    /// check of the program does — the signature with the public key of the program, the file itself — and every package of the folder that
+    /// the file names against its size and SHA-256. For a release before it can be reached by the program (docs/UEBERGABE.md,
+    /// „Veröffentlichung und öffentliches Repository“).
+    /// </summary>
+    /// <param name="folder">The folder with version.json, version.json.sig and, if wanted, the packages.</param>
+    /// <param name="publicKey">The public key (Base64); the one of the program if null (tests give their own).</param>
+    public static int Verify(string folder, string? publicKey = null)
+    {
+        var jsonFile = Path.Combine(folder, "version.json");
+        var signatureFile = jsonFile + ".sig";
+        if (!File.Exists(jsonFile) || !File.Exists(signatureFile))
+        {
+            Console.Error.WriteLine("Aufruf: pdf-knead release-pruefen <ordner mit version.json und version.json.sig, wahlweise den Paketen>");
+            return 2;
+        }
+        var json = File.ReadAllBytes(jsonFile);
+        if (json.Length > UpdateManifest.MaxBytes || !UpdateSignature.Verify(json, File.ReadAllBytes(signatureFile), publicKey))
+        {
+            Console.Error.WriteLine("Die Signatur passt nicht zum öffentlichen Schlüssel — so nähme das Programm kein Update an.");
+            return 1;
+        }
+        if (UpdateManifest.Parse(json) is not { } manifest)
+        {
+            Console.Error.WriteLine("version.json ist ungültig (Version, Dateiname, Größe oder Adresse) — so nähme das Programm kein Update an.");
+            return 1;
+        }
+        Console.WriteLine($"Signatur und Versionsdatei in Ordnung: {manifest.Version} vom {manifest.Date}");
+        var faults = 0;
+        foreach (var package in manifest.Packages)
+        {
+            var file = Path.Combine(folder, package.File);
+            if (!File.Exists(file))
+            {
+                Console.WriteLine($"  {package.Platform}: {package.File} nicht im Ordner, nicht geprüft");
+                continue;
+            }
+            using var stream = File.OpenRead(file);
+            var sha = Convert.ToHexStringLower(SHA256.HashData(stream));
+            var fits = stream.Length == package.Size && sha == package.Sha256;
+            Console.WriteLine($"  {package.Platform}: {package.File} — {(fits ? "Größe und SHA-256 stimmen" : "ABWEICHUNG bei Größe oder SHA-256")}");
+            if (!fits) faults++;
+        }
+        return faults == 0 ? 0 : 1;
     }
 }

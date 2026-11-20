@@ -1,0 +1,61 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:l="using:PdfKnead.Localization"
+        x:Class="PdfKnead.Views.UsageWindow"
+        Title="{l:T 'Wofür nutzen Sie PDF-Knead?'}"
+        Icon="/Assets/app.ico"
+        Width="560" SizeToContent="Height"
+        CanResize="False" ShowInTaskbar="False"
+        WindowStartupLocation="CenterOwner">
+    <!-- Nutzungsart beim ersten Start und unter „Nutzungsart ändern“ (LICENSE § 3 Abs. 3): Selbstauskunft, bleibt auf dem Rechner;
+         bei Behörde oder gewerblich danach der Hinweis mit dem Zähler der Einführungszeit -->
+    <Panel Margin="24">
+        <StackPanel Name="ChoicePage" Spacing="14">
+            <StackPanel Orientation="Horizontal" Spacing="12">
+                <Border Width="40" Height="40" CornerRadius="20" Background="{DynamicResource AccentSoftBrush}">
+                    <PathIcon Data="{StaticResource Icon.Info}" Width="20" Height="20" Foreground="{DynamicResource AccentBrush}" />
+                </Border>
+                <TextBlock VerticalAlignment="Center" FontWeight="SemiBold" FontSize="15" Text="{l:T 'Wofür nutzen Sie PDF-Knead?'}" />
+            </StackPanel>
+            <TextBlock TextWrapping="Wrap"
+                       Text="{l:T 'Für Privatleute, Bildungseinrichtungen, Gemeinnützige und kleine Vereine ist PDF-Knead ganz kostenlos, mit allen Funktionen. Ihre Angabe bleibt auf diesem Rechner; es wird nichts gesendet.'}" />
+            <StackPanel Spacing="6">
+                <RadioButton Name="PrivateBox" GroupName="Usage" Content="{l:T 'Privat'}" />
+                <RadioButton Name="NonProfitBox" GroupName="Usage" Content="{l:T 'Gemeinnützig oder kleiner Verein'}">
+                    <ToolTip.Tip><l:T Text="Gemeinnützige Einrichtungen wie Tierheime, und Vereine ohne vom Verein bezahlte Vollzeitbeschäftigte" /></ToolTip.Tip>
+                </RadioButton>
+                <RadioButton Name="EducationBox" GroupName="Usage" Content="{l:T 'Bildungseinrichtung'}">
+                    <ToolTip.Tip><l:T Text="Schulen, Hochschulen, Volkshochschulen und andere öffentliche oder staatlich anerkannte Bildungseinrichtungen" /></ToolTip.Tip>
+                </RadioButton>
+                <RadioButton Name="AuthorityBox" GroupName="Usage" Content="{l:T 'Behörde oder öffentliche Stelle'}" />
+                <RadioButton Name="CommercialBox" GroupName="Usage" Content="{l:T 'Gewerblich (auch selbstständig oder freiberuflich)'}" />
+            </StackPanel>
+            <TextBlock Classes="muted" FontSize="12" TextWrapping="Wrap"
+                       Text="{l:T 'Die Angabe ist eine Selbstauskunft nach der Lizenz von PDF-Knead und lässt sich jederzeit unter Datei → Einstellungen → Nutzung und Lizenz ändern.'}" />
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,4,0,0">
+                <Button Name="NextButton" Classes="primary" Content="{l:T 'Weiter'}" Click="OnNext" IsDefault="True" IsEnabled="False" />
+            </StackPanel>
+        </StackPanel>
+
+        <StackPanel Name="NoticePage" Spacing="14" IsVisible="False">
+            <StackPanel Orientation="Horizontal" Spacing="12">
+                <Border Width="40" Height="40" CornerRadius="20" Background="{DynamicResource AccentSoftBrush}">
+                    <PathIcon Data="{StaticResource Icon.Info}" Width="20" Height="20" Foreground="{DynamicResource AccentBrush}" />
+                </Border>
+                <TextBlock VerticalAlignment="Center" FontWeight="SemiBold" FontSize="15" Text="{l:T 'Nutzung in Firmen und Behörden'}" />
+            </StackPanel>
+            <TextBlock TextWrapping="Wrap"
+                       Name="LicensedText" />
+            <TextBlock Name="PeriodText" TextWrapping="Wrap" FontWeight="SemiBold" />
+            <TextBlock TextWrapping="Wrap"
+                       Text="{l:T 'Alles andere bleibt dauerhaft frei, auch Öffnen, Formulare ausfüllen, Unterschreiben, Signaturen prüfen und die E-Rechnungsprüfung.'}" />
+            <TextBlock Classes="muted" FontSize="12" TextWrapping="Wrap"
+                       Text="{l:T 'Ihre Angabe bleibt auf diesem Rechner; es wird nichts gesendet.'}" />
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,4,0,0">
+                <Button Content="{l:T 'Nutzungsart ändern'}" Click="OnBack" />
+                <Button Content="{l:T 'Lizenz eintragen'}" Click="OnLicense" />
+                <Button Classes="primary" Content="{l:T 'Verstanden'}" Click="OnUnderstood" IsDefault="True" />
+            </StackPanel>
+        </StackPanel>
+    </Panel>
+</Window>

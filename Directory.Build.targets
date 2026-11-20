@@ -13,12 +13,23 @@
     <!-- Modelle der Texterkennung und des Feld-Erkenners (Festlegung 13.11.2026: im Paket, kein Download): beim Entwickeln
          aus Modelle/ocr als „ocr“ neben Programm und Kommandozeile (nicht neben die Tests: die wählen ihre Modelle selbst); in die Pakete
          legen sie publish.ps1/publish.sh nach geprüften Prüfsummen. Fehlt der Ordner Modelle, geht alles außer Texterkennung und Feld-Erkenner. -->
-    <ItemGroup Condition="'$(OutputType)' == 'Exe' or '$(OutputType)' == 'WinExe'">
+    <ItemGroup Condition="('$(OutputType)' == 'Exe' or '$(OutputType)' == 'WinExe') and '$(PdfKneadTool)' != 'true'">
         <None Include="$(MSBuildThisFileDirectory)Modelle/ocr/**/*" Exclude="$(MSBuildThisFileDirectory)Modelle/ocr/SHA256SUMS"
               Link="ocr/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="Never" Visible="false" />
     </ItemGroup>
 
-    <ItemGroup Condition="'$(OutputType)' == 'Exe' or '$(OutputType)' == 'WinExe' or '$(IsTestProject)' == 'true'">
+    <!-- Erscheinungstag der Version (LICENSE § 3 Abs. 2: ein Lizenzschlüssel deckt die Versionen bis zum Ende seines Update-Zeitraums):
+         der Tag des Baus, beim Release auf GitHub also der Tag des Releases; von außen mit -p:PdfKneadReleaseDate=yyyy-MM-dd zu setzen.
+         Gelesen von PdfKnead.Core.Licensing.ReleaseInfo. -->
+    <PropertyGroup Condition="'$(PdfKneadReleaseDate)' == ''">
+        <PdfKneadReleaseDate>$([System.DateTime]::UtcNow.ToString('yyyy-MM-dd'))</PdfKneadReleaseDate>
+    </PropertyGroup>
+    <ItemGroup Condition="'$(MSBuildProjectName)' == 'PdfKnead.Core'">
+        <AssemblyMetadata Include="PdfKneadReleaseDate" Value="$(PdfKneadReleaseDate)" />
+    </ItemGroup>
+
+    <!-- PdfKneadTool=true: Hilfsprogramme, die weder Modelle noch Handschriften brauchen -->
+    <ItemGroup Condition="('$(OutputType)' == 'Exe' or '$(OutputType)' == 'WinExe' or '$(IsTestProject)' == 'true') and '$(PdfKneadTool)' != 'true'">
         <None Include="$(MSBuildThisFileDirectory)Schriften/Handschriften-lizenziert/*.ttf;$(MSBuildThisFileDirectory)Schriften/Handschriften-lizenziert/*.otf"
               Link="Schriften-Unterschrift/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="Never" Visible="false" />
     </ItemGroup>

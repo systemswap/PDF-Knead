@@ -1,0 +1,63 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="FunktionManager.PolicyEditor">
+    <!-- The function file of an organization: which functions its users may use. Separate from license keys. -->
+    <StackPanel Spacing="14">
+        <StackPanel>
+            <TextBlock Classes="section" Text="FUNKTIONSDATEI" />
+            <Border Classes="card">
+                <StackPanel>
+                    <Grid Classes="row" ColumnDefinitions="*,Auto">
+                        <TextBlock Text="Organisation" />
+                        <TextBox Grid.Column="1" Name="OrganizationBox" Width="300" PlaceholderText="wird im Programm angezeigt, z. B. Musterfirma GmbH" />
+                    </Grid>
+                    <Border Classes="divider" />
+                    <Grid Classes="row" ColumnDefinitions="*,Auto">
+                        <TextBlock Text="Nutzungsart" />
+                        <ComboBox Grid.Column="1" Name="UsageBox" Width="300" />
+                    </Grid>
+                    <TextBlock Classes="hint" Margin="0,0,0,9"
+                               Text="Liegt die Datei neben PDF-Knead, gilt sie immer: Die Nutzungsart steht fest, die Frage beim ersten Start entfällt, und Nutzer können sie nicht ändern." />
+                </StackPanel>
+            </Border>
+        </StackPanel>
+
+        <StackPanel>
+            <Grid ColumnDefinitions="*,Auto,Auto" Margin="0,0,0,2">
+                <TextBlock Classes="section" Text="FUNKTIONEN · HÄKCHEN = ERLAUBT" VerticalAlignment="Bottom" />
+                <Button Grid.Column="1" Classes="chip" Content="Alle erlauben" Click="OnAllowAll" Margin="0,0,6,4" />
+                <Button Grid.Column="2" Classes="chip" Content="Alle sperren" Click="OnDenyAll" Margin="0,0,0,4" />
+            </Grid>
+            <!-- one card per ribbon tab, filled from PolicyCatalog -->
+            <Grid Name="TabGrid" ColumnDefinitions="*,14,*,14,*" />
+        </StackPanel>
+
+        <StackPanel>
+            <TextBlock Classes="section" Text="SO KOMMT DIE DATEI AN IHREN PLATZ" />
+            <Border Classes="card" Padding="14,10">
+                <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto" >
+                    <TextBlock Grid.Row="0" Classes="step" Text="1" />
+                    <TextBlock Grid.Row="0" Grid.Column="1" TextWrapping="Wrap" Margin="0,0,0,8"
+                               Text="„Funktionsdatei speichern …“ – der Name berechtigungen.json muss bleiben, nur so findet PDF-Knead sie." />
+                    <TextBlock Grid.Row="1" Classes="step" Text="2" />
+                    <StackPanel Grid.Row="1" Grid.Column="1" Spacing="3" Margin="0,0,0,8">
+                        <TextBlock TextWrapping="Wrap"
+                                   Text="In PDF-Knead: Datei → Einstellungen → Nutzung und Lizenz → „Funktionsdatei einspielen …“. PDF-Knead legt sie neben sich selbst; dafür braucht es Schreibrechte im Programmordner, meist Administratorrechte." />
+                        <TextBlock Classes="hint"
+                                   Text="Oder selbst bzw. per Softwareverteilung ablegen: unter Windows in den Ordner mit PDF-Knead.exe, unter Linux neben die AppImage-Datei (bei einem entpackten Paket neben die Programmdatei)." />
+                    </StackPanel>
+                    <TextBlock Grid.Row="2" Classes="step" Text="3" />
+                    <TextBlock Grid.Row="2" Grid.Column="1" TextWrapping="Wrap"
+                               Text="Ab dem nächsten Start von PDF-Knead gilt sie – nach dem Einspielen startet PDF-Knead von selbst neu und öffnet die offenen Dateien wieder. Nutzer dürfen den Ordner nicht beschreiben können, sonst ließe sich die Datei löschen." />
+                </Grid>
+            </Border>
+        </StackPanel>
+
+        <Grid ColumnDefinitions="*,8,*">
+            <Button Grid.Column="0" Classes="primary" Content="Funktionsdatei öffnen …" Click="OnOpen"
+                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Height="32" />
+            <Button Grid.Column="2" Classes="primary" Content="Funktionsdatei speichern …" Click="OnSave"
+                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Height="32" />
+        </Grid>
+    </StackPanel>
+</UserControl>

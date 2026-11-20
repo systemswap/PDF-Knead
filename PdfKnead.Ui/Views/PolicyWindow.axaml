@@ -1,0 +1,27 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:l="using:PdfKnead.Localization"
+        x:Class="PdfKnead.Views.PolicyWindow"
+        Title="{l:T 'Berechtigungen'}"
+        Icon="/Assets/app.ico"
+        Width="800" SizeToContent="Height" MaxHeight="820"
+        CanResize="False" ShowInTaskbar="False"
+        WindowStartupLocation="CenterOwner">
+    <!-- What the function file of the organization allows: for everybody to see, nothing to change here -->
+    <DockPanel Margin="24">
+        <StackPanel DockPanel.Dock="Top" Spacing="10" Margin="0,0,0,14">
+            <StackPanel Orientation="Horizontal" Spacing="12">
+                <Border Width="40" Height="40" CornerRadius="20" Background="{DynamicResource AccentSoftBrush}">
+                    <PathIcon Data="{StaticResource Icon.ShieldLock}" Width="20" Height="20" Foreground="{DynamicResource AccentBrush}" />
+                </Border>
+                <TextBlock VerticalAlignment="Center" FontWeight="SemiBold" FontSize="15" Text="{l:T 'Berechtigungen'}" />
+            </StackPanel>
+            <TextBlock Name="SummaryText" TextWrapping="Wrap" />
+        </StackPanel>
+        <Button DockPanel.Dock="Bottom" HorizontalAlignment="Right" Margin="0,14,0,0" Classes="primary" Content="{l:T 'Schließen'}"
+                Click="OnClose" IsDefault="True" IsCancel="True" />
+        <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+            <Grid Name="TabGrid" ColumnDefinitions="*,16,*,16,*" />
+        </ScrollViewer>
+    </DockPanel>
+</Window>

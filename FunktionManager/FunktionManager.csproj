@@ -1,0 +1,50 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <!-- Funktionsdatei für Admins schreiben und lesen (KONZEPT § 5.27). Eigenes Programm, liegt in jedem Paket neben PDF-Knead
+         (publish.ps1 / publish.sh im Projektordner); allein bauen: publish.ps1 / publish.sh hier im Ordner, siehe LIESMICH.md -->
+    <PropertyGroup>
+        <OutputType>WinExe</OutputType>
+        <TargetFramework>net10.0</TargetFramework>
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <AssemblyName>PDF-Knead-FunktionManager</AssemblyName>
+        <RootNamespace>FunktionManager</RootNamespace>
+        <PdfKneadTool>true</PdfKneadTool>
+        <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+        <ApplicationIcon>..\PdfKnead.Ui\Assets\app.ico</ApplicationIcon>
+        <RuntimeIdentifiers>win-x64;linux-x64</RuntimeIdentifiers>
+    </PropertyGroup>
+
+    <!-- Veröffentlicht: eine Datei mit .NET und Avalonia (auch den nativen Bibliotheken), ohne installiertes .NET lauffähig -->
+    <PropertyGroup Condition="'$(RuntimeIdentifier)' != ''">
+        <SelfContained>true</SelfContained>
+        <PublishSingleFile>true</PublishSingleFile>
+        <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+        <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+        <PublishTrimmed>false</PublishTrimmed>
+        <InvariantGlobalization>false</InvariantGlobalization>
+        <DebugType>none</DebugType>
+    </PropertyGroup>
+
+    <!-- nur das Programm im Ordner: keine Debug-Dateien des Kerns und der Pakete daneben -->
+    <Target Name="KeepOnlyTheProgram" AfterTargets="ComputeResolvedFilesToPublishList">
+        <ItemGroup>
+            <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)" Condition="'%(Extension)' == '.pdb'" />
+        </ItemGroup>
+    </Target>
+
+    <ItemGroup>
+        <AvaloniaResource Include="..\PdfKnead.Ui\Assets\Icon.png" Link="Assets\Icon.png" />
+        <AvaloniaResource Include="..\PdfKnead.Ui\Assets\app.ico" Link="Assets\app.ico" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Avalonia" />
+        <PackageReference Include="Avalonia.Desktop" />
+        <PackageReference Include="Avalonia.Themes.Fluent" />
+        <PackageReference Include="Avalonia.Fonts.Inter" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\PdfKnead.Core\PdfKnead.Core.csproj" />
+    </ItemGroup>
+</Project>

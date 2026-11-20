@@ -5,6 +5,7 @@ set -Eeuo pipefail
 #
 #   published/linux-x64/PDF-Knead-x86_64.AppImage   eine Datei: Programm, .NET und Avalonia
 #   published/windows-x64/PDF-Knead.exe             eine Datei: Programm, .NET und Avalonia
+#   daneben jeweils der FunktionManager (PDF-Knead-FunktionManager[.exe]): die Funktionsdatei für Admins, eine Datei
 #   published/PDF-Knead-<Version>-linux-x64.tar.gz, PDF-Knead-<Version>-windows-x64.zip (ältere Pakete werden ersetzt)
 #
 # Neben jedes Programm kommen THIRD-PARTY-NOTICES.md und licenses/, unter Linux
@@ -120,8 +121,8 @@ echo "Ziel: $TARGET, Bauart: $BAUART"
 
 command -v dotnet > /dev/null || { echo "Fehler: .NET SDK fehlt." >&2; exit 1; }
 # Nicht, solange das Programm aus published/ läuft.
-if pgrep -f "$LINUX_DIR/PDF-Knead(-x86_64\.AppImage)?( |$)" > /dev/null; then
-  echo "Fehler: PDF-Knead läuft gerade (aus published/) – bitte erst beenden, dann neu bauen." >&2
+if pgrep -f "$LINUX_DIR/PDF-Knead(-x86_64\.AppImage|-FunktionManager)?( |$)" > /dev/null; then
+  echo "Fehler: PDF-Knead oder der FunktionManager läuft gerade (aus published/) – bitte erst beenden, dann neu bauen." >&2
   exit 1
 fi
 
@@ -211,8 +212,9 @@ models() {
 }
 
 # Was das Programm neben sich schreibt; bleibt bei jedem Bau stehen (Schriften-Unterschrift: siehe signature_fonts). Der Ordner ocr gehört
-# seit 13.11.2026 zum Paket (models) und wird bei jedem Bau neu geschrieben.
-USER_FILES=(languages PDF-Knead.log PDF-Knead.log.alt Schriften-Unterschrift)
+# seit 13.11.2026 zum Paket (models) und wird bei jedem Bau neu geschrieben. Dazu die Dateien der IT neben dem Programm: die
+# Funktionsdatei (berechtigungen.json) und updates-aus — sie bleiben stehen und kommen nie ins Paket.
+USER_FILES=(languages PDF-Knead.log PDF-Knead.log.alt Schriften-Unterschrift berechtigungen.json updates-aus)
 
 clear_program_folder() {
   local dest="$1" keep=() name
@@ -261,6 +263,17 @@ publish_aot() {
     || { tail -20 "$WORK_DIR/publish-$rid.log" >&2; echo "Fehler: dotnet publish (Native AOT) für $rid fehlgeschlagen." >&2; exit 1; }
   show_warnings "$WORK_DIR/publish-$rid.log"
   find "$dest" \( -name '*.pdb' -o -name '*.dbg' \) -delete
+}
+
+# Der FunktionManager (Funktionsdatei für Admins, KONZEPT §5.27) liegt in jedem Paket neben dem Programm: eine Datei mit .NET und Avalonia.
+funktionmanager() {
+  local rid="$1" dest="$2" name=PDF-Knead-FunktionManager out="$WORK_DIR/funktionmanager-$1"
+  [ "${rid#win-}" != "$rid" ] && name=PDF-Knead-FunktionManager.exe
+  dotnet publish "$PROJECT_DIR/FunktionManager/FunktionManager.csproj" -c Release -r "$rid" -o "$out" \
+    > "$WORK_DIR/funktionmanager-$rid.log" 2>&1 \
+    || { tail -20 "$WORK_DIR/funktionmanager-$rid.log" >&2; echo "Fehler: FunktionManager für $rid fehlgeschlagen." >&2; exit 1; }
+  if [ "$name" = PDF-Knead-FunktionManager.exe ]; then install -m 0644 "$out/$name" "$dest/$name"; else install -m 0755 "$out/$name" "$dest/$name"; fi
+  echo "   FunktionManager: $name"
 }
 
 # Paket nur mit dem Mitgelieferten: ohne Log, eigene Sprachdateien und selbst importierte Schriften.
@@ -342,6 +355,7 @@ APPRUN
   install -Dm644 "$ICON" "$LINUX_DIR/share/icons/hicolor/256x256/apps/pdf-knead.png"
   install -Dm644 "$PROJECT_DIR/packaging/linux/PDF-Knead.desktop" "$LINUX_DIR/share/applications/PDF-Knead.desktop"
   install -m 0755 "$PROJECT_DIR/packaging/linux/einrichten.sh" "$PROJECT_DIR/packaging/linux/entfernen.sh" "$LINUX_DIR/"
+  funktionmanager linux-x64 "$LINUX_DIR"
 
   package linux-x64 "PDF-Knead-$VERSION-linux-x64.tar.gz"
 fi
@@ -367,6 +381,7 @@ if [ "$TARGET" = all ] || [ "$TARGET" = windows ]; then
   signature_fonts "$WINDOWS_DIR"
   models "$WINDOWS_DIR"
   install -m 0644 "$PROJECT_DIR/packaging/windows/einrichten.ps1" "$WINDOWS_DIR/einrichten.ps1"
+  funktionmanager win-x64 "$WINDOWS_DIR"
   package windows-x64 "PDF-Knead-$VERSION-windows-x64.zip"
 
   # Kopie direkt in den eingestellten Ordner; dort nur ersetzen, was der Bau mitbringt. Die Handschriften dort

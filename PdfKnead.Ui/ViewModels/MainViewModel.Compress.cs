@@ -11,6 +11,7 @@ public partial class MainViewModel
     [RelayCommand(CanExecute = nameof(HasSelection))]
     private async Task Compress()
     {
+        if (!EnsureAllowed("start.compress")) return;
         if (SelectedDocument is not { } doc || ShowCompress is null) return;
         CommitInputs(doc);
         if (!await RedactFirstAsync(doc, Tr.T("Komprimieren"))) return;

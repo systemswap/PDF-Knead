@@ -58,6 +58,13 @@ public sealed partial class LocalizationTests : IDisposable
 
         // lists whose values are German texts that are shown translated
         foreach (var t in SettingsViewModel.ThemeOptions) texts.Add(t.Label);
+        // the functions of the function file and their tabs, shown translated in the window „Berechtigungen“ and in refusals
+        foreach (var (tab, functions) in PdfKnead.Core.Policy.PolicyCatalog.Tabs)
+        {
+            // the tab of the e-invoice module is translated by the module itself, never in the core
+            if (tab != "E-Rechnung") texts.Add(tab);
+            foreach (var function in functions) texts.Add(function.Name);
+        }
         foreach (var v in VersionOption.All) texts.Add(v.Label);
         foreach (var c in CompressionOption.All) texts.Add(c.Label);
         foreach (var f in MainViewModel.FontOptions) texts.Add(f.Label);

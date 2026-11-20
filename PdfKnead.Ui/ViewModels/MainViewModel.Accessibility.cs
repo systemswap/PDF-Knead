@@ -13,6 +13,7 @@ public sealed partial class MainViewModel
     [RelayCommand(CanExecute = nameof(HasSelection))]
     private async Task ToggleAccessibility()
     {
+        if (!EnsureAllowed("secure.accessibility")) return;
         if (SelectedDocument is not { } doc) return;
         if (doc.IsAccessibilityOpen)
         {

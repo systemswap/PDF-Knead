@@ -11,6 +11,7 @@ public partial class MainViewModel
     [RelayCommand(CanExecute = nameof(HasSelection))]
     private async Task Print()
     {
+        if (!EnsureAllowed("start.print")) return;
         if (SelectedDocument is not { } doc || ShowPrint is null) return;
         CommitInputs(doc);
         if (!await RedactFirstAsync(doc, Tr.T("Drucken"))) return;

@@ -33,12 +33,13 @@ public partial class App : Application
     }
 
     /// <summary>
-    /// After the main window opened: the offers of the first start one after the other (the own certificate, then the question about
+    /// After the main window opened: the offers of the first start one after the other (the kind of use, the own certificate, then the question about
     /// updates — once each), then the automatic check for updates if switched on (at most once a day, in the background). Only here, in the
     /// real program — never from the tests.
     /// </summary>
     private static async Task FirstStartAsync(MainViewModel vm)
     {
+        await vm.OfferUsageAsync();
         await vm.OfferOwnCertificateAsync();
         await vm.OfferUpdatesAsync();
         await Services.Updates.Instance.CheckAtStartAsync();
@@ -51,6 +52,8 @@ public partial class App : Application
             // Settings, language and appearance before the first window.
             AppLog.StartStep("Stile geladen");
             UserSettings.Load();
+            // the function file of the organization beside the program (KONZEPT §5.27): once, before anything asks for the kind of use
+            Core.Policy.ActivePolicy.Use(Core.Policy.ActivePolicy.LoadBesideProgram());
             // Remove leftovers of earlier runs (temporary files, old versions such as an unredacted original) in the background.
             PdfKnead.Core.Pdf.Writing.PdfFileSaver.LeftoverList = Path.Combine(Path.GetDirectoryName(UserSettings.File)!, "aufraeumen.txt");
             _ = Task.Run(PdfKnead.Core.Pdf.Writing.PdfFileSaver.DeleteLeftoversOfEarlierRuns);

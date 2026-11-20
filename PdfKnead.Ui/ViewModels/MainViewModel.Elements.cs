@@ -188,6 +188,7 @@ public sealed partial class MainViewModel
     [RelayCommand(CanExecute = nameof(CanDeleteElement))]
     private void DeleteElement()
     {
+        if (!EnsureAllowed("insert.element")) return;
         if (CanDeleteElement) SelectedDocument?.DeleteSelectedElement();
     }
 
@@ -203,6 +204,7 @@ public sealed partial class MainViewModel
     [RelayCommand]
     private async Task ManageCertificate()
     {
+        if (!EnsureAllowed("signature.certificate")) return;
         if (ShowCertificate is not { } show) return;
         var settings = Services.UserSettings.Current;
         using var model = new CertificateViewModel(settings.SigningCertificate, settings.SignatureName, OwnCertificateFile, settings.SignatureTimestamps,
@@ -296,7 +298,8 @@ public sealed partial class MainViewModel
             },
             AddArchive = async () =>
             {
-                if (await AddArchiveTimestampAsync(doc)) model!.Update(doc.SignatureChecks);
+                // a document time stamp is a signature too (LICENSE, section 1 (5): signing with a certificate)
+                if (EnsureLicensed(Core.Licensing.LicensedFeature.CertificateSigning) && await AddArchiveTimestampAsync(doc)) model!.Update(doc.SignatureChecks);
             },
             SaveReport = () => SaveValidationReportAsync(doc, model!.Rows.Select(r => r.Check).ToList()),
         };
@@ -747,6 +750,7 @@ public sealed partial class MainViewModel
     [RelayCommand(CanExecute = nameof(HasSelection))]
     private async Task InsertSignature()
     {
+        if (!EnsureAllowed("signature.sign")) return;
         if (SelectedDocument is not { } doc || PickSignature is null) return;
         if (!doc.CanEditElements)
         {
@@ -774,6 +778,7 @@ public sealed partial class MainViewModel
     [RelayCommand(CanExecute = nameof(HasSelection))]
     private async Task InsertImage()
     {
+        if (!EnsureAllowed("insert.images")) return;
         if (SelectedDocument is not { } doc || PickImageFile is null) return;
         if (!doc.CanEditElements)
         {
@@ -811,6 +816,7 @@ public sealed partial class MainViewModel
     [RelayCommand(CanExecute = nameof(HasSelection))]
     private void InsertShape(ShapeKind kind)
     {
+        if (!EnsureAllowed("insert.shapes")) return;
         if (SelectedDocument is not { } doc) return;
         if (!doc.CanEditElements)
         {
@@ -836,6 +842,7 @@ public sealed partial class MainViewModel
     [RelayCommand(CanExecute = nameof(HasSelection))]
     private void InsertCode()
     {
+        if (!EnsureAllowed("insert.codes")) return;
         if (SelectedDocument is not { } doc) return;
         if (!doc.CanEditElements)
         {
@@ -849,6 +856,7 @@ public sealed partial class MainViewModel
     [RelayCommand(CanExecute = nameof(HasSelection))]
     private void InsertNote()
     {
+        if (!EnsureAllowed("insert.notes")) return;
         if (SelectedDocument is not { } doc) return;
         if (!doc.CanEditElements)
         {
@@ -863,6 +871,7 @@ public sealed partial class MainViewModel
     private void Measure()
     {
         if (SelectedDocument is null) return;
+        if (Tool != ViewTool.Measure && (!EnsureAllowed("start.measure") || !EnsureLicensed(Core.Licensing.LicensedFeature.Measuring))) return;
         Tool = Tool == ViewTool.Measure ? ViewTool.SelectText : ViewTool.Measure;
     }
 
@@ -893,6 +902,12 @@ public sealed partial class MainViewModel
         get => SelectedDocument?.FlattenOnSave == true;
         set
         {
+            // „Flachlegen“ can be switched off by the function file of the organization
+            if (value && !EnsureAllowed("secure.flatten"))
+            {
+                OnPropertyChanged();
+                return;
+            }
             if (SelectedDocument is { } doc) doc.FlattenOnSave = value;
             OnPropertyChanged();
         }

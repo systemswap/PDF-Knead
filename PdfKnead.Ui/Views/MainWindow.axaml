@@ -173,7 +173,7 @@
                         </StackPanel>
                         <ToolTip.Tip><l:T Text="PDF-Knead unterstützen — öffnet die Spendenseite im Browser" /></ToolTip.Tip>
                     </Button>
-                    <c:RibbonButton Classes="icon" Icon="{StaticResource Icon.Save}" Command="{Binding SaveCommand}"
+                    <c:RibbonButton c:PolicyLock.Id="start.save" Classes="icon" Icon="{StaticResource Icon.Save}" Command="{Binding SaveCommand}"
                                     ToolTip.ShowOnDisabled="True">
                         <ToolTip.Tip><l:T Text="Speichern (Strg+S)" /></ToolTip.Tip>
                     </c:RibbonButton>
@@ -249,7 +249,7 @@
                                 IsVisible="{Binding RibbonTab, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Start}">
                         <c:RibbonGroup Header="{l:T 'Datei'}">
                             <StackPanel Orientation="Horizontal" Spacing="2">
-                                <c:RibbonButton Classes="large" Icon="{StaticResource Icon.Document}"
+                                <c:RibbonButton c:PolicyLock.Id="start.new" Classes="large" Icon="{StaticResource Icon.Document}"
                                                 Label="{l:T 'Neu'}" Command="{Binding NewDocumentCommand}">
                                     <ToolTip.Tip><l:T Text="Neues, leeres Dokument: Format wie A4 oder A3 wählen (Strg+N)" /></ToolTip.Tip>
                                 </c:RibbonButton>
@@ -258,20 +258,20 @@
                                     <ToolTip.Tip><l:T Text="PDF öffnen (Strg+O)" /></ToolTip.Tip>
                                 </c:RibbonButton>
                                 <StackPanel Spacing="1">
-                                    <c:RibbonButton Icon="{StaticResource Icon.Save}" Label="{l:T 'Speichern'}"
+                                    <c:RibbonButton c:PolicyLock.Id="start.save" Icon="{StaticResource Icon.Save}" Label="{l:T 'Speichern'}"
                                                     Command="{Binding SaveCommand}">
                                         <ToolTip.Tip><l:T Text="Speichern (Strg+S)" /></ToolTip.Tip>
                                     </c:RibbonButton>
-                                    <c:RibbonButton Icon="{StaticResource Icon.Print}" Label="{l:T 'Drucken'}"
+                                    <c:RibbonButton c:PolicyLock.Id="start.print" Icon="{StaticResource Icon.Print}" Label="{l:T 'Drucken'}"
                                                     Command="{Binding PrintCommand}">
                                         <ToolTip.Tip><l:T Text="Drucken mit Vorschau, mehreren Seiten pro Blatt oder als PDF (Strg+P)" /></ToolTip.Tip>
                                     </c:RibbonButton>
-                                    <c:RibbonButton Icon="{StaticResource Icon.ArrowMinimize}" Label="{l:T 'Komprimieren'}"
+                                    <c:RibbonButton c:PolicyLock.Id="start.compress" Icon="{StaticResource Icon.ArrowMinimize}" Label="{l:T 'Komprimieren'}"
                                                     Command="{Binding CompressCommand}">
                                         <ToolTip.Tip><l:T Text="Datei verkleinern: Bilder, Schriften und Packen einstellen, mit Vorher/Nachher und Größenvorschau" /></ToolTip.Tip>
                                     </c:RibbonButton>
                                 </StackPanel>
-                                <c:RibbonButton Classes="large" Icon="{StaticResource Icon.ScanDash}"
+                                <c:RibbonButton c:PolicyLock.Id="start.scan" Classes="large" Icon="{Binding ScanningLocked, Converter={x:Static cv:LockIcon.Instance}, ConverterParameter={StaticResource Icon.ScanDash}}"
                                                 Label="{l:T 'Scannen'}" Command="{Binding ScanCommand}">
                                     <ToolTip.Tip><l:T Text="Seiten vom Scanner holen, ordnen und als Dokument übernehmen — Flachbett oder Einzug" /></ToolTip.Tip>
                                 </c:RibbonButton>
@@ -297,12 +297,12 @@
                                 </StackPanel>
                                 <StackPanel Spacing="1">
                                     <!-- Text, Bilder und Codes der Seite in einem Werkzeug (KONZEPT §5.22) -->
-                                    <c:RibbonToggleButton Icon="{StaticResource Icon.Edit}" Label="{l:T 'Bearbeiten'}"
+                                    <c:RibbonToggleButton c:PolicyLock.Id="start.edit" Icon="{Binding EditingLocked, Converter={x:Static cv:LockIcon.Instance}, ConverterParameter={StaticResource Icon.Edit}}" Label="{l:T 'Bearbeiten'}"
                                                           IsChecked="{Binding IsEditTool, Mode=OneWay}" Command="{Binding ToggleEditCommand}">
                                         <ToolTip.Tip><l:T Text="Text, Bilder, QR-/Barcodes und Formularfelder der Seite ändern (Strg+E): Absätze bekommen einen Rahmen, ein Klick auf Text setzt die Schreibmarke, auf ein Bild zeigt Griffe und seine Angaben, auf einen Code seine Bedeutung, auf ein Feld seine Eigenschaften; Alt+Klick wählt, was darunter liegt; Esc oder ein zweiter Klick beendet es" /></ToolTip.Tip>
                                     </c:RibbonToggleButton>
                                     <!-- Messen (Ablaufplan 7.6; Festlegung vom 6.11.2026: bei den Werkzeugen, eigenes Symbol): Länge, Linienzug, Fläche, Winkel, Kreis/Bogen -->
-                                    <c:RibbonToggleButton Name="MeasureToolButton" Icon="{StaticResource Icon.Ruler}" Label="{l:T 'Messen'}"
+                                    <c:RibbonToggleButton c:PolicyLock.Id="start.measure" Name="MeasureToolButton" Icon="{Binding MeasuringLocked, Converter={x:Static cv:LockIcon.Instance}, ConverterParameter={StaticResource Icon.Ruler}}" Label="{l:T 'Messen'}"
                                                           IsChecked="{Binding Tool, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Measure, Mode=OneWay}"
                                                           Command="{Binding MeasureCommand}">
                                         <ToolTip.Tip><l:T Text="Längen, Flächen, Winkel und Radien messen — mit dem Maßstab der Seite, sonst in Millimetern des Papiers" /></ToolTip.Tip>
@@ -353,14 +353,14 @@
                                     <ToolTip.Tip><l:T Text="Im Dokument suchen (Strg+F)" /></ToolTip.Tip>
                                 </c:RibbonButton>
                                 <!-- Scans durchsuchbar machen (KONZEPT §5.9) -->
-                                <c:RibbonButton Classes="large" Icon="{StaticResource Icon.DocumentText}" Label="{l:T 'OCR'}"
+                                <c:RibbonButton c:PolicyLock.Id="start.ocr" Classes="large" Icon="{StaticResource Icon.DocumentText}" Label="{l:T 'OCR'}"
                                                 Command="{Binding RecognizeTextCommand}">
                                     <ToolTip.Tip><l:T Text="OCR — Text in Scans und Bildern erkennen: Er liegt danach unsichtbar über der Seite und lässt sich suchen, markieren und kopieren" /></ToolTip.Tip>
                                 </c:RibbonButton>
                             </StackPanel>
                         </c:RibbonGroup>
                         <c:RibbonGroup Header="{l:T 'Notizen'}">
-                            <c:RibbonToggleButton Classes="large" Icon="{StaticResource Icon.ChatEmpty}" Label="{l:T 'Notizen'}"
+                            <c:RibbonToggleButton c:PolicyLock.Id="start.notes" Classes="large" Icon="{StaticResource Icon.ChatEmpty}" Label="{l:T 'Notizen'}"
                                                   IsChecked="{Binding SelectedDocument.IsNotesOpen, Mode=OneWay, FallbackValue=False}"
                                                   Command="{Binding ToggleNotesCommand}">
                                 <ToolTip.Tip><l:T Text="Notizen und Kommentare des Dokuments lesen: eine Zeile springt zur Notiz, ein Klick auf das Notiz-Symbol zeigt sie" /></ToolTip.Tip>
@@ -438,7 +438,7 @@
                                                     Command="{Binding RotatePagesRightCommand}">
                                         <ToolTip.Tip><l:T Text="Ausgewählte Seiten nach rechts drehen (wird mitgespeichert)" /></ToolTip.Tip>
                                     </c:RibbonButton>
-                                    <c:RibbonButton Icon="{StaticResource Icon.DocumentArrowRight}" Label="{l:T 'Extrahieren'}"
+                                    <c:RibbonButton c:PolicyLock.Id="pages.extract" Icon="{StaticResource Icon.DocumentArrowRight}" Label="{l:T 'Extrahieren'}"
                                                     Command="{Binding ExtractPagesCommand}">
                                         <ToolTip.Tip><l:T Text="Ausgewählte Seiten als neue PDF-Datei speichern" /></ToolTip.Tip>
                                     </c:RibbonButton>
@@ -447,22 +447,22 @@
                         </c:RibbonGroup>
                         <c:RibbonGroup Header="{l:T 'Teilen und Zusammenführen'}">
                             <StackPanel Orientation="Horizontal" Spacing="2">
-                                <c:RibbonButton Classes="large" Icon="{StaticResource Icon.SplitVertical}" Label="{l:T 'Teilen'}"
+                                <c:RibbonButton c:PolicyLock.Id="pages.split" Classes="large" Icon="{StaticResource Icon.SplitVertical}" Label="{l:T 'Teilen'}"
                                                 Command="{Binding SplitCommand}">
                                     <ToolTip.Tip><l:T Text="Dokument in mehrere Dateien teilen: Seiten auswählen und zu benannten Teilen ziehen" /></ToolTip.Tip>
                                 </c:RibbonButton>
-                                <c:RibbonButton Classes="large" Icon="{StaticResource Icon.Merge}" Label="{l:T 'Zusammenführen'}"
+                                <c:RibbonButton c:PolicyLock.Id="pages.merge" Classes="large" Icon="{StaticResource Icon.Merge}" Label="{l:T 'Zusammenführen'}"
                                                 Command="{Binding MergeFilesCommand}">
                                     <ToolTip.Tip><l:T Text="Seiten aus mehreren PDF-Dateien zusammenstellen, auch ohne geöffnete Datei — eine PDF in die Seitenleiste ziehen hängt sie schnell an" /></ToolTip.Tip>
                                 </c:RibbonButton>
-                                <c:RibbonButton Classes="large" Icon="{StaticResource Icon.Grid}" Label="{l:T 'Sortieren'}"
+                                <c:RibbonButton c:PolicyLock.Id="pages.sort" Classes="large" Icon="{StaticResource Icon.Grid}" Label="{l:T 'Sortieren'}"
                                                 Command="{Binding SortPagesCommand}">
                                     <ToolTip.Tip><l:T Text="Alle Seiten als Kacheln: mehrere wählen (Strg- oder Umschalt-Klick) und an die neue Stelle ziehen" /></ToolTip.Tip>
                                 </c:RibbonButton>
                             </StackPanel>
                         </c:RibbonGroup>
                         <c:RibbonGroup Header="{l:T 'Ordnen'}">
-                            <c:RibbonButton Classes="large" Icon="{StaticResource Icon.ArrowSort}" Label="{l:T 'Umkehren'}"
+                            <c:RibbonButton c:PolicyLock.Id="pages.reverse" Classes="large" Icon="{StaticResource Icon.ArrowSort}" Label="{l:T 'Umkehren'}"
                                             Command="{Binding ReversePagesCommand}">
                                 <ToolTip.Tip><l:T Text="Reihenfolge der ausgewählten Seiten umkehren (ohne Auswahl: alle). Verschieben: Seiten in der Seitenleiste ziehen." /></ToolTip.Tip>
                             </c:RibbonButton>
@@ -474,7 +474,7 @@
                                 IsVisible="{Binding RibbonTab, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Insert}">
                         <c:RibbonGroup Header="{l:T 'Inhalt'}">
                             <StackPanel Orientation="Horizontal" Spacing="2">
-                                <c:RibbonToggleButton Classes="large" Icon="{StaticResource Icon.TextT}" Label="{l:T 'Text'}"
+                                <c:RibbonToggleButton c:PolicyLock.Id="insert.content" Classes="large" Icon="{StaticResource Icon.TextT}" Label="{l:T 'Text'}"
                                                       IsChecked="{Binding Tool, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=InsertText, Mode=OneWay}"
                                                       Command="{Binding SetToolCommand}" CommandParameter="{x:Static vm:ViewTool.InsertText}">
                                     <ToolTip.Tip><l:T Text="Text auf die Seite setzen: Rechteck aufziehen oder klicken und schreiben. Schrift, Größe und Farbe stehen rechts. Bleibt nach dem Speichern in PDF-Knead bearbeitbar; andere Programme zeigen und drucken ihn wie gewohnt." /></ToolTip.Tip>
@@ -482,13 +482,13 @@
                             </StackPanel>
                         </c:RibbonGroup>
                         <c:RibbonGroup Header="{l:T 'Element'}">
-                            <c:RibbonButton Classes="large" Icon="{StaticResource Icon.Delete}" Label="{l:T 'Löschen'}"
+                            <c:RibbonButton c:PolicyLock.Id="insert.element" Classes="large" Icon="{StaticResource Icon.Delete}" Label="{l:T 'Löschen'}"
                                             Command="{Binding DeleteElementCommand}">
                                 <ToolTip.Tip><l:T Text="Ausgewähltes Element löschen (Entf)" /></ToolTip.Tip>
                             </c:RibbonButton>
                         </c:RibbonGroup>
                         <c:RibbonGroup Header="{l:T 'Bilder'}">
-                            <c:RibbonToggleButton Classes="large" Icon="{StaticResource Icon.Image}" Label="{l:T 'Bild'}"
+                            <c:RibbonToggleButton c:PolicyLock.Id="insert.images" Classes="large" Icon="{StaticResource Icon.Image}" Label="{l:T 'Bild'}"
                                                   IsChecked="{Binding Tool, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=InsertImage, Mode=OneWay}"
                                                   Command="{Binding InsertImageCommand}">
                                 <ToolTip.Tip><l:T Text="Bild (PNG, JPEG …) auf die Seite setzen: Datei wählen, dann klicken oder ein Rechteck aufziehen" /></ToolTip.Tip>
@@ -496,7 +496,7 @@
                         </c:RibbonGroup>
                         <!-- Notiz (KONZEPT §5.5a): klicken, den Text rechts im Bereich „Notizen“ schreiben -->
                         <c:RibbonGroup Header="{l:T 'Notizen'}">
-                            <c:RibbonToggleButton Classes="large" Icon="{StaticResource Icon.ChatEmpty}" Label="{l:T 'Notiz'}"
+                            <c:RibbonToggleButton c:PolicyLock.Id="insert.notes" Classes="large" Icon="{StaticResource Icon.ChatEmpty}" Label="{l:T 'Notiz'}"
                                                   IsChecked="{Binding Tool, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=InsertNote, Mode=OneWay}"
                                                   Command="{Binding InsertNoteCommand}">
                                 <ToolTip.Tip><l:T Text="Notiz auf die Seite setzen: an die Stelle klicken, dann rechts den Text schreiben. Andere PDF-Programme zeigen sie als Kommentar." /></ToolTip.Tip>
@@ -504,7 +504,7 @@
                         </c:RibbonGroup>
                         <!-- Codes (KONZEPT §5.19): klicken oder aufziehen, den Inhalt rechts eingeben -->
                         <c:RibbonGroup Header="{l:T 'Codes'}">
-                            <c:RibbonToggleButton Classes="large" Icon="{StaticResource Icon.QrCode}" Label="{l:T 'Code'}"
+                            <c:RibbonToggleButton c:PolicyLock.Id="insert.codes" Classes="large" Icon="{StaticResource Icon.QrCode}" Label="{l:T 'Code'}"
                                                   IsChecked="{Binding Tool, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=InsertCode, Mode=OneWay}"
                                                   Command="{Binding InsertCodeCommand}">
                                 <ToolTip.Tip><l:T Text="QR-Code, Data Matrix oder Strichcode auf die Seite setzen: klicken oder ein Rechteck aufziehen, dann rechts den Inhalt eingeben" /></ToolTip.Tip>
@@ -514,46 +514,46 @@
                         <c:RibbonGroup Header="{l:T 'Formen'}">
                             <StackPanel Orientation="Horizontal" Spacing="2">
                                 <StackPanel Spacing="1">
-                                    <c:RibbonToggleButton Icon="{StaticResource Icon.Square}" Label="{l:T 'Rechteck'}"
+                                    <c:RibbonToggleButton c:PolicyLock.Id="insert.shapes" Icon="{StaticResource Icon.Square}" Label="{l:T 'Rechteck'}"
                                                           IsChecked="{Binding ActiveShape, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Rectangle, Mode=OneWay}"
                                                           Command="{Binding InsertShapeCommand}" CommandParameter="{x:Static ed:ShapeKind.Rectangle}">
                                         <ToolTip.Tip><l:T Text="Rechteck aufziehen (mit Umschalt: Quadrat)" /></ToolTip.Tip>
                                     </c:RibbonToggleButton>
-                                    <c:RibbonToggleButton Icon="{StaticResource Icon.Circle}" Label="{l:T 'Ellipse'}"
+                                    <c:RibbonToggleButton c:PolicyLock.Id="insert.shapes" Icon="{StaticResource Icon.Circle}" Label="{l:T 'Ellipse'}"
                                                           IsChecked="{Binding ActiveShape, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Ellipse, Mode=OneWay}"
                                                           Command="{Binding InsertShapeCommand}" CommandParameter="{x:Static ed:ShapeKind.Ellipse}">
                                         <ToolTip.Tip><l:T Text="Ellipse aufziehen (mit Umschalt: Kreis)" /></ToolTip.Tip>
                                     </c:RibbonToggleButton>
-                                    <c:RibbonToggleButton Icon="{StaticResource Icon.LineHorizontal}" Label="{l:T 'Linie'}"
+                                    <c:RibbonToggleButton c:PolicyLock.Id="insert.shapes" Icon="{StaticResource Icon.LineHorizontal}" Label="{l:T 'Linie'}"
                                                           IsChecked="{Binding ActiveShape, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Line, Mode=OneWay}"
                                                           Command="{Binding InsertShapeCommand}" CommandParameter="{x:Static ed:ShapeKind.Line}">
                                         <ToolTip.Tip><l:T Text="Linie ziehen (mit Umschalt: waagerecht, senkrecht oder 45°)" /></ToolTip.Tip>
                                     </c:RibbonToggleButton>
                                 </StackPanel>
                                 <StackPanel Spacing="1">
-                                    <c:RibbonToggleButton Icon="{StaticResource Icon.ArrowUpRight}" Label="{l:T 'Pfeil'}"
+                                    <c:RibbonToggleButton c:PolicyLock.Id="insert.shapes" Icon="{StaticResource Icon.ArrowUpRight}" Label="{l:T 'Pfeil'}"
                                                           IsChecked="{Binding ActiveShape, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Arrow, Mode=OneWay}"
                                                           Command="{Binding InsertShapeCommand}" CommandParameter="{x:Static ed:ShapeKind.Arrow}">
                                         <ToolTip.Tip><l:T Text="Pfeil ziehen — die Spitze kommt ans Ende (mit Umschalt: waagerecht, senkrecht oder 45°)" /></ToolTip.Tip>
                                     </c:RibbonToggleButton>
-                                    <c:RibbonToggleButton Icon="{StaticResource Icon.Triangle}" Label="{l:T 'Dreieck'}"
+                                    <c:RibbonToggleButton c:PolicyLock.Id="insert.shapes" Icon="{StaticResource Icon.Triangle}" Label="{l:T 'Dreieck'}"
                                                           IsChecked="{Binding ActiveShape, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Triangle, Mode=OneWay}"
                                                           Command="{Binding InsertShapeCommand}" CommandParameter="{x:Static ed:ShapeKind.Triangle}">
                                         <ToolTip.Tip><l:T Text="Dreieck aufziehen (mit Umschalt: gleich breit wie hoch)" /></ToolTip.Tip>
                                     </c:RibbonToggleButton>
-                                    <c:RibbonToggleButton Icon="{StaticResource Icon.Diamond}" Label="{l:T 'Raute'}"
+                                    <c:RibbonToggleButton c:PolicyLock.Id="insert.shapes" Icon="{StaticResource Icon.Diamond}" Label="{l:T 'Raute'}"
                                                           IsChecked="{Binding ActiveShape, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Diamond, Mode=OneWay}"
                                                           Command="{Binding InsertShapeCommand}" CommandParameter="{x:Static ed:ShapeKind.Diamond}">
                                         <ToolTip.Tip><l:T Text="Raute aufziehen (mit Umschalt: gleich breit wie hoch)" /></ToolTip.Tip>
                                     </c:RibbonToggleButton>
                                 </StackPanel>
                                 <StackPanel Spacing="1">
-                                    <c:RibbonToggleButton Icon="{StaticResource Icon.Star}" Label="{l:T 'Stern'}"
+                                    <c:RibbonToggleButton c:PolicyLock.Id="insert.shapes" Icon="{StaticResource Icon.Star}" Label="{l:T 'Stern'}"
                                                           IsChecked="{Binding ActiveShape, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Star, Mode=OneWay}"
                                                           Command="{Binding InsertShapeCommand}" CommandParameter="{x:Static ed:ShapeKind.Star}">
                                         <ToolTip.Tip><l:T Text="Stern aufziehen (mit Umschalt: gleich breit wie hoch)" /></ToolTip.Tip>
                                     </c:RibbonToggleButton>
-                                    <c:RibbonToggleButton Icon="{StaticResource Icon.ChatEmpty}" Label="{l:T 'Sprechblase'}"
+                                    <c:RibbonToggleButton c:PolicyLock.Id="insert.shapes" Icon="{StaticResource Icon.ChatEmpty}" Label="{l:T 'Sprechblase'}"
                                                           IsChecked="{Binding ActiveShape, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Callout, Mode=OneWay}"
                                                           Command="{Binding InsertShapeCommand}" CommandParameter="{x:Static ed:ShapeKind.Callout}">
                                         <ToolTip.Tip><l:T Text="Sprechblase aufziehen — ein Text lässt sich mit „Text“ hineinsetzen" /></ToolTip.Tip>
@@ -592,10 +592,10 @@
                     </StackPanel>
 
                     <!-- Formular (M6d): Felder erstellen und ihre Eigenschaften bearbeiten -->
-                    <StackPanel Orientation="Horizontal"
+                    <StackPanel c:PolicyLock.Id="form.all" Orientation="Horizontal"
                                 IsVisible="{Binding RibbonTab, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Form}">
                         <c:RibbonGroup Header="{l:T 'Bearbeiten'}">
-                            <c:RibbonToggleButton Classes="large" Icon="{StaticResource Icon.Form}" Label="{l:T 'Formular bearbeiten'}"
+                            <c:RibbonToggleButton Classes="large" Icon="{Binding FormsLocked, Converter={x:Static cv:LockIcon.Instance}, ConverterParameter={StaticResource Icon.Form}}" Label="{l:T 'Formular bearbeiten'}"
                                                   IsChecked="{Binding IsFormDesign, Mode=OneWay}" Command="{Binding ToggleFormDesignCommand}">
                                 <ToolTip.Tip><l:T Text="Felder auswählen, verschieben, in der Größe ändern und rechts ihre Eigenschaften bearbeiten — auch Felder, die mit anderen Programmen erstellt wurden. Klicks füllen dann nicht aus. Strg+Klick oder ein Rahmen wählt mehrere." /></ToolTip.Tip>
                             </c:RibbonToggleButton>
@@ -603,46 +603,46 @@
                         <c:RibbonGroup Header="{l:T 'Felder einfügen'}">
                             <StackPanel Orientation="Horizontal" Spacing="2">
                                 <StackPanel Spacing="1">
-                                    <c:RibbonToggleButton Icon="{StaticResource Icon.TextField}" Label="{l:T 'Textfeld'}"
+                                    <c:RibbonToggleButton Icon="{Binding FormsLocked, Converter={x:Static cv:LockIcon.Instance}, ConverterParameter={StaticResource Icon.TextField}}" Label="{l:T 'Textfeld'}"
                                                           IsChecked="{Binding ActivePreset, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Text, Mode=OneWay}"
                                                           Command="{Binding InsertFormFieldCommand}" CommandParameter="{x:Static vm:FieldPreset.Text}">
                                         <ToolTip.Tip><l:T Text="Textfeld: klicken oder Rechteck aufziehen. Das Werkzeug bleibt an für weitere Felder (Esc oder noch einmal klicken beendet es)." /></ToolTip.Tip>
                                     </c:RibbonToggleButton>
-                                    <c:RibbonToggleButton Icon="{StaticResource Icon.Calendar}" Label="{l:T 'Datum'}"
+                                    <c:RibbonToggleButton Icon="{Binding FormsLocked, Converter={x:Static cv:LockIcon.Instance}, ConverterParameter={StaticResource Icon.Calendar}}" Label="{l:T 'Datum'}"
                                                           IsChecked="{Binding ActivePreset, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Date, Mode=OneWay}"
                                                           Command="{Binding InsertFormFieldCommand}" CommandParameter="{x:Static vm:FieldPreset.Date}">
                                         <ToolTip.Tip><l:T Text="Datumsfeld: ein Textfeld mit Datumsformat (TT.MM.JJJJ) — PDF-Knead zeigt beim Ausfüllen einen Kalender." /></ToolTip.Tip>
                                     </c:RibbonToggleButton>
-                                    <c:RibbonToggleButton Icon="{StaticResource Icon.NumberSymbol}" Label="{l:T 'Zahl'}"
+                                    <c:RibbonToggleButton Icon="{Binding FormsLocked, Converter={x:Static cv:LockIcon.Instance}, ConverterParameter={StaticResource Icon.NumberSymbol}}" Label="{l:T 'Zahl'}"
                                                           IsChecked="{Binding ActivePreset, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Number, Mode=OneWay}"
                                                           Command="{Binding InsertFormFieldCommand}" CommandParameter="{x:Static vm:FieldPreset.Number}">
                                         <ToolTip.Tip><l:T Text="Zahlenfeld: nimmt nur Zahlen an und zeigt sie mit Tausenderpunkten (auch als Währung oder Prozent; rechts unter „Format“). Kann eine Summe aus anderen Feldern rechnen." /></ToolTip.Tip>
                                     </c:RibbonToggleButton>
                                 </StackPanel>
                                 <StackPanel Spacing="1">
-                                    <c:RibbonToggleButton Icon="{StaticResource Icon.CheckboxChecked}" Label="{l:T 'Kontrollkästchen'}"
+                                    <c:RibbonToggleButton Icon="{Binding FormsLocked, Converter={x:Static cv:LockIcon.Instance}, ConverterParameter={StaticResource Icon.CheckboxChecked}}" Label="{l:T 'Kontrollkästchen'}"
                                                           IsChecked="{Binding ActivePreset, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=CheckBox, Mode=OneWay}"
                                                           Command="{Binding InsertFormFieldCommand}" CommandParameter="{x:Static vm:FieldPreset.CheckBox}">
                                         <ToolTip.Tip><l:T Text="Kontrollkästchen zum Ankreuzen: klicken setzt es in Standardgröße." /></ToolTip.Tip>
                                     </c:RibbonToggleButton>
-                                    <c:RibbonToggleButton Icon="{StaticResource Icon.RadioButton}" Label="{l:T 'Optionsfeld'}"
+                                    <c:RibbonToggleButton Icon="{Binding FormsLocked, Converter={x:Static cv:LockIcon.Instance}, ConverterParameter={StaticResource Icon.RadioButton}}" Label="{l:T 'Optionsfeld'}"
                                                           IsChecked="{Binding ActivePreset, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Radio, Mode=OneWay}"
                                                           Command="{Binding InsertFormFieldCommand}" CommandParameter="{x:Static vm:FieldPreset.Radio}">
                                         <ToolTip.Tip><l:T Text="Optionsfelder: alle, die bei eingeschaltetem Werkzeug gesetzt werden, bilden eine Gruppe — davon ist genau eins gewählt. Für eine neue Gruppe das Werkzeug neu starten." /></ToolTip.Tip>
                                     </c:RibbonToggleButton>
-                                    <c:RibbonToggleButton Icon="{StaticResource Icon.TextBulletListSquare}" Label="{l:T 'Kombinationsfeld'}"
+                                    <c:RibbonToggleButton Icon="{Binding FormsLocked, Converter={x:Static cv:LockIcon.Instance}, ConverterParameter={StaticResource Icon.TextBulletListSquare}}" Label="{l:T 'Kombinationsfeld'}"
                                                           IsChecked="{Binding ActivePreset, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=ComboBox, Mode=OneWay}"
                                                           Command="{Binding InsertFormFieldCommand}" CommandParameter="{x:Static vm:FieldPreset.ComboBox}">
                                         <ToolTip.Tip><l:T Text="Aufklappliste: ein Eintrag wird gewählt, wahlweise auch eigener Text. Die Einträge stehen rechts unter „Optionen“." /></ToolTip.Tip>
                                     </c:RibbonToggleButton>
                                 </StackPanel>
                                 <StackPanel Spacing="1">
-                                    <c:RibbonToggleButton Icon="{StaticResource Icon.List}" Label="{l:T 'Listenfeld'}"
+                                    <c:RibbonToggleButton Icon="{Binding FormsLocked, Converter={x:Static cv:LockIcon.Instance}, ConverterParameter={StaticResource Icon.List}}" Label="{l:T 'Listenfeld'}"
                                                           IsChecked="{Binding ActivePreset, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=ListBox, Mode=OneWay}"
                                                           Command="{Binding InsertFormFieldCommand}" CommandParameter="{x:Static vm:FieldPreset.ListBox}">
                                         <ToolTip.Tip><l:T Text="Liste mit sichtbaren Einträgen, wahlweise mehrere wählbar." /></ToolTip.Tip>
                                     </c:RibbonToggleButton>
-                                    <c:RibbonToggleButton Icon="{StaticResource Icon.ArrowReset}" Label="{l:T 'Zurücksetzen'}"
+                                    <c:RibbonToggleButton Icon="{Binding FormsLocked, Converter={x:Static cv:LockIcon.Instance}, ConverterParameter={StaticResource Icon.ArrowReset}}" Label="{l:T 'Zurücksetzen'}"
                                                           IsChecked="{Binding ActivePreset, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=ResetButton, Mode=OneWay}"
                                                           Command="{Binding InsertFormFieldCommand}" CommandParameter="{x:Static vm:FieldPreset.ResetButton}">
                                         <ToolTip.Tip><l:T Text="Schaltfläche, die alle Felder auf ihren Standardwert zurücksetzt (ohne Skript — funktioniert in jedem Programm)." /></ToolTip.Tip>
@@ -653,12 +653,12 @@
                                     </c:RibbonButton>
                                 </StackPanel>
                                 <StackPanel Spacing="1">
-                                    <c:RibbonToggleButton Icon="{StaticResource Icon.QrCode}" Label="{l:T 'QR-Feld'}"
+                                    <c:RibbonToggleButton Icon="{Binding FormsLocked, Converter={x:Static cv:LockIcon.Instance}, ConverterParameter={StaticResource Icon.QrCode}}" Label="{l:T 'QR-Feld'}"
                                                           IsChecked="{Binding ActivePreset, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=QrCode, Mode=OneWay}"
                                                           Command="{Binding InsertFormFieldCommand}" CommandParameter="{x:Static vm:FieldPreset.QrCode}">
                                         <ToolTip.Tip><l:T Text="Feld, dessen Inhalt als QR-Code erscheint: beim Ausfüllen den Text, eine Adresse oder eine Überweisung eintippen. Andere PDF-Programme zeigen den gespeicherten Code." /></ToolTip.Tip>
                                     </c:RibbonToggleButton>
-                                    <c:RibbonToggleButton Icon="{StaticResource Icon.Barcode}" Label="{l:T 'Barcode-Feld'}"
+                                    <c:RibbonToggleButton Icon="{Binding FormsLocked, Converter={x:Static cv:LockIcon.Instance}, ConverterParameter={StaticResource Icon.Barcode}}" Label="{l:T 'Barcode-Feld'}"
                                                           IsChecked="{Binding ActivePreset, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Barcode, Mode=OneWay}"
                                                           Command="{Binding InsertFormFieldCommand}" CommandParameter="{x:Static vm:FieldPreset.Barcode}">
                                         <ToolTip.Tip><l:T Text="Feld, dessen Inhalt als Strichcode erscheint (Code 128, rechts auch EAN, UPC, Code 39, ITF oder GS1-128). Andere PDF-Programme zeigen den gespeicherten Code." /></ToolTip.Tip>
@@ -721,7 +721,7 @@
                                                     Command="{Binding ArrangeFieldsCommand}" CommandParameter="{x:Static vm:FieldArrange.SameHeight}">
                                         <ToolTip.Tip><l:T Text="Ausgewählte Felder so hoch wie das zuletzt gewählte" /></ToolTip.Tip>
                                     </c:RibbonButton>
-                                    <c:RibbonButton Icon="{StaticResource Icon.Copy}" Label="{l:T 'Verdoppeln'}" Command="{Binding DuplicateFieldsCommand}">
+                                    <c:RibbonButton Icon="{Binding FormsLocked, Converter={x:Static cv:LockIcon.Instance}, ConverterParameter={StaticResource Icon.Copy}}" Label="{l:T 'Verdoppeln'}" Command="{Binding DuplicateFieldsCommand}">
                                         <ToolTip.Tip><l:T Text="Ausgewählte Felder darunter verdoppeln (Strg+D) — Optionsfelder kommen in dieselbe Gruppe" /></ToolTip.Tip>
                                     </c:RibbonButton>
                                 </StackPanel>
@@ -758,14 +758,14 @@
                         <!-- „Felder erkennen“ steht klein unter den Prüf-Knöpfen, damit der Reiter auch mit QR- und Barcode-Feld in die Startbreite passt -->
                         <c:RibbonGroup Header="{l:T 'Prüfen und erkennen'}">
                             <StackPanel Spacing="1">
-                                <c:RibbonToggleButton Icon="{StaticResource Icon.NumberCircle}" Label="{l:T 'Tab-Reihenfolge'}"
+                                <c:RibbonToggleButton Icon="{Binding FormsLocked, Converter={x:Static cv:LockIcon.Instance}, ConverterParameter={StaticResource Icon.NumberCircle}}" Label="{l:T 'Tab-Reihenfolge'}"
                                                       IsChecked="{Binding ShowTabOrder, Mode=OneWay}" Command="{Binding ToggleTabOrderCommand}">
                                     <ToolTip.Tip><l:T Text="Zeigt, in welcher Reihenfolge die Tab-Taste durch die Felder geht. Felder nacheinander anklicken legt sie neu fest (Esc beendet)." /></ToolTip.Tip>
                                 </c:RibbonToggleButton>
                                 <c:RibbonButton Icon="{StaticResource Icon.Eye}" Label="{l:T 'Ausfüllen testen'}" Command="{Binding TestFormCommand}">
                                     <ToolTip.Tip><l:T Text="„Formular bearbeiten“ beenden und das Formular ausfüllen — Formate, Kalender und Berechnungen wirken sofort" /></ToolTip.Tip>
                                 </c:RibbonButton>
-                                <c:RibbonToggleButton Icon="{StaticResource Icon.Sparkle}" Label="{l:T 'Felder erkennen'}"
+                                <c:RibbonToggleButton Icon="{Binding FormsLocked, Converter={x:Static cv:LockIcon.Instance}, ConverterParameter={StaticResource Icon.Sparkle}}" Label="{l:T 'Felder erkennen'}"
                                                       IsChecked="{Binding SelectedDocument.IsFieldProposalsOpen, Mode=OneWay, FallbackValue=False}"
                                                       Command="{Binding RecognizeFieldsCommand}">
                                     <ToolTip.Tip><l:T Text="Schlägt Felder an Linien, Kästchen und Tabellen der Seiten vor, auch in Scans — Sie prüfen, benennen und übernehmen. Mit den KI-Modellen liest es Scans und findet auch nicht gezeichnete Felder." /></ToolTip.Tip>
@@ -778,7 +778,7 @@
                     <StackPanel Orientation="Horizontal"
                                 IsVisible="{Binding RibbonTab, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Signature}">
                         <c:RibbonGroup Header="{l:T 'Unterschreiben'}">
-                            <c:RibbonToggleButton Classes="large" Icon="{StaticResource Icon.Signature}" Label="{l:T 'Unterschreiben'}"
+                            <c:RibbonToggleButton c:PolicyLock.Id="signature.sign" Classes="large" Icon="{StaticResource Icon.Signature}" Label="{l:T 'Unterschreiben'}"
                                                   IsChecked="{Binding Tool, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=InsertSignature, Mode=OneWay}"
                                                   Command="{Binding InsertSignatureCommand}">
                                 <ToolTip.Tip><l:T Text="Unterschrift aus einer Handschrift: Namen und Schrift wählen, dann auf der Seite klicken oder ein Rechteck aufziehen. Doppelklick auf eine Unterschrift ändert sie." /></ToolTip.Tip>
@@ -793,7 +793,7 @@
                         </c:RibbonGroup>
                         <c:RibbonGroup Header="{l:T 'Digital signieren'}">
                             <StackPanel Orientation="Horizontal" Spacing="2">
-                            <c:RibbonButton Classes="large" Icon="{StaticResource Icon.ShieldLock}" Label="{l:T 'Zertifikat'}"
+                            <c:RibbonButton c:PolicyLock.Id="signature.certificate" Classes="large" Icon="{StaticResource Icon.ShieldLock}" Label="{l:T 'Zertifikat'}"
                                             Command="{Binding ManageCertificateCommand}">
                                 <ToolTip.Tip><l:T Text="Mit welchem Zertifikat digitale Unterschriften signiert werden: eigenes, aus einer Datei oder (unter Windows) aus dem Zertifikatsspeicher. Zeigt auch den Fingerabdruck zum Weitergeben." /></ToolTip.Tip>
                             </c:RibbonButton>
@@ -816,28 +816,28 @@
                                 IsVisible="{Binding RibbonTab, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Secure}">
                         <c:RibbonGroup Header="{l:T 'Schwärzen'}">
                             <StackPanel Orientation="Horizontal" Spacing="2">
-                                <c:RibbonToggleButton Classes="large" Icon="{StaticResource Icon.Eraser}" Label="{l:T 'Bereich schwärzen'}"
+                                <c:RibbonToggleButton c:PolicyLock.Id="secure.redact-area" Classes="large" Icon="{Binding RedactionLocked, Converter={x:Static cv:LockIcon.Instance}, ConverterParameter={StaticResource Icon.Eraser}}" Label="{l:T 'Bereich schwärzen'}"
                                                       IsChecked="{Binding Tool, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=InsertRedaction, Mode=OneWay}"
                                                       Command="{Binding SetToolCommand}" CommandParameter="{x:Static vm:ViewTool.InsertRedaction}">
                                     <ToolTip.Tip><l:T Text="Zum Schwärzen markieren, bis zum Ausschalten oder Esc: über Text ziehen markiert den Text, sonst einen Bereich aufziehen; Markierungen verschieben und an den Griffen verformen — bis zum Anwenden rückgängig zu machen. Damit sicher keine Daten mehr vorhanden sind, nach dem Schwärzen zusätzlich „Dokument bereinigen“ und „Flachlegen als Bild“ empfohlen" /></ToolTip.Tip>
                                 </c:RibbonToggleButton>
                                 <StackPanel Spacing="1">
-                                    <c:RibbonToggleButton Icon="{StaticResource Icon.EyeOff}" Label="{l:T 'Verborgenes schwärzen'}"
+                                    <c:RibbonToggleButton c:PolicyLock.Id="secure.redact-hidden" Icon="{Binding RedactionLocked, Converter={x:Static cv:LockIcon.Instance}, ConverterParameter={StaticResource Icon.EyeOff}}" Label="{l:T 'Verborgenes schwärzen'}"
                                                           IsChecked="{Binding Tool, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=RedactHidden, Mode=OneWay}"
                                                           Command="{Binding RedactHiddenCommand}">
                                         <ToolTip.Tip><l:T Text="Verborgenen Text auf allen Seiten zeigen — weiß auf weiß, verdeckt, winzig, außerhalb der Seite, unsichtbar (OCR) —, bis zum Ausschalten oder Esc: ein Klick auf einen Rahmen markiert die Stelle zum Schwärzen, entfernt wird sie mit „Schwärzungen anwenden“" /></ToolTip.Tip>
                                     </c:RibbonToggleButton>
-                                    <c:RibbonToggleButton Icon="{StaticResource Icon.TextT}" Label="{l:T 'Text schwärzen'}"
+                                    <c:RibbonToggleButton c:PolicyLock.Id="secure.redact-text" Icon="{Binding RedactionLocked, Converter={x:Static cv:LockIcon.Instance}, ConverterParameter={StaticResource Icon.TextT}}" Label="{l:T 'Text schwärzen'}"
                                                           IsChecked="{Binding Tool, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=RedactText, Mode=OneWay}"
                                                           Command="{Binding RedactTextCommand}">
                                         <ToolTip.Tip><l:T Text="Text zum Schwärzen markieren, bis zum Ausschalten oder Esc: schon markierter Text sofort, danach jeder Text, über den man zieht (Doppelklick: Wort, Dreifachklick: Zeile); Markierungen verschieben und an den Griffen verformen" /></ToolTip.Tip>
                                     </c:RibbonToggleButton>
-                                    <c:RibbonButton Icon="{StaticResource Icon.Search}" Label="{l:T 'Suchen und schwärzen'}"
+                                    <c:RibbonButton c:PolicyLock.Id="secure.search-redact" Icon="{Binding RedactionLocked, Converter={x:Static cv:LockIcon.Instance}, ConverterParameter={StaticResource Icon.Search}}" Label="{l:T 'Suchen und schwärzen'}"
                                                     Command="{Binding SearchRedactCommand}">
                                         <ToolTip.Tip><l:T Text="Wörter, Namen, E-Mail-Adressen, Telefonnummern oder IBAN im ganzen Dokument suchen und schwärzen" /></ToolTip.Tip>
                                     </c:RibbonButton>
                                 </StackPanel>
-                                <c:RibbonButton Classes="large" Icon="{StaticResource Icon.ShieldLock}" Label="{l:T 'Schwärzungen anwenden'}"
+                                <c:RibbonButton c:PolicyLock.Id="secure.apply-redactions" Classes="large" Icon="{StaticResource Icon.ShieldLock}" Label="{l:T 'Schwärzungen anwenden'}"
                                                 Command="{Binding ApplyRedactionsCommand}">
                                     <ToolTip.Tip><l:T Text="Als neue Datei speichern: der Inhalt unter den Schwärzungen wird endgültig entfernt, das Original bleibt unverändert. Damit sicher keine Daten mehr vorhanden sind, zusätzlich „Dokument bereinigen“ und „Flachlegen als Bild“ empfohlen" /></ToolTip.Tip>
                                 </c:RibbonButton>
@@ -845,11 +845,11 @@
                         </c:RibbonGroup>
                         <c:RibbonGroup Header="{l:T 'Sichern'}">
                             <StackPanel Orientation="Horizontal" Spacing="2">
-                                <c:RibbonToggleButton Classes="large" Icon="{StaticResource Icon.Layer}" Label="{l:T 'Flachlegen'}"
+                                <c:RibbonToggleButton c:PolicyLock.Id="secure.flatten" Classes="large" Icon="{StaticResource Icon.Layer}" Label="{l:T 'Flachlegen'}"
                                                       IsChecked="{Binding FlattenOnSave}" IsEnabled="{Binding HasSelection}">
                                     <ToolTip.Tip><l:T Text="Beim Speichern Formularfelder, Kommentare, Stempel und Unterschriften fest in die Seiten legen — danach lässt sich nichts mehr ausfüllen oder verschieben (Links bleiben). Verborgenes bleibt dabei erhalten: unsichtbarer Text, ausgeblendete Ebenen, Metadaten, Lesezeichen, Anhänge und Skripte — zum Entfernen „Dokument bereinigen“ oder „Flachlegen als Bild“" /></ToolTip.Tip>
                                 </c:RibbonToggleButton>
-                                <c:RibbonToggleButton Classes="large" Icon="{StaticResource Icon.ImageMultiple}" Label="{l:T 'Flachlegen als Bild'}"
+                                <c:RibbonToggleButton c:PolicyLock.Id="secure.flatten-image" Classes="large" Icon="{StaticResource Icon.ImageMultiple}" Label="{l:T 'Flachlegen als Bild'}"
                                                       IsChecked="{Binding RasterOnSave, Mode=OneWay}" Command="{Binding ToggleRasterCommand}">
                                     <ToolTip.Tip><l:T Text="Beim Speichern jede Seite zu einem Bild machen — nur was man sieht, bleibt: verborgene Ebenen, unsichtbarer Text, Metadaten, Lesezeichen, Anhänge und Skripte sind danach fort. Text lässt sich nicht mehr kopieren oder durchsuchen. Was nur schwach zu sehen ist (sehr hell, winzig), bleibt als Pixel im Bild; ein Passwort bleibt" /></ToolTip.Tip>
                                 </c:RibbonToggleButton>
@@ -857,7 +857,7 @@
                         </c:RibbonGroup>
                         <c:RibbonGroup Header="{l:T 'Schutz'}">
                             <StackPanel Orientation="Horizontal" Spacing="2">
-                                <c:RibbonButton Classes="large" Icon="{StaticResource Icon.LockClosed}" Label="{l:T 'Passwort und Rechte'}"
+                                <c:RibbonButton c:PolicyLock.Id="secure.password" Classes="large" Icon="{StaticResource Icon.LockClosed}" Label="{l:T 'Passwort und Rechte'}"
                                                 Command="{Binding EditProtectionCommand}">
                                     <ToolTip.Tip><l:T Text="Passwort zum Öffnen und Rechte (Drucken, Kopieren, Ändern …) — gilt ab dem nächsten Speichern" /></ToolTip.Tip>
                                 </c:RibbonButton>
@@ -887,11 +887,11 @@
                                         </Flyout>
                                     </c:RibbonButton.Flyout>
                                 </c:RibbonButton>
-                                <c:RibbonButton Classes="large" Icon="{StaticResource Icon.LockOpen}" Label="{l:T 'Einschränkungen entfernen'}"
+                                <c:RibbonButton c:PolicyLock.Id="secure.remove-restrictions" Classes="large" Icon="{Binding RestrictionsLocked, Converter={x:Static cv:LockIcon.Instance}, ConverterParameter={StaticResource Icon.LockOpen}}" Label="{l:T 'Einschränkungen entfernen'}"
                                                 Command="{Binding LiftRestrictionsCommand}">
                                     <ToolTip.Tip><l:T Text="Drucken, Kopieren, Ändern … wieder erlauben — mit dem Rechte-Passwort oder nach der Bestätigung, dazu berechtigt zu sein; ein Passwort zum Öffnen bleibt nötig" /></ToolTip.Tip>
                                 </c:RibbonButton>
-                                <c:RibbonButton Classes="large" Icon="{StaticResource Icon.Broom}" Label="{l:T 'Dokument bereinigen'}"
+                                <c:RibbonButton c:PolicyLock.Id="secure.clean" Classes="large" Icon="{StaticResource Icon.Broom}" Label="{l:T 'Dokument bereinigen'}"
                                                 Command="{Binding CleanDocumentCommand}">
                                     <ToolTip.Tip><l:T Text="Verborgene Daten finden und beim Speichern entfernen: Metadaten, Anhänge, JavaScript, Vorschaubilder, Daten anderer Programme …" /></ToolTip.Tip>
                                 </c:RibbonButton>
@@ -899,7 +899,7 @@
                         </c:RibbonGroup>
                         <c:RibbonGroup Header="{l:T 'Prüfen'}">
                             <StackPanel Orientation="Horizontal" Spacing="2">
-                                <c:RibbonToggleButton Classes="large" Icon="{StaticResource Icon.CheckmarkCircle}" Label="{l:T 'Barrierefreiheit'}"
+                                <c:RibbonToggleButton c:PolicyLock.Id="secure.accessibility" Classes="large" Icon="{StaticResource Icon.CheckmarkCircle}" Label="{l:T 'Barrierefreiheit'}"
                                                       IsChecked="{Binding SelectedDocument.IsAccessibilityOpen, Mode=OneWay, FallbackValue=False}"
                                                       Command="{Binding ToggleAccessibilityCommand}">
                                     <ToolTip.Tip><l:T Text="Prüfen, ob Bildschirmleser und andere Hilfsmittel die Datei lesen können (PDF/UA) — geprüft wird die Datei, wie sie gespeichert würde" /></ToolTip.Tip>
@@ -1160,8 +1160,8 @@
                                         <MenuItem Header="{l:T 'Weitere …'}" Command="{Binding InsertBlankPagesCommand}" />
                                     </MenuItem>
                                     <MenuItem Header="{l:T 'Seiten aus Datei einfügen …'}" Command="{Binding InsertFromFileCommand}" />
-                                    <MenuItem Header="{l:T 'Extrahieren …'}" Command="{Binding ExtractPagesCommand}" />
-                                    <MenuItem Header="{l:T 'Reihenfolge umkehren'}" Command="{Binding ReversePagesCommand}" />
+                                    <MenuItem c:PolicyLock.Id="pages.extract" Header="{l:T 'Extrahieren …'}" Command="{Binding ExtractPagesCommand}" />
+                                    <MenuItem c:PolicyLock.Id="pages.reverse" Header="{l:T 'Reihenfolge umkehren'}" Command="{Binding ReversePagesCommand}" />
                                     <Separator />
                                     <MenuItem Header="{l:T 'Löschen'}" Command="{Binding DeletePagesCommand}" InputGesture="Delete" />
                                 </ContextMenu>
@@ -1291,14 +1291,14 @@
                                         <TextBlock Text="{l:T 'PDF öffnen …'}" Foreground="{DynamicResource OnAccentBrush}" />
                                     </StackPanel>
                                 </Button>
-                                <Button Command="{Binding NewDocumentCommand}" AutomationProperties.Name="{l:T 'Neues Dokument …'}">
+                                <Button c:PolicyLock.Id="start.new" Command="{Binding NewDocumentCommand}" AutomationProperties.Name="{l:T 'Neues Dokument …'}">
                                     <ToolTip.Tip><l:T Text="Neues, leeres Dokument: Format wie A4 oder A3 wählen (Strg+N)" /></ToolTip.Tip>
                                     <StackPanel Orientation="Horizontal" Spacing="8">
                                         <PathIcon Data="{StaticResource Icon.Document}" Width="16" Height="16" />
                                         <TextBlock Text="{l:T 'Neues Dokument …'}" />
                                     </StackPanel>
                                 </Button>
-                                <Button Classes="primary" Command="{Binding MergeFilesCommand}" AutomationProperties.Name="{l:T 'Zusammenführen …'}">
+                                <Button c:PolicyLock.Id="pages.merge" Classes="primary" Command="{Binding MergeFilesCommand}" AutomationProperties.Name="{l:T 'Zusammenführen …'}">
                                     <ToolTip.Tip><l:T Text="Mehrere PDF-Dateien laden und ihre Seiten zu einer neuen Datei zusammenstellen" /></ToolTip.Tip>
                                     <StackPanel Orientation="Horizontal" Spacing="8">
                                         <PathIcon Data="{StaticResource Icon.Merge}" Width="16" Height="16" Foreground="{DynamicResource OnAccentBrush}" />
@@ -1636,13 +1636,13 @@
                         <ToolTip.Tip><l:T Text="Handschriften für Unterschriften hinzufügen oder entfernen, etwa eine gekaufte oder Ihre eigene" /></ToolTip.Tip>
                     </Button>
                     <StackPanel>
-                        <Button Classes="backstageNav" Content="{l:T 'Neu'}" Command="{Binding NewDocumentCommand}">
+                        <Button c:PolicyLock.Id="start.new" Classes="backstageNav" Content="{l:T 'Neu'}" Command="{Binding NewDocumentCommand}">
                             <ToolTip.Tip><l:T Text="Neues, leeres Dokument: Format wie A4 oder A3 wählen (Strg+N)" /></ToolTip.Tip>
                         </Button>
                         <Button Classes="backstageNav" Content="{l:T 'Öffnen'}"
                                 Classes.selected="{Binding BackstagePage, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Open}"
                                 Command="{Binding ShowBackstageCommand}" CommandParameter="{x:Static vm:BackstagePage.Open}" />
-                        <Button Classes="backstageNav" Content="{l:T 'Speichern'}" Command="{Binding SaveCommand}">
+                        <Button c:PolicyLock.Id="start.save" Classes="backstageNav" Content="{l:T 'Speichern'}" Command="{Binding SaveCommand}">
                             <ToolTip.Tip><l:T Text="Über die geöffnete Datei speichern (Strg+S)" /></ToolTip.Tip>
                         </Button>
                         <Button Classes="backstageNav" Content="{l:T 'Speichern unter'}" IsEnabled="{Binding HasSelection}"
@@ -1655,7 +1655,7 @@
                                 Command="{Binding ShowBackstageCommand}" CommandParameter="{x:Static vm:BackstagePage.Export}">
                             <ToolTip.Tip><l:T Text="Als PDF aus Bildern (sicher), als PDF/A fürs Archiv oder als Bilddateien je Seite — die geöffnete Datei bleibt, wie sie ist" /></ToolTip.Tip>
                         </Button>
-                        <Button Classes="backstageNav" Content="{l:T 'Drucken'}" Command="{Binding PrintCommand}">
+                        <Button c:PolicyLock.Id="start.print" Classes="backstageNav" Content="{l:T 'Drucken'}" Command="{Binding PrintCommand}">
                             <ToolTip.Tip><l:T Text="Drucken mit Vorschau, mehreren Seiten pro Blatt oder als PDF (Strg+P)" /></ToolTip.Tip>
                         </Button>
                         <Button Classes="backstageNav" Content="{l:T 'Scanprofile'}"
@@ -1663,7 +1663,7 @@
                                 Command="{Binding ShowBackstageCommand}" CommandParameter="{x:Static vm:BackstagePage.ScanProfiles}">
                             <ToolTip.Tip><l:T Text="Gespeicherte Einstellungen zum Scannen exportieren, importieren oder löschen" /></ToolTip.Tip>
                         </Button>
-                        <Button Classes="backstageNav" Content="{l:T 'Komprimieren'}" Command="{Binding CompressCommand}">
+                        <Button c:PolicyLock.Id="start.compress" Classes="backstageNav" Content="{l:T 'Komprimieren'}" Command="{Binding CompressCommand}">
                             <ToolTip.Tip><l:T Text="Datei verkleinern: Bilder, Schriften und Packen einstellen, mit Vorher/Nachher und Größenvorschau" /></ToolTip.Tip>
                         </Button>
                         <Button Classes="backstageNav" Content="{l:T 'Eigenschaften'}" IsEnabled="{Binding HasSelection}"
@@ -1748,12 +1748,12 @@
                                     </DataTemplate>
                                 </ListBox.ItemTemplate>
                             </ListBox>
-                            <Button Classes="soft" HorizontalAlignment="Left" Command="{Binding CompressCommand}" Content="{l:T 'Mehr Einstellungen mit Vorher/Nachher …'}">
+                            <Button c:PolicyLock.Id="start.compress" Classes="soft" HorizontalAlignment="Left" Command="{Binding CompressCommand}" Content="{l:T 'Mehr Einstellungen mit Vorher/Nachher …'}">
                                 <ToolTip.Tip><l:T Text="Datei → Komprimieren: alle Regler, Vorschau und Größen" /></ToolTip.Tip>
                             </Button>
                             <TextBlock Classes="muted small" TextWrapping="Wrap"
                                        Text="{l:T 'Die Datei wird komplett neu geschrieben: Alte, nicht mehr sichtbare Fassungen fallen weg. Passwortschutz und Rechte bleiben erhalten. Die geöffnete Datei bleibt unverändert; danach zeigt der Reiter die neue Datei.'}" />
-                            <Button Classes="primary" HorizontalAlignment="Left" Command="{Binding SaveAsCommand}" AutomationProperties.Name="{l:T 'Speichern unter …'}">
+                            <Button c:PolicyLock.Id="start.save" Classes="primary" HorizontalAlignment="Left" Command="{Binding SaveAsCommand}" AutomationProperties.Name="{l:T 'Speichern unter …'}">
                                 <StackPanel Orientation="Horizontal" Spacing="8">
                                     <PathIcon Data="{StaticResource Icon.SaveEdit}" Width="16" Height="16"
                                               Foreground="{DynamicResource OnAccentBrush}" />
@@ -1810,7 +1810,7 @@
                             <Button HorizontalAlignment="Left" Command="{Binding ExportPdfACommand}"
                                     AutomationProperties.Name="{l:T 'Als PDF/A speichern …'}">
                                 <StackPanel Orientation="Horizontal" Spacing="8">
-                                    <PathIcon Data="{StaticResource Icon.DocumentOnePage}" Width="16" Height="16" />
+                                    <PathIcon Data="{Binding PdfALocked, Converter={x:Static cv:LockIcon.Instance}, ConverterParameter={StaticResource Icon.DocumentOnePage}}" Width="16" Height="16" />
                                     <TextBlock Text="{l:T 'Als PDF/A speichern …'}" />
                                 </StackPanel>
                             </Button>
@@ -2030,6 +2030,24 @@
                             </WrapPanel>
                             <TextBlock Classes="small muted" TextWrapping="Wrap" Text="{Binding TemplateMessage}"
                                        IsVisible="{Binding TemplateMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                        </StackPanel>
+                    </Border>
+
+                    <!-- kind of use and license (LICENSE, sections 2 and 3) -->
+                    <Border Name="LicenseSettingsCard" Classes="card">
+                        <StackPanel Spacing="8">
+                            <TextBlock Classes="section" Text="{l:T 'NUTZUNG UND LIZENZ'}" />
+                            <TextBlock TextWrapping="Wrap" FontWeight="SemiBold" Text="{Binding UsageName}" />
+                            <TextBlock Classes="small muted" TextWrapping="Wrap" Text="{Binding LicenseStatus}" />
+                            <TextBlock Classes="small muted" TextWrapping="Wrap" Text="{Binding PolicySummary}" />
+                            <WrapPanel>
+                                <Button Margin="0,0,8,0" Content="{l:T 'Nutzungsart ändern'}" Command="{Binding ChangeUsageNowCommand}" IsEnabled="{Binding !UsageFixed}" />
+                                <Button Margin="0,0,8,0" Content="{l:T 'Lizenz eintragen'}" Command="{Binding EnterLicenseNowCommand}" />
+                                <Button Margin="0,0,8,0" Content="{l:T 'Berechtigungen anzeigen'}" Command="{Binding ShowPermissionsNowCommand}" />
+                                <Button Margin="0,0,8,0" Content="{l:T 'Funktionsdatei einspielen …'}" Command="{Binding ImportPolicyNowCommand}">
+                                    <ToolTip.Tip><l:T Text="Eine Funktionsdatei des FunktionManagers neben das Programm legen (braucht Schreibrechte im Programmordner, meist Administratorrechte). PDF-Knead startet danach neu und öffnet die offenen Dateien wieder." /></ToolTip.Tip>
+                                </Button>
+                            </WrapPanel>
                         </StackPanel>
                     </Border>
 

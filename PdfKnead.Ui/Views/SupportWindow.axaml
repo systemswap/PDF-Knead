@@ -1,0 +1,37 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:l="using:PdfKnead.Localization"
+        x:Class="PdfKnead.Views.SupportWindow"
+        Title="{l:T 'Nutzungsart umstellen'}"
+        Icon="/Assets/app.ico"
+        Width="560" SizeToContent="Height"
+        CanResize="False" ShowInTaskbar="False"
+        WindowStartupLocation="CenterOwner">
+    <!-- Vor dem Umstellen von Behörde/gewerblich auf eine freie Nutzungsart (auch nach Ablauf, falls sich jemand verklickt hat):
+         freundlich, mit dem Weg zur Unterstützung; nichts wird gesendet, die Seite öffnet erst der Klick im Browser des Systems -->
+    <StackPanel Margin="24" Spacing="14">
+        <StackPanel Orientation="Horizontal" Spacing="12">
+            <Border Width="40" Height="40" CornerRadius="20" Background="{DynamicResource AccentSoftBrush}">
+                <PathIcon Data="{StaticResource Icon.Star}" Width="20" Height="20" Foreground="{DynamicResource AccentBrush}" />
+            </Border>
+            <TextBlock VerticalAlignment="Center" FontWeight="SemiBold" FontSize="15" Text="{l:T 'Schön, dass Sie PDF-Knead nutzen!'}" />
+        </StackPanel>
+        <TextBlock Name="SwitchText" TextWrapping="Wrap" />
+        <TextBlock TextWrapping="Wrap"
+                   Text="{l:T 'In PDF-Knead steckt viel Arbeit — ohne Werbung und ohne Daten zu sammeln. Wenn es Ihnen gefällt und Sie es beruflich nutzen, freuen wir uns sehr über Ihre Wertschätzung durch den Kauf einer Lizenz. Und wer einfach Danke sagen möchte, kann die Entwicklung unterstützen.'}" />
+        <TextBlock Classes="muted" FontSize="12" TextWrapping="Wrap"
+                   Text="{l:T 'Die Nutzungsart ist eine Selbstauskunft nach der Lizenz von PDF-Knead. Eine freiwillige Unterstützung ersetzt keine Lizenz.'}" />
+        <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,4,0,0">
+            <Button Grid.Column="0" Click="OnSupport">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                    <PathIcon Data="{StaticResource Icon.Star}" Width="14" Height="14" Foreground="{DynamicResource AccentBrush}" />
+                    <TextBlock Text="{l:T 'Unterstützen (Ko-fi)'}" />
+                </StackPanel>
+            </Button>
+            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8">
+                <Button Content="{l:T 'Abbrechen'}" Click="OnCancel" IsCancel="True" />
+                <Button Name="SwitchButton" Classes="primary" Click="OnSwitch" IsDefault="True" />
+            </StackPanel>
+        </Grid>
+    </StackPanel>
+</Window>

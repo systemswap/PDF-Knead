@@ -94,6 +94,7 @@ public sealed partial class MainViewModel : ObservableObject
             Avalonia.Threading.Dispatcher.UIThread.Post(() => vm.Message = MissingCjkFontsMessage);
         }
         Core.Pdf.Document.PdfDocument.MissingCjkFontsFound += OnMissingCjk;
+        WatchLicensing();
     }
 
     /// <summary>Message shown when a PDF needs a Chinese, Japanese or Korean font but the „Schriften-CJK“ folder is missing.</summary>
@@ -633,7 +634,13 @@ public sealed partial class MainViewModel : ObservableObject
 
     /// <summary>Chooses a tool; a second click on the active tool switches it off (back to „Text markieren“).</summary>
     [RelayCommand(CanExecute = nameof(HasSelection))]
-    private void SetTool(ViewTool tool) => Tool = tool == Tool ? ViewTool.SelectText : tool;
+    private void SetTool(ViewTool tool)
+    {
+        // „Bereich schwärzen“ is a licensed feature (LICENSE, section 1 (5)): checked when it is switched on
+        if (tool != Tool && PolicyIdOf(tool) is { } function && !EnsureAllowed(function)) return;
+        if (tool != Tool && tool == ViewTool.InsertRedaction && !EnsureLicensed(Core.Licensing.LicensedFeature.Redaction)) return;
+        Tool = tool == Tool ? ViewTool.SelectText : tool;
+    }
 
     /// <summary>Whether „Bearbeiten“ is on (mode bar at the top, the tool's panel on the right). See KONZEPT.md, section 5.22.</summary>
     public bool IsEditTool => Tool == ViewTool.Edit;

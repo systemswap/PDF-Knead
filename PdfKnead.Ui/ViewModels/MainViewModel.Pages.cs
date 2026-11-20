@@ -166,6 +166,7 @@ public sealed partial class MainViewModel
     [RelayCommand(CanExecute = nameof(CanEditPages))]
     private void ReversePages()
     {
+        if (!EnsureAllowed("pages.reverse")) return;
         if (SelectedDocument is { } doc && Editable(doc)) doc.ReverseSelected();
     }
 
@@ -247,6 +248,7 @@ public sealed partial class MainViewModel
     [RelayCommand(CanExecute = nameof(HasSelection))]
     private async Task Split()
     {
+        if (!EnsureAllowed("pages.split")) return;
         if (SelectedDocument is not { } doc || ShowSplit is null) return;
         if (!await RedactFirstAsync(doc, Tr.T("Teilen"))) return;
         var split = new SplitViewModel(doc) { AskDocumentAttachments = () => KeepDocumentAttachmentsAsync(doc) };
@@ -288,6 +290,7 @@ public sealed partial class MainViewModel
     [RelayCommand(CanExecute = nameof(CanEditPages))]
     private async Task SortPages()
     {
+        if (!EnsureAllowed("pages.sort")) return;
         if (SelectedDocument is not { } doc || ShowSort is null || !Editable(doc)) return;
         if (await ShowSort(new SortViewModel(doc)) is not { } order) return;
         if (doc.ApplyOrder(order)) ShowNotice(Tr.T("Seiten neu sortiert — Strg+Z nimmt es zurück."));
@@ -295,7 +298,7 @@ public sealed partial class MainViewModel
 
     /// <summary>„Zusammenführen“: the window „Seiten zusammenführen“; also without an open document (the result becomes a new file).</summary>
     [RelayCommand(CanExecute = nameof(CanMerge))]
-    private Task MergeFiles() => MergeAsync(selectCurrentPage: false);
+    private Task MergeFiles() => EnsureAllowed("pages.merge") ? MergeAsync(selectCurrentPage: false) : Task.CompletedTask;
 
     /// <summary>„Aus Datei“: the same window, with the current page selected in the result so that pages go after it.</summary>
     [RelayCommand(CanExecute = nameof(CanEditPages))]
@@ -307,6 +310,7 @@ public sealed partial class MainViewModel
     [RelayCommand(CanExecute = nameof(HasSelection))]
     private async Task ExtractPages()
     {
+        if (!EnsureAllowed("pages.extract")) return;
         if (SelectedDocument is not { } doc || PickSavePath is null) return;
         var indices = doc.SelectedIndices().Order().ToList();
         if (indices.Count == 0) return;
@@ -348,6 +352,7 @@ public sealed partial class MainViewModel
     [RelayCommand(CanExecute = nameof(CanSave))]
     private async Task Save()
     {
+        if (!EnsureAllowed("start.save")) return;
         if (SelectedDocument is not { } doc) return;
         if (doc.IsUntitled) await SaveUntitledAsync(doc);
         else await SaveDocumentAsync(doc, doc.Path, doc.SaveVersion);
@@ -357,6 +362,7 @@ public sealed partial class MainViewModel
     [RelayCommand(CanExecute = nameof(CanSave))]
     private async Task SaveAs()
     {
+        if (!EnsureAllowed("start.save")) return;
         if (SelectedDocument is not { } doc || PickSavePath is null) return;
         if (!await RedactFirstAsync(doc, Tr.T("Speichern unter"))) return;
         var path = await PickSavePath(Tr.T("Speichern unter"), doc.FileName, SaveFolder(doc));
@@ -371,6 +377,7 @@ public sealed partial class MainViewModel
     [RelayCommand(CanExecute = nameof(HasSelection))]
     private async Task EditProtection()
     {
+        if (!EnsureAllowed("secure.password")) return;
         if (SelectedDocument is not { } doc || PickProtection is null) return;
         if (!doc.CanChangeProtection)
         {
@@ -398,7 +405,10 @@ public sealed partial class MainViewModel
     [RelayCommand(CanExecute = nameof(CanLiftRestrictions))]
     private async Task LiftRestrictions()
     {
+        if (!EnsureAllowed("secure.remove-restrictions")) return;
         if (SelectedDocument is not { HasRestrictions: true } doc || doc.Document.Security is not { } security) return;
+        // a licensed feature (LICENSE, section 1 (5)): checked when it starts
+        if (!EnsureLicensed(Core.Licensing.LicensedFeature.Restrictions)) return;
         var openPassword = doc.HasOpenPassword;
         // Only attachments encrypted and locked: without their password the file could not be rewritten correctly. Likewise when all
         // permissions cannot be granted while the file has an open password
@@ -435,13 +445,14 @@ public sealed partial class MainViewModel
     [RelayCommand(CanExecute = nameof(HasSelection))]
     private void RedactText()
     {
+        if (!EnsureAllowed("secure.redact-text")) return;
         if (SelectedDocument is not { } doc) return;
         if (Tool == ViewTool.RedactText)
         {
             Tool = ViewTool.SelectText;
             return;
         }
-        if (!CheckCanEdit(doc)) return;
+        if (!CheckCanEdit(doc) || !EnsureLicensed(Core.Licensing.LicensedFeature.Redaction)) return;
         doc.RedactSelection();
         Tool = ViewTool.RedactText;
     }
@@ -453,13 +464,14 @@ public sealed partial class MainViewModel
     [RelayCommand(CanExecute = nameof(HasSelection))]
     private void RedactHidden()
     {
+        if (!EnsureAllowed("secure.redact-hidden")) return;
         if (SelectedDocument is not { } doc) return;
         if (Tool == ViewTool.RedactHidden)
         {
             Tool = ViewTool.SelectText;
             return;
         }
-        if (!CheckCanEdit(doc)) return;
+        if (!CheckCanEdit(doc) || !EnsureLicensed(Core.Licensing.LicensedFeature.Redaction)) return;
         Tool = ViewTool.RedactHidden;
     }
 
@@ -470,7 +482,8 @@ public sealed partial class MainViewModel
     [RelayCommand(CanExecute = nameof(HasSelection))]
     private async Task SearchRedact()
     {
-        if (SelectedDocument is not { } doc || PickRedactionHits is null || !CheckCanEdit(doc)) return;
+        if (!EnsureAllowed("secure.search-redact")) return;
+        if (SelectedDocument is not { } doc || PickRedactionHits is null || !CheckCanEdit(doc) || !EnsureLicensed(Core.Licensing.LicensedFeature.Redaction)) return;
         if (await PickRedactionHits((words, patterns, matchCase) => doc.FindForRedactionAsync(words, patterns, matchCase)) is not { Hits.Count: > 0 } pick) return;
         // a hit under a mark already is not marked again (report of 4.11.2026)
         var count = await doc.RedactHitsAsync(pick.Hits.Where(h => !h.Marked), reasonOf: pick.For);
@@ -506,6 +519,7 @@ public sealed partial class MainViewModel
     [RelayCommand(CanExecute = nameof(HasSelection))]
     private async Task ToggleRaster()
     {
+        if (!EnsureAllowed("secure.flatten-image")) return;
         if (SelectedDocument is not { } doc) return;
         if (doc.RasterOnSave is not null)
         {
@@ -581,7 +595,7 @@ public sealed partial class MainViewModel
     [RelayCommand(CanExecute = nameof(CanSave))]
     private async Task ExportPdfA()
     {
-        if (SelectedDocument is not { } doc || PickPdfA is null || PickSavePath is null) return;
+        if (SelectedDocument is not { } doc || PickPdfA is null || PickSavePath is null || !EnsureLicensed(Core.Licensing.LicensedFeature.PdfA)) return;
         // PDF/A allows no encryption: an unprotected copy only where the protection could be changed anyway (as for „Speichern unter“)
         if (!doc.CanChangeProtection)
         {
@@ -746,6 +760,7 @@ public sealed partial class MainViewModel
     [RelayCommand(CanExecute = nameof(HasSelection))]
     private async Task CleanDocument()
     {
+        if (!EnsureAllowed("secure.clean")) return;
         if (SelectedDocument is not { } doc) return;
         if (doc.IsCleanupOpen)
         {
@@ -990,6 +1005,7 @@ public sealed partial class MainViewModel
     [RelayCommand(CanExecute = nameof(CanSave))]
     private async Task ApplyRedactions()
     {
+        if (!EnsureAllowed("secure.apply-redactions")) return;
         if (SelectedDocument is not { } doc) return;
         CommitInputs(doc);
         if (doc.RedactionCount == 0)
@@ -1082,6 +1098,8 @@ public sealed partial class MainViewModel
     private async Task<bool> SaveDocumentAsync(DocumentViewModel doc, string path, string version,
         PdfKnead.Core.Pdf.Writing.CompressionSettings? compression, bool confirmed = false, bool rewrite = false)
     {
+        // every way of saving ends here: also „Speichern“ in the question when closing
+        if (!EnsureAllowed("start.save")) return false;
         CommitInputs(doc);
         // A new file is a copy that leaves the document: marked redactions are applied first, on every way there (Save As, a new
         // document, „Als neue Datei“ after redacting or with signatures). Only over the opened file do marks stay marks.

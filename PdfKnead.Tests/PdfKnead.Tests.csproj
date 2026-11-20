@@ -31,6 +31,7 @@
     <!-- Lecksuche der Kommandozeile auch im Prüflauf LeakMatrix -->
     <Compile Include="..\PdfKnead.Cli\LeakSearch.cs" Link="Cli\LeakSearch.cs" />
     <Compile Include="..\PdfKnead.Cli\SignatureList.cs" Link="Cli\SignatureList.cs" />
+    <Compile Include="..\PdfKnead.Cli\ReleaseTools.cs" Link="Cli\ReleaseTools.cs" />
   </ItemGroup>
 
   <ItemGroup>

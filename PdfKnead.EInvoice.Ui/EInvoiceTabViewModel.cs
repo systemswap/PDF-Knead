@@ -155,6 +155,12 @@ public sealed partial class EInvoiceTabViewModel(MainViewModel main) : Observabl
     [RelayCommand(CanExecute = nameof(HasInvoice))]
     private async Task SaveXml()
     {
+        // „XML speichern“ can be switched off by the function file of the organization (KONZEPT §5.27)
+        if (!PdfKnead.Core.Policy.ActivePolicy.Allows("einvoice.save-xml"))
+        {
+            Report(PdfKnead.ViewModels.MainViewModel.PolicyRefusal("einvoice.save-xml"));
+            return;
+        }
         if (_document is not { } document || PickSavePath is not { } pick) return;
         (byte[]? Data, string Name) found;
         try

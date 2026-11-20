@@ -15,6 +15,9 @@ sealed class Program
             Environment.Exit(PdfKnead.Core.Scanning.Helper.ScanHelperHost.Run(toHelper, fromHelper, PdfKnead.Core.Scanning.ScanBackends.Direct()));
             return;
         }
+        // started anew by the program itself (a function file was installed): first let the previous run end, so that its files are not
+        // handed over to the window that is just closing
+        PdfKnead.Core.Updates.ProgramRestart.WaitForPrevious();
         // „Dateien öffnen: im zuletzt benutzten Fenster“: the files go to a window already open and this start ends — no log, no window.
         // Without such a window (or with anything but files) the start goes on as usual.
         if (args.Length > 0 && AppSettings.Load().OpenInRunningWindow && FileHandoff.TryHandOver(args, TimeSpan.FromSeconds(2)))

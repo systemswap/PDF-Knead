@@ -9,6 +9,7 @@ public sealed partial class MainViewModel
     [RelayCommand(CanExecute = nameof(HasSelection))]
     private void ToggleNotes()
     {
+        if (!EnsureAllowed("start.notes")) return;
         if (SelectedDocument is not { } doc) return;
         if (doc.IsNotesOpen)
         {

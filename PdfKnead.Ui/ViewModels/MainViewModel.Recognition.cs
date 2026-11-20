@@ -19,6 +19,7 @@ public partial class MainViewModel
     [RelayCommand(CanExecute = nameof(HasSelection))]
     private async Task RecognizeText()
     {
+        if (!EnsureAllowed("start.ocr")) return;
         if (SelectedDocument is not { } doc || ShowRecognizeText is null) return;
         if (doc.IsRecognizing)
         {

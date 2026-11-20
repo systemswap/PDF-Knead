@@ -1,0 +1,238 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!-- Quiet settings design: own colours (light/dark), compact Fluent sizes, fine check boxes, cards, typography and buttons -->
+
+    <Styles.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.ThemeDictionaries>
+                <ResourceDictionary x:Key="Light">
+                    <SolidColorBrush x:Key="Fine.WindowBackground" Color="#F4F5F7" />
+                    <SolidColorBrush x:Key="Fine.CardBackground" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="Fine.CardBorder" Color="#E2E4E8" />
+                    <SolidColorBrush x:Key="Fine.Divider" Color="#EDEFF2" />
+                    <SolidColorBrush x:Key="Fine.Inset" Color="#F6F7F9" />
+                    <SolidColorBrush x:Key="Fine.TextPrimary" Color="#1F2328" />
+                    <SolidColorBrush x:Key="Fine.TextSecondary" Color="#6E7681" />
+                    <SolidColorBrush x:Key="Fine.BoxBorder" Color="#B3B9C2" />
+                    <SolidColorBrush x:Key="Fine.BoxBackground" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="Fine.Accent" Color="#33557F" />
+                    <SolidColorBrush x:Key="Fine.AccentHover" Color="#28466B" />
+                    <SolidColorBrush x:Key="Fine.AccentPressed" Color="#1F3854" />
+                    <SolidColorBrush x:Key="Fine.OnAccent" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="Fine.SubtleHover" Color="#EBEDF0" />
+                    <SolidColorBrush x:Key="Fine.Warning" Color="#8A3B00" />
+                    <SolidColorBrush x:Key="Fine.Good" Color="#2F6B3A" />
+                    <!-- the accent of the Fluent controls (focus line of the text fields) in the colour of this design -->
+                    <Color x:Key="SystemAccentColor">#33557F</Color>
+                    <Color x:Key="SystemAccentColorDark1">#28466B</Color>
+                    <Color x:Key="SystemAccentColorDark2">#1F3854</Color>
+                    <Color x:Key="SystemAccentColorLight1">#4A6C96</Color>
+                    <Color x:Key="SystemAccentColorLight2">#6283AB</Color>
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="Dark">
+                    <SolidColorBrush x:Key="Fine.WindowBackground" Color="#1B1C1F" />
+                    <SolidColorBrush x:Key="Fine.CardBackground" Color="#24262A" />
+                    <SolidColorBrush x:Key="Fine.CardBorder" Color="#33363C" />
+                    <SolidColorBrush x:Key="Fine.Divider" Color="#2E3035" />
+                    <SolidColorBrush x:Key="Fine.Inset" Color="#1F2023" />
+                    <SolidColorBrush x:Key="Fine.TextPrimary" Color="#E6E8EB" />
+                    <SolidColorBrush x:Key="Fine.TextSecondary" Color="#9097A0" />
+                    <SolidColorBrush x:Key="Fine.BoxBorder" Color="#5C626B" />
+                    <SolidColorBrush x:Key="Fine.BoxBackground" Color="#1F2023" />
+                    <SolidColorBrush x:Key="Fine.Accent" Color="#7FA3D1" />
+                    <SolidColorBrush x:Key="Fine.AccentHover" Color="#93B3DB" />
+                    <SolidColorBrush x:Key="Fine.AccentPressed" Color="#6B8FBD" />
+                    <SolidColorBrush x:Key="Fine.OnAccent" Color="#14161A" />
+                    <SolidColorBrush x:Key="Fine.SubtleHover" Color="#2E3035" />
+                    <SolidColorBrush x:Key="Fine.Warning" Color="#E0A468" />
+                    <SolidColorBrush x:Key="Fine.Good" Color="#8CC79A" />
+                    <Color x:Key="SystemAccentColor">#7FA3D1</Color>
+                    <Color x:Key="SystemAccentColorDark1">#6B8FBD</Color>
+                    <Color x:Key="SystemAccentColorDark2">#5A7DA9</Color>
+                    <Color x:Key="SystemAccentColorLight1">#93B3DB</Color>
+                    <Color x:Key="SystemAccentColorLight2">#A9C3E3</Color>
+                </ResourceDictionary>
+            </ResourceDictionary.ThemeDictionaries>
+
+            <!-- compact sizes for the Fluent controls (in essence Fluent's compact density) -->
+            <x:Double x:Key="ControlContentThemeFontSize">12</x:Double>
+            <x:Double x:Key="ContentControlFontSize">12</x:Double>
+            <x:Double x:Key="TextControlThemeMinHeight">24</x:Double>
+            <Thickness x:Key="TextControlThemePadding">6,3,6,2</Thickness>
+            <x:Double x:Key="ComboBoxMinHeight">24</x:Double>
+            <Thickness x:Key="ComboBoxPadding">10,1,0,2</Thickness>
+            <Thickness x:Key="ButtonPadding">14,4,14,5</Thickness>
+
+            <!-- fine check box: 15 px box, accent colour instead of the system blue -->
+            <ControlTheme x:Key="FineCheckBox" TargetType="CheckBox">
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="Foreground" Value="{DynamicResource Fine.TextPrimary}" />
+                <Setter Property="FontSize" Value="12" />
+                <Setter Property="Cursor" Value="Hand" />
+                <Setter Property="VerticalAlignment" Value="Center" />
+                <Setter Property="Template">
+                    <ControlTemplate>
+                        <Grid ColumnDefinitions="Auto,*" Background="{TemplateBinding Background}">
+                            <Border x:Name="Box" Width="15" Height="15" CornerRadius="3.5" BorderThickness="1"
+                                    BorderBrush="{DynamicResource Fine.BoxBorder}" Background="{DynamicResource Fine.BoxBackground}"
+                                    VerticalAlignment="Center">
+                                <Panel>
+                                    <Path x:Name="Glyph" Data="M 2.8,6.6 L 5.4,9.1 L 10.2,3.9" Stroke="{DynamicResource Fine.OnAccent}"
+                                          StrokeThickness="1.6" StrokeLineCap="Round" StrokeJoin="Round" IsVisible="False" />
+                                    <!-- some but not all below it (a tab heading) -->
+                                    <Path x:Name="Dash" Data="M 3.5,6.5 L 9.5,6.5" Stroke="{DynamicResource Fine.OnAccent}"
+                                          StrokeThickness="1.6" StrokeLineCap="Round" IsVisible="False" />
+                                </Panel>
+                            </Border>
+                            <ContentPresenter x:Name="PART_ContentPresenter" Grid.Column="1" Margin="9,0,0,0" VerticalAlignment="Center"
+                                              Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}"
+                                              Foreground="{TemplateBinding Foreground}" />
+                        </Grid>
+                    </ControlTemplate>
+                </Setter>
+                <Style Selector="^:pointerover /template/ Border#Box">
+                    <Setter Property="BorderBrush" Value="{DynamicResource Fine.Accent}" />
+                </Style>
+                <Style Selector="^:checked /template/ Border#Box">
+                    <Setter Property="Background" Value="{DynamicResource Fine.Accent}" />
+                    <Setter Property="BorderBrush" Value="{DynamicResource Fine.Accent}" />
+                </Style>
+                <Style Selector="^:checked:pointerover /template/ Border#Box">
+                    <Setter Property="Background" Value="{DynamicResource Fine.AccentHover}" />
+                    <Setter Property="BorderBrush" Value="{DynamicResource Fine.AccentHover}" />
+                </Style>
+                <Style Selector="^:checked /template/ Path#Glyph">
+                    <Setter Property="IsVisible" Value="True" />
+                </Style>
+                <Style Selector="^:indeterminate /template/ Border#Box">
+                    <Setter Property="Background" Value="{DynamicResource Fine.Accent}" />
+                    <Setter Property="BorderBrush" Value="{DynamicResource Fine.Accent}" />
+                </Style>
+                <Style Selector="^:indeterminate /template/ Path#Dash">
+                    <Setter Property="IsVisible" Value="True" />
+                </Style>
+                <Style Selector="^:disabled">
+                    <Setter Property="Opacity" Value="0.45" />
+                </Style>
+            </ControlTheme>
+        </ResourceDictionary>
+    </Styles.Resources>
+
+    <Style Selector="CheckBox">
+        <Setter Property="Theme" Value="{StaticResource FineCheckBox}" />
+    </Style>
+
+    <!-- cards and rows -->
+    <Style Selector="Border.card">
+        <Setter Property="Background" Value="{DynamicResource Fine.CardBackground}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource Fine.CardBorder}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="8" />
+        <Setter Property="Padding" Value="14,2" />
+    </Style>
+    <Style Selector="Border.divider">
+        <Setter Property="Height" Value="1" />
+        <Setter Property="Background" Value="{DynamicResource Fine.Divider}" />
+    </Style>
+    <Style Selector="Border.inset">
+        <Setter Property="Background" Value="{DynamicResource Fine.Inset}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource Fine.Divider}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="5" />
+        <Setter Property="Padding" Value="10,7" />
+    </Style>
+    <Style Selector="Grid.row">
+        <Setter Property="MinHeight" Value="34" />
+    </Style>
+    <Style Selector="Grid.row > :is(Control)">
+        <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+
+    <!-- typography -->
+    <Style Selector="TextBlock.section">
+        <Setter Property="FontSize" Value="10.5" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="Foreground" Value="{DynamicResource Fine.TextSecondary}" />
+        <Setter Property="Margin" Value="2,0,0,6" />
+    </Style>
+    <Style Selector="TextBlock.hint, SelectableTextBlock.hint">
+        <Setter Property="FontSize" Value="11" />
+        <Setter Property="Foreground" Value="{DynamicResource Fine.TextSecondary}" />
+        <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+    <Style Selector="TextBlock.warn">
+        <Setter Property="Foreground" Value="{DynamicResource Fine.Warning}" />
+    </Style>
+    <Style Selector="TextBlock.good">
+        <Setter Property="Foreground" Value="{DynamicResource Fine.Good}" />
+    </Style>
+
+    <Style Selector="ComboBox, TextBox">
+        <Setter Property="FontSize" Value="12" />
+    </Style>
+    <!-- small buttons for quick values: recognisable as buttons, quieter than the main ones -->
+    <Style Selector="Button.chip">
+        <Setter Property="Background" Value="{DynamicResource Fine.Inset}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource Fine.CardBorder}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="Foreground" Value="{DynamicResource Fine.TextPrimary}" />
+        <Setter Property="FontSize" Value="11.5" />
+        <Setter Property="Padding" Value="9,2,9,3" />
+        <Setter Property="MinHeight" Value="22" />
+    </Style>
+    <Style Selector="Button.chip:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource Fine.SubtleHover}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource Fine.Accent}" />
+        <Setter Property="Foreground" Value="{DynamicResource Fine.TextPrimary}" />
+    </Style>
+
+    <!-- the number of a step in a short guide -->
+    <Style Selector="TextBlock.step">
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="Foreground" Value="{DynamicResource Fine.Accent}" />
+        <Setter Property="Width" Value="18" />
+        <Setter Property="Margin" Value="0,0,6,0" />
+    </Style>
+
+    <!-- a ribbon tab as heading over its features -->
+    <Style Selector="TextBlock.tab">
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="Margin" Value="0,0,0,2" />
+    </Style>
+
+    <!-- the details of a key read: label and value in two columns -->
+    <Style Selector="TextBlock.label">
+        <Setter Property="Foreground" Value="{DynamicResource Fine.TextSecondary}" />
+    </Style>
+
+    <!-- buttons -->
+    <Style Selector="Button">
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="CornerRadius" Value="5" />
+        <Setter Property="Cursor" Value="Hand" />
+    </Style>
+    <Style Selector="Button.primary">
+        <Setter Property="Background" Value="{DynamicResource Fine.Accent}" />
+        <Setter Property="Foreground" Value="{DynamicResource Fine.OnAccent}" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <Style Selector="Button.primary:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource Fine.AccentHover}" />
+        <Setter Property="Foreground" Value="{DynamicResource Fine.OnAccent}" />
+    </Style>
+    <Style Selector="Button.primary:pressed /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource Fine.AccentPressed}" />
+        <Setter Property="Foreground" Value="{DynamicResource Fine.OnAccent}" />
+    </Style>
+    <Style Selector="Button.subtle">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Foreground" Value="{DynamicResource Fine.TextSecondary}" />
+        <Setter Property="Padding" Value="8,4" />
+    </Style>
+    <Style Selector="Button.subtle:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource Fine.SubtleHover}" />
+        <Setter Property="Foreground" Value="{DynamicResource Fine.TextPrimary}" />
+    </Style>
+</Styles>

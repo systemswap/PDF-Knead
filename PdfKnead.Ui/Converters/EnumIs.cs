@@ -22,6 +22,21 @@ public sealed class EnumIs : IValueConverter
             : Avalonia.Data.BindingOperations.DoNothing;
 }
 
+/// <summary>
+/// The icon of a button of a licensed feature: the lock when the feature is locked (LICENSE, section 3 (4)), otherwise the icon given as
+/// parameter: <c>Icon="{Binding RedactionLocked, Converter={x:Static c:LockIcon.Instance}, ConverterParameter={StaticResource Icon.Eraser}}"</c>.
+/// </summary>
+public sealed class LockIcon : IValueConverter
+{
+    public static readonly LockIcon Instance = new();
+
+    public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        value is true && Avalonia.Application.Current?.TryGetResource("Icon.LockClosed", null, out var locked) == true ? locked : parameter;
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        throw new NotSupportedException();
+}
+
 /// <summary>Maps true to semi-transparent (opacity 0.55, e.g. entries whose file is missing) and anything else to fully opaque.</summary>
 public sealed class BoolToOpacity : IValueConverter
 {

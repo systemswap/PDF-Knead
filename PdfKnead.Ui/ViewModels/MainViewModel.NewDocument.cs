@@ -19,6 +19,7 @@ public sealed partial class MainViewModel
     [RelayCommand]
     private async Task NewDocument()
     {
+        if (!EnsureAllowed("start.new")) return;
         var setup = RememberedSetup;
         string? title = null, language = null;
         if (PickPageSetup is not null)

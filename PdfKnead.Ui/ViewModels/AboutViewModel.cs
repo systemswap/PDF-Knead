@@ -19,6 +19,9 @@ public sealed partial class AboutViewModel : ObservableObject
     /// <summary>„PDF-Knead 1.1.0“ (with „beta“ in between).</summary>
     public string Title => $"PDF-Knead {AppVersion.Display}";
 
+    /// <summary>The kind of use and the state of the license (LICENSE, sections 2 and 3).</summary>
+    public string LicenseStatus => Services.Licensing.StatusText();
+
     /// <summary>The selected entry.</summary>
     [ObservableProperty]
     private LicenseTexts.Entry? _selected;

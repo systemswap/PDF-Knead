@@ -1,11 +1,12 @@
-PDF-Knead-Lizenz (Source Available), Fassung 1.0
-Entwurf vom 26.10.2026 – vor dem ersten Verkauf rechtlich zu prüfen
+PDF-Knead-Lizenz (Source Available), Fassung 2.0
+Entwurf vom 20.11.2026 – vor der Veröffentlichung und vor dem ersten Verkauf rechtlich zu prüfen
 
 Rechteinhaber: der Urheber von PDF-Knead, Inhaber des GitHub-Kontos „systemswap“, im Folgenden „Rechteinhaber“. Ändert sich der
 Name des Kontos, ist der Inhaber des Kontos unter seinem jeweiligen Namen gemeint.
 
-Der Quellcode von PDF-Knead ist einsehbar, aber PDF-Knead ist keine Open-Source-Software: Die gewerbliche Nutzung der
-kostenpflichtigen Funktionen und jede kommerzielle Weitergabe brauchen eine Lizenz des Rechteinhabers.
+Der Quellcode von PDF-Knead ist einsehbar, aber PDF-Knead ist keine Open-Source-Software. Fast alles an PDF-Knead ist für jeden
+kostenlos, für jeden Zweck. Nur acht Funktionen brauchen bei gewerblicher Nutzung eine Lizenz – und auch das erst nach einer
+kostenlosen Einführungszeit bis zum 31.12.2027; wer erst danach beginnt, kann sie drei Monate kostenlos testen.
 
 
 § 1 Begriffe
@@ -13,32 +14,60 @@ kostenpflichtigen Funktionen und jede kommerzielle Weitergabe brauchen eine Lize
 (1) „Software“: das Programm PDF-Knead in ausführbarer Form und als Quellcode samt der Dateien seines Projekts, ohne die
     Bestandteile anderer Projekte (§ 9).
 (2) „Ergebnisse“: Dateien und Ausdrucke, die mit der Software erstellt oder bearbeitet werden.
-(3) „Gewerbliche Nutzung“: jede Nutzung durch oder für Unternehmen, Selbständige und Freiberufler im Rahmen ihrer Tätigkeit,
-    Behörden und andere Stellen der öffentlichen Verwaltung sowie Vereine, die hauptberuflich Beschäftigte haben oder einen
-    Geschäftsbetrieb unterhalten – auch durch deren Angestellte, Mitglieder oder Beauftragte.
-(4) „Nicht-gewerbliche Nutzung“: die Nutzung durch Privatpersonen für private Zwecke, durch Vereine ohne hauptberuflich
-    Beschäftigte und ohne Geschäftsbetrieb, durch Schulen und Hochschulen sowie durch gemeinnützige Körperschaften.
-(5) „Freie Funktionen“: Ansehen, Suchen, Drucken, die Bildinformationen sowie das Ausfüllen bereits vorhandener Formularfelder
-    und das Speichern des ausgefüllten Formulars. Alle anderen Funktionen sind „kostenpflichtige Funktionen“; die Software
-    kennzeichnet sie.
-(6) „Kommerzielle Weitergabe“: jede Weitergabe oder Bereitstellung der Software, mit der Geld verdient wird – insbesondere
-    gegen Entgelt, als Teil eines kostenpflichtigen Produkts oder Angebots, über Download-Angebote, die sich durch Gebühren oder
-    Werbung finanzieren, oder als Dienst für andere (zum Beispiel über das Internet), für den ein Entgelt verlangt wird.
+(3) „Gewerbliche Nutzung“: jede Nutzung durch oder für Unternehmen, Selbständige und Freiberufler im Rahmen ihrer Tätigkeit sowie
+    durch Behörden und andere Stellen der öffentlichen Verwaltung – auch durch deren Angestellte oder Beauftragte. Gewerblich ist
+    auch die Nutzung durch Vereine, die nicht gemeinnützig sind und vom Verein bezahlte Vollzeitbeschäftigte haben.
+(4) „Nicht-gewerbliche Nutzung“:
+    a) die Nutzung durch Privatpersonen für private Zwecke,
+    b) die Nutzung durch Bildungseinrichtungen – Schulen, Hochschulen, Volkshochschulen und andere öffentliche oder staatlich
+       anerkannte Bildungseinrichtungen – für Lehre, Ausbildung und Forschung,
+    c) die Nutzung durch gemeinnützige Körperschaften (zum Beispiel Tierheime),
+    d) die Nutzung durch Vereine ohne vom Verein bezahlte Vollzeitbeschäftigte.
+(5) „Lizenzpflichtige Funktionen“: Schwärzen; Messen; Signieren mit Zertifikat (digitale Signatur); Umwandeln in PDF/A und
+    Speichern als PDF/A; Scannen; Erstellen von Formularen (Formularfelder anlegen und gestalten, Felder erkennen); Bearbeiten des
+    Seiteninhalts (Text, Bilder, Codes und Felder der Seite ändern); Entfernen von Einschränkungen (Rechte und Passwörter einer
+    Datei aufheben). Die Software kennzeichnet sie.
+(6) „Freie Funktionen“: alle übrigen Funktionen – insbesondere Ansehen, Suchen, Drucken, Ausfüllen von Formularen, die
+    handschriftliche Unterschrift, das Prüfen digitaler Signaturen, das Öffnen und Prüfen von PDF/A-Dateien sowie das Erstellen
+    und Prüfen von E-Rechnungen.
+(7) „Einführungszeit“: der Zeitraum bis einschließlich 31.12.2027, gegebenenfalls verlängert nach § 3 Abs. 5. „Testzeit“: drei
+    Monate ab dem Tag, an dem die Software auf einem Rechner erstmals gewerblich genutzt wird. „Kostenlose Zeit“: die
+    Einführungszeit oder, wenn sie später endet, die Testzeit.
+(8) „Kommerzielle Weitergabe“: jede Weitergabe oder Bereitstellung der Software, mit der Geld verdient wird – insbesondere gegen
+    Entgelt, als Teil eines kostenpflichtigen Produkts oder Angebots, über Download-Angebote, die sich durch Gebühren oder Werbung
+    finanzieren, oder als Dienst für andere (zum Beispiel über das Internet), für den ein Entgelt verlangt wird. Schulungen nach
+    § 5 Abs. 3 sind keine kommerzielle Weitergabe.
+(9) „Lizenzschlüssel“: der Schlüssel, den der Rechteinhaber mit einer kommerziellen Lizenz ausgibt. Er nennt unter anderem den
+    Lizenznehmer, die freigeschalteten Funktionen und das Ende des Update-Zeitraums.
 
 
 § 2 Nutzung ohne Lizenzgebühr
 
-(1) Für die nicht-gewerbliche Nutzung darf die Software mit allen Funktionen ohne Lizenzgebühr verwendet werden.
-(2) Für die gewerbliche Nutzung dürfen die freien Funktionen ohne Lizenzgebühr verwendet werden.
+(1) Für die nicht-gewerbliche Nutzung darf die Software mit allen Funktionen ohne Lizenzgebühr und ohne zeitliche Grenze verwendet
+    werden.
+(2) Für die gewerbliche Nutzung dürfen die freien Funktionen ohne Lizenzgebühr und ohne zeitliche Grenze verwendet werden.
+(3) Für die gewerbliche Nutzung dürfen auch die lizenzpflichtigen Funktionen während der kostenlosen Zeit ohne Lizenzgebühr
+    verwendet werden.
 
 
-§ 3 Gewerbliche Nutzung der kostenpflichtigen Funktionen
+§ 3 Lizenzpflichtige Funktionen bei gewerblicher Nutzung
 
-(1) Die gewerbliche Nutzung der kostenpflichtigen Funktionen erfordert eine kommerzielle Lizenz, die der Rechteinhaber in einem
-    gesonderten Vertrag erteilt. Umfang, Laufzeit und Preis ergeben sich aus diesem Vertrag.
-(2) Zum Ausprobieren dürfen die kostenpflichtigen Funktionen gewerblich 30 Tage lang ab der ersten Nutzung ohne kommerzielle
-    Lizenz verwendet werden.
-(3) Lizenzschlüssel dürfen nicht an Dritte weitergegeben werden, die nicht zum Lizenznehmer gehören.
+(1) Nach dem Ende der kostenlosen Zeit erfordert die gewerbliche Nutzung der lizenzpflichtigen Funktionen eine kommerzielle Lizenz,
+    die der Rechteinhaber in einem gesonderten Vertrag erteilt. Umfang, Update-Zeitraum und Preis ergeben sich aus diesem Vertrag.
+(2) Eine kommerzielle Lizenz gilt ohne zeitliche Grenze für alle Versionen der Software, die bis zum Ende ihres Update-Zeitraums
+    erschienen sind. Für später erschienene Versionen gilt sie nur, wenn der Update-Zeitraum verlängert wurde. Die Software weist
+    vor einer Aktualisierung darauf hin, wenn eine neue Version nicht mehr von der Lizenz gedeckt ist.
+(3) Die Software fragt beim ersten Start nach der Art der Nutzung. Die Angabe ist eine Selbstauskunft; sie muss zutreffen und ist
+    anzupassen, wenn sich die Art der Nutzung ändert. Sie bleibt auf dem Rechner und wird nicht übermittelt.
+(4) Nach dem Ende der kostenlosen Zeit sperrt die Software bei gewerblicher Nutzung die lizenzpflichtigen Funktionen, bis ein
+    passender Lizenzschlüssel eingetragen ist. Öffnen, Ansehen und Speichern bleiben immer möglich, auch für Dateien, die mit
+    lizenzpflichtigen Funktionen bearbeitet wurden. Die Sperre ist eine Hilfe, die Lizenz einzuhalten, kein Kopierschutz;
+    maßgeblich ist diese Lizenz.
+(5) Der Rechteinhaber kann die Einführungszeit verlängern oder lizenzpflichtige Funktionen dauerhaft freigeben, durch Bekanntgabe
+    auf der Projektseite oder über die Software. Eine Verkürzung ist ausgeschlossen.
+(6) Ein Lizenzschlüssel darf nur vom Lizenznehmer und im vereinbarten Umfang verwendet und nicht an Dritte weitergegeben werden.
+(7) Lizenzanfragen richten sich an den Rechteinhaber über die Projektseite auf GitHub (https://github.com/systemswap/PDF-Knead).
+(8) Eine freiwillige Unterstützung (zum Beispiel über Ko-fi) ist willkommen, ersetzt aber keine kommerzielle Lizenz.
 
 
 § 4 Ergebnisse
@@ -51,21 +80,32 @@ Dritter an den verarbeiteten Inhalten bleiben unberührt.
 
 (1) Die unveränderte Software darf weitergegeben werden, wenn damit kein Geld verdient wird. Sie ist vollständig weiterzugeben,
     zusammen mit dieser Lizenz, der Datei THIRD-PARTY-NOTICES.md und den Lizenztexten der Bestandteile anderer Projekte.
-(2) Jede kommerzielle Weitergabe ist nicht erlaubt. Der Rechteinhaber behält sich den Vertrieb der Software vor.
+(2) Jede kommerzielle Weitergabe ist nicht erlaubt; insbesondere darf die Software nicht als eigenes Programm verkauft werden. Der
+    Rechteinhaber behält sich den Vertrieb der Software vor.
+(3) Schulungen zur Software dürfen angeboten werden, auch gegen Entgelt. Die Teilnehmer erhalten die Software kostenlos oder laden
+    sie selbst herunter; ein Entgelt für die Software selbst darf nicht verlangt werden. Für die eigene Nutzung der Software durch
+    den Schulungsanbieter gelten §§ 2 und 3.
 
 
 § 6 Änderungen
 
-(1) Die Software darf für den eigenen Gebrauch verändert werden.
-(2) Veränderte Fassungen der Software dürfen nicht weitergegeben oder anderen zugänglich gemacht werden.
-(3) Die Lizenzprüfung, die Registrierung, die Kennzeichnung der kostenpflichtigen Funktionen sowie Lizenz- und Urheberhinweise
-    dürfen weder entfernt noch verändert oder umgangen werden – auch nicht in einer Fassung für den eigenen Gebrauch.
+(1) Die Software darf für den eigenen Gebrauch verändert werden. Die Pflichten aus § 3 gelten auch für veränderte Fassungen.
+(2) Veränderte Fassungen dürfen weitergegeben werden, wenn
+    a) damit kein Geld verdient wird,
+    b) der vollständige Quellcode der veränderten Fassung mitgegeben oder unentgeltlich zugänglich gemacht wird,
+    c) die Änderungen mit Datum gekennzeichnet sind,
+    d) die veränderte Fassung unter dieser Lizenz in derselben Fassung weitergegeben wird und
+    e) sie den Hinweis „beruht auf PDF-Knead“ mit einem Verweis auf die Projektseite trägt und den Namen nach § 8 nicht als eigenen
+       Produktnamen verwendet.
+(3) In weitergegebenen Fassungen dürfen die Abfrage der Art der Nutzung, die Kennzeichnung und Sperre der lizenzpflichtigen
+    Funktionen, die Prüfung des Lizenzschlüssels sowie Lizenz- und Urheberhinweise weder entfernt noch verändert oder umgangen
+    werden.
 
 
 § 7 Übernahme von Code-Teilen
 
-(1) Einzelne Teile des Quellcodes dürfen in eigene private, nicht-kommerzielle Projekte übernommen werden. Nicht erlaubt ist die
-    Übernahme der Software als Ganzes oder wesentlicher Teile davon.
+(1) Einzelne Teile des Quellcodes dürfen in eigene, nicht-kommerzielle Projekte übernommen werden. Nicht erlaubt ist die Übernahme
+    der Software als Ganzes oder wesentlicher Teile davon; dafür gilt § 6.
 (2) Solche Projekte dürfen veröffentlicht werden, solange damit kein Geld verdient wird.
 (3) Bei jeder Übernahme ist PDF-Knead als Quelle zu nennen, mit einem Hinweis auf diese Lizenz. Die übernommenen Teile bleiben
     unter dieser Lizenz.
@@ -75,7 +115,7 @@ Dritter an den verarbeiteten Inhalten bleiben unberührt.
 
 Der Name „PDF-Knead“ darf nicht für andere Produkte, für veränderte Fassungen oder für übernommene Teile verwendet werden, und
 nicht so, dass der Eindruck entsteht, der Rechteinhaber stehe hinter einem anderen Angebot. Die sachliche Nennung, etwa als Quelle
-nach § 7, bleibt erlaubt.
+nach § 6 Abs. 2 e) und § 7, bleibt erlaubt.
 
 
 § 9 Bestandteile anderer Projekte
@@ -87,9 +127,8 @@ Bestandteilen nicht ein.
 
 § 10 Beiträge
 
-Beiträge zur Software (zum Beispiel Code, Übersetzungen, Grafiken) übernimmt der Rechteinhaber nur, wenn ihm der Beitragende
-zuvor die ausschließlichen, zeitlich und räumlich unbeschränkten Nutzungsrechte daran einräumt, einschließlich des Rechts, sie
-weiter zu lizenzieren und mit der Software zu verkaufen.
+Der Rechteinhaber nimmt derzeit keine Beiträge zum Code an. Fehlermeldungen und Vorschläge sind willkommen; aus ihnen entstehen
+keine Rechte an der Software.
 
 
 § 11 Verstöße
@@ -111,7 +150,10 @@ weiter zu lizenzieren und mit der Software zu verkaufen.
       weitergibt. Es wird nicht zugesagt, dass jede Art verborgener Inhalte erkannt wird.
     - Digitale Unterschriften: Sie sind keine qualifizierten elektronischen Signaturen. Für ihre rechtliche Wirksamkeit im
       Einzelfall wird keine Zusage gegeben.
-    - Komprimieren und Umwandeln: Dabei kann Qualität verloren gehen; das Original ist aufzubewahren.
+    - Messen: Messwerte hängen vom Maßstab und von der Genauigkeit des Dokuments ab; der Anwender prüft sie, bevor er sie verwendet.
+    - Umwandeln in PDF/A: Die Software prüft das Ergebnis nach den angezeigten Regeln. Es wird nicht zugesagt, dass jede Stelle,
+      die PDF/A verlangt, das Ergebnis annimmt.
+    - Komprimieren, Umwandeln und Scannen: Dabei kann Qualität verloren gehen; das Original ist aufzubewahren.
     - E-Rechnung prüfen: Die Prüfung ist eine Hilfe. Sie trifft keine Aussage über die steuerliche oder rechtliche Gültigkeit einer
       Rechnung; ihre Regeln entsprechen dem angezeigten Stand. Der Anwender prüft die Rechnung selbst.
 (4) Für Inhaber einer kommerziellen Lizenz gelten Haftung und Gewährleistung nach deren Vertrag.
@@ -119,8 +161,9 @@ weiter zu lizenzieren und mit der Software zu verkaufen.
 
 § 13 Spätere Fassungen
 
-Neue Versionen der Software können unter einer geänderten Lizenz erscheinen. Für eine bereits erhaltene Version gilt weiter die
-Lizenz, mit der sie erhalten wurde.
+(1) Neue Versionen der Software können unter einer geänderten Lizenz erscheinen. Für eine bereits erhaltene Version gilt weiter
+    die Lizenz, mit der sie erhalten wurde.
+(2) Für Versionen, die unter Fassung 1.0 dieser Lizenz erhalten wurden, darf stattdessen auch diese Fassung angewendet werden.
 
 
 § 14 Schlussbestimmungen
@@ -137,15 +180,16 @@ SPDX-License-Identifier: LicenseRef-PDF-Knead
 
 ===============================================================================================================================
 
-PDF-Knead License (Source Available), Version 1.0
-Draft of 26 October 2026 – to be reviewed legally before the first sale
+PDF-Knead License (Source Available), Version 2.0
+Draft of 20 November 2026 – to be reviewed legally before publication and before the first sale
 English translation for information; the German version above is binding.
 
 Licensor: the author of PDF-Knead, owner of the GitHub account “systemswap”, hereinafter “Licensor”. If the account is renamed, this
 means its owner under the current name.
 
-The source code of PDF-Knead is available to read, but PDF-Knead is not open-source software: commercial use of the paid features
-and any commercial distribution require a license from the Licensor.
+The source code of PDF-Knead is available to read, but PDF-Knead is not open-source software. Almost everything in PDF-Knead is free
+for everyone, for any purpose. Only eight features require a license for commercial use – and only after a free introductory period
+until 31 December 2027; whoever starts later can try them free of charge for three months.
 
 
 1 Definitions
@@ -153,30 +197,55 @@ and any commercial distribution require a license from the Licensor.
 (1) “Software”: the program PDF-Knead in executable form and as source code together with the files of its project, without the
     components of other projects (section 9).
 (2) “Results”: files and printouts created or edited with the Software.
-(3) “Commercial use”: any use by or for companies, self-employed persons and freelancers in the course of their work, authorities
-    and other public administration bodies, and associations that have full-time employees or run a business – including use by
-    their employees, members or agents.
-(4) “Non-commercial use”: use by private individuals for private purposes, by associations without full-time employees and without
-    a business, by schools and universities, and by non-profit organizations.
-(5) “Free features”: viewing, searching, printing, the image information, and filling in existing form fields and saving the
-    filled-in form. All other features are “paid features”; the Software marks them.
-(6) “Commercial distribution”: any distribution or provision of the Software that earns money – in particular against payment, as
+(3) “Commercial use”: any use by or for companies, self-employed persons and freelancers in the course of their work, and by
+    authorities and other public administration bodies – including use by their employees or agents. Use by associations that are
+    not non-profit and have full-time employees paid by the association is also commercial.
+(4) “Non-commercial use”:
+    a) use by private individuals for private purposes,
+    b) use by educational institutions – schools, universities, adult education centres and other public or state-recognized
+       educational institutions – for teaching, training and research,
+    c) use by non-profit organizations (for example animal shelters),
+    d) use by associations without full-time employees paid by the association.
+(5) “Licensed features”: redaction; measuring; signing with a certificate (digital signature); converting to PDF/A and saving as
+    PDF/A; scanning; creating forms (adding and designing form fields, recognizing fields); editing the page content (changing text,
+    pictures, codes and fields of the page); removing restrictions (lifting the permissions and passwords of a file). The Software
+    marks them.
+(6) “Free features”: all other features – in particular viewing, searching, printing, filling in forms, the handwritten signature,
+    verifying digital signatures, opening and checking PDF/A files, and creating and checking e-invoices.
+(7) “Introductory period”: the period up to and including 31 December 2027, extended where applicable under section 3 (5).
+    “Trial”: three months from the day the Software is first used commercially on a computer. “Free period”: the introductory
+    period or, if it ends later, the trial.
+(8) “Commercial distribution”: any distribution or provision of the Software that earns money – in particular against payment, as
     part of a paid product or offer, through download offers financed by fees or advertising, or as a service for others (for
-    example over the internet) for which payment is charged.
+    example over the internet) for which payment is charged. Training courses under section 5 (3) are not commercial distribution.
+(9) “License key”: the key the Licensor issues with a commercial license. Among other things it names the licensee, the unlocked
+    features and the end of the update period.
 
 
 2 Use without a license fee
 
-(1) For non-commercial use, the Software may be used with all features without a license fee.
-(2) For commercial use, the free features may be used without a license fee.
+(1) For non-commercial use, the Software may be used with all features without a license fee and without a time limit.
+(2) For commercial use, the free features may be used without a license fee and without a time limit.
+(3) For commercial use, the licensed features may also be used without a license fee during the free period.
 
 
-3 Commercial use of the paid features
+3 Licensed features in commercial use
 
-(1) Commercial use of the paid features requires a commercial license, granted by the Licensor in a separate contract. Scope, term
-    and price follow from that contract.
-(2) For evaluation, the paid features may be used commercially for 30 days from first use without a commercial license.
-(3) License keys must not be passed on to third parties outside the licensee.
+(1) After the end of the free period, commercial use of the licensed features requires a commercial license, granted by the
+    Licensor in a separate contract. Scope, update period and price follow from that contract.
+(2) A commercial license applies without a time limit to all versions of the Software released up to the end of its update period.
+    It applies to versions released later only if the update period has been extended. Before an update, the Software points out
+    when a new version is no longer covered by the license.
+(3) At first start, the Software asks for the kind of use. The answer is a self-declaration; it must be correct and must be updated
+    when the kind of use changes. It stays on the computer and is not transmitted.
+(4) After the end of the free period, the Software locks the licensed features in commercial use until a matching license
+    key is entered. Opening, viewing and saving always remain possible, including for files edited with licensed features. The lock
+    is an aid to complying with the license, not copy protection; this license is authoritative.
+(5) The Licensor may extend the introductory period or release licensed features permanently, by announcement on the project page
+    or through the Software. Shortening it is excluded.
+(6) A license key may only be used by the licensee and within the agreed scope, and must not be passed on to third parties.
+(7) License inquiries go to the Licensor through the project page on GitHub (https://github.com/systemswap/PDF-Knead).
+(8) Voluntary support (for example through Ko-fi) is welcome but does not replace a commercial license.
 
 
 4 Results
@@ -189,21 +258,31 @@ processed content remain unaffected.
 
 (1) The unmodified Software may be distributed as long as no money is earned with it. It must be distributed complete, together
     with this license, the file THIRD-PARTY-NOTICES.md and the license texts of the components of other projects.
-(2) Any commercial distribution is not permitted. The Licensor reserves the distribution of the Software.
+(2) Any commercial distribution is not permitted; in particular, the Software must not be sold as one's own program. The Licensor
+    reserves the distribution of the Software.
+(3) Training courses on the Software may be offered, also against payment. Participants receive the Software free of charge or
+    download it themselves; no payment may be charged for the Software itself. The trainer's own use of the Software is subject to
+    sections 2 and 3.
 
 
 6 Modifications
 
-(1) The Software may be modified for one's own use.
-(2) Modified versions of the Software must not be distributed or made available to others.
-(3) The license check, the registration, the marking of the paid features, and license and copyright notices must not be removed,
-    altered or circumvented – not even in a version for one's own use.
+(1) The Software may be modified for one's own use. The obligations under section 3 also apply to modified versions.
+(2) Modified versions may be distributed if
+    a) no money is earned with them,
+    b) the complete source code of the modified version is supplied or made available free of charge,
+    c) the changes are marked with their date,
+    d) the modified version is distributed under this license in the same version, and
+    e) it carries the notice “based on PDF-Knead” with a reference to the project page and does not use the name under section 8
+       as its own product name.
+(3) In distributed versions, the question about the kind of use, the marking and locking of the licensed features, the check of the
+    license key, and license and copyright notices must not be removed, altered or circumvented.
 
 
 7 Use of parts of the code
 
-(1) Individual parts of the source code may be used in one's own private, non-commercial projects. Using the Software as a whole or
-    substantial parts of it is not permitted.
+(1) Individual parts of the source code may be used in one's own non-commercial projects. Using the Software as a whole or
+    substantial parts of it is not permitted; section 6 applies to that.
 (2) Such projects may be published as long as no money is earned with them.
 (3) Every such use must name PDF-Knead as the source, with a reference to this license. The parts taken over remain under this
     license.
@@ -212,7 +291,8 @@ processed content remain unaffected.
 8 Name
 
 The name “PDF-Knead” must not be used for other products, for modified versions or for parts taken over, nor in a way that suggests
-the Licensor is behind another offer. Mentioning it factually, for example as the source under section 7, remains permitted.
+the Licensor is behind another offer. Mentioning it factually, for example as the source under section 6 (2) e) and section 7,
+remains permitted.
 
 
 9 Components of other projects
@@ -224,9 +304,8 @@ components.
 
 10 Contributions
 
-The Licensor accepts contributions to the Software (for example code, translations, graphics) only if the contributor first grants
-the Licensor the exclusive rights of use in them, unlimited in time and territory, including the right to sublicense them and to
-sell them with the Software.
+The Licensor currently does not accept contributions to the code. Bug reports and suggestions are welcome; they do not create any
+rights in the Software.
 
 
 11 Violations
@@ -245,7 +324,10 @@ sell them with the Software.
     - Redaction and cleanup: the user checks whether confidential content has actually been removed before passing on a file. It
       is not promised that every kind of hidden content is detected.
     - Digital signatures: they are not qualified electronic signatures. No promise is made about their legal effect in a given case.
-    - Compression and conversion: quality may be lost; keep the original.
+    - Measuring: measured values depend on the scale and accuracy of the document; the user checks them before using them.
+    - Converting to PDF/A: the Software checks the result against the rules shown. It is not promised that every body requiring
+      PDF/A accepts the result.
+    - Compression, conversion and scanning: quality may be lost; keep the original.
     - E-invoice check: the check is an aid. It makes no statement about the tax or legal validity of an invoice; its rules reflect
       the state shown. The user checks the invoice himself.
 (4) For holders of a commercial license, liability and warranty follow their contract.
@@ -253,8 +335,9 @@ sell them with the Software.
 
 13 Later versions
 
-New versions of the Software may be released under a changed license. A version already received remains under the license with
-which it was received.
+(1) New versions of the Software may be released under a changed license. A version already received remains under the license
+    with which it was received.
+(2) For versions received under version 1.0 of this license, this version may be applied instead.
 
 
 14 Final provisions

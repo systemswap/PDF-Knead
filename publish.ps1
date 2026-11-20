@@ -6,6 +6,7 @@
     Erstellt die fertigen Programme in published\:
 
         published\windows-x64\PDF-Knead.exe    Programm (AOT: daneben Skia, HarfBuzz, ANGLE als .dll)
+        daneben jeweils der FunktionManager (PDF-Knead-FunktionManager[.exe]): die Funktionsdatei fuer Admins, eine Datei
         published\linux-x64\PDF-Knead          Linux-Programm als eine Datei (ohne AppImage - die baut nur publish.sh unter Linux)
         published\PDF-Knead-<Version>-windows-x64.zip (aeltere Pakete werden ersetzt)
 
@@ -151,9 +152,9 @@ Write-Host "Ziel: $Target, Bauart: $Bauart"
 if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) { throw 'Fehler: .NET SDK fehlt.' }
 # Nicht, solange das Programm aus published\ laeuft.
 function Assert-NotRunning {
-    $running = Get-Process PDF-Knead -ErrorAction SilentlyContinue |
+    $running = Get-Process PDF-Knead, PDF-Knead-FunktionManager -ErrorAction SilentlyContinue |
         Where-Object { $_.Path -and $_.Path.StartsWith($outDir, [StringComparison]::OrdinalIgnoreCase) }
-    if ($running) { throw "Fehler: PDF-Knead laeuft gerade (aus published\) - bitte erst beenden, dann neu bauen." }
+    if ($running) { throw "Fehler: PDF-Knead oder der FunktionManager laeuft gerade (aus published\) - bitte erst beenden, dann neu bauen." }
 }
 Assert-NotRunning
 
@@ -291,8 +292,9 @@ function Copy-Models([string]$dest) {
 }
 
 # Was das Programm neben sich schreibt; bleibt bei jedem Bau stehen (Schriften-Unterschrift: siehe Copy-SignatureFonts). Der Ordner ocr
-# gehoert seit 13.11.2026 zum Paket (Copy-Models) und wird bei jedem Bau neu geschrieben.
-$userFiles = @('languages', 'PDF-Knead.log', 'PDF-Knead.log.alt', 'Schriften-Unterschrift')
+# gehoert seit 13.11.2026 zum Paket (Copy-Models) und wird bei jedem Bau neu geschrieben. Dazu die Dateien der IT neben dem Programm:
+# die Funktionsdatei (berechtigungen.json) und updates-aus - sie bleiben stehen und kommen nie ins Paket.
+$userFiles = @('languages', 'PDF-Knead.log', 'PDF-Knead.log.alt', 'Schriften-Unterschrift', 'berechtigungen.json', 'updates-aus')
 
 function Clear-ProgramFolder([string]$dest) {
     New-Item -ItemType Directory -Force -Path $dest | Out-Null
@@ -323,6 +325,20 @@ function Publish-Runtime([string]$rid, [string]$dest) {
 }
 
 function Publish-Aot([string]$rid, [string]$dest) { Invoke-Publish $rid $dest @('-p:PublishAot=true') }
+
+# Der FunktionManager (Funktionsdatei fuer Admins, KONZEPT 5.27) liegt in jedem Paket neben dem Programm: eine Datei mit .NET und Avalonia.
+function Publish-FunktionManager([string]$rid, [string]$dest) {
+    $out = Join-Path $workDir "funktionmanager-$rid"
+    $log = Join-Path $workDir "funktionmanager-$rid-$stamp.log"
+    $code = Invoke-Logged $log @('publish', (Join-Path $root 'FunktionManager\FunktionManager.csproj'), '-c', 'Release', '-r', $rid, '-o', $out)
+    if ($code -ne 0) {
+        Get-Content $log -Tail 20 | Write-Host
+        throw "Fehler: FunktionManager fuer $rid fehlgeschlagen."
+    }
+    $name = if ($rid -like 'win-*') { 'PDF-Knead-FunktionManager.exe' } else { 'PDF-Knead-FunktionManager' }
+    Copy-Item (Join-Path $out $name) $dest -Force
+    Write-Host "   FunktionManager: $name"
+}
 
 # Native AOT nur fuer das eigene System; braucht den C++-Linker der Visual Studio Build Tools (sucht vswhere.exe im Pfad).
 function Test-AotPossible {
@@ -382,6 +398,7 @@ if ($Target -in @('all', 'linux')) {
     Copy-CjkFonts $linuxDir
     Copy-SignatureFonts $linuxDir
     Copy-Models $linuxDir
+    Publish-FunktionManager 'linux-x64' $linuxDir
 
     $share = Join-Path $linuxDir 'share'
     New-Item -ItemType Directory -Force -Path "$share\icons\hicolor\256x256\apps", "$share\applications" | Out-Null
@@ -417,6 +434,7 @@ if ($Target -in @('all', 'windows')) {
     Copy-SignatureFonts $windowsDir
     Copy-Models $windowsDir
     Copy-Item (Join-Path $root 'packaging\windows\einrichten.ps1') $windowsDir -Force
+    Publish-FunktionManager 'win-x64' $windowsDir
     New-Package 'windows-x64' "PDF-Knead-$version-windows-x64.zip"
 }
 

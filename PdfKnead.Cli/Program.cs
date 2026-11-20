@@ -98,7 +98,8 @@ if (args.Length < 2)
     Console.WriteLine("  pdf-knead herkunft <datei> [--passwort <p>]");
     Console.WriteLine("  pdf-knead signaturen <datei|ordner> [--passwort <p>] [--bericht text|html]");
     Console.WriteLine("  pdf-knead release-schluessel <ordner>   (einmalig: Schlüsselpaar für die Updates)");
-    Console.WriteLine("  pdf-knead release-signieren <paketordner> --schluessel <geheim.pem> [--hinweise <datei>]");
+    Console.WriteLine("  pdf-knead release-signieren <paketordner> --schluessel <geheim.pem> [--hinweise <datei>] [--einfuehrung-bis <yyyy-MM-dd>]");
+    Console.WriteLine("  pdf-knead release-pruefen <ordner>             version.json, Signatur und Pakete prüfen wie die Update-Prüfung");
     Console.WriteLine("  pdf-knead signiertest <datei|ordner> [--ablegen <ordner>] [--dateien <n>]");
     return 2;
 }
@@ -290,10 +291,11 @@ if (command is "lecksuche")
     return PdfKnead.Cli.LeakSearch.Run(file, words, leakPassword);
 }
 if (command is "release-schluessel") return PdfKnead.Cli.ReleaseTools.CreateKey(file);
+if (command is "release-pruefen") return PdfKnead.Cli.ReleaseTools.Verify(file);
 if (command is "release-signieren")
 {
     string? ReleaseArg(string name) => Array.IndexOf(args, name) is var k and >= 0 && k + 1 < args.Length ? args[k + 1] : null;
-    return PdfKnead.Cli.ReleaseTools.Sign(file, ReleaseArg("--schluessel"), ReleaseArg("--hinweise"));
+    return PdfKnead.Cli.ReleaseTools.Sign(file, ReleaseArg("--schluessel"), ReleaseArg("--hinweise"), ReleaseArg("--einfuehrung-bis"));
 }
 if (command is "signiertest")
 {

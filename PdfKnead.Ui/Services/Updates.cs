@@ -36,6 +36,9 @@ public sealed partial class Updates : ObservableObject
     /// <summary>The one of this run.</summary>
     public static Updates Instance { get; } = new();
 
+    /// <summary>Whether the last check reached a signed version file.</summary>
+    public bool LastCheckReached { get; private set; }
+
     private readonly UpdateClient _client;
     private readonly UpdateInstaller _installer;
     private readonly string? _publicKey;
@@ -122,6 +125,9 @@ public sealed partial class Updates : ObservableObject
         State = UpdateState.Checking;
         if (onRequest) Message = Tr.T("Suche nach Updates …");
         var result = await _client.CheckAsync(current, UpdateManifest.ThisPlatform, _publicKey);
+        LastCheckReached = result.Outcome is UpdateCheckOutcome.Current or UpdateCheckOutcome.Available;
+        // a later end of the introductory period announced in the signed version file (LICENSE, section 3 (5)), also without a new version
+        if (LastCheckReached) Licensing.TakeIntroduction(result.Manifest?.IntroductionUntil);
         Found = result.Manifest is { } m && result.Outcome == UpdateCheckOutcome.Available ? m : null;
         OnPropertyChanged(nameof(Notes));
         _dismissed = false;
@@ -138,6 +144,9 @@ public sealed partial class Updates : ObservableObject
                 State = writable ? UpdateState.Available : UpdateState.ManualOnly;
                 Message = writable ? Tr.T("PDF-Knead {0} ist verfügbar.", result.Manifest!.Version)
                     : Tr.T("PDF-Knead {0} ist verfügbar. Der Programmordner lässt sich nicht beschreiben — bitte von der Download-Seite installieren.", result.Manifest!.Version);
+                // warned before, never refused: the version installed now keeps working with the key (LICENSE, section 3 (2))
+                if (Licensing.UpdateNotCovered(result.Manifest!))
+                    Message += " " + Tr.T("Achtung: Diese Version ist nicht mehr von Ihrem Lizenzschlüssel gedeckt — {0} wären darin nach der kostenlosen Zeit gesperrt. Ihre jetzige Version bleibt mit dem Schlüssel voll nutzbar.", Licensing.LicensedList());
                 break;
             case UpdateCheckOutcome.Current:
                 State = before == UpdateState.Ready ? UpdateState.Ready : UpdateState.Idle;
