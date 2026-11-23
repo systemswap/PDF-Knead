@@ -18,19 +18,22 @@ namespace PdfKnead.Core.Pdf.Filters.Jpeg;
 /// </remarks>
 internal static class JpegColor
 {
-    // YCbCr → RGB (TN 5116, 13.2; T.871, 7): 16 fractional bits, rounded
+    // YCbCr → RGB (TN 5116, 13.2; T.871, 7): 16 fractional bits, rounded. One set of constants for the tables and the vector path — they
+    // had drifted apart (FG 1010: 22 553 here, 22 554 there for the Cb part of G); these are the values of libjpeg-turbo (FIX(1.40200),
+    // FIX(1.77200), FIX(0.34414), FIX(0.71414)) and lie within one step of the exact relations of T.871, clause 7, for every input
+    // (JpegDecoderTests.YccToRgb_TheRelationsOfT871Clause7).
+    private const int KR = 91881, KB = 116130, KGb = 22554, KGr = 46802;
     private static readonly int[] CrR = new int[256], CbB = new int[256], CrG = new int[256], CbG = new int[256];
 
     static JpegColor()
     {
-        static int Fix(double v) => (int)Math.Round(v * 65536);
         for (var i = 0; i < 256; i++)
         {
             var x = i - 128;
-            CrR[i] = (Fix(1.4020) * x + 32768) >> 16;
-            CbB[i] = (Fix(1.772) * x + 32768) >> 16;
-            CrG[i] = -Fix(0.71413636) * x;
-            CbG[i] = -Fix(0.3441363) * x + 32768;
+            CrR[i] = (KR * x + 32768) >> 16;
+            CbB[i] = (KB * x + 32768) >> 16;
+            CrG[i] = -KGr * x;
+            CbG[i] = -KGb * x + 32768;
         }
     }
 
@@ -175,7 +178,7 @@ internal static class JpegColor
     {
         var c128 = Vector256.Create(128);
         var half = Vector256.Create(32768);
-        Vector256<int> kR = Vector256.Create(91881), kB = Vector256.Create(116130), kGb = Vector256.Create(-22554), kGr = Vector256.Create(-46802);
+        Vector256<int> kR = Vector256.Create(KR), kB = Vector256.Create(KB), kGb = Vector256.Create(-KGb), kGr = Vector256.Create(-KGr);
         byte* tmp = stackalloc byte[32];
         var x = 0;
         for (; x + 8 <= width; x += 8, o += 24)
@@ -312,9 +315,23 @@ internal static class JpegColor
         int Last(int r) => Math.Clamp(r, 0, p.Height - 1);
         if (!integral)
         {
-            // ratios like 3 : 2 (allowed by T.81, A.1.1): the nearest sample
-            var r = Last((int)((long)y * p.V / vMax));
-            for (var x = 0; x < width; x++) row[x] = data[r * p.Stride + Math.Min(p.Width - 1, (int)((long)x * p.H / hMax))];
+            // ratios like 4 : 3 (allowed by T.81, A.1.1): the nearest sample, the samples centred as T.871, clause 9 places them — sample k
+            // of a component with factor H lies at (k + 0.5) × Hmax / H − 0.5 of the full grid, the nearest to x is ⌊(2x + 1) × H / (2 Hmax)⌋
+            // (FG 1012: before ⌊x × H / Hmax⌋, the sample to the left). A pixel halfway between two samples (3 : 2) as Adobe TN 5116, table 2:
+            // vertically the upper sample, horizontally the mean of both — so 3 : 2 and 4 : 3 give exactly that table (decided by the user on
+            // 22.11.2026; the integral ratios stay centred as libjpeg-turbo and the reference readers draw them)
+            long vk = (2L * y + 1) * p.V, vd = 2L * vMax;
+            var r = Last((int)(vk / vd) - (vk % vd == 0 && vk > 0 ? 1 : 0));
+            var line = r * p.Stride;
+            long hd = 2L * hMax;
+            for (var x = 0; x < width; x++)
+            {
+                var hk = (2L * x + 1) * p.H;
+                var k = Math.Min(p.Width - 1, (int)(hk / hd));
+                row[x] = hk % hd == 0 && hk / hd <= p.Width - 1 && k > 0
+                    ? (byte)((data[line + k - 1] + data[line + k] + 1) >> 1)
+                    : data[line + k];
+            }
             return;
         }
         if (hf == 1 && vf == 1)

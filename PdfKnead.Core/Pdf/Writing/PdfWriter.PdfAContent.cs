@@ -61,8 +61,10 @@ public static partial class PdfWriter
                 }
             }
             if (!badBits && jpxFaults.Count == 0) return null;
+            // (the opacity channel /SMaskInData announces for a bare codestream named in the wrapper, as when saving: No. 996)
             if (!badBits && StreamFilters.Chain(image) is [("JPXDecode", _)] && source.Doc.GetRawStreamData(stream).ToArray() is var raw &&
-                PdfAJpeg2000.Wrap(raw) is { } wrapped && PdfAJpeg2000.Faults(wrapped, image.ContainsKey(PdfName.Get("ColorSpace"))).Count == 0)
+                ImageDataConformance.BareOpacity(image, raw, source.Doc) is >= 0 and var opacity &&
+                PdfAJpeg2000.Wrap(raw, opacity) is { } wrapped && PdfAJpeg2000.Faults(wrapped, image.ContainsKey(PdfName.Get("ColorSpace"))).Count == 0)
                 return (Clone(dict), wrapped, false);
             return DisplayedImage(stream, source, dict);
         }
@@ -323,19 +325,22 @@ public static partial class PdfWriter
                 _ => null,
             };
             if (parts is null) return null;
-            var all = new MemoryStream();
+            // bounded together as one stream (docs/FEHLERGEDAECHTNIS.md, No. 1002), counted while joined (No. 1003)
+            var all = new ContentJoiner(parts.Count);
             var missing = new HashSet<(string Category, PdfName Name)>();
             for (var i = 0; i < parts.Count && i < 10_000; i++)
             {
                 if (parts.Get(i) is not PdfStream part) continue;
+                byte[] decoded;
                 try
                 {
-                    all.Write(source.Doc.DecodeStream(part).Data);
+                    decoded = source.Doc.DecodeStream(part).Data;
                 }
                 catch (PdfException)
                 {
+                    decoded = [];
                 }
-                all.WriteByte((byte)'\n');
+                all.Add(decoded);
                 if (_pdfA!.Usage.Missing.GetValueOrDefault(part) is { } names) missing.UnionWith(names);
             }
             var nests = new List<(PdfName, byte[])>();

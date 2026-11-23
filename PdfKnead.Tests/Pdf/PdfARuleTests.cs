@@ -8,7 +8,7 @@ namespace PdfKnead.Tests.Pdf;
 /// The catalogue of PDF/A rules (KONZEPT.md, section 5.21, „Umbau vom Regelwerk her“): complete against the machine-readable rule list of the
 /// reference validator, and every rule in the table docs/PDFA-REGELN.md.
 /// </summary>
-public sealed class PdfARuleTests
+public sealed partial class PdfARuleTests
 {
     /// <summary>Every rule of the catalogue with its name.</summary>
     internal static IReadOnlyList<(string Name, PdfARule Rule)> Catalogue { get; } = typeof(PdfARules)
@@ -121,6 +121,21 @@ public sealed class PdfARuleTests
         foreach (var (name, cases) in PdfARuleCases.All)
             for (var i = 0; i < cases.Length; i++) data.Add(name, i);
         return data;
+    }
+
+    /// <summary>
+    /// ISO 32000-2, F.3.3 (ISO 32000-1, F.2.2): the linearization dictionary lies wholly within the first 1 024 bytes — the file of the case
+    /// „FileIdLinearized“ with a comment of 1 100 bytes before it is not linearized, so the /ID of the first page's trailer is not compared with
+    /// the last one. Before a dictionary further on still counted (M3, Annex F, 23.11.2026). Without the comment the rule is found.
+    /// </summary>
+    [Fact]
+    public void LinearizationDictionaryBeyond1024Bytes_NotReadAsLinearized()
+    {
+        var id = Catalogue.Single(c => c.Name == "FileIdLinearized").Rule.Id(PdfAConformance.A1b);
+        using (var near = Core.Pdf.Document.PdfDocument.Open(PdfARuleCases.LinearizedAfter("")))
+            Assert.Contains(PdfACheck.Check(near, PdfAConformance.A1b), v => v.Id == id);
+        using var far = Core.Pdf.Document.PdfDocument.Open(PdfARuleCases.LinearizedAfter("%" + new string('x', 1100) + "\n"));
+        Assert.DoesNotContain(PdfACheck.Check(far, PdfAConformance.A1b), v => v.Id == id);
     }
 
     /// <summary>

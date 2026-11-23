@@ -220,8 +220,10 @@ public static partial class AccessibilityCheck
                 PdfArray list => Enumerable.Range(0, Math.Min(list.Count, 256)).Select(list.Get).OfType<PdfDictionary>(),
                 _ => [],
             };
+            // an attribute object without the key reads it as the null object: the search goes on to the next (before, it ended at the first;
+            // docs/FEHLERGEDAECHTNIS.md, No. 1004)
             foreach (var attributes in objects)
-                if ((owner is null || attributes.GetName(OKey)?.Value == owner) && attributes.Get(PdfName.Get(key)) is { } value)
+                if ((owner is null || attributes.GetName(OKey)?.Value == owner) && attributes.Get(PdfName.Get(key)) is { } value and not PdfNull)
                     return value;
             return null;
         }

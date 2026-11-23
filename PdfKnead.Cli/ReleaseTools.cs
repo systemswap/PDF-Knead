@@ -36,22 +36,15 @@ internal static class ReleaseTools
     private static readonly Regex PackageName = new(@"^PDF-Knead-(?<version>[0-9][0-9A-Za-z.\-]*)-(?<platform>(windows|linux|macos)-(x64|arm64))\.(zip|tar\.gz)$");
 
     /// <summary>
-    /// <c>pdf-knead release-signieren &lt;paketordner&gt; --schluessel &lt;geheim.pem&gt; [--hinweise &lt;datei&gt;] [--einfuehrung-bis &lt;yyyy-MM-dd&gt;]</c>: writes
-    /// <c>version.json</c> and <c>version.json.sig</c> for the packages in the folder (PDF-Knead-&lt;version&gt;-&lt;plattform&gt;.zip/.tar.gz, all of one
-    /// version), checks the signature with the public key of the program, and says what to upload where. <c>--einfuehrung-bis</c> announces a
-    /// later end of the free introductory period for the licensed features (LICENSE, section 3 (5)); the programs take it over at their next
-    /// check, also versions already installed. Without it, the version file says nothing about it, and the programs keep what they know.
+    /// <c>pdf-knead release-signieren &lt;paketordner&gt; --schluessel &lt;geheim.pem&gt; [--hinweise &lt;datei&gt;]</c>: writes <c>version.json</c> and
+    /// <c>version.json.sig</c> for the packages in the folder (PDF-Knead-&lt;version&gt;-&lt;plattform&gt;.zip/.tar.gz, all of one version), checks the
+    /// signature with the public key of the program, and says what to upload where.
     /// </summary>
-    public static int Sign(string folder, string? keyFile, string? notesFile, string? introductionUntil = null)
+    public static int Sign(string folder, string? keyFile, string? notesFile)
     {
-        if (introductionUntil is not null && (!DateOnly.TryParseExact(introductionUntil, "yyyy-MM-dd", out var end) || end <= PdfKnead.Core.Licensing.LicensePolicy.IntroductionEnd))
-        {
-            Console.Error.WriteLine($"--einfuehrung-bis: ein Datum yyyy-MM-dd nach dem {PdfKnead.Core.Licensing.LicensePolicy.IntroductionEnd:yyyy-MM-dd} (verlängern, nie verkürzen).");
-            return 2;
-        }
         if (keyFile is null || !File.Exists(keyFile))
         {
-            Console.Error.WriteLine("Aufruf: pdf-knead release-signieren <paketordner> --schluessel <geheim.pem> [--hinweise <datei>] [--einfuehrung-bis <yyyy-MM-dd>]");
+            Console.Error.WriteLine("Aufruf: pdf-knead release-signieren <paketordner> --schluessel <geheim.pem> [--hinweise <datei>]");
             return 2;
         }
         var packages = new List<UpdatePackage>();
@@ -76,10 +69,7 @@ internal static class ReleaseTools
             return 1;
         }
         var notes = notesFile is not null && File.Exists(notesFile) ? File.ReadAllText(notesFile).Trim() : "";
-        var manifest = new UpdateManifest(found, DateTime.UtcNow.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), notes, packages)
-        {
-            IntroductionUntil = introductionUntil,
-        };
+        var manifest = new UpdateManifest(found, DateTime.UtcNow.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), notes, packages);
         var json = manifest.ToJson();
         if (UpdateManifest.Parse(json) is null)
         {

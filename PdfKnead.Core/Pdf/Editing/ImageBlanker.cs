@@ -497,8 +497,10 @@ internal static class ImageBlanker
         try
         {
             // a /ColorSpace of the image that fits the channels determines them (ISO 32000-2, 7.4.9), as when drawing
+            // /SMaskInData for data without a channel definition, channels no colour fits: as when drawing (docs/FEHLERGEDAECHTNIS.md, No. 996)
+            int? declared = spaceObj is PdfNull ? null : n;
             jpx = JpxDecoder.Decode(data, PdfImageDecoder.MaxPixels, applyPalette: !indexed, channels => spaceObj is PdfNull || n != channels,
-                indexed ? PdfFunction.Numbers(dict.Get(PdfName.Get("Decode")) as PdfArray) : null);
+                indexed ? PdfFunction.Numbers(dict.Get(PdfName.Get("Decode")) as PdfArray) : null, PdfImageDecoder.SMaskInData(dict), declared).Fitted(declared);
         }
         catch (Exception e) when (e is JpxException or IndexOutOfRangeException or ArgumentException or OverflowException or AggregateException or InvalidOperationException)
         {

@@ -53,6 +53,74 @@ public sealed class JpegSimdTests
         }
     }
 
+    /// <summary>
+    /// Adobe TN 5116, section 22 (the reverse DCT against an accurate one: no sample more than ±1 off) with the ideal IDCT of T.81, A.3.3:
+    /// 20 000 blocks of pseudo-random dequantised coefficients — three ranges after the pattern of the usual accuracy tests (±256, ±5, ±300),
+    /// mostly sparse as in real images — computed in double precision, level-shifted by 128, rounded and clamped, against the decoder's integer
+    /// IDCT on the vector and the scalar path: no sample more than one step off, and on average far less.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Idct_WithinOneStepOfTheIdealTransform(bool simd)
+    {
+        var cos = new double[8, 8];
+        for (var x = 0; x < 8; x++)
+            for (var u = 0; u < 8; u++)
+                cos[x, u] = (u == 0 ? Math.Sqrt(0.5) : 1) * Math.Cos((2 * x + 1) * u * Math.PI / 16);
+        var random = new Random(1180);
+        var coef = new int[64];
+        var output = new byte[64];
+        long worst = 0, total = 0, count = 0;
+        foreach (var range in new[] { 256, 5, 300 })
+            for (var n = 0; n < 20_000 / 3; n++)
+            {
+                Array.Clear(coef);
+                var nonZero = 1 + random.Next(n % 4 == 0 ? 64 : 12);
+                for (var i = 0; i < nonZero; i++) coef[random.Next(i == 0 ? 1 : 64)] = random.Next(-range, range + 1);
+                JpegIdct.Transform(coef, output, 0, 8, simd);
+                for (var y = 0; y < 8; y++)
+                    for (var x = 0; x < 8; x++)
+                    {
+                        double sum = 0;
+                        for (var v = 0; v < 8; v++)
+                            for (var u = 0; u < 8; u++)
+                                sum += cos[x, u] * cos[y, v] * coef[v * 8 + u];
+                        var ideal = Math.Clamp((int)Math.Floor(sum / 4 + 128 + 0.5), 0, 255);
+                        var d = Math.Abs(output[y * 8 + x] - ideal);
+                        worst = Math.Max(worst, d);
+                        total += d;
+                        count++;
+                    }
+            }
+        Assert.True(worst <= 1, $"größte Abweichung {worst}");
+        Assert.True(total < count / 20, $"mittlere Abweichung {(double)total / count:0.0000}");
+    }
+
+    /// <summary>
+    /// Every combination of Y, Cb, Cr (2^24) gives the same RGB on the vector path and the scalar one (FG 1010: the scalar tables used
+    /// 22 553 for the Cb part of G, the vector path 22 554 — 12 058 channel values one step apart, on machines without AVX2 and in the last
+    /// pixels of a row whose width is no multiple of 8; random samples had not hit them).
+    /// </summary>
+    [Fact]
+    public void YccToRgb_SameAsScalar_EveryValue()
+    {
+        var y = Enumerable.Range(0, 256).Select(v => (byte)v).ToArray();
+        byte[] cb = new byte[256], cr = new byte[256], a = new byte[768], b = new byte[768];
+        var differ = 0;
+        for (var u = 0; u < 256; u++)
+            for (var v = 0; v < 256; v++)
+            {
+                Array.Fill(cb, (byte)u);
+                Array.Fill(cr, (byte)v);
+                JpegColor.YccToRgb(y, cb, cr, a, 256, simd: true);
+                JpegColor.YccToRgb(y, cb, cr, b, 256, simd: false);
+                for (var i = 0; i < 768; i++)
+                    if (a[i] != b[i]) differ++;
+            }
+        Assert.Equal(0, differ);
+    }
+
     [Fact]
     public void YccToRgb_SameAsScalar()
     {

@@ -166,12 +166,13 @@
                             VerticalAlignment="Center">
                     <!-- donate (design decision): 25 px left of the save button; opens the donation page in the browser of the system -->
                     <Button Name="DonateButton" Classes="donate" Height="24" FontSize="12" Padding="10,0" Margin="0,0,23,0"
-                            VerticalAlignment="Center" Command="{Binding DonateCommand}" AutomationProperties.Name="{l:T 'Spenden'}">
+                            VerticalAlignment="Center" Command="{Binding ShowDonationWindowCommand}" IsVisible="{Binding DonateButtonVisible}"
+                            AutomationProperties.Name="{l:T 'Spenden'}">
                         <StackPanel Orientation="Horizontal" Spacing="5" VerticalAlignment="Center">
                             <TextBlock Text="♥" Foreground="#D62B3A" FontSize="18" VerticalAlignment="Center" />
                             <TextBlock Text="{l:T 'Spenden'}" Foreground="Black" VerticalAlignment="Center" />
                         </StackPanel>
-                        <ToolTip.Tip><l:T Text="PDF-Knead unterstützen — öffnet die Spendenseite im Browser" /></ToolTip.Tip>
+                        <ToolTip.Tip><l:T Text="PDF-Knead unterstützen" /></ToolTip.Tip>
                     </Button>
                     <c:RibbonButton c:PolicyLock.Id="start.save" Classes="icon" Icon="{StaticResource Icon.Save}" Command="{Binding SaveCommand}"
                                     ToolTip.ShowOnDisabled="True">
@@ -271,7 +272,7 @@
                                         <ToolTip.Tip><l:T Text="Datei verkleinern: Bilder, Schriften und Packen einstellen, mit Vorher/Nachher und Größenvorschau" /></ToolTip.Tip>
                                     </c:RibbonButton>
                                 </StackPanel>
-                                <c:RibbonButton c:PolicyLock.Id="start.scan" Classes="large" Icon="{Binding ScanningLocked, Converter={x:Static cv:LockIcon.Instance}, ConverterParameter={StaticResource Icon.ScanDash}}"
+                                <c:RibbonButton c:PolicyLock.Id="start.scan" Classes="large" Icon="{StaticResource Icon.ScanDash}"
                                                 Label="{l:T 'Scannen'}" Command="{Binding ScanCommand}">
                                     <ToolTip.Tip><l:T Text="Seiten vom Scanner holen, ordnen und als Dokument übernehmen — Flachbett oder Einzug" /></ToolTip.Tip>
                                 </c:RibbonButton>
@@ -297,12 +298,12 @@
                                 </StackPanel>
                                 <StackPanel Spacing="1">
                                     <!-- Text, Bilder und Codes der Seite in einem Werkzeug (KONZEPT §5.22) -->
-                                    <c:RibbonToggleButton c:PolicyLock.Id="start.edit" Icon="{Binding EditingLocked, Converter={x:Static cv:LockIcon.Instance}, ConverterParameter={StaticResource Icon.Edit}}" Label="{l:T 'Bearbeiten'}"
+                                    <c:RibbonToggleButton c:PolicyLock.Id="start.edit" Icon="{StaticResource Icon.Edit}" Label="{l:T 'Bearbeiten'}"
                                                           IsChecked="{Binding IsEditTool, Mode=OneWay}" Command="{Binding ToggleEditCommand}">
                                         <ToolTip.Tip><l:T Text="Text, Bilder, QR-/Barcodes und Formularfelder der Seite ändern (Strg+E): Absätze bekommen einen Rahmen, ein Klick auf Text setzt die Schreibmarke, auf ein Bild zeigt Griffe und seine Angaben, auf einen Code seine Bedeutung, auf ein Feld seine Eigenschaften; Alt+Klick wählt, was darunter liegt; Esc oder ein zweiter Klick beendet es" /></ToolTip.Tip>
                                     </c:RibbonToggleButton>
                                     <!-- Messen (Ablaufplan 7.6; Festlegung vom 6.11.2026: bei den Werkzeugen, eigenes Symbol): Länge, Linienzug, Fläche, Winkel, Kreis/Bogen -->
-                                    <c:RibbonToggleButton c:PolicyLock.Id="start.measure" Name="MeasureToolButton" Icon="{Binding MeasuringLocked, Converter={x:Static cv:LockIcon.Instance}, ConverterParameter={StaticResource Icon.Ruler}}" Label="{l:T 'Messen'}"
+                                    <c:RibbonToggleButton c:PolicyLock.Id="start.measure" Name="MeasureToolButton" Icon="{StaticResource Icon.Ruler}" Label="{l:T 'Messen'}"
                                                           IsChecked="{Binding Tool, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Measure, Mode=OneWay}"
                                                           Command="{Binding MeasureCommand}">
                                         <ToolTip.Tip><l:T Text="Längen, Flächen, Winkel und Radien messen — mit dem Maßstab der Seite, sonst in Millimetern des Papiers" /></ToolTip.Tip>
@@ -595,7 +596,7 @@
                     <StackPanel c:PolicyLock.Id="form.all" Orientation="Horizontal"
                                 IsVisible="{Binding RibbonTab, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Form}">
                         <c:RibbonGroup Header="{l:T 'Bearbeiten'}">
-                            <c:RibbonToggleButton Classes="large" Icon="{Binding FormsLocked, Converter={x:Static cv:LockIcon.Instance}, ConverterParameter={StaticResource Icon.Form}}" Label="{l:T 'Formular bearbeiten'}"
+                            <c:RibbonToggleButton Classes="large" Icon="{StaticResource Icon.Form}" Label="{l:T 'Formular bearbeiten'}"
                                                   IsChecked="{Binding IsFormDesign, Mode=OneWay}" Command="{Binding ToggleFormDesignCommand}">
                                 <ToolTip.Tip><l:T Text="Felder auswählen, verschieben, in der Größe ändern und rechts ihre Eigenschaften bearbeiten — auch Felder, die mit anderen Programmen erstellt wurden. Klicks füllen dann nicht aus. Strg+Klick oder ein Rahmen wählt mehrere." /></ToolTip.Tip>
                             </c:RibbonToggleButton>
@@ -603,46 +604,46 @@
                         <c:RibbonGroup Header="{l:T 'Felder einfügen'}">
                             <StackPanel Orientation="Horizontal" Spacing="2">
                                 <StackPanel Spacing="1">
-                                    <c:RibbonToggleButton Icon="{Binding FormsLocked, Converter={x:Static cv:LockIcon.Instance}, ConverterParameter={StaticResource Icon.TextField}}" Label="{l:T 'Textfeld'}"
+                                    <c:RibbonToggleButton Icon="{StaticResource Icon.TextField}" Label="{l:T 'Textfeld'}"
                                                           IsChecked="{Binding ActivePreset, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Text, Mode=OneWay}"
                                                           Command="{Binding InsertFormFieldCommand}" CommandParameter="{x:Static vm:FieldPreset.Text}">
                                         <ToolTip.Tip><l:T Text="Textfeld: klicken oder Rechteck aufziehen. Das Werkzeug bleibt an für weitere Felder (Esc oder noch einmal klicken beendet es)." /></ToolTip.Tip>
                                     </c:RibbonToggleButton>
-                                    <c:RibbonToggleButton Icon="{Binding FormsLocked, Converter={x:Static cv:LockIcon.Instance}, ConverterParameter={StaticResource Icon.Calendar}}" Label="{l:T 'Datum'}"
+                                    <c:RibbonToggleButton Icon="{StaticResource Icon.Calendar}" Label="{l:T 'Datum'}"
                                                           IsChecked="{Binding ActivePreset, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Date, Mode=OneWay}"
                                                           Command="{Binding InsertFormFieldCommand}" CommandParameter="{x:Static vm:FieldPreset.Date}">
                                         <ToolTip.Tip><l:T Text="Datumsfeld: ein Textfeld mit Datumsformat (TT.MM.JJJJ) — PDF-Knead zeigt beim Ausfüllen einen Kalender." /></ToolTip.Tip>
                                     </c:RibbonToggleButton>
-                                    <c:RibbonToggleButton Icon="{Binding FormsLocked, Converter={x:Static cv:LockIcon.Instance}, ConverterParameter={StaticResource Icon.NumberSymbol}}" Label="{l:T 'Zahl'}"
+                                    <c:RibbonToggleButton Icon="{StaticResource Icon.NumberSymbol}" Label="{l:T 'Zahl'}"
                                                           IsChecked="{Binding ActivePreset, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Number, Mode=OneWay}"
                                                           Command="{Binding InsertFormFieldCommand}" CommandParameter="{x:Static vm:FieldPreset.Number}">
                                         <ToolTip.Tip><l:T Text="Zahlenfeld: nimmt nur Zahlen an und zeigt sie mit Tausenderpunkten (auch als Währung oder Prozent; rechts unter „Format“). Kann eine Summe aus anderen Feldern rechnen." /></ToolTip.Tip>
                                     </c:RibbonToggleButton>
                                 </StackPanel>
                                 <StackPanel Spacing="1">
-                                    <c:RibbonToggleButton Icon="{Binding FormsLocked, Converter={x:Static cv:LockIcon.Instance}, ConverterParameter={StaticResource Icon.CheckboxChecked}}" Label="{l:T 'Kontrollkästchen'}"
+                                    <c:RibbonToggleButton Icon="{StaticResource Icon.CheckboxChecked}" Label="{l:T 'Kontrollkästchen'}"
                                                           IsChecked="{Binding ActivePreset, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=CheckBox, Mode=OneWay}"
                                                           Command="{Binding InsertFormFieldCommand}" CommandParameter="{x:Static vm:FieldPreset.CheckBox}">
                                         <ToolTip.Tip><l:T Text="Kontrollkästchen zum Ankreuzen: klicken setzt es in Standardgröße." /></ToolTip.Tip>
                                     </c:RibbonToggleButton>
-                                    <c:RibbonToggleButton Icon="{Binding FormsLocked, Converter={x:Static cv:LockIcon.Instance}, ConverterParameter={StaticResource Icon.RadioButton}}" Label="{l:T 'Optionsfeld'}"
+                                    <c:RibbonToggleButton Icon="{StaticResource Icon.RadioButton}" Label="{l:T 'Optionsfeld'}"
                                                           IsChecked="{Binding ActivePreset, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Radio, Mode=OneWay}"
                                                           Command="{Binding InsertFormFieldCommand}" CommandParameter="{x:Static vm:FieldPreset.Radio}">
                                         <ToolTip.Tip><l:T Text="Optionsfelder: alle, die bei eingeschaltetem Werkzeug gesetzt werden, bilden eine Gruppe — davon ist genau eins gewählt. Für eine neue Gruppe das Werkzeug neu starten." /></ToolTip.Tip>
                                     </c:RibbonToggleButton>
-                                    <c:RibbonToggleButton Icon="{Binding FormsLocked, Converter={x:Static cv:LockIcon.Instance}, ConverterParameter={StaticResource Icon.TextBulletListSquare}}" Label="{l:T 'Kombinationsfeld'}"
+                                    <c:RibbonToggleButton Icon="{StaticResource Icon.TextBulletListSquare}" Label="{l:T 'Kombinationsfeld'}"
                                                           IsChecked="{Binding ActivePreset, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=ComboBox, Mode=OneWay}"
                                                           Command="{Binding InsertFormFieldCommand}" CommandParameter="{x:Static vm:FieldPreset.ComboBox}">
                                         <ToolTip.Tip><l:T Text="Aufklappliste: ein Eintrag wird gewählt, wahlweise auch eigener Text. Die Einträge stehen rechts unter „Optionen“." /></ToolTip.Tip>
                                     </c:RibbonToggleButton>
                                 </StackPanel>
                                 <StackPanel Spacing="1">
-                                    <c:RibbonToggleButton Icon="{Binding FormsLocked, Converter={x:Static cv:LockIcon.Instance}, ConverterParameter={StaticResource Icon.List}}" Label="{l:T 'Listenfeld'}"
+                                    <c:RibbonToggleButton Icon="{StaticResource Icon.List}" Label="{l:T 'Listenfeld'}"
                                                           IsChecked="{Binding ActivePreset, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=ListBox, Mode=OneWay}"
                                                           Command="{Binding InsertFormFieldCommand}" CommandParameter="{x:Static vm:FieldPreset.ListBox}">
                                         <ToolTip.Tip><l:T Text="Liste mit sichtbaren Einträgen, wahlweise mehrere wählbar." /></ToolTip.Tip>
                                     </c:RibbonToggleButton>
-                                    <c:RibbonToggleButton Icon="{Binding FormsLocked, Converter={x:Static cv:LockIcon.Instance}, ConverterParameter={StaticResource Icon.ArrowReset}}" Label="{l:T 'Zurücksetzen'}"
+                                    <c:RibbonToggleButton Icon="{StaticResource Icon.ArrowReset}" Label="{l:T 'Zurücksetzen'}"
                                                           IsChecked="{Binding ActivePreset, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=ResetButton, Mode=OneWay}"
                                                           Command="{Binding InsertFormFieldCommand}" CommandParameter="{x:Static vm:FieldPreset.ResetButton}">
                                         <ToolTip.Tip><l:T Text="Schaltfläche, die alle Felder auf ihren Standardwert zurücksetzt (ohne Skript — funktioniert in jedem Programm)." /></ToolTip.Tip>
@@ -653,12 +654,12 @@
                                     </c:RibbonButton>
                                 </StackPanel>
                                 <StackPanel Spacing="1">
-                                    <c:RibbonToggleButton Icon="{Binding FormsLocked, Converter={x:Static cv:LockIcon.Instance}, ConverterParameter={StaticResource Icon.QrCode}}" Label="{l:T 'QR-Feld'}"
+                                    <c:RibbonToggleButton Icon="{StaticResource Icon.QrCode}" Label="{l:T 'QR-Feld'}"
                                                           IsChecked="{Binding ActivePreset, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=QrCode, Mode=OneWay}"
                                                           Command="{Binding InsertFormFieldCommand}" CommandParameter="{x:Static vm:FieldPreset.QrCode}">
                                         <ToolTip.Tip><l:T Text="Feld, dessen Inhalt als QR-Code erscheint: beim Ausfüllen den Text, eine Adresse oder eine Überweisung eintippen. Andere PDF-Programme zeigen den gespeicherten Code." /></ToolTip.Tip>
                                     </c:RibbonToggleButton>
-                                    <c:RibbonToggleButton Icon="{Binding FormsLocked, Converter={x:Static cv:LockIcon.Instance}, ConverterParameter={StaticResource Icon.Barcode}}" Label="{l:T 'Barcode-Feld'}"
+                                    <c:RibbonToggleButton Icon="{StaticResource Icon.Barcode}" Label="{l:T 'Barcode-Feld'}"
                                                           IsChecked="{Binding ActivePreset, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Barcode, Mode=OneWay}"
                                                           Command="{Binding InsertFormFieldCommand}" CommandParameter="{x:Static vm:FieldPreset.Barcode}">
                                         <ToolTip.Tip><l:T Text="Feld, dessen Inhalt als Strichcode erscheint (Code 128, rechts auch EAN, UPC, Code 39, ITF oder GS1-128). Andere PDF-Programme zeigen den gespeicherten Code." /></ToolTip.Tip>
@@ -721,7 +722,7 @@
                                                     Command="{Binding ArrangeFieldsCommand}" CommandParameter="{x:Static vm:FieldArrange.SameHeight}">
                                         <ToolTip.Tip><l:T Text="Ausgewählte Felder so hoch wie das zuletzt gewählte" /></ToolTip.Tip>
                                     </c:RibbonButton>
-                                    <c:RibbonButton Icon="{Binding FormsLocked, Converter={x:Static cv:LockIcon.Instance}, ConverterParameter={StaticResource Icon.Copy}}" Label="{l:T 'Verdoppeln'}" Command="{Binding DuplicateFieldsCommand}">
+                                    <c:RibbonButton Icon="{StaticResource Icon.Copy}" Label="{l:T 'Verdoppeln'}" Command="{Binding DuplicateFieldsCommand}">
                                         <ToolTip.Tip><l:T Text="Ausgewählte Felder darunter verdoppeln (Strg+D) — Optionsfelder kommen in dieselbe Gruppe" /></ToolTip.Tip>
                                     </c:RibbonButton>
                                 </StackPanel>
@@ -758,14 +759,14 @@
                         <!-- „Felder erkennen“ steht klein unter den Prüf-Knöpfen, damit der Reiter auch mit QR- und Barcode-Feld in die Startbreite passt -->
                         <c:RibbonGroup Header="{l:T 'Prüfen und erkennen'}">
                             <StackPanel Spacing="1">
-                                <c:RibbonToggleButton Icon="{Binding FormsLocked, Converter={x:Static cv:LockIcon.Instance}, ConverterParameter={StaticResource Icon.NumberCircle}}" Label="{l:T 'Tab-Reihenfolge'}"
+                                <c:RibbonToggleButton Icon="{StaticResource Icon.NumberCircle}" Label="{l:T 'Tab-Reihenfolge'}"
                                                       IsChecked="{Binding ShowTabOrder, Mode=OneWay}" Command="{Binding ToggleTabOrderCommand}">
                                     <ToolTip.Tip><l:T Text="Zeigt, in welcher Reihenfolge die Tab-Taste durch die Felder geht. Felder nacheinander anklicken legt sie neu fest (Esc beendet)." /></ToolTip.Tip>
                                 </c:RibbonToggleButton>
                                 <c:RibbonButton Icon="{StaticResource Icon.Eye}" Label="{l:T 'Ausfüllen testen'}" Command="{Binding TestFormCommand}">
                                     <ToolTip.Tip><l:T Text="„Formular bearbeiten“ beenden und das Formular ausfüllen — Formate, Kalender und Berechnungen wirken sofort" /></ToolTip.Tip>
                                 </c:RibbonButton>
-                                <c:RibbonToggleButton Icon="{Binding FormsLocked, Converter={x:Static cv:LockIcon.Instance}, ConverterParameter={StaticResource Icon.Sparkle}}" Label="{l:T 'Felder erkennen'}"
+                                <c:RibbonToggleButton Icon="{StaticResource Icon.Sparkle}" Label="{l:T 'Felder erkennen'}"
                                                       IsChecked="{Binding SelectedDocument.IsFieldProposalsOpen, Mode=OneWay, FallbackValue=False}"
                                                       Command="{Binding RecognizeFieldsCommand}">
                                     <ToolTip.Tip><l:T Text="Schlägt Felder an Linien, Kästchen und Tabellen der Seiten vor, auch in Scans — Sie prüfen, benennen und übernehmen. Mit den KI-Modellen liest es Scans und findet auch nicht gezeichnete Felder." /></ToolTip.Tip>
@@ -816,23 +817,23 @@
                                 IsVisible="{Binding RibbonTab, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Secure}">
                         <c:RibbonGroup Header="{l:T 'Schwärzen'}">
                             <StackPanel Orientation="Horizontal" Spacing="2">
-                                <c:RibbonToggleButton c:PolicyLock.Id="secure.redact-area" Classes="large" Icon="{Binding RedactionLocked, Converter={x:Static cv:LockIcon.Instance}, ConverterParameter={StaticResource Icon.Eraser}}" Label="{l:T 'Bereich schwärzen'}"
+                                <c:RibbonToggleButton c:PolicyLock.Id="secure.redact-area" Classes="large" Icon="{StaticResource Icon.Eraser}" Label="{l:T 'Bereich schwärzen'}"
                                                       IsChecked="{Binding Tool, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=InsertRedaction, Mode=OneWay}"
                                                       Command="{Binding SetToolCommand}" CommandParameter="{x:Static vm:ViewTool.InsertRedaction}">
                                     <ToolTip.Tip><l:T Text="Zum Schwärzen markieren, bis zum Ausschalten oder Esc: über Text ziehen markiert den Text, sonst einen Bereich aufziehen; Markierungen verschieben und an den Griffen verformen — bis zum Anwenden rückgängig zu machen. Damit sicher keine Daten mehr vorhanden sind, nach dem Schwärzen zusätzlich „Dokument bereinigen“ und „Flachlegen als Bild“ empfohlen" /></ToolTip.Tip>
                                 </c:RibbonToggleButton>
                                 <StackPanel Spacing="1">
-                                    <c:RibbonToggleButton c:PolicyLock.Id="secure.redact-hidden" Icon="{Binding RedactionLocked, Converter={x:Static cv:LockIcon.Instance}, ConverterParameter={StaticResource Icon.EyeOff}}" Label="{l:T 'Verborgenes schwärzen'}"
+                                    <c:RibbonToggleButton c:PolicyLock.Id="secure.redact-hidden" Icon="{StaticResource Icon.EyeOff}" Label="{l:T 'Verborgenes schwärzen'}"
                                                           IsChecked="{Binding Tool, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=RedactHidden, Mode=OneWay}"
                                                           Command="{Binding RedactHiddenCommand}">
                                         <ToolTip.Tip><l:T Text="Verborgenen Text auf allen Seiten zeigen — weiß auf weiß, verdeckt, winzig, außerhalb der Seite, unsichtbar (OCR) —, bis zum Ausschalten oder Esc: ein Klick auf einen Rahmen markiert die Stelle zum Schwärzen, entfernt wird sie mit „Schwärzungen anwenden“" /></ToolTip.Tip>
                                     </c:RibbonToggleButton>
-                                    <c:RibbonToggleButton c:PolicyLock.Id="secure.redact-text" Icon="{Binding RedactionLocked, Converter={x:Static cv:LockIcon.Instance}, ConverterParameter={StaticResource Icon.TextT}}" Label="{l:T 'Text schwärzen'}"
+                                    <c:RibbonToggleButton c:PolicyLock.Id="secure.redact-text" Icon="{StaticResource Icon.TextT}" Label="{l:T 'Text schwärzen'}"
                                                           IsChecked="{Binding Tool, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=RedactText, Mode=OneWay}"
                                                           Command="{Binding RedactTextCommand}">
                                         <ToolTip.Tip><l:T Text="Text zum Schwärzen markieren, bis zum Ausschalten oder Esc: schon markierter Text sofort, danach jeder Text, über den man zieht (Doppelklick: Wort, Dreifachklick: Zeile); Markierungen verschieben und an den Griffen verformen" /></ToolTip.Tip>
                                     </c:RibbonToggleButton>
-                                    <c:RibbonButton c:PolicyLock.Id="secure.search-redact" Icon="{Binding RedactionLocked, Converter={x:Static cv:LockIcon.Instance}, ConverterParameter={StaticResource Icon.Search}}" Label="{l:T 'Suchen und schwärzen'}"
+                                    <c:RibbonButton c:PolicyLock.Id="secure.search-redact" Icon="{StaticResource Icon.Search}" Label="{l:T 'Suchen und schwärzen'}"
                                                     Command="{Binding SearchRedactCommand}">
                                         <ToolTip.Tip><l:T Text="Wörter, Namen, E-Mail-Adressen, Telefonnummern oder IBAN im ganzen Dokument suchen und schwärzen" /></ToolTip.Tip>
                                     </c:RibbonButton>
@@ -887,7 +888,7 @@
                                         </Flyout>
                                     </c:RibbonButton.Flyout>
                                 </c:RibbonButton>
-                                <c:RibbonButton c:PolicyLock.Id="secure.remove-restrictions" Classes="large" Icon="{Binding RestrictionsLocked, Converter={x:Static cv:LockIcon.Instance}, ConverterParameter={StaticResource Icon.LockOpen}}" Label="{l:T 'Einschränkungen entfernen'}"
+                                <c:RibbonButton c:PolicyLock.Id="secure.remove-restrictions" Classes="large" Icon="{StaticResource Icon.LockOpen}" Label="{l:T 'Einschränkungen entfernen'}"
                                                 Command="{Binding LiftRestrictionsCommand}">
                                     <ToolTip.Tip><l:T Text="Drucken, Kopieren, Ändern … wieder erlauben — mit dem Rechte-Passwort oder nach der Bestätigung, dazu berechtigt zu sein; ein Passwort zum Öffnen bleibt nötig" /></ToolTip.Tip>
                                 </c:RibbonButton>
@@ -1810,7 +1811,7 @@
                             <Button HorizontalAlignment="Left" Command="{Binding ExportPdfACommand}"
                                     AutomationProperties.Name="{l:T 'Als PDF/A speichern …'}">
                                 <StackPanel Orientation="Horizontal" Spacing="8">
-                                    <PathIcon Data="{Binding PdfALocked, Converter={x:Static cv:LockIcon.Instance}, ConverterParameter={StaticResource Icon.DocumentOnePage}}" Width="16" Height="16" />
+                                    <PathIcon Data="{StaticResource Icon.DocumentOnePage}" Width="16" Height="16" />
                                     <TextBlock Text="{l:T 'Als PDF/A speichern …'}" />
                                 </StackPanel>
                             </Button>
@@ -1995,169 +1996,194 @@
                 </StackPanel>
             </ScrollViewer>
 
-            <!-- Einstellungen -->
-            <ScrollViewer Grid.Column="1" Grid.Row="1" DataContext="{Binding Settings}" x:DataType="vm:SettingsViewModel"
-                          IsVisible="{Binding $parent[Window].((vm:MainViewModel)DataContext).BackstagePage, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Settings}">
-                <StackPanel Margin="48,36" Spacing="20" MaxWidth="760" HorizontalAlignment="Left">
-                    <TextBlock Classes="hero" Text="{l:T 'Einstellungen'}" />
+            <!-- Einstellungen: in Reitern statt einer langen Liste (decided on 21.11.2026) -->
+            <Grid Grid.Column="1" Grid.Row="1" DataContext="{Binding Settings}" x:DataType="vm:SettingsViewModel" RowDefinitions="Auto,*" Margin="48,36,48,0"
+                  IsVisible="{Binding $parent[Window].((vm:MainViewModel)DataContext).BackstagePage, Converter={x:Static cv:EnumIs.Instance}, ConverterParameter=Settings}">
+                <TextBlock Classes="hero" Text="{l:T 'Einstellungen'}" />
+                <TabControl Grid.Row="1" Name="SettingsTabs" Margin="0,12,0,0" Padding="0">
+                    <TabControl.Styles>
+                        <Style Selector="TabItem">
+                            <Setter Property="FontSize" Value="15" />
+                            <Setter Property="FontWeight" Value="SemiBold" />
+                            <Setter Property="MinHeight" Value="38" />
+                            <Setter Property="Padding" Value="0,0,22,0" />
+                        </Style>
+                    </TabControl.Styles>
+                    <TabItem Name="GeneralSettingsTab" Header="{l:T 'Allgemein'}">
+                        <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+                            <StackPanel Margin="0,20,0,36" Spacing="20" MaxWidth="760" HorizontalAlignment="Left">
+                                <Border Classes="card">
+                                    <StackPanel Spacing="12">
+                                        <TextBlock Classes="section" Text="{l:T 'SPRACHE'}" />
+                                        <ComboBox ItemsSource="{Binding Languages}" SelectedItem="{Binding SelectedLanguage}" MinWidth="260">
+                                            <ComboBox.ItemTemplate>
+                                                <DataTemplate x:DataType="loc:Language">
+                                                    <StackPanel Orientation="Horizontal" Spacing="10">
+                                                        <c:FlagView Language="{Binding}" />
+                                                        <TextBlock Text="{Binding Name}" VerticalAlignment="Center" />
+                                                    </StackPanel>
+                                                </DataTemplate>
+                                            </ComboBox.ItemTemplate>
+                                        </ComboBox>
+                                        <TextBlock Classes="small" Foreground="{DynamicResource DangerBrush}" TextWrapping="Wrap"
+                                                   Text="{Binding LanguageProblems}" IsVisible="{Binding LanguageProblems, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
 
-                    <Border Classes="card">
-                        <StackPanel Spacing="12">
-                            <TextBlock Classes="section" Text="{l:T 'SPRACHE'}" />
-                            <ComboBox ItemsSource="{Binding Languages}" SelectedItem="{Binding SelectedLanguage}" MinWidth="260">
-                                <ComboBox.ItemTemplate>
-                                    <DataTemplate x:DataType="loc:Language">
-                                        <StackPanel Orientation="Horizontal" Spacing="10">
-                                            <c:FlagView Language="{Binding}" />
-                                            <TextBlock Text="{Binding Name}" VerticalAlignment="Center" />
-                                        </StackPanel>
-                                    </DataTemplate>
-                                </ComboBox.ItemTemplate>
-                            </ComboBox>
-                            <TextBlock Classes="small" Foreground="{DynamicResource DangerBrush}" TextWrapping="Wrap"
-                                       Text="{Binding LanguageProblems}" IsVisible="{Binding LanguageProblems, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                        <Border Height="1" Background="{DynamicResource LineBrush}" Margin="0,4" />
+                                        <TextBlock FontWeight="SemiBold" Text="{l:T 'Eigene Übersetzung'}" />
+                                        <TextBlock Classes="muted" TextWrapping="Wrap"
+                                                   Text="{l:T 'Vorlage mit allen Texten exportieren, übersetzen und als z. B. fr.json in diesen Ordner legen:'}" />
+                                        <SelectableTextBlock Classes="small" Text="{Binding LanguageFolder}" TextWrapping="Wrap"
+                                                             Foreground="{DynamicResource TextMutedBrush}" />
+                                        <WrapPanel>
+                                            <Button Margin="0,0,8,8" Click="OnTemplateGermanClick" Content="{l:T 'Vorlage aus Deutsch …'}" />
+                                            <Button Margin="0,0,8,8" Click="OnTemplateEnglishClick" Content="{l:T 'Vorlage aus Englisch …'}" />
+                                            <Button Margin="0,0,8,8" Click="OnReloadLanguagesClick" Content="{l:T 'Sprachen neu laden'}" />
+                                        </WrapPanel>
+                                        <TextBlock Classes="small muted" TextWrapping="Wrap" Text="{Binding TemplateMessage}"
+                                                   IsVisible="{Binding TemplateMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                    </StackPanel>
+                                </Border>
 
-                            <Border Height="1" Background="{DynamicResource LineBrush}" Margin="0,4" />
-                            <TextBlock FontWeight="SemiBold" Text="{l:T 'Eigene Übersetzung'}" />
-                            <TextBlock Classes="muted" TextWrapping="Wrap"
-                                       Text="{l:T 'Vorlage mit allen Texten exportieren, übersetzen und als z. B. fr.json in diesen Ordner legen:'}" />
-                            <SelectableTextBlock Classes="small" Text="{Binding LanguageFolder}" TextWrapping="Wrap"
-                                                 Foreground="{DynamicResource TextMutedBrush}" />
-                            <WrapPanel>
-                                <Button Margin="0,0,8,8" Click="OnTemplateGermanClick" Content="{l:T 'Vorlage aus Deutsch …'}" />
-                                <Button Margin="0,0,8,8" Click="OnTemplateEnglishClick" Content="{l:T 'Vorlage aus Englisch …'}" />
-                                <Button Margin="0,0,8,8" Click="OnReloadLanguagesClick" Content="{l:T 'Sprachen neu laden'}" />
-                            </WrapPanel>
-                            <TextBlock Classes="small muted" TextWrapping="Wrap" Text="{Binding TemplateMessage}"
-                                       IsVisible="{Binding TemplateMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-                        </StackPanel>
-                    </Border>
+                                <Border Classes="card">
+                                    <StackPanel Spacing="12">
+                                        <TextBlock Classes="section" Text="{l:T 'ERSCHEINUNGSBILD'}" />
+                                        <ComboBox ItemsSource="{Binding Themes}" SelectedItem="{Binding SelectedTheme}" MinWidth="260">
+                                            <ComboBox.ItemTemplate>
+                                                <DataTemplate x:DataType="vm:ThemeOption">
+                                                    <TextBlock>
+                                                        <TextBlock.Text>
+                                                            <MultiBinding Converter="{x:Static l:T.Translate}">
+                                                                <Binding Path="Label" />
+                                                                <x:Static Member="l:T.LanguageVersion" />
+                                                            </MultiBinding>
+                                                        </TextBlock.Text>
+                                                    </TextBlock>
+                                                </DataTemplate>
+                                            </ComboBox.ItemTemplate>
+                                        </ComboBox>
+                                    </StackPanel>
+                                </Border>
 
-                    <!-- kind of use and license (LICENSE, sections 2 and 3) -->
-                    <Border Name="LicenseSettingsCard" Classes="card">
-                        <StackPanel Spacing="8">
-                            <TextBlock Classes="section" Text="{l:T 'NUTZUNG UND LIZENZ'}" />
-                            <TextBlock TextWrapping="Wrap" FontWeight="SemiBold" Text="{Binding UsageName}" />
-                            <TextBlock Classes="small muted" TextWrapping="Wrap" Text="{Binding LicenseStatus}" />
-                            <TextBlock Classes="small muted" TextWrapping="Wrap" Text="{Binding PolicySummary}" />
-                            <WrapPanel>
-                                <Button Margin="0,0,8,0" Content="{l:T 'Nutzungsart ändern'}" Command="{Binding ChangeUsageNowCommand}" IsEnabled="{Binding !UsageFixed}" />
-                                <Button Margin="0,0,8,0" Content="{l:T 'Lizenz eintragen'}" Command="{Binding EnterLicenseNowCommand}" />
-                                <Button Margin="0,0,8,0" Content="{l:T 'Berechtigungen anzeigen'}" Command="{Binding ShowPermissionsNowCommand}" />
-                                <Button Margin="0,0,8,0" Content="{l:T 'Funktionsdatei einspielen …'}" Command="{Binding ImportPolicyNowCommand}">
-                                    <ToolTip.Tip><l:T Text="Eine Funktionsdatei des FunktionManagers neben das Programm legen (braucht Schreibrechte im Programmordner, meist Administratorrechte). PDF-Knead startet danach neu und öffnet die offenen Dateien wieder." /></ToolTip.Tip>
-                                </Button>
-                            </WrapPanel>
-                        </StackPanel>
-                    </Border>
+                                <!-- opening files from outside: a window of its own or the window used last (decided on 16.11.2026) -->
+                                <Border Name="OpenFilesCard" Classes="card">
+                                    <StackPanel Spacing="8">
+                                        <TextBlock Classes="section" Text="{l:T 'DATEIEN ÖFFNEN'}" />
+                                        <TextBlock Classes="muted" TextWrapping="Wrap"
+                                                   Text="{l:T 'Wenn eine PDF von außen geöffnet wird — per Doppelklick oder „Öffnen mit“:'}" />
+                                        <RadioButton Name="OpenInOwnWindowOption" GroupName="OpenFiles" IsChecked="{Binding OpenInOwnWindow}"
+                                                     Content="{l:T 'Jede Datei in einem eigenen Fenster'}" />
+                                        <RadioButton Name="OpenInRunningWindowOption" GroupName="OpenFiles" IsChecked="{Binding OpenInRunningWindow}"
+                                                     Content="{l:T 'Im zuletzt benutzten Fenster als neuer Reiter'}" />
+                                        <TextBlock Classes="small muted" TextWrapping="Wrap"
+                                                   Text="{l:T 'Ist kein Fenster offen, öffnet sich ein neues. Die Übergabe bleibt auf diesem Rechner und in Ihrem Benutzerkonto.'}" />
+                                    </StackPanel>
+                                </Border>
 
-                    <!-- updates (KONZEPT §5.26; decided on 18.11.2026: automatic, on at first) -->
-                    <Border Name="UpdateSettingsCard" Classes="card">
-                        <StackPanel Spacing="8">
-                            <TextBlock Classes="section" Text="{l:T 'UPDATES'}" />
-                            <CheckBox Name="UpdateCheckOption" IsChecked="{Binding UpdateCheck}" IsEnabled="{Binding !UpdateLocked}"
-                                      Content="{l:T 'Automatisch nach Updates suchen (höchstens einmal am Tag)'}" />
-                            <TextBlock Classes="small muted" TextWrapping="Wrap" IsVisible="{Binding UpdateLocked}"
-                                       Text="{l:T 'Auf diesem Rechner abgeschaltet (Einstellung der IT).'}" />
-                            <TextBlock Classes="small muted" TextWrapping="Wrap"
-                                       Text="{l:T 'Gefragt wird nur nach der Versionsdatei auf GitHub. Gesendet wird dabei nichts über Sie oder Ihre Dokumente; der Server sieht die Adresse Ihres Anschlusses, den Zeitpunkt und den Programmnamen mit Version. Updates sind signiert — ein Update ohne gültige Signatur wird nie installiert.'}" />
-                            <WrapPanel>
-                                <Button Margin="0,0,8,0" Content="{l:T 'Jetzt nach Updates suchen'}" Command="{Binding CheckForUpdatesCommand}" />
-                            </WrapPanel>
-                            <TextBlock Classes="small muted" TextWrapping="Wrap" Text="{Binding Updates.Message}"
-                                       IsVisible="{Binding Updates.Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-                        </StackPanel>
-                    </Border>
+                                <!-- modules of their own: each tab can be hidden (KONZEPT §5.24 „Aufbau und Entfernen“) -->
+                                <Border Name="ModuleSettingsCard" Classes="card" IsVisible="{Binding HasModules}">
+                                    <StackPanel Spacing="8">
+                                        <TextBlock Classes="section" Text="{l:T 'ZUSÄTZLICHE REITER'}" />
+                                        <TextBlock Classes="muted" TextWrapping="Wrap"
+                                                   Text="{l:T 'Funktionen, die nicht jeder braucht, haben einen eigenen Reiter. Ausgeblendet ist der Reiter weg; die Funktion lässt sich hier jederzeit wieder einblenden.'}" />
+                                        <ItemsControl ItemsSource="{Binding Modules}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate x:DataType="vm:ModuleSetting">
+                                                    <CheckBox IsChecked="{Binding Shown}" Content="{Binding Label}" />
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </StackPanel>
+                                </Border>
+                                <TextBlock Classes="muted small" Name="VersionText" />
+                            </StackPanel>
+                        </ScrollViewer>
+                    </TabItem>
+                    <TabItem Name="RedactionSettingsTab" Header="{l:T 'Schwärzen'}">
+                        <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+                            <StackPanel Margin="0,20,0,36" Spacing="20" MaxWidth="760" HorizontalAlignment="Left">
+                                <!-- Schwärzungscodes je Land (Wunsch vom 4.11.2026): vorwählen, von Hand anpassen, weitergeben -->
+                                <Border Classes="card">
+                                    <StackPanel Spacing="10">
+                                        <TextBlock Classes="section" Text="{l:T 'SCHWÄRZUNGSCODES'}" />
+                                        <TextBlock Classes="muted" TextWrapping="Wrap"
+                                                   Text="{l:T 'Die Codes für die Gründe beim Schwärzen, je Land eine Textdatei mit einer Zeile je Code (Code, Kurztext, Bedeutung, Rechtsgrundlage, Fundarten — durch Tabulator getrennt, auch in einer Tabellenkalkulation zu bearbeiten). Eine eigene Fassung ersetzt die mitgelieferte.'}" />
+                                        <ComboBox ItemsSource="{Binding CodeSets}" SelectedItem="{Binding SelectedCodeSet}" MinWidth="260"
+                                                  AutomationProperties.Name="{l:T 'Landesschwärzungscodes'}" />
+                                        <SelectableTextBlock Classes="small" Text="{Binding CodesFolder}" TextWrapping="Wrap" Foreground="{DynamicResource TextMutedBrush}" />
+                                        <WrapPanel>
+                                            <Button Margin="0,0,8,8" Click="OnEditCodesClick" Content="{l:T 'Bearbeiten …'}">
+                                                <ToolTip.Tip><l:T Text="Öffnet die Code-Datei im Texteditor; eine mitgelieferte wird dafür in den Ordner oben kopiert" /></ToolTip.Tip>
+                                            </Button>
+                                            <Button Margin="0,0,8,8" Click="OnReloadCodesClick" Content="{l:T 'Neu laden'}" />
+                                            <Button Margin="0,0,8,8" Click="OnImportCodesClick" Content="{l:T 'Code-Datei hinzufügen …'}" />
+                                            <Button Margin="0,0,8,8" Click="OnExportCodesClick" Content="{l:T 'Exportieren …'}" />
+                                            <Button Margin="0,0,8,8" Click="OnCodesFolderClick" Content="{l:T 'Ordner öffnen'}" />
+                                            <Button Margin="0,0,8,8" Click="OnRemoveOwnCodesClick" IsEnabled="{Binding CanRemoveOwnCodes}"
+                                                    Content="{l:T 'Eigene Fassung beiseitelegen'}">
+                                                <ToolTip.Tip><l:T Text="Die eigene Datei wird in .bak umbenannt (nichts geht verloren); es gelten wieder die mitgelieferten Codes" /></ToolTip.Tip>
+                                            </Button>
+                                        </WrapPanel>
+                                        <TextBlock Classes="small muted" TextWrapping="Wrap" Text="{Binding CodesMessage}"
+                                                   IsVisible="{Binding CodesMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                    </StackPanel>
+                                </Border>
+                            </StackPanel>
+                        </ScrollViewer>
+                    </TabItem>
+                    <TabItem Name="UpdateSettingsTab" Header="{l:T 'Updates und Datenschutz'}">
+                        <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+                            <StackPanel Margin="0,20,0,36" Spacing="20" MaxWidth="760" HorizontalAlignment="Left">
+                                <!-- updates (KONZEPT §5.26; decided on 18.11.2026: automatic, on at first) -->
+                                <Border Name="UpdateSettingsCard" Classes="card">
+                                    <StackPanel Spacing="8">
+                                        <TextBlock Classes="section" Text="{l:T 'UPDATES'}" />
+                                        <CheckBox Name="UpdateCheckOption" IsChecked="{Binding UpdateCheck}" IsEnabled="{Binding !UpdateLocked}"
+                                                  Content="{l:T 'Automatisch nach Updates suchen (höchstens einmal am Tag)'}" />
+                                        <TextBlock Classes="small muted" TextWrapping="Wrap" IsVisible="{Binding UpdateLocked}"
+                                                   Text="{l:T 'Auf diesem Rechner abgeschaltet (Einstellung der IT).'}" />
+                                        <TextBlock Classes="small muted" TextWrapping="Wrap"
+                                                   Text="{l:T 'Gefragt wird nur nach der Versionsdatei auf GitHub. Gesendet wird dabei nichts über Sie oder Ihre Dokumente; der Server sieht die Adresse Ihres Anschlusses, den Zeitpunkt und den Programmnamen mit Version. Updates sind signiert — ein Update ohne gültige Signatur wird nie installiert.'}" />
+                                        <WrapPanel>
+                                            <Button Margin="0,0,8,0" Content="{l:T 'Jetzt nach Updates suchen'}" Command="{Binding CheckForUpdatesCommand}" />
+                                        </WrapPanel>
+                                        <TextBlock Classes="small muted" TextWrapping="Wrap" Text="{Binding Updates.Message}"
+                                                   IsVisible="{Binding Updates.Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                    </StackPanel>
+                                </Border>
 
-                    <!-- opening files from outside: a window of its own or the window used last (decided on 16.11.2026) -->
-                    <Border Name="OpenFilesCard" Classes="card">
-                        <StackPanel Spacing="8">
-                            <TextBlock Classes="section" Text="{l:T 'DATEIEN ÖFFNEN'}" />
-                            <TextBlock Classes="muted" TextWrapping="Wrap"
-                                       Text="{l:T 'Wenn eine PDF von außen geöffnet wird — per Doppelklick oder „Öffnen mit“:'}" />
-                            <RadioButton Name="OpenInOwnWindowOption" GroupName="OpenFiles" IsChecked="{Binding OpenInOwnWindow}"
-                                         Content="{l:T 'Jede Datei in einem eigenen Fenster'}" />
-                            <RadioButton Name="OpenInRunningWindowOption" GroupName="OpenFiles" IsChecked="{Binding OpenInRunningWindow}"
-                                         Content="{l:T 'Im zuletzt benutzten Fenster als neuer Reiter'}" />
-                            <TextBlock Classes="small muted" TextWrapping="Wrap"
-                                       Text="{l:T 'Ist kein Fenster offen, öffnet sich ein neues. Die Übergabe bleibt auf diesem Rechner und in Ihrem Benutzerkonto.'}" />
-                        </StackPanel>
-                    </Border>
-
-                    <!-- modules of their own: each tab can be hidden (KONZEPT §5.24 „Aufbau und Entfernen“) -->
-                    <Border Name="ModuleSettingsCard" Classes="card" IsVisible="{Binding HasModules}">
-                        <StackPanel Spacing="8">
-                            <TextBlock Classes="section" Text="{l:T 'ZUSÄTZLICHE REITER'}" />
-                            <TextBlock Classes="muted" TextWrapping="Wrap"
-                                       Text="{l:T 'Funktionen, die nicht jeder braucht, haben einen eigenen Reiter. Ausgeblendet ist der Reiter weg; die Funktion lässt sich hier jederzeit wieder einblenden.'}" />
-                            <ItemsControl ItemsSource="{Binding Modules}">
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate x:DataType="vm:ModuleSetting">
-                                        <CheckBox IsChecked="{Binding Shown}" Content="{Binding Label}" />
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
-                        </StackPanel>
-                    </Border>
-
-                    <Border Classes="card">
-                        <StackPanel Spacing="12">
-                            <TextBlock Classes="section" Text="{l:T 'ERSCHEINUNGSBILD'}" />
-                            <ComboBox ItemsSource="{Binding Themes}" SelectedItem="{Binding SelectedTheme}" MinWidth="260">
-                                <ComboBox.ItemTemplate>
-                                    <DataTemplate x:DataType="vm:ThemeOption">
-                                        <TextBlock>
-                                            <TextBlock.Text>
-                                                <MultiBinding Converter="{x:Static l:T.Translate}">
-                                                    <Binding Path="Label" />
-                                                    <x:Static Member="l:T.LanguageVersion" />
-                                                </MultiBinding>
-                                            </TextBlock.Text>
-                                        </TextBlock>
-                                    </DataTemplate>
-                                </ComboBox.ItemTemplate>
-                            </ComboBox>
-                        </StackPanel>
-                    </Border>
-
-                    <!-- Schwärzungscodes je Land (Wunsch vom 4.11.2026): vorwählen, von Hand anpassen, weitergeben -->
-                    <Border Classes="card">
-                        <StackPanel Spacing="10">
-                            <TextBlock Classes="section" Text="{l:T 'SCHWÄRZUNGSCODES'}" />
-                            <TextBlock Classes="muted" TextWrapping="Wrap"
-                                       Text="{l:T 'Die Codes für die Gründe beim Schwärzen, je Land eine Textdatei mit einer Zeile je Code (Code, Kurztext, Bedeutung, Rechtsgrundlage, Fundarten — durch Tabulator getrennt, auch in einer Tabellenkalkulation zu bearbeiten). Eine eigene Fassung ersetzt die mitgelieferte.'}" />
-                            <ComboBox ItemsSource="{Binding CodeSets}" SelectedItem="{Binding SelectedCodeSet}" MinWidth="260"
-                                      AutomationProperties.Name="{l:T 'Landesschwärzungscodes'}" />
-                            <SelectableTextBlock Classes="small" Text="{Binding CodesFolder}" TextWrapping="Wrap" Foreground="{DynamicResource TextMutedBrush}" />
-                            <WrapPanel>
-                                <Button Margin="0,0,8,8" Click="OnEditCodesClick" Content="{l:T 'Bearbeiten …'}">
-                                    <ToolTip.Tip><l:T Text="Öffnet die Code-Datei im Texteditor; eine mitgelieferte wird dafür in den Ordner oben kopiert" /></ToolTip.Tip>
-                                </Button>
-                                <Button Margin="0,0,8,8" Click="OnReloadCodesClick" Content="{l:T 'Neu laden'}" />
-                                <Button Margin="0,0,8,8" Click="OnImportCodesClick" Content="{l:T 'Code-Datei hinzufügen …'}" />
-                                <Button Margin="0,0,8,8" Click="OnExportCodesClick" Content="{l:T 'Exportieren …'}" />
-                                <Button Margin="0,0,8,8" Click="OnCodesFolderClick" Content="{l:T 'Ordner öffnen'}" />
-                                <Button Margin="0,0,8,8" Click="OnRemoveOwnCodesClick" IsEnabled="{Binding CanRemoveOwnCodes}"
-                                        Content="{l:T 'Eigene Fassung beiseitelegen'}">
-                                    <ToolTip.Tip><l:T Text="Die eigene Datei wird in .bak umbenannt (nichts geht verloren); es gelten wieder die mitgelieferten Codes" /></ToolTip.Tip>
-                                </Button>
-                            </WrapPanel>
-                            <TextBlock Classes="small muted" TextWrapping="Wrap" Text="{Binding CodesMessage}"
-                                       IsVisible="{Binding CodesMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-                        </StackPanel>
-                    </Border>
-
-                    <Border Classes="card">
-                        <StackPanel Spacing="8">
-                            <TextBlock Classes="section" Text="{l:T 'DATENSCHUTZ'}" />
-                            <TextBlock TextWrapping="Wrap"
-                                       Text="{l:T 'PDF-Knead sendet keine Daten und baut von sich aus keine Verbindung ins Internet auf. Links in Dokumenten öffnet es nur nach Rückfrage.'}" />
-                        </StackPanel>
-                    </Border>
-
-                    <TextBlock Classes="muted small" Name="VersionText" />
-                </StackPanel>
-            </ScrollViewer>
+                                <Border Classes="card">
+                                    <StackPanel Spacing="8">
+                                        <TextBlock Classes="section" Text="{l:T 'DATENSCHUTZ'}" />
+                                        <TextBlock TextWrapping="Wrap"
+                                                   Text="{l:T 'PDF-Knead sendet keine Daten und baut von sich aus keine Verbindung ins Internet auf. Links in Dokumenten öffnet es nur nach Rückfrage.'}" />
+                                    </StackPanel>
+                                </Border>
+                            </StackPanel>
+                        </ScrollViewer>
+                    </TabItem>
+                    <TabItem Name="PermissionSettingsTab" Header="{l:T 'Nutzungsberechtigung'}">
+                        <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+                            <StackPanel Margin="0,20,0,36" Spacing="20" MaxWidth="760" HorizontalAlignment="Left">
+                                <!-- what the function file of an organization allows (KONZEPT §5.27); PDF-Knead itself is free for everyone since 21.11.2026 -->
+                                <Border Name="PermissionSettingsCard" Classes="card">
+                                    <StackPanel Spacing="8">
+                                        <TextBlock Classes="section" Text="{l:T 'NUTZUNGSBERECHTIGUNG'}" />
+                                        <TextBlock TextWrapping="Wrap"
+                                                   Text="{l:T 'Hier sehen Sie, welche Funktionen von PDF-Knead Ihnen zur Verfügung stehen. Zu Hause sind immer alle Funktionen frei. In Firmen und Behörden kann die IT-Abteilung einzelne Funktionen abschalten, zum Beispiel das Schwärzen oder das Signieren. Dafür legt sie eine Funktionsdatei neben das Programm. „Berechtigungen anzeigen“ zeigt, was gerade erlaubt ist.'}" />
+                                        <TextBlock Classes="small muted" TextWrapping="Wrap" Text="{Binding PolicySummary}" />
+                                        <WrapPanel>
+                                            <Button Margin="0,0,8,0" Content="{l:T 'Berechtigungen anzeigen'}" Command="{Binding ShowPermissionsNowCommand}" />
+                                            <Button Margin="0,0,8,0" Content="{l:T 'Funktionsdatei einspielen …'}" Command="{Binding ImportPolicyNowCommand}">
+                                                <ToolTip.Tip><l:T Text="Eine Funktionsdatei des FunktionManagers neben das Programm legen (braucht Schreibrechte im Programmordner, meist Administratorrechte). PDF-Knead startet danach neu und öffnet die offenen Dateien wieder." /></ToolTip.Tip>
+                                            </Button>
+                                        </WrapPanel>
+                                    </StackPanel>
+                                </Border>
+                            </StackPanel>
+                        </ScrollViewer>
+                    </TabItem>
+                </TabControl>
+            </Grid>
         </Grid>
 
         <!-- Ablegen per Drag & Drop -->

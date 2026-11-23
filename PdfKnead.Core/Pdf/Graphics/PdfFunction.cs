@@ -75,15 +75,17 @@ public abstract class PdfFunction
     private static PdfFunction? CreateUncached(PdfObject obj, PdfDocument doc, int depth)
     {
         if (depth > 8 || obj.AsDictionary() is not { } dict) return null;
+        // /Domain is required for every type (ISO 32000-2, Table 38), /BitsPerSample for type 0 (Table 39), /N for type 2 (Table 40): a function
+        // without them is refused, as all three reference readers do — before [0 1], 8 and 1 were taken (measured 23.11.2026, M5, 7.10)
         var domain = Numbers(dict.GetArray(PdfName.Get("Domain")));
-        if (domain is null || domain.Length < 2) domain = [0, 1];
+        if (domain is null || domain.Length < 2) return null;
         var range = Numbers(dict.GetArray(PdfName.Get("Range")));
         try
         {
             PdfFunction? function = (int)(dict.GetInteger(PdfName.Get("FunctionType")) ?? -1) switch
             {
                 0 when obj is PdfStream s && range is not null => SampledFunction.Create(dict, doc.GetStreamData(s), domain, range, doc.ReserveFunctionSamples),
-                2 => new ExponentialFunction(dict, domain, range),
+                2 when dict.GetNumber(PdfName.N) is not null => new ExponentialFunction(dict, domain, range),
                 3 => StitchingFunction.Create(dict, doc, domain, range, depth),
                 4 when obj is PdfStream s && range is not null => PostScriptFunction.Create(doc.GetStreamData(s), domain, range),
                 _ => null,
@@ -287,7 +289,8 @@ internal sealed class SampledFunction : PdfFunction
         // a real where an integer belongs rounded, as every other integer entry (S-A A69, PdfDictionary.GetInteger) — before, /Size was cut off
         // and [2.6] took two samples where a reader that draws it takes three (docs/FEHLERGEDAECHTNIS.md, No. 905)
         var size = (Numbers(dict.GetArray(PdfName.Size)) ?? []).Select(v => Math.Max(1, (int)Math.Round(v))).ToArray();
-        var bps = (int)(dict.GetInteger(PdfName.Get("BitsPerSample")) ?? 8);
+        if (dict.GetInteger(PdfName.Get("BitsPerSample")) is not { } bitsPerSample) return null;
+        var bps = (int)bitsPerSample;
         if (size.Length != inputs || outputs == 0 || bps is not (1 or 2 or 4 or 8 or 12 or 16 or 24 or 32)) return null;
         var encode = Numbers(dict.GetArray(PdfName.Get("Encode"))) ?? size.SelectMany(s => new[] { 0.0, s - 1.0 }).ToArray();
         var decode = Numbers(dict.GetArray(PdfName.Get("Decode"))) ?? range;
@@ -519,7 +522,7 @@ internal sealed class SampledFunction : PdfFunction
 }
 
 /// <summary>Type 4: small PostScript calculator (ISO 32000-2, 7.10.5) — arithmetic, comparisons, if/ifelse, stack operators.</summary>
-internal sealed class PostScriptFunction : PdfFunction
+internal sealed partial class PostScriptFunction : PdfFunction
 {
     private enum Op : byte
     {
@@ -544,6 +547,14 @@ internal sealed class PostScriptFunction : PdfFunction
         return needs;
     }
 
+    /// <summary>The operators a program may name (Table 42), by their names; the internal jumps have none.</summary>
+    private static readonly Dictionary<string, Op> Names = Enum.GetValues<Op>()
+        .Where(o => o is not (Op.Push or Op.If or Op.IfElse or Op.Jump or Op.JumpIfFalse))
+        .ToDictionary(o => o.ToString().ToLowerInvariant(), StringComparer.Ordinal);
+
+    [System.Text.RegularExpressions.GeneratedRegex("%[^\r\n]*")]
+    private static partial System.Text.RegularExpressions.Regex Comment();
+
     private readonly Op[] _code;
     private readonly double[] _values;
     private readonly int _outputs;
@@ -560,6 +571,9 @@ internal sealed class PostScriptFunction : PdfFunction
     public static PostScriptFunction? Create(byte[] program, double[] domain, double[] range)
     {
         var text = System.Text.Encoding.Latin1.GetString(program);
+        // a comment runs from % to the end of its line (7.10.5.1, PostScript syntax): read as white space — before the function was refused for
+        // the unknown character (M5, 7.10.5.1, 23.11.2026)
+        text = Comment().Replace(text, " ");
         var tokens = text.Replace("{", " { ").Replace("}", " } ").Split((char[])[' ', '\n', '\r', '\t', '\f', '\0'], StringSplitOptions.RemoveEmptyEntries);
         var pos = 0;
         if (tokens.Length == 0 || tokens[pos++] != "{") return null;
@@ -613,8 +627,9 @@ internal sealed class PostScriptFunction : PdfFunction
                 values.Add(number);
                 continue;
             }
-            if (!Enum.TryParse<Op>(t, ignoreCase: true, out var op) || op is Op.Push or Op.If or Op.IfElse or Op.Jump or Op.JumpIfFalse)
-                return false;
+            // the operator names of Table 42 exactly, in small letters: before any case and comma lists were taken („Index,Jump“ gave an
+            // undefined operator; M5, 7.10.5.2, 23.11.2026)
+            if (!Names.TryGetValue(t, out var op)) return false;
             code.Add(op);
             values.Add(0);
         }
@@ -637,12 +652,14 @@ internal sealed class PostScriptFunction : PdfFunction
         }
         Span<double> stack = stackalloc double[StackSize];
         Span<double> tmp = stackalloc double[StackSize];
+        Span<bool> logical = stackalloc bool[StackSize];
+        Span<bool> logicalTmp = stackalloc bool[StackSize];
         var sp = 0;
         foreach (var v in input) stack[sp++] = v;
 
         try
         {
-            Run(stack, tmp, ref sp);
+            Run(stack, tmp, logical, logicalTmp, ref sp);
         }
         catch (IndexOutOfRangeException)
         {
@@ -656,7 +673,12 @@ internal sealed class PostScriptFunction : PdfFunction
             output[i] = sp - _outputs + i >= 0 ? stack[sp - _outputs + i] : 0;
     }
 
-    private void Run(Span<double> stack, Span<double> tmp, ref int sp)
+    /// <summary>
+    /// Runs the program. <paramref name="logical"/> marks the entries that are booleans (from a comparison, true or false): and, or, xor and not
+    /// work logically on booleans and bitwise on integers (Table 42) — before 0 and 1 counted as booleans whatever they were, and „1 not“ gave 0
+    /// instead of −2 (M5, 7.10.5.2, 23.11.2026). Every other operator leaves a number.
+    /// </summary>
+    private void Run(Span<double> stack, Span<double> tmp, Span<bool> logical, Span<bool> logicalTmp, ref int sp)
     {
         for (var ip = 0; ip < _code.Length; ip++)
         {
@@ -665,9 +687,11 @@ internal sealed class PostScriptFunction : PdfFunction
             if (sp >= StackSize && _code[ip] is Op.Push or Op.True or Op.False or Op.Dup) break;
             if (sp < Needs[(int)_code[ip]]) return;   // underflow (crafted files): stop instead of running into an IndexOutOfRangeException
             double a, b;
-            switch (_code[ip])
+            bool both;
+            var op = _code[ip];
+            switch (op)
             {
-                case Op.Push: stack[sp++] = _values[ip]; break;
+                case Op.Push: stack[sp] = _values[ip]; logical[sp++] = false; continue;
                 case Op.Abs: stack[sp - 1] = Math.Abs(stack[sp - 1]); break;
                 case Op.Add: b = stack[--sp]; stack[sp - 1] += b; break;
                 case Op.Atan:
@@ -693,52 +717,74 @@ internal sealed class PostScriptFunction : PdfFunction
                 case Op.Sqrt: stack[sp - 1] = Math.Sqrt(stack[sp - 1]); break;
                 case Op.Sub: b = stack[--sp]; stack[sp - 1] -= b; break;
                 case Op.Truncate: stack[sp - 1] = Math.Truncate(stack[sp - 1]); break;
-                case Op.And: b = stack[--sp]; stack[sp - 1] = (long)stack[sp - 1] & (long)b; break;
-                case Op.Or: b = stack[--sp]; stack[sp - 1] = (long)stack[sp - 1] | (long)b; break;
-                case Op.Xor: b = stack[--sp]; stack[sp - 1] = (long)stack[sp - 1] ^ (long)b; break;
-                case Op.Not: stack[sp - 1] = stack[sp - 1] is 0 or 1 ? 1 - stack[sp - 1] : ~(long)stack[sp - 1]; break;
+                case Op.And or Op.Or or Op.Xor:
+                    both = logical[sp - 1] && logical[sp - 2];
+                    var y = (long)stack[--sp];
+                    var x = (long)stack[sp - 1];
+                    stack[sp - 1] = op switch { Op.And => x & y, Op.Or => x | y, _ => x ^ y };
+                    logical[sp - 1] = both;
+                    continue;
+                case Op.Not:
+                    stack[sp - 1] = logical[sp - 1] ? (stack[sp - 1] == 0 ? 1 : 0) : ~(long)stack[sp - 1];
+                    continue;
                 case Op.Bitshift:
                     b = stack[--sp];
                     stack[sp - 1] = b >= 0 ? (long)stack[sp - 1] << (int)b : (long)stack[sp - 1] >> (int)-b;
                     break;
-                case Op.Eq: b = stack[--sp]; stack[sp - 1] = stack[sp - 1] == b ? 1 : 0; break;
-                case Op.Ne: b = stack[--sp]; stack[sp - 1] = stack[sp - 1] != b ? 1 : 0; break;
-                case Op.Ge: b = stack[--sp]; stack[sp - 1] = stack[sp - 1] >= b ? 1 : 0; break;
-                case Op.Gt: b = stack[--sp]; stack[sp - 1] = stack[sp - 1] > b ? 1 : 0; break;
-                case Op.Le: b = stack[--sp]; stack[sp - 1] = stack[sp - 1] <= b ? 1 : 0; break;
-                case Op.Lt: b = stack[--sp]; stack[sp - 1] = stack[sp - 1] < b ? 1 : 0; break;
-                case Op.True: stack[sp++] = 1; break;
-                case Op.False: stack[sp++] = 0; break;
-                case Op.Dup: stack[sp] = stack[sp - 1]; sp++; break;
-                case Op.Exch: (stack[sp - 1], stack[sp - 2]) = (stack[sp - 2], stack[sp - 1]); break;
-                case Op.Pop: sp--; break;
+                case Op.Eq: b = stack[--sp]; stack[sp - 1] = stack[sp - 1] == b ? 1 : 0; logical[sp - 1] = true; continue;
+                case Op.Ne: b = stack[--sp]; stack[sp - 1] = stack[sp - 1] != b ? 1 : 0; logical[sp - 1] = true; continue;
+                case Op.Ge: b = stack[--sp]; stack[sp - 1] = stack[sp - 1] >= b ? 1 : 0; logical[sp - 1] = true; continue;
+                case Op.Gt: b = stack[--sp]; stack[sp - 1] = stack[sp - 1] > b ? 1 : 0; logical[sp - 1] = true; continue;
+                case Op.Le: b = stack[--sp]; stack[sp - 1] = stack[sp - 1] <= b ? 1 : 0; logical[sp - 1] = true; continue;
+                case Op.Lt: b = stack[--sp]; stack[sp - 1] = stack[sp - 1] < b ? 1 : 0; logical[sp - 1] = true; continue;
+                case Op.True: stack[sp] = 1; logical[sp++] = true; continue;
+                case Op.False: stack[sp] = 0; logical[sp++] = true; continue;
+                case Op.Dup: stack[sp] = stack[sp - 1]; logical[sp] = logical[sp - 1]; sp++; continue;
+                case Op.Exch:
+                    (stack[sp - 1], stack[sp - 2]) = (stack[sp - 2], stack[sp - 1]);
+                    (logical[sp - 1], logical[sp - 2]) = (logical[sp - 2], logical[sp - 1]);
+                    continue;
+                case Op.Pop: sp--; continue;
                 case Op.Copy:
                     var n = (int)stack[--sp];
                     if (n < 0 || n > sp || sp + n > StackSize) return;
-                    for (var i = 0; i < n; i++) stack[sp + i] = stack[sp - n + i];
+                    for (var i = 0; i < n; i++)
+                    {
+                        stack[sp + i] = stack[sp - n + i];
+                        logical[sp + i] = logical[sp - n + i];
+                    }
                     sp += n;
-                    break;
+                    continue;
                 case Op.Index:
                     var k = (int)stack[sp - 1];
                     if (k < 0 || k >= sp - 1) return;
                     stack[sp - 1] = stack[sp - 2 - k];
-                    break;
+                    logical[sp - 1] = logical[sp - 2 - k];
+                    continue;
                 case Op.Roll:
                     var j = (int)stack[--sp];
                     var count = (int)stack[--sp];
-                    if (count <= 0 || count > sp) break;
+                    if (count <= 0 || count > sp) continue;
                     j = ((j % count) + count) % count;
                     var slice = stack.Slice(sp - count, count);
-                    for (var i = 0; i < count; i++) tmp[(i + j) % count] = slice[i];
+                    var flags = logical.Slice(sp - count, count);
+                    for (var i = 0; i < count; i++)
+                    {
+                        tmp[(i + j) % count] = slice[i];
+                        logicalTmp[(i + j) % count] = flags[i];
+                    }
                     tmp[..count].CopyTo(slice);
-                    break;
+                    logicalTmp[..count].CopyTo(flags);
+                    continue;
                 case Op.JumpIfFalse:
                     if (stack[--sp] == 0) ip = (int)_values[ip] - 1;
-                    break;
+                    continue;
                 case Op.Jump:
                     ip = (int)_values[ip] - 1;
-                    break;
+                    continue;
             }
+            // an arithmetic operator: its result is a number
+            if (sp > 0) logical[sp - 1] = false;
             if (sp < 0) return;
         }
     }

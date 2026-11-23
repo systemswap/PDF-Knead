@@ -65,6 +65,15 @@ public sealed partial class DocumentViewModel
     public bool HasRestrictions => Document.Security is not null && !RestrictionsLifted && FilePermissions != PdfPermissions.All;
 
     /// <summary>
+    /// Whether the file has an owner password that was not given — also when it permits everything: then nothing is locked, but without
+    /// „Einschränkungen entfernen“ the password could never be removed, since changing the protection needs it (CanChangeProtection).
+    /// </summary>
+    public bool HasPermissionPassword => Document.Security is { IsOwner: false } && !RestrictionsLifted;
+
+    /// <summary>Whether „Einschränkungen entfernen“ has something to do: restrictions, or an owner password that was not given.</summary>
+    public bool CanLiftRestrictions => HasRestrictions || HasPermissionPassword;
+
+    /// <summary>
     /// Protection may be changed if the file was opened without encryption or with the owner password, or the restrictions have been
     /// removed; having all permissions with the open password is not enough (otherwise the open password could be dropped silently).
     /// </summary>
@@ -132,7 +141,8 @@ public sealed partial class DocumentViewModel
         RestrictionsLifted = true;
         foreach (var name in new[]
                  {
-                     nameof(HasAllRights), nameof(RestrictionsLifted), nameof(HasRestrictions), nameof(CanChangeProtection),
+                     nameof(HasAllRights), nameof(RestrictionsLifted), nameof(HasRestrictions), nameof(HasPermissionPassword),
+                     nameof(CanLiftRestrictions), nameof(CanChangeProtection),
                      nameof(CanEditPages), nameof(CanEditElements), nameof(CanFillForms), nameof(CopyAllowed), nameof(Properties),
                      nameof(Rights), nameof(RightsNote),
                  })

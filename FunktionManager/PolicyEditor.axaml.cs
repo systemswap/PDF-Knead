@@ -56,10 +56,12 @@ public sealed partial class PolicyEditor : UserControl
         OrganizationBox.Text = policy.Organization;
         UsageBox.SelectedIndex = Math.Max(0, Array.FindIndex(Usages, u => u.Usage == policy.Usage));
         _updating = true;
-        foreach (var (id, box) in _boxes) box.IsChecked = policy.Allows(id);
+        // a part is ticked as its own entry says (its parent may be off: then it is only greyed)
+        foreach (var (id, box) in _boxes) box.IsChecked = !policy.Denied.Contains(id);
         _updating = false;
         // ids of a later version: kept as they are when saving again
         _unknown = policy.Denied.Where(id => !_boxes.ContainsKey(id)).ToHashSet(StringComparer.Ordinal);
+        RefreshParts();
         RefreshHeaders();
     }
 
@@ -82,16 +84,20 @@ public sealed partial class PolicyEditor : UserControl
             header.Click += (_, _) => SetAll(functions, header.IsChecked == true);
             _headers.Add((header, functions));
             list.Children.Add(header);
-            if (functions.Length > 1)
+            // every function its own box under the tab (decided on 22.11.2026: „Programm“ alone did not say that it switches the donation
+            // window); only a tab whose one function is the whole tab (Formular: „Alle Funktionen“, an id ending in „.all“) is switched by its heading
+            if (!HeadingIsSwitch(functions))
                 foreach (var function in functions)
                 {
+                    // a part of another function stands indented under it and can be set only while that one is allowed
                     var box = new CheckBox
                     {
                         Content = new TextBlock { Text = function.Name, TextWrapping = Avalonia.Media.TextWrapping.Wrap },
-                        IsChecked = true, MinHeight = 24, Margin = new Thickness(18, 0, 0, 0),
+                        IsChecked = true, MinHeight = 24, Margin = new Thickness(function.Parent is null ? 18 : 40, 0, 0, 0),
                     };
                     box.IsCheckedChanged += (_, _) =>
                     {
+                        RefreshParts();
                         if (!_updating) RefreshHeaders();
                     };
                     _boxes[function.Id] = box;
@@ -104,6 +110,9 @@ public sealed partial class PolicyEditor : UserControl
         }
     }
 
+    /// <summary>Whether the tab heading itself is the switch: a tab whose one function stands for the whole tab (Formular).</summary>
+    private static bool HeadingIsSwitch(PolicyFunction[] functions) => functions is [{ Id: var id }] && id.EndsWith(".all", StringComparison.Ordinal);
+
     private void SetAll(IEnumerable<PolicyFunction> functions, bool allowed)
     {
         _updating = true;
@@ -112,11 +121,19 @@ public sealed partial class PolicyEditor : UserControl
         RefreshHeaders();
     }
 
+    /// <summary>A part of a function (<see cref="PolicyFunction.Parent"/>) can be set only while its parent is ticked.</summary>
+    private void RefreshParts()
+    {
+        foreach (var function in PolicyCatalog.All)
+            if (function.Parent is { } parent && _boxes.TryGetValue(function.Id, out var box) && _boxes.TryGetValue(parent, out var parentBox))
+                box.IsEnabled = parentBox.IsChecked == true;
+    }
+
     private void RefreshHeaders()
     {
         foreach (var (header, functions) in _headers)
         {
-            if (functions.Length == 1) continue;
+            if (HeadingIsSwitch(functions)) continue;
             var allowed = functions.Count(f => _boxes[f.Id].IsChecked == true);
             header.IsChecked = allowed == functions.Length ? true : allowed == 0 ? false : null;
         }

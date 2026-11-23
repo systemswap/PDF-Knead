@@ -124,6 +124,9 @@ public sealed class PdfDocument : IPdfResolver, IDisposable
                 SetUpSecurity(password);
             }
             if (Catalog is null) throw new PdfException(Tr.T("Die Datei enthält keinen lesbaren Dokumentkatalog."));
+            // a version newer than PDF 2.0, the newest PDF-Knead knows: the user is warned that parts may not be shown, and reading goes on
+            // (ISO 32000-2, I.2, sentences 10 and 11; docs/FEHLERGEDAECHTNIS.md, No. 998)
+            if (NewerThanKnown(Version)) AddProblem(Tr.T("Die Datei nennt PDF {0}, eine neuere Fassung als 2.0; Teile, die PDF-Knead nicht kennt, zeigt es vielleicht nicht an.", Version));
         }
         catch
         {
@@ -228,6 +231,12 @@ public sealed class PdfDocument : IPdfResolver, IDisposable
     /// <summary>Effective version: the higher of the header version and /Version in the catalogue (for incremental updates).</summary>
     public string Version =>
         Catalog?.GetName(PdfName.Version)?.Value is { } v && CompareVersions(v, HeaderVersion) > 0 ? v : HeaderVersion;
+
+    /// <summary>Whether a version is a number above 2.0, the newest version PDF-Knead knows (ISO 32000-2, I.2).</summary>
+    /// <param name="version">The version, as in the header or the catalogue's /Version.</param>
+    /// <returns>True for „2.1“ and later; false for 2.0 and below and for anything that is no version number.</returns>
+    internal static bool NewerThanKnown(string version) =>
+        Writing.PdfWriter.VersionParts(version) is { } parts && parts.CompareTo((2, 0)) > 0;
 
     /// <summary>The trailer dictionary.</summary>
     public PdfDictionary Trailer => _xref.Trailer;
@@ -610,11 +619,7 @@ public sealed class PdfDocument : IPdfResolver, IDisposable
             if (!_problems.Contains(problem)) _problems.Add(problem);
     }
 
-    private static int CompareVersions(string a, string b) =>
-        double.TryParse(a, System.Globalization.CultureInfo.InvariantCulture, out var x) &&
-        double.TryParse(b, System.Globalization.CultureInfo.InvariantCulture, out var y)
-            ? x.CompareTo(y)
-            : string.CompareOrdinal(a, b);
+    private static int CompareVersions(string a, string b) => Writing.PdfWriter.CompareVersions(a, b);
 
     // ------------------------------------------------------------ Objects
 
@@ -632,6 +637,9 @@ public sealed class PdfDocument : IPdfResolver, IDisposable
     /// rebuild of the cross-references.</remarks>
     public PdfObject GetObject(int number)
     {
+        // object numbers are positive (ISO 32000-2, 7.3.10); object 0 heads the free list and is no object, even where a file defines
+        // „0 0 obj“ or its table lists 0 as in use — none of the reference readers takes it (docs/FEHLERGEDAECHTNIS.md, No. 1008)
+        if (number <= 0) return PdfNull.Instance;
         if (_cache.TryGetValue(number, out var cached)) return cached;
         // Add the object streams to the table once. Other threads wait until this is finished; otherwise they would
         // read the table while it is still being filled and cache "missing".

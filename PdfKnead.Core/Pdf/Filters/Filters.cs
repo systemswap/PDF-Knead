@@ -142,8 +142,8 @@ public static class StreamFilters
     /// <returns>The rented buffer with the data.</returns>
     internal static PooledBytes ReadPooled(Stream decoder, int estimate, ref bool truncated, bool operationIsDamage = false)
     {
-        var pool = System.Buffers.ArrayPool<byte>.Shared;
-        var buffer = pool.Rent(Math.Clamp(estimate, 4096, 64 << 20));
+        // large buffers are allocated and counted, not rented (docs/FEHLERGEDAECHTNIS.md, No. 1003)
+        var buffer = DecodedMemory.Rent(Math.Clamp(estimate, 4096, 64 << 20), out var pooled);
         var length = 0;
         try
         {
@@ -152,10 +152,10 @@ public static class StreamFilters
                 if (length == buffer.Length)
                 {
                     CheckSize((long)buffer.Length * 2);
-                    var bigger = pool.Rent((int)Math.Min((long)buffer.Length * 2, Array.MaxLength));
+                    var bigger = DecodedMemory.Rent((int)Math.Min((long)buffer.Length * 2, Array.MaxLength), out var biggerPooled);
                     buffer.AsSpan(0, length).CopyTo(bigger);
-                    pool.Return(buffer);
-                    buffer = bigger;
+                    DecodedMemory.Return(buffer, pooled);
+                    (buffer, pooled) = (bigger, biggerPooled);
                 }
                 var read = decoder.Read(buffer, length, buffer.Length - length);
                 if (read == 0) break;
@@ -166,7 +166,12 @@ public static class StreamFilters
         {
             truncated = true;
         }
-        return new PooledBytes(buffer, length, pooled: true);
+        catch
+        {
+            DecodedMemory.Return(buffer, pooled);   // above a limit: before, the rented buffer was not given back
+            throw;
+        }
+        return new PooledBytes(buffer, length, pooled);
     }
 
     /// <summary>Throws if the output grows beyond the limit; then it is almost certainly a decompression bomb.</summary>
@@ -228,7 +233,9 @@ internal static class Flate
         var estimate = sizeHint > 0
             ? (int)Math.Min(Math.Min(sizeHint, (long)(data.Length - skip) * 1032 + 1024), 64L << 20)
             : (int)Math.Clamp((long)(data.Length - skip) * 4, 256, 64L << 20);
-        var buffer = new byte[estimate];
+        // large buffers counted until collected (docs/FEHLERGEDAECHTNIS.md, No. 1003): the old one while it is copied, the one handed out as
+        // long as its receiver keeps it
+        var buffer = DecodedMemory.Allocate(estimate);
         var length = 0;
         var complete = true;
         try
@@ -243,7 +250,7 @@ internal static class Flate
                     var probe = deflate.ReadByte();
                     if (probe < 0) break;
                     StreamFilters.CheckSize((long)buffer.Length * 2);
-                    Array.Resize(ref buffer, (int)Math.Min((long)buffer.Length * 2, Array.MaxLength));
+                    buffer = DecodedMemory.Resize(buffer, length, (int)Math.Min((long)buffer.Length * 2, Array.MaxLength));
                     buffer[length++] = (byte)probe;
                 }
                 var read = deflate.Read(buffer, length, buffer.Length - length);
@@ -256,7 +263,7 @@ internal static class Flate
             // Damaged or truncated: keep what was decoded so far (as common PDF readers do)
             complete = false;
         }
-        if (length != buffer.Length) Array.Resize(ref buffer, length);
+        if (length != buffer.Length) buffer = DecodedMemory.Resize(buffer, length, length);
         return (buffer, complete);
     }
 
@@ -385,7 +392,8 @@ internal static class Lzw
 {
     public static byte[] Decode(byte[] data, int earlyChange, ref bool truncated)
     {
-        var output = new MemoryStream(data.Length * 3);
+        // counted while the output grows (docs/FEHLERGEDAECHTNIS.md, No. 1003)
+        var output = new DecodedWriter(data.Length * 3, PdfLimits.MaxDecodedStreamBytes);
         var prefix = new int[4096];
         var suffix = new byte[4096];
         var length = new int[4096];
@@ -469,7 +477,7 @@ internal static class Lzw
         return output.ToArray();
     }
 
-    private static byte WriteEntry(int code, int[] prefix, byte[] suffix, int[] length, byte[] stack, MemoryStream output)
+    private static byte WriteEntry(int code, int[] prefix, byte[] suffix, int[] length, byte[] stack, DecodedWriter output)
     {
         var n = length[code];
         for (var i = n - 1; i >= 0; i--)
@@ -597,7 +605,8 @@ internal static class RunLength
     /// <summary>Decodes; a run that reaches beyond the data is damage (No. 797); the end without the code 128 is common and no damage.</summary>
     public static byte[] Decode(byte[] data, ref bool truncated)
     {
-        var output = new MemoryStream(data.Length * 2);
+        // counted while the output grows (docs/FEHLERGEDAECHTNIS.md, No. 1003)
+        var output = new DecodedWriter(data.Length * 2, PdfLimits.MaxDecodedStreamBytes);
         var i = 0;
         while (i < data.Length)
         {
@@ -629,10 +638,8 @@ internal static class Predictor
     public static int InputSize(int outputSize, PdfDictionary? parms)
     {
         if (outputSize <= 0) return 0;
-        if (Of(parms).Kind != 10) return outputSize;
-        var colors = Math.Clamp((int)(parms!.GetInteger(PdfName.Get("Colors")) ?? 1), 1, 32);
-        var bits = Math.Clamp((int)(parms.GetInteger(PdfName.Get("BitsPerComponent")) ?? 8), 1, 16);
-        var columns = Math.Clamp((int)(parms.GetInteger(PdfName.Get("Columns")) ?? 1), 1, 1 << 24);
+        if (Of(parms).Kind != 10 || Parameters(parms) is not { Valid: true } p) return outputSize;
+        var (colors, bits, columns) = (p.Colors, p.Bits, p.Columns);
         var rowLength = (int)(((long)colors * bits * columns + 7) / 8);
         var rows = outputSize / Math.Max(1, rowLength);
         return (int)Math.Min(int.MaxValue / 2, (long)rows * (rowLength + 1));
@@ -655,41 +662,70 @@ internal static class Predictor
             _ => (1, false),
         };
 
+    /// <summary>The largest /Colors read (a bound against malicious files: the pixel of a predictor holds colors × bits bits).</summary>
+    internal const int MaxColors = 4096;
+
+    /// <summary>
+    /// /Colors, /BitsPerComponent and /Columns of a predictor, as ISO 32000-2, 7.4.4.3, Table 8 gives them: Colors 1 or greater (since PDF 1.3;
+    /// before, 1 to 4), default 1; BitsPerComponent 1, 2, 4, 8 or 16, default 8; Columns 1 or greater, default 1. Valid only within those
+    /// ranges (and Colors up to <see cref="MaxColors"/>, Columns up to 2^24). Before, the values were clamped without a note: Colors to 32
+    /// — a valid stream of 33 or more colours decoded wrongly — and BitsPerComponent to 1–16, so 3 or 12 passed (docs/FEHLERGEDAECHTNIS.md,
+    /// No. 1007; the reference readers: only one decodes 33 colours, none reads 3 or 12 bits, and they disagree on Colors 0 — S-A A117).
+    /// </summary>
+    internal static (int Colors, int Bits, int Columns, bool Valid) Parameters(PdfDictionary? parms)
+    {
+        var colors = parms?.GetInteger(PdfName.Get("Colors")) ?? 1;
+        var bits = parms?.GetInteger(PdfName.Get("BitsPerComponent")) ?? 8;
+        var columns = parms?.GetInteger(PdfName.Get("Columns")) ?? 1;
+        var valid = colors is >= 1 and <= MaxColors && bits is 1 or 2 or 4 or 8 or 16 && columns is >= 1 and <= 1 << 24;
+        return valid ? ((int)colors, (int)bits, (int)columns, true) : (1, 8, 1, false);
+    }
+
     public static byte[] Apply(byte[] data, PdfDictionary? parms, ref bool truncated)
     {
         var (predictor, valid) = Of(parms);
         if (!valid) truncated = true;
         if (predictor == 1) return data;
+        // a value of Table 8 out of its range: the data as they are, damaged — the rule of /Predictor (No. 938) for the other entries too
+        if (Parameters(parms) is not { Valid: true } p)
+        {
+            truncated = true;
+            return data;
+        }
 
-        var colors = Math.Clamp((int)(parms!.GetInteger(PdfName.Get("Colors")) ?? 1), 1, 32);
-        var bits = Math.Clamp((int)(parms.GetInteger(PdfName.Get("BitsPerComponent")) ?? 8), 1, 16);
-        var columns = Math.Clamp((int)(parms.GetInteger(PdfName.Get("Columns")) ?? 1), 1, 1 << 24);
+        var (colors, bits, columns) = (p.Colors, p.Bits, p.Columns);
         var bytesPerPixel = Math.Max(1, (colors * bits + 7) / 8);
         var rowLength = (int)(((long)colors * bits * columns + 7) / 8);
 
-        return predictor == 2 ? Tiff(data, rowLength, colors, bits, columns) : Png(data, rowLength, bytesPerPixel);
+        return predictor == 2 ? Tiff(data, rowLength, colors, bits, columns) : Png(data, rowLength, bytesPerPixel, ref truncated);
     }
 
-    private static byte[] Png(byte[] data, int rowLength, int bpp)
+    private static byte[] Png(byte[] data, int rowLength, int bpp, ref bool truncated)
     {
         var rows = data.Length / (rowLength + 1);
         // Not a single whole row: allocate nothing (otherwise /Columns from the file could request row buffers of up to 1 GB)
         if (rows == 0) return [];
-        var output = new byte[rows * rowLength];
+        var output = DecodedMemory.Allocate(rows * rowLength);   // counted (No. 1003); every byte is written below
         var previous = new byte[rowLength];
         for (var r = 0; r < rows; r++)
         {
             var src = r * (rowLength + 1);
             var row = output.AsSpan(r * rowLength, rowLength);
             data.AsSpan(src + 1, rowLength).CopyTo(row);
-            PngRow(data[src], row, previous, bpp);
+            if (!PngRow(data[src], row, previous, bpp)) truncated = true;
             row.CopyTo(previous);
         }
         return output;
     }
 
-    /// <summary>Reverses the filter of one PNG-filtered row (also used for reading large images row by row).</summary>
-    public static void PngRow(int type, Span<byte> row, ReadOnlySpan<byte> previous, int bpp)
+    /// <summary>
+    /// Reverses the filter of one PNG-filtered row (also used for reading large images row by row). Table 9 (ISO 32000-2, 7.4.4.4) and RFC 2083
+    /// know the tags 0 to 4; another tag leaves the row as it is, as two of the reference readers read it, and is reported as damage (before,
+    /// read as None without a note — the rule of No. 938 and 1007 for every value the tables do not assign; docs/FEHLERGEDAECHTNIS.md,
+    /// No. 1009, S-A A118).
+    /// </summary>
+    /// <returns>Whether the tag is one of the five.</returns>
+    public static bool PngRow(int type, Span<byte> row, ReadOnlySpan<byte> previous, int bpp)
     {
         var rowLength = row.Length;
         switch (type)
@@ -713,6 +749,7 @@ internal static class Predictor
                 }
                 break;
         }
+        return type is >= 0 and <= 4;
     }
 
     /// <summary>
@@ -781,6 +818,152 @@ public readonly struct PooledBytes(byte[] array, int length, bool pooled) : IDis
 }
 
 /// <summary>
+/// Large decoded buffers, counted across the process against <see cref="PdfLimits.MaxDecodedBytesHeld"/> from their allocation until the
+/// collector has taken them (docs/FEHLERGEDAECHTNIS.md, No. 1003). Before, only each stream was bounded: the decoded content of nested forms
+/// (a reader of forms holds every level while it reads the next), of page parts put together, of the buffers a decoder doubles and of several
+/// documents at once added up without a bound, and large buffers went back into the shared array pool, which kept them after the page — a file
+/// of 1 MB with one stream at the limit took up to 8.5 GB while drawn, printed and saved, and a process limited to 3.5 GB ran out of memory.
+/// Counted until collected, not until a holder lets go: that is the memory they take. Where the count would pass the bound, one compacting
+/// collection finds what is no longer held (and closes the gaps between large buffers); what is still held then refuses the new one. Where the
+/// runtime finds no room although the count allows it (other memory of the program, gaps), the same: one compacting collection, then the
+/// refusal instead of running out of memory.
+/// </summary>
+internal static class DecodedMemory
+{
+    private static readonly Lock Gate = new();
+    private static readonly List<(WeakReference<byte[]> Buffer, long Bytes)> Tracked = [];
+    private static long _counted;
+    private static int _added;
+
+    /// <summary>From this size on, a buffer is counted, and allocated on its own instead of rented: the pool would keep it after use.</summary>
+    internal static long Threshold => Math.Min(16L << 20, PdfLimits.MaxDecodedBytesHeld / 8);
+
+    /// <summary>Bytes in large decoded buffers not yet found collected.</summary>
+    internal static long Held
+    {
+        get
+        {
+            lock (Gate)
+            {
+                Prune();
+                return _counted;
+            }
+        }
+    }
+
+    /// <summary>A new array of <paramref name="size"/> bytes for decoded data; from <see cref="Threshold"/> on counted (contents undefined).</summary>
+    /// <exception cref="PdfLimitException">Even after a collection, more would be held than <see cref="PdfLimits.MaxDecodedBytesHeld"/>, or the
+    /// runtime has no room for it.</exception>
+    internal static byte[] Allocate(int size)
+    {
+        if (size < Threshold) return new byte[size];
+        var limit = PdfLimits.MaxDecodedBytesHeld;
+        for (var collected = false; ; collected = true)
+        {
+            lock (Gate)
+            {
+                if (_counted + size > limit) Prune();
+                if (_counted + size <= limit)
+                {
+                    try
+                    {
+                        var buffer = GC.AllocateUninitializedArray<byte>(size);
+                        Tracked.Add((new WeakReference<byte[]>(buffer), size));
+                        _counted += size;
+                        if (++_added >= 64) Prune();
+                        return buffer;
+                    }
+                    catch (OutOfMemoryException) when (!collected)
+                    {
+                        // no room, although the count allows it: collected below, then once more
+                    }
+                    catch (OutOfMemoryException)
+                    {
+                        throw new PdfLimitException(Tr.T("Zu viele entpackte Daten auf einmal (über {0} MB) — abgebrochen.", limit >> 20));
+                    }
+                }
+            }
+            if (collected) throw new PdfLimitException(Tr.T("Zu viele entpackte Daten auf einmal (über {0} MB) — abgebrochen.", limit >> 20));
+            System.Runtime.GCSettings.LargeObjectHeapCompactionMode = System.Runtime.GCLargeObjectHeapCompactionMode.CompactOnce;
+            GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true, compacting: true);
+        }
+    }
+
+    /// <summary>The first <paramref name="length"/> bytes of <paramref name="buffer"/> in a new array of <paramref name="size"/> bytes.</summary>
+    internal static byte[] Resize(byte[] buffer, int length, int size)
+    {
+        var bigger = Allocate(size);
+        buffer.AsSpan(0, length).CopyTo(bigger);
+        return bigger;
+    }
+
+    /// <summary>A buffer of at least <paramref name="size"/> bytes: rented below <see cref="Threshold"/>, else allocated and counted.</summary>
+    internal static byte[] Rent(int size, out bool pooled)
+    {
+        pooled = size < Threshold;
+        return pooled ? System.Buffers.ArrayPool<byte>.Shared.Rent(size) : Allocate(size);
+    }
+
+    /// <summary>Gives a buffer from <see cref="Rent"/> back to the pool where it came from there.</summary>
+    internal static void Return(byte[] buffer, bool pooled)
+    {
+        if (pooled) System.Buffers.ArrayPool<byte>.Shared.Return(buffer);
+    }
+
+    private static void Prune()
+    {
+        _added = 0;
+        Tracked.RemoveAll(entry =>
+        {
+            if (entry.Buffer.TryGetTarget(out _)) return false;
+            _counted -= entry.Bytes;
+            return true;
+        });
+    }
+}
+
+/// <summary>Decoded bytes written one after another into a buffer that grows; its large steps are counted (<see cref="DecodedMemory"/>).</summary>
+/// <param name="capacity">The first size (at most 64 MB).</param>
+/// <param name="bound">The most the writer has to hold before its user refuses (a limit checked after each write): the buffer grows by doubling,
+/// but not beyond this and one byte — a page content bounded to 743 MB doubled from 512 MB to 1 GB before.</param>
+internal sealed class DecodedWriter(long capacity, long bound)
+{
+    private byte[] _buffer = DecodedMemory.Allocate((int)Math.Clamp(capacity, 256, 64L << 20));
+
+    /// <summary>Number of bytes written.</summary>
+    public int Length { get; private set; }
+
+    /// <summary>Writes bytes.</summary>
+    public void Write(ReadOnlySpan<byte> bytes)
+    {
+        Ensure(bytes.Length);
+        bytes.CopyTo(_buffer.AsSpan(Length));
+        Length += bytes.Length;
+    }
+
+    /// <summary>Writes <paramref name="count"/> bytes of <paramref name="data"/> from <paramref name="offset"/>.</summary>
+    public void Write(byte[] data, int offset, int count) => Write(data.AsSpan(offset, count));
+
+    /// <summary>Writes one byte.</summary>
+    public void WriteByte(byte value)
+    {
+        Ensure(1);
+        _buffer[Length++] = value;
+    }
+
+    private void Ensure(int more)
+    {
+        if ((long)Length + more <= _buffer.Length) return;
+        var size = Math.Min(Math.Max(Math.Min((long)_buffer.Length * 2, bound + 1), (long)Length + more), Array.MaxLength);
+        if (size < (long)Length + more) throw new PdfLimitException(Tr.T("Ein Stream wird entpackt größer als {0} MB — abgebrochen.", PdfLimits.MaxDecodedStreamBytes >> 20));
+        _buffer = DecodedMemory.Resize(_buffer, Length, (int)size);
+    }
+
+    /// <summary>The bytes written, in an array of their length.</summary>
+    public byte[] ToArray() => Length == _buffer.Length ? _buffer : DecodedMemory.Resize(_buffer, Length, Length);
+}
+
+/// <summary>
 /// BrotliDecode, an extension of the PDF Association (August 2026), via the .NET base class library. Like <see cref="Flate"/>: damaged
 /// data is decoded as far as possible, and the size is limited (decompression bombs).
 /// </summary>
@@ -796,7 +979,8 @@ internal static class Brotli
 
     public static byte[] Decode(byte[] data, ref bool truncated, int sizeHint = 0)
     {
-        var buffer = new byte[sizeHint > 0 ? Math.Min(sizeHint, 64 << 20) : (int)Math.Clamp((long)data.Length * 4, 256, 64L << 20)];
+        // counted until collected, as Flate (docs/FEHLERGEDAECHTNIS.md, No. 1003)
+        var buffer = DecodedMemory.Allocate(sizeHint > 0 ? Math.Min(sizeHint, 64 << 20) : (int)Math.Clamp((long)data.Length * 4, 256, 64L << 20));
         var length = 0;
         try
         {
@@ -809,7 +993,7 @@ internal static class Brotli
                     var probe = brotli.ReadByte();
                     if (probe < 0) break;
                     StreamFilters.CheckSize((long)buffer.Length * 2);
-                    Array.Resize(ref buffer, (int)Math.Min((long)buffer.Length * 2, Array.MaxLength));
+                    buffer = DecodedMemory.Resize(buffer, length, (int)Math.Min((long)buffer.Length * 2, Array.MaxLength));
                     buffer[length++] = (byte)probe;
                 }
                 var read = brotli.Read(buffer, length, buffer.Length - length);
@@ -822,7 +1006,7 @@ internal static class Brotli
         {
             truncated = true;
         }
-        if (length != buffer.Length) Array.Resize(ref buffer, length);
+        if (length != buffer.Length) buffer = DecodedMemory.Resize(buffer, length, length);
         return buffer;
     }
 

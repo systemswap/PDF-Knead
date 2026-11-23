@@ -406,7 +406,14 @@ public static partial class PdfACheck
                             // an image mask paints with the fill colour
                             else if (xobject.Dictionary.GetBoolean(PdfName.Get("ImageMask")) == true) Paints(state, true, false);
                             else if (xobject.Dictionary.GetName(PdfName.Subtype)?.Value == "Image" && xobject.Dictionary.GetBoolean(PdfName.Get("ImageMask")) != true)
-                                ColorSpace(xobject.Dictionary.Get(PdfName.Get("ColorSpace")), resources, 0);
+                            {
+                                if (xobject.Dictionary.Get(PdfName.Get("ColorSpace")) is null or PdfNull && StreamFilters.Chain(xobject.Dictionary).Any(f => f.Name == "JPXDecode"))
+                                {
+                                    // a JPEG 2000 image with the colour of its data: an enumerated space counts as the device space (FG 995)
+                                    if (PdfAJpeg2000.DeviceSpace(JpxData(xobject)) is { } device) Device(device, resources);
+                                }
+                                else ColorSpace(xobject.Dictionary.Get(PdfName.Get("ColorSpace")), resources, 0);
+                            }
                             // an image with a soft mask is transparency on the page (6.2.10)
                             if (xobject.Dictionary.ContainsKey(PdfName.Get("SMask")) || xobject.Dictionary.GetInteger(PdfName.Get("SMaskInData")) is > 0) _transparency = true;
                         }

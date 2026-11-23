@@ -62,6 +62,10 @@ public sealed record ImageMetadata
     /// <summary>JPEG 2000: enumerated colour space from the file (values of the standard: 16 sRGB, 17 greyscale, 18 sYCC, 12 CMYK, 14 Lab).</summary>
     public int? JpxColor { get; init; }
 
+    /// <summary>JPEG 2000: what the Reader Requirements box asks for to understand the file completely and PDF-Knead lacks (codes of
+    /// ISO/IEC 15444-2, Table M.14, see <c>JpxRequirements.NotUnderstood</c>); null without such a box or when nothing is missing.</summary>
+    public int[]? JpxNotUnderstood { get; init; }
+
     private const int MaxText = 120;
     private const int MaxXmp = 1 << 20;
     private const int MaxIcc = 4 << 20;
@@ -298,12 +302,17 @@ public sealed record ImageMetadata
             return Clean(Encoding.Latin1.GetString(span));
         }
 
-        /// <summary>Returns value number <paramref name="index"/> of an entry (SHORT, LONG or RATIONAL).</summary>
+        /// <summary>
+        /// Returns value number <paramref name="index"/> of an entry: BYTE, SHORT or LONG — the types TIFF 6.0, section 2 asks readers to
+        /// accept for unsigned integers (BYTE before not, FG 989) — or RATIONAL.
+        /// </summary>
         public double? Number((int Type, int Count, int Value) t, int index)
         {
             if (index >= t.Count) return null;
             switch (t.Type)
             {
+                case 1:
+                    return t.Value + index < data.Length ? data[t.Value + index] : null;
                 case 3:
                     return U16(t.Value + 2 * index);
                 case 4:
@@ -443,14 +452,24 @@ public sealed record ImageMetadata
                 header = 16;
             }
             else if (length == 0) length = data.Length - at;
-            if (length < header || at + length > data.Length) return;
+            // compared without adding: an XLBox near 2^63 made at + length run over, the position jumped back and Slice threw (M2, T.800 I.4, 23.11.2026)
+            if (length < header || length > data.Length - at) return;
             var body = data.Slice(at + header, (int)length - header);
             switch (type)
             {
                 case "jp2h" or "res ":
                     Boxes(body, depth + 1, ref result);
                     break;
-                case "colr" when body.Length >= 3:
+                // the Reader Requirements box at the top level (ISO/IEC 15444-2, M.11.1): the comparison with the Fully Understand Aspects mask
+                // (M.6.3; decided on 23.11.2026)
+                case "rreq" when depth == 0 && result.JpxNotUnderstood is null:
+                    var copy = body.ToArray();
+                    if (Pdf.Filters.Jpx.JpxRequirements.NotUnderstood(copy, 0, copy.Length) is { Length: > 0 } open)
+                        result = result with { JpxNotUnderstood = open };
+                    break;
+                // the first colour specification counts (ITU-T T.800, I.5.3.3 sentence 17); before every further enumerated one replaced it
+                // (docs/FEHLERGEDAECHTNIS.md, No. 982)
+                case "colr" when body.Length >= 3 && result.JpxColor is null && result.IccProfile is null:
                     if (body[0] == 1 && body.Length >= 7)
                         result = result with
                         {

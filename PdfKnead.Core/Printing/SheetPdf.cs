@@ -136,7 +136,15 @@ public static class SheetPdf
         private readonly List<long> _offsets = [-1, -1];   // 1 = catalogue, 2 = page tree
         private readonly Dictionary<(PdfDocument, int), int> _map = [];
         private readonly Dictionary<PdfDocument, PdfSerializer.ReferenceMap> _mappers = new(ReferenceEqualityComparer.Instance);
-        private readonly Queue<(PdfDocument Doc, int Number)> _pending = new();
+        private readonly Queue<(PdfDocument Doc, int Number, PdfDictionary? Inherit)> _pending = new();
+
+        /// <summary>
+        /// The resources of the source page whose objects are being copied: a form, tiling pattern or Type 3 font without resources of its own
+        /// takes them from the page it is used on (ISO 32000-2, 7.8.3, sentence 18; docs/FEHLERGEDAECHTNIS.md, No. 791). On the sheet the page
+        /// is a form itself, and the page around it is the sheet: such an object gets the resources of its source page written in (No. 1005).
+        /// An object several pages share takes those of the first.
+        /// </summary>
+        private PdfDictionary? _inherit;
         private readonly ByteBuffer _buffer = new(1 << 12);
         private long _position;
 
@@ -263,7 +271,7 @@ public static class SheetPdf
             while (_pending.TryDequeue(out var next))
             {
                 cancel.ThrowIfCancellationRequested();
-                CopyObject(next.Doc, next.Number);
+                CopyObject(next.Doc, next.Number, next.Inherit);
             }
         }
 
@@ -285,6 +293,21 @@ public static class SheetPdf
             if (page.Resources is { } resources) dict.Set(PdfName.Resources, resources);
             if (page.Dictionary.GetRaw(Group) is { } group) dict.Set(Group, group);
             var number = NewObject();
+            var outer = _inherit;
+            _inherit = page.Resources;
+            try
+            {
+                WritePageForm(doc, page, number, dict);
+            }
+            finally
+            {
+                _inherit = outer;
+            }
+            return number;
+        }
+
+        private void WritePageForm(PdfDocument doc, PdfPage page, int number, PdfDictionary dict)
+        {
 
             if (page.Dictionary.Get(PdfName.Contents) is PdfStream single && RawCopyable(doc, single))
             {
@@ -293,7 +316,7 @@ public static class SheetPdf
                 if (single.Dictionary.GetRaw(PdfName.DecodeParms) is { } parms) dict.Set(PdfName.DecodeParms, parms);
                 dict.Set(PdfName.Length, PdfInteger.Of(raw.Length));
                 WriteStream(number, dict, raw, doc);
-                return number;
+                return;
             }
 
             using var data = new MemoryStream();
@@ -319,23 +342,56 @@ public static class SheetPdf
             dict.Set(PdfName.Filter, FlateDecode);
             dict.Set(PdfName.Length, PdfInteger.Of(data.Length));
             WriteStream(number, dict, data.GetBuffer().AsSpan(0, (int)data.Length), doc);
-            return number;
         }
 
-        /// <summary>A raw copy is possible if there is no Crypt filter in the chain and the data lies in the file (no /F).</summary>
+        /// <summary>
+        /// A raw copy is possible if there is no Crypt filter in the chain and the data lies in the file (no /F). Asked for the entry itself: a
+        /// missing entry reads as the null object, never as null — before, the test was never true, every stream of a printed sheet was
+        /// decoded and written without filters, and an image in an image format (JPEG, JPEG 2000, JBIG2) lost the name of its format and
+        /// came out as noise (docs/FEHLERGEDAECHTNIS.md, No. 1004).
+        /// </summary>
         private static bool RawCopyable(PdfDocument doc, PdfStream stream) =>
-            stream.Dictionary.Get(PdfName.F) is null && !StreamFilters.Chain(stream.Dictionary).Any(f => f.Name == "Crypt");
+            stream.Dictionary.GetRaw(PdfName.F) is null && !StreamFilters.Chain(stream.Dictionary).Any(f => f.Name == "Crypt");
 
         /// <summary>Writes an object of a source under its new number; streams with their compressed data.</summary>
+        /// <param name="inherit">The resources of the page the object came from (<see cref="_inherit"/>).</param>
+        private void CopyObject(PdfDocument doc, int number, PdfDictionary? inherit)
+        {
+            var outer = _inherit;
+            _inherit = inherit;
+            try
+            {
+                CopyObject(doc, number);
+            }
+            finally
+            {
+                _inherit = outer;
+            }
+        }
+
+        /// <summary>Whether the object takes the resources of the page it is used on where it has none (<see cref="_inherit"/>).</summary>
+        private static bool Inherits(PdfDictionary dict) =>
+            dict.GetRaw(PdfName.Resources) is null
+            && (dict.GetName(PdfName.Subtype)?.Value is "Form" or "Type3" || dict.GetInteger(PdfName.Get("PatternType")) == 1);
+
         private void CopyObject(PdfDocument doc, int number)
         {
             var target = _map[(doc, number)];
             var obj = doc.GetObject(number);
+            if (obj is PdfDictionary { } plain && _inherit is not null && Inherits(plain))
+            {
+                // a Type 3 font without resources: its glyphs draw with those of the page (No. 1005)
+                var copy = new PdfDictionary(plain.Count + 1);
+                foreach (var (key, value) in plain.Entries) copy.Set(key, value);
+                copy.Set(PdfName.Resources, _inherit);
+                obj = copy;
+            }
             if (obj is PdfStream stream)
             {
                 var dict = new PdfDictionary(stream.Dictionary.Count);
                 foreach (var (key, value) in stream.Dictionary.Entries)
                     if (key != PdfName.Length) dict.Set(key, value);
+                if (_inherit is not null && Inherits(stream.Dictionary)) dict.Set(PdfName.Resources, _inherit);   // No. 1005
                 if (RawCopyable(doc, stream) && doc.IsStoredPlain(stream))
                 {
                     // Directly from the memory-mapped file without a copy (otherwise each image would be copied in full into memory)
@@ -347,10 +403,17 @@ public static class SheetPdf
                 var raw = doc.GetRawStreamData(stream);
                 if (!RawCopyable(doc, stream))
                 {
-                    // Crypt filter or external data: written decoded, without a filter chain
-                    raw = doc.GetStreamData(stream);
+                    // Crypt filter or external data: written decoded, without the filters decoded; an image format the chain ends with stays,
+                    // with its parameters (No. 1004)
+                    var decoded = doc.DecodeStream(stream);
+                    raw = decoded.Data;
                     dict.Remove(PdfName.Filter);
                     dict.Remove(PdfName.DecodeParms);
+                    if (decoded.ImageFilter is { } format)
+                    {
+                        dict.Set(PdfName.Filter, format);
+                        if (decoded.ImageParms is { } parms) dict.Set(PdfName.DecodeParms, parms);
+                    }
                 }
                 dict.Set(PdfName.Length, PdfInteger.Of(raw.Length));
                 WriteStream(target, dict, raw, doc);
@@ -381,7 +444,7 @@ public static class SheetPdf
                 return _map[(doc, id.Number)] = 0;
             var number = NewObject(reserveOnly: true);
             _map[(doc, id.Number)] = number;
-            _pending.Enqueue((doc, id.Number));
+            _pending.Enqueue((doc, id.Number, _inherit));
             return number;
         }
 

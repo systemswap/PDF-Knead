@@ -69,6 +69,7 @@ internal static class WiaImage
             {
                 throw Unknown();
             }
+            if (png.Damaged) throw Unknown();   // read past an error: a page with wrong pixels is not taken (FG 1013)
             return FromRgba(png, dpi, gray);
         }
         throw Unknown();

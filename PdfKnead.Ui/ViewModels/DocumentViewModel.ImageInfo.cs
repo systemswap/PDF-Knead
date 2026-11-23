@@ -204,7 +204,8 @@ public sealed partial class DocumentViewModel
             }
             using var use = Renderer.Use(item.Source);
             if (use is null || image.Source is null) return null;
-            return ImageExport.Write(item.Source, image.Source, output, openMask);
+            // the drawn size gives the resolution of a file that notes one (TIFF, FG 1019)
+            return ImageExport.Write(item.Source, image.Source, output, openMask, (image.Info.WidthPoints, image.Info.HeightPoints));
         }));
     }
 

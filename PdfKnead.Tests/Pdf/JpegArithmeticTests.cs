@@ -90,6 +90,74 @@ public sealed class JpegArithmeticTests
     }
 
     /// <summary>
+    /// T.81, A.1.1 Sätze 1–10, A.2.1, A.2.2 Satz 2, A.2.3: each component has xi = ⌈X·Hi/Hmax⌉ columns and yi = ⌈Y·Vi/Vmax⌉ lines; a scan
+    /// of one component covers its own ⌈xi/8⌉ × ⌈yi/8⌉ blocks, whatever its sampling factors, while an interleaved MCU holds Hk × Vk blocks
+    /// of each component, left to right and top to bottom. Own values with factors where the rounding counts (Hmax = 3, so 2/3 and 1/3 of the
+    /// width; Y odd): X = 50, Y = 33, factors 1 × 2, 3 × 1, 2 × 1 → components 17 × 33, 50 × 17, 34 × 17, i.e. 3 × 5, 7 × 3 and 5 × 3 blocks
+    /// alone, inside the MCU grid of 3 × 3 MCUs (3 × 6, 9 × 3, 6 × 3 blocks). Rounded down instead, the first component would have 16 columns
+    /// and 2 blocks. The same coefficients once in one interleaved scan, once progressive with every scan of a single component: the same
+    /// samples only if the decoder reads exactly these blocks in both orders.
+    /// </summary>
+    [Fact]
+    public void ComponentSizes_RoundedUp_InterleavedAndAloneTheSame()
+    {
+        const int width = 50, height = 33;
+        byte[][] quant = [W.Quant(2), W.Quant(4)];
+        (int H, int V)[] factors = [(1, 2), (3, 1), (2, 1)];
+        const int mcusWide = 3, mcusHigh = 3;
+        var comps = factors.Select((f, i) =>
+        {
+            // blocks over the grid of whole MCUs, from a single-component image of exactly that many blocks
+            var blocks = W.Components(mcusWide * f.H * 8, mcusHigh * f.V * 8, 1, 1, 1, [quant[Math.Min(i, 1)]])[0].Blocks;
+            return new W.Component(i + 1, f.H, f.V, Math.Min(i, 1), Math.Min(i, 1), Math.Min(i, 1), blocks);
+        }).ToArray();
+        // the block counts of A.1.1 worked out by hand above
+        Assert.Equal([(3, 5), (7, 3), (5, 3)], factors.Select(f => ((width * f.H + 2) / 3 + 7) / 8).Zip(factors.Select(f => ((height * f.V + 1) / 2 + 7) / 8)));
+
+        var interleaved = JpegDecoder.Decode(W.Write(width, height, comps, quant));
+        W.Scan[] alone = [.. Enumerable.Range(0, 3).Select(c => new W.Scan([c], 0, 0, 0, 0)),
+            .. Enumerable.Range(0, 3).Select(c => new W.Scan([c], 1, 63, 0, 0))];
+        var single = JpegDecoder.Decode(W.Write(width, height, comps, quant, alone));
+        Assert.False(interleaved.Damaged);
+        Assert.False(single.Damaged);
+        Assert.Equal((width, height), (single.Width, single.Height));
+        Assert.Equal(interleaved.Samples, single.Samples);
+    }
+
+    /// <summary>
+    /// T.81, A.3.2 Sätze 1–3, A.3.6 (Figure A.6): the zig-zag order runs along the anti-diagonals of the block, the odd ones downwards from
+    /// the top row, the even ones upwards — built here by that walk and compared with the decoder's table; and the orientation of the block
+    /// holds in the decoder too: coefficient 1 of the zig-zag order is the first horizontal frequency (every line the same, the columns
+    /// differ), coefficient 2 the first vertical one (every column the same, the lines differ).
+    /// </summary>
+    [Fact]
+    public void ZigZag_AsFigureA6_OrientationOfTheBlock()
+    {
+        var walk = new List<int>();
+        for (var d = 0; d < 15; d++)
+            for (var i = 0; i < 8; i++)
+            {
+                var row = d % 2 == 1 ? i : d - i;
+                var column = d - row;
+                if (row is >= 0 and < 8 && column is >= 0 and < 8) walk.Add(row * 8 + column);
+            }
+        Assert.Equal(walk, JpegEntropy.ZigZag.Select(p => (int)p));
+
+        byte[][] quant = [W.Quant(2)];
+        foreach (var (k, horizontal) in new[] { (1, true), (2, false) })
+        {
+            var zz = new short[64];
+            zz[k] = 37;
+            var image = JpegDecoder.Decode(W.Write(8, 8, [new W.Component(1, 1, 1, 0, 0, 0, [[zz]])], quant));
+            byte At(int y, int x) => image.Samples[y * 8 + x];
+            for (var y = 0; y < 8; y++)
+                for (var x = 0; x < 8; x++)
+                    Assert.Equal(horizontal ? At(0, x) : At(y, 0), At(y, x));
+            Assert.True(horizontal ? At(0, 0) > At(0, 7) : At(0, 0) > At(7, 0));
+        }
+    }
+
+    /// <summary>
     /// A progressive script with every kind of scan in the order T.81, G.1.1.1.1 requires: DC first with point transform 1 (interleaved),
     /// AC bands 1–5 and 6–63 with point transform 2, a refinement of the AC coefficients to bit 1, the DC refinement, the last AC refinement.
     /// </summary>

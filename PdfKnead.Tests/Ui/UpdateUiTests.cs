@@ -93,8 +93,9 @@ public sealed class UpdateUiTests
                 vm.LaterUpdateCommand.Execute(null);
                 UiSession.Capture(window);
                 Assert.False(bar.IsVisible);
-                // the settings: the card with the switch
+                // the settings: the card with the switch, in the tab „Updates und Datenschutz“
                 vm.ShowBackstageCommand.Execute(BackstagePage.Settings);
+                SettingsTabsUiTests.Select(window, "UpdateSettingsTab");
                 UiSession.Capture(window);
                 Assert.Single(window.GetVisualDescendants().OfType<CheckBox>(), c => c.Name == "UpdateCheckOption");
             }

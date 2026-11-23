@@ -588,20 +588,25 @@ public static class PdfATagging
             case PdfStream single:
                 return doc.DecodeStream(single).Data;
             case PdfArray parts:
-                var all = new MemoryStream();
-                for (var i = 0; i < parts.Count && i < 10_000; i++)
+                // bounded together as one stream (docs/FEHLERGEDAECHTNIS.md, No. 1002), counted while joined (No. 1003)
                 {
-                    if (parts.Get(i) is not PdfStream part) continue;
-                    try
+                    var all = new PdfKnead.Core.Pdf.Content.ContentJoiner(parts.Count);
+                    for (var i = 0; i < parts.Count && i < 10_000; i++)
                     {
-                        all.Write(doc.DecodeStream(part).Data);
+                        if (parts.Get(i) is not PdfStream part) continue;
+                        byte[] data;
+                        try
+                        {
+                            data = doc.DecodeStream(part).Data;
+                        }
+                        catch (PdfException)
+                        {
+                            data = [];
+                        }
+                        all.Add(data);
                     }
-                    catch (PdfException)
-                    {
-                    }
-                    all.WriteByte((byte)'\n');
+                    return all.ToArray();
                 }
-                return all.ToArray();
             default:
                 return [];
         }

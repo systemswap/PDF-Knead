@@ -1001,10 +1001,13 @@ internal static class PdfARuleCases
     /// A linearized file (its first object the linearization dictionary, /L its length) whose first-page trailer has another /ID than the
     /// last.
     /// </summary>
-    private static byte[] Linearized()
+    private static byte[] Linearized() => LinearizedAfter("");
+
+    /// <summary>The linearized file of the case „FileIdLinearized“ with <paramref name="padding"/> (a comment) before its first object.</summary>
+    internal static byte[] LinearizedAfter(string padding)
     {
         var objects = Page();
-        objects[0] = objects[0] with { Before = "\n5 0 obj\n<</Linearized 1/L 0000000000/N 1/T 900/O 3/E 800/H[0 0]>>\nendobj\nxref\n0 0\ntrailer\n" +
+        objects[0] = objects[0] with { Before = padding + "\n5 0 obj\n<</Linearized 1/L 0000000000/N 1/T 900/O 3/E 800/H[0 0]>>\nendobj\nxref\n0 0\ntrailer\n" +
                                                   "<</Size 6/ID[<AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA><AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA>]>>\nstartxref\n0\n%%EOF\n" };
         var file = Raw(objects);
         Encoding.ASCII.GetBytes($"{file.Length:D10}").CopyTo(file, Encoding.Latin1.GetString(file).IndexOf("/L 0000000000", StringComparison.Ordinal) + 3);

@@ -145,7 +145,8 @@ public sealed class IncrementalUpdateTests
 
     /// <summary>
     /// From a cross-reference stream only the trailer entries go on, not the keys of the stream (/W, /Index, /Filter …), which would describe
-    /// the old stream; no /XRefStm, no /AuthCode (a MAC is valid only for its revision, ISO/TS 32004, 6.5), no /DocChecksum.
+    /// the old stream (the new stream has its own, /Filter only /FlateDecode); no /XRefStm, no /AuthCode (a MAC is valid only for its revision,
+    /// ISO/TS 32004, 6.5), no /DocChecksum.
     /// </summary>
     [Fact]
     public void Trailer_XRefStream_KeepsCustomKeys_WithoutStreamKeys()
@@ -164,7 +165,9 @@ public sealed class IncrementalUpdateTests
         Assert.DoesNotContain("/XRefStm", added);
         Assert.DoesNotContain("/AuthCode", added);
         Assert.DoesNotContain("/DocChecksum", added);
-        Assert.DoesNotContain("/Filter", added);
+        // only the new stream's own filter: Flate since 21.11.2026 (ISO 32000-2, 7.5.8.4; docs/FEHLERGEDAECHTNIS.md, No. 1001)
+        Assert.Single(System.Text.RegularExpressions.Regex.Matches(added, @"/Filter\s*/FlateDecode"));
+        Assert.Single(System.Text.RegularExpressions.Regex.Matches(added, @"/Filter\b"));
         using var reopened = PdfDocument.Open(updated);
         Assert.False(reopened.WasRepaired);
         Assert.Equal("Neuer Titel", Title(reopened));

@@ -8,20 +8,57 @@ internal static class JpxWavelet
 {
     private const int Pad = 4;
 
-    private const float Alpha = -1.586134342059924f, Beta = -0.052980118572961f, Gamma = 0.882911075530934f, Delta = 0.443506852043971f;
-    private const float K = 1.230174104914001f, InvK = 1 / K;
+    internal const float Alpha = -1.586134342059924f, Beta = -0.052980118572961f, Gamma = 0.882911075530934f, Delta = 0.443506852043971f;
+    internal const float K = 1.230174104914001f, InvK = 1 / K;
 
     /// <summary>Columns are processed in strips of this width: whole rows of the strip at once (cache, vectors).</summary>
     private const int Strip = 32;
 
-    /// <summary>Applies the inverse wavelet transform to a tile-component up to resolution <see cref="JpxTileComponent.Keep"/>, in place.</summary>
+    /// <summary>
+    /// Applies the inverse wavelet transform to a tile-component up to resolution <see cref="JpxTileComponent.Keep"/>, in place: in single
+    /// precision, or in double precision where the tile-component has the exact store (<see cref="JpxTileComponent.Exact"/>).
+    /// </summary>
     public static void Inverse(JpxTileComponent tc)
+    {
+        if (tc.Exact is { } exact) Inverse<double, ExactLifting>(tc, exact);
+        else Inverse<float, SingleLifting>(tc, tc.Data);
+    }
+
+    /// <summary>The lifting of one row and of one strip of columns, for the sample type of a store.</summary>
+    private interface ILifting<T>
+    {
+        static abstract void Row(T[] x, int n, int odd, bool reversible);
+        static abstract void Strip(T[] b, int n, int s, int odd, bool reversible);
+    }
+
+    private readonly struct SingleLifting : ILifting<float>
+    {
+        public static void Row(float[] x, int n, int odd, bool reversible) => Lift(x, n, odd, reversible);
+        public static void Strip(float[] b, int n, int s, int odd, bool reversible) => LiftStrip(b, n, s, odd, reversible);
+    }
+
+    /// <summary>Only reversible tile-components have the exact store (<see cref="JpxTile.NeedsExact"/>): 5-3 in double precision.</summary>
+    private readonly struct ExactLifting : ILifting<double>
+    {
+        public static void Row(double[] x, int n, int odd, bool reversible)
+        {
+            System.Diagnostics.Debug.Assert(reversible);
+            Lift53(x, n, odd);
+        }
+
+        public static void Strip(double[] b, int n, int s, int odd, bool reversible)
+        {
+            System.Diagnostics.Debug.Assert(reversible);
+            LiftStrip53(b, n, s, odd);
+        }
+    }
+
+    private static void Inverse<T, TLifting>(JpxTileComponent tc, T[] data) where T : struct where TLifting : struct, ILifting<T>
     {
         if (tc.Keep == 0) return;
         var top = tc.Resolutions[tc.Keep];
         var stride = top.Width;
         if (stride == 0 || top.Height == 0) return;
-        var data = tc.Data;
         var reversible = tc.Coding.Reversible;
         for (var r = 1; r <= tc.Keep; r++)
         {
@@ -33,9 +70,9 @@ internal static class JpxWavelet
             var parallel = (long)w * h >= 1 << 16;
 
             // Rows: low-pass on the left (lower.Width), high-pass on the right
-            var oddX = res.X0 & 1;
+            var oddX = (int)(res.X0 & 1);
             var lowWidth = lower.Width;
-            Chunks(h, 16, parallel, () => new float[w + 2 * Pad], (from, to, line) =>
+            Chunks(h, 16, parallel, () => new T[w + 2 * Pad], (from, to, line) =>
             {
                 for (var y = from; y < to; y++)
                 {
@@ -45,15 +82,15 @@ internal static class JpxWavelet
                         var low = ((oddX + j) & 1) == 0;
                         line[Pad + j] = data[row + (low ? j >> 1 : lowWidth + (j >> 1))];
                     }
-                    Lift(line, w, oddX, reversible);
+                    TLifting.Row(line, w, oddX, reversible);
                     Array.Copy(line, Pad, data, row, w);
                 }
             });
 
             // Columns in strips: low-pass at the top (lower.Height), high-pass at the bottom
-            var oddY = res.Y0 & 1;
+            var oddY = (int)(res.Y0 & 1);
             var lowHeight = lower.Height;
-            Chunks((w + Strip - 1) / Strip, 1, parallel, () => new float[(h + 2 * Pad) * Strip], (from, to, buffer) =>
+            Chunks((w + Strip - 1) / Strip, 1, parallel, () => new T[(h + 2 * Pad) * Strip], (from, to, buffer) =>
             {
                 for (var strip = from; strip < to; strip++)
                 {
@@ -64,7 +101,7 @@ internal static class JpxWavelet
                         var low = ((oddY + j) & 1) == 0;
                         Array.Copy(data, (low ? j >> 1 : lowHeight + (j >> 1)) * stride + x0, buffer, (Pad + j) * Strip, s);
                     }
-                    LiftStrip(buffer, h, s, oddY, reversible);
+                    TLifting.Strip(buffer, h, s, oddY, reversible);
                     for (var j = 0; j < h; j++) Array.Copy(buffer, (Pad + j) * Strip, data, j * stride + x0, s);
                 }
             });
@@ -72,7 +109,7 @@ internal static class JpxWavelet
     }
 
     /// <summary>Runs over [0, count) in pieces of <paramref name="chunk"/>, distributed over the cores; one buffer per thread.</summary>
-    private static void Chunks(int count, int chunk, bool parallel, Func<float[]> buffer, Action<int, int, float[]> body)
+    private static void Chunks<T>(int count, int chunk, bool parallel, Func<T[]> buffer, Action<int, int, T[]> body)
     {
         if (!parallel)
         {
@@ -211,6 +248,71 @@ internal static class JpxWavelet
             x[k] -= factor * (x[k - 1] + x[k + 1]);
     }
 
+    /// <summary>
+    /// <see cref="Lift"/> for the reversible filter in double precision (the exact store): F-5 and F-6 exact for every integer up to 2^53, so
+    /// for the samples of all depths of Table A.11 and their coefficients.
+    /// </summary>
+    internal static void Lift53(double[] x, int n, int odd)
+    {
+        if (n == 1)
+        {
+            // A single high-pass value (ISO/IEC 15444-1, F.3.7)
+            if (odd == 1) x[Pad] = Math.Truncate(x[Pad] / 2);
+            return;
+        }
+        var period = 2 * (n - 1);
+        for (var k = 1; k <= Pad; k++)
+        {
+            x[Pad - k] = x[Pad + Mirror(-k, n, period)];
+            x[Pad + n - 1 + k] = x[Pad + Mirror(n - 1 + k, n, period)];
+        }
+        var length = n + 2 * Pad;
+        var lowStart = (odd + Pad) & 1;
+        var highStart = 1 - lowStart;
+        for (var k = lowStart == 0 ? 2 : 1; k < length - 1; k += 2)
+            x[k] -= Math.Floor((x[k - 1] + x[k + 1] + 2) * 0.25);
+        for (var k = highStart == 0 ? 2 : 1; k < length - 1; k += 2)
+            x[k] += Math.Floor((x[k - 1] + x[k + 1]) * 0.5);
+    }
+
+    /// <summary><see cref="LiftStrip"/> for the reversible filter in double precision (the exact store).</summary>
+    private static void LiftStrip53(double[] b, int n, int s, int odd)
+    {
+        if (n == 1)
+        {
+            if (odd == 1)
+                for (var c = 0; c < s; c++) b[Pad * Strip + c] = Math.Truncate(b[Pad * Strip + c] / 2);
+            return;
+        }
+        var period = 2 * (n - 1);
+        for (var k = 1; k <= Pad; k++)
+        {
+            Array.Copy(b, (Pad + Mirror(-k, n, period)) * Strip, b, (Pad - k) * Strip, s);
+            Array.Copy(b, (Pad + Mirror(n - 1 + k, n, period)) * Strip, b, (Pad + n - 1 + k) * Strip, s);
+        }
+        var length = n + 2 * Pad;
+        for (var k = odd == 0 ? 2 : 1; k < length - 1; k += 2) RowStep53(b, k, s, low: true);
+        for (var k = odd == 0 ? 1 : 2; k < length - 1; k += 2) RowStep53(b, k, s, low: false);
+    }
+
+    /// <summary><see cref="RowStep53(float[], int, int, bool)"/> in double precision.</summary>
+    private static void RowStep53(double[] b, int k, int s, bool low)
+    {
+        int at = k * Strip, up = at - Strip, down = at + Strip;
+        var c = 0;
+        var v = System.Numerics.Vector<double>.Count;
+        for (; c + v <= s; c += v)
+        {
+            var sum = new System.Numerics.Vector<double>(b, up + c) + new System.Numerics.Vector<double>(b, down + c);
+            var x = new System.Numerics.Vector<double>(b, at + c);
+            x = low ? x - System.Numerics.Vector.Floor((sum + new System.Numerics.Vector<double>(2.0)) * 0.25)
+                    : x + System.Numerics.Vector.Floor(sum * 0.5);
+            x.CopyTo(b, at + c);
+        }
+        for (; c < s; c++)
+            b[at + c] = low ? b[at + c] - Math.Floor((b[up + c] + b[down + c] + 2) * 0.25) : b[at + c] + Math.Floor((b[up + c] + b[down + c]) * 0.5);
+    }
+
     private static int Mirror(int i, int n, int period)
     {
         i %= period;
@@ -240,6 +342,34 @@ internal static class JpxWavelet
             y0[i] = y + 1.402f * cr;
             y1[i] = y - 0.34413f * cb - 0.71414f * cr;
             y2[i] = y + 1.772f * cb;
+        }
+    }
+
+    /// <summary>
+    /// <see cref="InverseColor(float[], float[], float[], int, bool)"/> in double precision, for components with the exact store: the RCT (G-6
+    /// to G-8) exact for every integer up to 2^53.
+    /// </summary>
+    public static void InverseColor(double[] y0, double[] y1, double[] y2, int count, bool reversible)
+    {
+        if (reversible)
+        {
+            for (var i = 0; i < count; i++)
+            {
+                var g = y0[i] - Math.Floor((y2[i] + y1[i]) * 0.25);
+                var r = y2[i] + g;
+                var b = y1[i] + g;
+                y0[i] = r;
+                y1[i] = g;
+                y2[i] = b;
+            }
+            return;
+        }
+        for (var i = 0; i < count; i++)
+        {
+            double y = y0[i], cb = y1[i], cr = y2[i];
+            y0[i] = y + 1.402 * cr;
+            y1[i] = y - 0.34413 * cb - 0.71414 * cr;
+            y2[i] = y + 1.772 * cb;
         }
     }
 }

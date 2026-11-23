@@ -298,8 +298,7 @@ public sealed partial class MainViewModel
             },
             AddArchive = async () =>
             {
-                // a document time stamp is a signature too (LICENSE, section 1 (5): signing with a certificate)
-                if (EnsureLicensed(Core.Licensing.LicensedFeature.CertificateSigning) && await AddArchiveTimestampAsync(doc)) model!.Update(doc.SignatureChecks);
+                if (await AddArchiveTimestampAsync(doc)) model!.Update(doc.SignatureChecks);
             },
             SaveReport = () => SaveValidationReportAsync(doc, model!.Rows.Select(r => r.Check).ToList()),
         };
@@ -871,7 +870,7 @@ public sealed partial class MainViewModel
     private void Measure()
     {
         if (SelectedDocument is null) return;
-        if (Tool != ViewTool.Measure && (!EnsureAllowed("start.measure") || !EnsureLicensed(Core.Licensing.LicensedFeature.Measuring))) return;
+        if (Tool != ViewTool.Measure && !EnsureAllowed("start.measure")) return;
         Tool = Tool == ViewTool.Measure ? ViewTool.SelectText : ViewTool.Measure;
     }
 

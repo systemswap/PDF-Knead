@@ -299,6 +299,13 @@ public static partial class PdfWriter
                         foreach (var (key, walked) in changed) copy.Set(key, walked);
                     }
                     var result = copy ?? dict;
+                    // an object of type Template has no /B (ISO 32000-2, 7.7.3.3, Table 31): a page template of the source that carries one is
+                    // written without it (docs/FEHLERGEDAECHTNIS.md, No. 1058)
+                    if (result.GetRaw(PdfName.Type) is PdfName { Value: "Template" } && result.ContainsKey(BeadsKey))
+                    {
+                        if (ReferenceEquals(result, dict)) result = CloneWithResolver(dict);
+                        result.Remove(BeadsKey);
+                    }
                     // with an embedded file or related files the specification is indirectly referenced (Table 43)
                     return !top && spec && (Present(result, EfKey) || Present(result, RfKey)) ? Lifted(result, source) : result;
                 }
@@ -306,6 +313,9 @@ public static partial class PdfWriter
                     return value;
             }
         }
+
+        /// <summary>The beads of a page (ISO 32000-2, 7.7.3.3, Table 31), which an object of type Template does not have.</summary>
+        private static readonly PdfName BeadsKey = PdfName.Get("B");
 
         private static readonly PdfName FunctionTypeKey = PdfName.Get("FunctionType"), FunctionsKey = PdfName.Get("Functions"),
             BoundsKey = PdfName.Get("Bounds"), EncodeKey = PdfName.Get("Encode"), DomainKey = PdfName.Get("Domain");

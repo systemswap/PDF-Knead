@@ -25,7 +25,7 @@ internal sealed class JpxSegment
 
 internal sealed class JpxCodeBlock
 {
-    public int X0, Y0, X1, Y1;
+    public long X0, Y0, X1, Y1;
     public bool Included;
     public int ZeroPlanes;
     public int Lblock = 3;
@@ -45,7 +45,7 @@ internal sealed class JpxBand
 {
     /// <summary>0 LL, 1 HL, 2 LH, 3 HH.</summary>
     public int Orientation;
-    public int X0, Y0, X1, Y1;
+    public long X0, Y0, X1, Y1;
 
     /// <summary>Precinct and code-block size in the sub-band (powers of two).</summary>
     public int PrecinctWidth, PrecinctHeight, BlockWidth, BlockHeight;
@@ -60,22 +60,27 @@ internal sealed class JpxBand
 
 internal sealed class JpxResolution
 {
-    public int X0, Y0, X1, Y1;
+    /// <summary>The resolution on its own grid; up to 2^32 − 1 like the reference grid (docs/FEHLERGEDAECHTNIS.md, No. 1051).</summary>
+    public long X0, Y0, X1, Y1;
     public int PrecinctWidth, PrecinctHeight;
-    public int PrecinctsX, PrecinctsY, FirstPrecinctX, FirstPrecinctY;
+    public int PrecinctsX, PrecinctsY;
+    public long FirstPrecinctX, FirstPrecinctY;
     public JpxBand[] Bands = [];
     public JpxPrecinctBand?[]?[] Precincts = [];
     public int[] NextLayer = [];
 
-    public int Width => X1 - X0;
-    public int Height => Y1 - Y0;
+    /// <summary>Width and height, at most <see cref="int.MaxValue"/> (larger ones are refused by the area limit before anything is allocated).</summary>
+    public int Width => (int)Math.Min(X1 - X0, int.MaxValue);
+
+    /// <inheritdoc cref="Width"/>
+    public int Height => (int)Math.Min(Y1 - Y0, int.MaxValue);
     public int PrecinctCount => PrecinctsX * PrecinctsY;
 }
 
 internal sealed class JpxTileComponent
 {
     public int Component;
-    public int X0, Y0, X1, Y1;
+    public long X0, Y0, X1, Y1;
     public JpxCoding Coding = null!;
     public JpxQuantization Quantization = null!;
     public int Roi;
@@ -84,8 +89,43 @@ internal sealed class JpxTileComponent
     /// <summary>Highest decoded resolution (less than <see cref="JpxCoding.Levels"/> when decoding at reduced size).</summary>
     public int Keep;
 
-    /// <summary>Coefficients; after the wavelet transform, the samples of resolution <see cref="Keep"/>.</summary>
+    /// <summary>Coefficients; after the wavelet transform, the samples of resolution <see cref="Keep"/>. Empty while <see cref="Exact"/> holds them.</summary>
     public float[] Data = [];
+
+    /// <summary>
+    /// The coefficients and samples in double precision instead of <see cref="Data"/>; null for the single-precision store. Set for a
+    /// reversible tile-component with more than <see cref="MaxSingleBitPlanes"/> magnitude bit-planes: there coefficients, lifting sums and
+    /// samples reach 2^24 and beyond, where a float no longer holds every integer, while the 5-3 transform and the RCT must be exact
+    /// (ISO/IEC 15444-1, F.3.8.1 and G.2). A double holds every integer up to 2^53, far above the 38-bit samples of Table A.11.
+    /// </summary>
+    public double[]? Exact;
+
+    /// <summary>
+    /// The most magnitude bit-planes Mb with which the single-precision store stays exact for the reversible path: coefficients below 2^23,
+    /// the sums of two of them in the lifting steps (F-5, F-6) and in the RCT (G-6) at most 2^24, which a float still holds exactly.
+    /// </summary>
+    public const int MaxSingleBitPlanes = 23;
+
+    /// <summary>Number of samples of the store in use.</summary>
+    public int Length => Exact?.Length ?? Data.Length;
+
+    /// <summary>Bytes of the store in use (for the memory budget).</summary>
+    public long Bytes => Exact is not null ? Exact.Length * 8L : Data.Length * 4L;
+
+    /// <summary>
+    /// Moves the single-precision store into a double-precision one (values unchanged), for a component transform that has to run exact
+    /// together with a component that already needs it; <paramref name="state"/> counts the larger store before it is allocated.
+    /// </summary>
+    public void Widen(JpxDecodeState state)
+    {
+        if (Exact is not null) return;
+        state.Reserve(Data.Length * 8L);
+        var exact = new double[Data.Length];
+        for (var i = 0; i < exact.Length; i++) exact[i] = Data[i];
+        state.Release(Data.Length * 4L);
+        Exact = exact;
+        Data = [];
+    }
 }
 
 /// <summary>
@@ -102,7 +142,10 @@ internal sealed class JpxTile
     private readonly JpxTileData _data;
     private readonly int _reduce;
     private readonly JpxDecodeState _state;
-    private int _tx0, _ty0, _tx1, _ty1;
+
+    /// <summary>The shared limits of the image (also for the component transformation of ISO/IEC 15444-2).</summary>
+    public JpxDecodeState State => _state;
+    private long _tx0, _ty0, _tx1, _ty1;
     private JpxTileComponent[] _components = [];
     private int _layers;
     private int _order;
@@ -121,10 +164,10 @@ internal sealed class JpxTile
         _state = state;
         var p = index % cs.TilesX;
         var q = index / cs.TilesX;
-        _tx0 = (int)Math.Max((long)cs.TileX0 + (long)p * cs.TileWidth, cs.X0);
-        _ty0 = (int)Math.Max((long)cs.TileY0 + (long)q * cs.TileHeight, cs.Y0);
-        _tx1 = (int)Math.Min((long)cs.TileX0 + (long)(p + 1) * cs.TileWidth, cs.X1);
-        _ty1 = (int)Math.Min((long)cs.TileY0 + (long)(q + 1) * cs.TileHeight, cs.Y1);
+        _tx0 = Math.Max(cs.TileX0 + p * cs.TileWidth, cs.X0);
+        _ty0 = Math.Max(cs.TileY0 + q * cs.TileHeight, cs.Y0);
+        _tx1 = Math.Min(cs.TileX0 + (p + 1) * cs.TileWidth, cs.X1);
+        _ty1 = Math.Min(cs.TileY0 + (q + 1) * cs.TileHeight, cs.Y1);
     }
 
     public JpxTileComponent[] Components => _components;
@@ -148,7 +191,7 @@ internal sealed class JpxTile
         foreach (var tc in _components) JpxWavelet.Inverse(tc);
     }
 
-    private void Setup()
+    internal void Setup()
     {
         var main = _cs.Main;
         var tile = _data.Header;
@@ -163,18 +206,19 @@ internal sealed class JpxTile
         for (var c = 0; c < _components.Length; c++)
         {
             var comp = _cs.Components[c];
-            var coding = tile.ComponentCoding[c] ?? tile.Coding ?? main.ComponentCoding[c] ?? main.Coding!;
-            var quant = tile.ComponentQuantization[c] ?? tile.Quantization ?? main.ComponentQuantization[c] ?? main.Quantization!;
+            var coding = JpxHeaderValues.At(tile.ComponentCoding, c, true) ?? tile.Coding ?? main.ComponentCoding[c] ?? main.Coding!;
+            var quant = JpxHeaderValues.At(tile.ComponentQuantization, c, true) ?? tile.Quantization ?? main.ComponentQuantization[c] ?? main.Quantization!;
             var tc = new JpxTileComponent
             {
                 Component = c,
-                X0 = (int)CeilDiv(_tx0, comp.Dx),
-                Y0 = (int)CeilDiv(_ty0, comp.Dy),
-                X1 = (int)CeilDiv(_tx1, comp.Dx),
-                Y1 = (int)CeilDiv(_ty1, comp.Dy),
+                X0 = CeilDiv(_tx0, comp.Dx),
+                Y0 = CeilDiv(_ty0, comp.Dy),
+                X1 = CeilDiv(_tx1, comp.Dx),
+                Y1 = CeilDiv(_ty1, comp.Dy),
                 Coding = coding,
                 Quantization = quant,
-                Roi = Math.Min(30, tile.RoiShift[c] ?? main.RoiShift[c] ?? 0),
+                // SPrgn in its whole range of 0 to 255 (Table A.26): before it was capped at 30 (docs/FEHLERGEDAECHTNIS.md, No. 1052)
+                Roi = JpxHeaderValues.At(tile.RoiShift, c) ?? main.RoiShift[c] ?? 0,
             };
             var levels = coding.Levels;
             tc.Keep = levels - Math.Min(_reduce, levels);
@@ -187,12 +231,34 @@ internal sealed class JpxTile
                 if (precincts > MaxPrecincts) throw new JpxException("JPX: zu viele Bereiche");
             }
             var top = tc.Resolutions[tc.Keep];
-            var size = (long)top.Width * top.Height;
+            var size = (top.X1 - top.X0) * (top.Y1 - top.Y0);
             if (size > Array.MaxLength) throw new JpxException("JPX: Kachel zu groß");
-            _state.Reserve(size * 4);
-            tc.Data = new float[size];
+            if (NeedsExact(tc))
+            {
+                // only where the single-precision store would not be exact: the same memory and time for every other image
+                _state.Reserve(size * 8);
+                tc.Exact = new double[size];
+            }
+            else
+            {
+                _state.Reserve(size * 4);
+                tc.Data = new float[size];
+            }
             _components[c] = tc;
         }
+    }
+
+    /// <summary>
+    /// Whether a tile-component needs the double-precision store: reversible (5-3), and a sub-band of a decoded resolution with more than
+    /// <see cref="JpxTileComponent.MaxSingleBitPlanes"/> magnitude bit-planes.
+    /// </summary>
+    internal static bool NeedsExact(JpxTileComponent tc)
+    {
+        if (!tc.Coding.Reversible) return false;
+        for (var r = 0; r <= tc.Keep; r++)
+            foreach (var band in tc.Resolutions[r].Bands)
+                if (band.MagnitudeBits > JpxTileComponent.MaxSingleBitPlanes) return true;
+        return false;
     }
 
     private JpxResolution BuildResolution(JpxTileComponent tc, JpxComponent comp, int r)
@@ -201,10 +267,10 @@ internal sealed class JpxTile
         var shift = levels - r;
         var res = new JpxResolution
         {
-            X0 = (int)CeilDiv(tc.X0, 1L << shift),
-            Y0 = (int)CeilDiv(tc.Y0, 1L << shift),
-            X1 = (int)CeilDiv(tc.X1, 1L << shift),
-            Y1 = (int)CeilDiv(tc.Y1, 1L << shift),
+            X0 = CeilDiv(tc.X0, 1L << shift),
+            Y0 = CeilDiv(tc.Y0, 1L << shift),
+            X1 = CeilDiv(tc.X1, 1L << shift),
+            Y1 = CeilDiv(tc.Y1, 1L << shift),
             PrecinctWidth = tc.Coding.PrecinctWidth(r),
             PrecinctHeight = tc.Coding.PrecinctHeight(r),
         };
@@ -248,10 +314,10 @@ internal sealed class JpxTile
             long xo = orientation & 1, yo = orientation >> 1;
             var half = 1L << (nb - 1);
             var full = 1L << nb;
-            band.X0 = (int)CeilDiv(tc.X0 - half * xo, full);
-            band.Y0 = (int)CeilDiv(tc.Y0 - half * yo, full);
-            band.X1 = (int)CeilDiv(tc.X1 - half * xo, full);
-            band.Y1 = (int)CeilDiv(tc.Y1 - half * yo, full);
+            band.X0 = CeilDiv(tc.X0 - half * xo, full);
+            band.Y0 = CeilDiv(tc.Y0 - half * yo, full);
+            band.X1 = CeilDiv(tc.X1 - half * xo, full);
+            band.Y1 = CeilDiv(tc.Y1 - half * yo, full);
         }
         band.PrecinctWidth = r == 0 ? res.PrecinctWidth : res.PrecinctWidth - 1;
         band.PrecinctHeight = r == 0 ? res.PrecinctHeight : res.PrecinctHeight - 1;
@@ -268,7 +334,7 @@ internal sealed class JpxTile
 
     // ------------------------------------------------------------ Packets
 
-    private void ReadPackets()
+    internal void ReadPackets()
     {
         // Concatenate the tile-parts; packet headers from PPM/PPT, otherwise in the codestream
         var length = _data.Bodies.Sum(b => (long)(b.End - b.Start));
@@ -282,7 +348,9 @@ internal sealed class JpxTile
         }
         byte[]? headers = null;
         if (_data.PpmChunks.Count > 0) headers = [.. _data.PpmChunks.SelectMany(c => c)];
-        else if (_data.Ppt.Count > 0) headers = [.. _data.Ppt.OrderBy(p => p.Index).SelectMany(p => p.Data)];
+        // Zppt counts within each tile-part header (ISO/IEC 15444-1, A.7.5): the tile-parts in their order, in each its PPT by Zppt — before all
+        // PPT of the tile were ordered by Zppt alone, and with several tile-parts the packet headers were mixed (M2, T.800 A.7.5, 23.11.2026)
+        else if (_data.Ppt.Count > 0) headers = [.. _data.Ppt.OrderBy(p => p.Part).ThenBy(p => p.Index).SelectMany(p => p.Data)];
         if (headers is not null) _headers = new JpxBits(headers, 0, headers.Length);
 
         try
@@ -328,7 +396,8 @@ internal sealed class JpxTile
                     if (!included) continue;
                     if (!block.Included)
                     {
-                        block.ZeroPlanes = band.ZeroPlanes.Value(bits, x, y, 74);
+                        // at most all the bit-planes a code-block can have (JpxBlockDecoder.MaxBitPlanes); before 74, too few with an ROI shift
+                        block.ZeroPlanes = band.ZeroPlanes.Value(bits, x, y, JpxBlockDecoder.MaxBitPlanes);
                         block.Included = true;
                     }
                     var passes = Passes(bits);
@@ -373,7 +442,7 @@ internal sealed class JpxTile
         }
     }
 
-    private static int Passes(JpxBits bits)
+    internal static int Passes(JpxBits bits)
     {
         if (bits.Bit() == 0) return 1;
         if (bits.Bit() == 0) return 2;
@@ -384,7 +453,7 @@ internal sealed class JpxTile
         return 37 + bits.Bits(7);
     }
 
-    private static int MaxPasses(int style, List<JpxSegment> segments)
+    internal static int MaxPasses(int style, List<JpxSegment> segments)
     {
         if ((style & JpxBlockDecoder.TerminateAll) != 0) return 1;
         if ((style & JpxBlockDecoder.Bypass) != 0)
@@ -392,15 +461,18 @@ internal sealed class JpxTile
             if (segments.Count == 0) return 10;
             return segments[^1].MaxPasses is 1 or 10 ? 2 : 1;
         }
-        return 109;
+        // all coding passes of a code-block in one segment: 3 · Mb − 2 = 109 without an ROI shift (B.10.7.1, note), up to 874 with one — before
+        // the limit was 109, and a code-block with more passes was split into a second segment with a new MQ decoder (docs/FEHLERGEDAECHTNIS.md,
+        // No. 1052)
+        return JpxBlockDecoder.MaxCodingPasses;
     }
 
     private static int FloorLog2(int v) => 31 - int.LeadingZeroCount(v);
 
     private JpxPrecinctBand?[] BuildPrecinct(JpxResolution res, int index)
     {
-        var kx = (long)res.FirstPrecinctX + index % res.PrecinctsX;
-        var ky = (long)res.FirstPrecinctY + index / res.PrecinctsX;
+        var kx = res.FirstPrecinctX + index % res.PrecinctsX;
+        var ky = res.FirstPrecinctY + index / res.PrecinctsX;
         var bands = new JpxPrecinctBand?[res.Bands.Length];
         for (var b = 0; b < bands.Length; b++)
         {
@@ -424,10 +496,10 @@ internal sealed class JpxTile
                 var cy = by0 + j;
                 blocks[j * bw + i] = new JpxCodeBlock
                 {
-                    X0 = (int)Math.Max(x0, cx << band.BlockWidth),
-                    Y0 = (int)Math.Max(y0, cy << band.BlockHeight),
-                    X1 = (int)Math.Min(x1, (cx + 1) << band.BlockWidth),
-                    Y1 = (int)Math.Min(y1, (cy + 1) << band.BlockHeight),
+                    X0 = Math.Max(x0, cx << band.BlockWidth),
+                    Y0 = Math.Max(y0, cy << band.BlockHeight),
+                    X1 = Math.Min(x1, (cx + 1) << band.BlockWidth),
+                    Y1 = Math.Min(y1, (cy + 1) << band.BlockHeight),
                 };
             }
             bands[b] = new JpxPrecinctBand(bw, bh, blocks);
@@ -437,7 +509,7 @@ internal sealed class JpxTile
 
     // ------------------------------------------------------------ Order of the packets (B.12)
 
-    private IEnumerable<(int Layer, int Component, int Resolution, int Precinct)> Packets()
+    internal IEnumerable<(int Layer, int Component, int Resolution, int Precinct)> Packets()
     {
         var maxResolutions = _components.Max(c => c.Coding.Levels) + 1;
         var progressions = _data.Header.Progressions ?? _cs.Main.Progressions
@@ -461,8 +533,13 @@ internal sealed class JpxTile
                     {
                         withPrecincts[r - rs] = [];
                         for (var c = cs; c < ce; c++)
+                        {
+                            // every pair looked at counts: thousands of progression order changes over all components cost as much as their
+                            // packets (docs/FEHLERGEDAECHTNIS.md, No. 1053)
+                            Visit();
                             if (r <= _components[c].Coding.Levels && _components[c].Resolutions[r].PrecinctCount > 0)
                                 withPrecincts[r - rs].Add((c, _components[c].Resolutions[r]));
+                        }
                     }
                     for (var outer = 0; outer < (prog.Order == 0 ? lye : re - rs); outer++)
                     for (var inner = 0; inner < (prog.Order == 0 ? re - rs : lye); inner++)
@@ -480,7 +557,7 @@ internal sealed class JpxTile
                     }
                     break;
                 default:  // RPCL, PCRL, CPRL: by position of the precincts on the reference grid
-                    foreach (var (c, r, p) in ByPosition(prog.Order, rs, re, cs, ce))
+                    foreach (var (c, r, p) in ByPosition(prog.Order, rs, re, cs, ce, lye))
                     {
                         var res = _components[c].Resolutions[r];
                         for (var l = res.NextLayer[p]; l < lye; l++)
@@ -504,9 +581,11 @@ internal sealed class JpxTile
 
     /// <summary>
     /// Precincts in the order in which the loop over the reference grid (B.12.1.3–5) meets them: at their upper left
-    /// corner, the first partial one at the tile edge. Sorted instead of walking every grid position.
+    /// corner, the first partial one at the tile edge. Sorted instead of walking every grid position. Precincts whose layers up to
+    /// <paramref name="lye"/> are all read are left out, and every precinct looked at counts as a step: a crafted file with many progression
+    /// order changes over the same finished area would otherwise sort all precincts again for each of them (probe of 23.11.2026, B7).
     /// </summary>
-    private List<(int C, int R, int P)> ByPosition(int order, int rs, int re, int cs, int ce)
+    private List<(int C, int R, int P)> ByPosition(int order, int rs, int re, int cs, int ce, int lye)
     {
         var list = new List<(long Y, long X, int C, int R, int P)>();
         for (var c = cs; c < ce; c++)
@@ -515,12 +594,15 @@ internal sealed class JpxTile
             var comp = _cs.Components[c];
             for (var r = rs; r < Math.Min(re, tc.Coding.Levels + 1); r++)
             {
+                Visit();
                 var res = tc.Resolutions[r];
                 var shift = tc.Coding.Levels - r;
                 for (var p = 0; p < res.PrecinctCount; p++)
                 {
-                    var kx = (long)res.FirstPrecinctX + p % res.PrecinctsX;
-                    var ky = (long)res.FirstPrecinctY + p / res.PrecinctsX;
+                    Visit();
+                    if (res.NextLayer[p] >= lye) continue;
+                    var kx = res.FirstPrecinctX + p % res.PrecinctsX;
+                    var ky = res.FirstPrecinctY + p / res.PrecinctsX;
                     var sx = kx << res.PrecinctWidth;
                     var sy = ky << res.PrecinctHeight;
                     var x = sx < res.X0 ? _tx0 : sx * comp.Dx << shift;
@@ -603,24 +685,47 @@ internal sealed class JpxTile
     {
         var top = band.MagnitudeBits - 1 - block.ZeroPlanes + tc.Roi;
         if (top < 0) return;
-        if (top > 29)
-        {
-            _state.Truncated = true;
-            return;
-        }
         var segments = new List<(byte[] Data, int Passes)>(block.Segments!.Count);
         foreach (var s in block.Segments!) segments.Add((s.Join(), s.Passes));
-        int w = block.X1 - block.X0, h = block.Y1 - block.Y0;
-        var work = decoder.Decode(w, h, segments, band.Orientation, tc.Coding.Style, top);
+        int w = (int)(block.X1 - block.X0), h = (int)(block.Y1 - block.Y0);
+        // more bit-planes than 32-bit magnitudes hold: the wide decoder, which also puts the region of an ROI back in place (H.1) — before
+        // such blocks were left empty and the image reported incomplete (docs/FEHLERGEDAECHTNIS.md, No. 1052)
+        var wide = top > JpxBlockDecoder.MaxNarrowPlane;
+        var work = decoder.Decode(w, h, segments, band.Orientation, tc.Coding.Style, top, wide ? tc.Roi : -1);
         _state.AddWork(work);
+        if (decoder.Damaged) _state.Truncated = true;
 
         var stride = tc.Resolutions[tc.Keep].Width;
         var data = tc.Data;
+        var exact = tc.Exact;
         var roi = tc.Roi;
         var reversible = tc.Coding.Reversible;
         var half = band.Step * 0.5f;
-        var baseX = block.X0 - band.X0 + band.OffsetX;
-        var baseY = block.Y0 - band.Y0 + band.OffsetY;
+        var baseX = (int)(block.X0 - band.X0) + band.OffsetX;
+        var baseY = (int)(block.Y0 - band.Y0) + band.OffsetY;
+        if (wide)
+        {
+            // magnitudes up to 2^37 × 2 (Mb at most 37), the region already scaled down
+            for (var y = 0; y < h; y++)
+            {
+                var row = (baseY + y) * stride + baseX;
+                for (var x = 0; x < w; x++)
+                {
+                    var v = decoder.AtWide(x, y);
+                    if (v == 0) continue;
+                    var m = Math.Abs(v);
+                    if (exact is not null)
+                    {
+                        double whole = m >> 1;
+                        exact[row + x] = v < 0 ? -whole : whole;
+                        continue;
+                    }
+                    float value = reversible ? m >> 1 : m * half;
+                    data[row + x] = v < 0 ? -value : value;
+                }
+            }
+            return;
+        }
         for (var y = 0; y < h; y++)
         {
             var row = (baseY + y) * stride + baseX;
@@ -629,8 +734,16 @@ internal sealed class JpxTile
                 var v = decoder.At(x, y);
                 if (v == 0) continue;
                 var m = Math.Abs(v);
-                // ROI (Maxshift): the coefficients of the region were scaled up by 2^roi
-                if (roi > 0 && m >> 1 >= 1 << roi) m >>= roi;
+                // ROI (Maxshift): the coefficients of the region were scaled up by 2^roi; with a shift above 30 the 32-bit magnitudes (planes up
+                // to 29) hold only background — and 1 << roi would wrap round
+                if (roi is > 0 and <= 30 && m >> 1 >= 1 << roi) m >>= roi;
+                if (exact is not null)
+                {
+                    // only reversible tile-components have the exact store: the integer magnitude as it is
+                    double whole = m >> 1;
+                    exact[row + x] = v < 0 ? -whole : whole;
+                    continue;
+                }
                 float value = reversible ? m >> 1 : m * half;
                 data[row + x] = v < 0 ? -value : value;
             }

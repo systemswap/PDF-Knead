@@ -3,13 +3,16 @@ using PdfKnead.Core.Updates;
 
 namespace PdfKnead.Core.Policy;
 
-/// <summary>A function of the program that an administrator can switch off: a stable id (in the file) and its name in the program.</summary>
-public sealed record PolicyFunction(string Id, string Name);
+/// <summary>
+/// A function of the program that an administrator can switch off: a stable id (in the file) and its name in the program; a part of another
+/// function names that one as <paramref name="Parent"/> — it is allowed only while its parent is.
+/// </summary>
+public sealed record PolicyFunction(string Id, string Name, string? Parent = null);
 
 /// <summary>
-/// The functions an administrator can switch off, by the ribbon tab they are in, in the order of the tabs. Separate from the license key:
-/// the key says what the customer bought, the function file says what the users of the organization may do. Viewing functions (checking
-/// an e-invoice, attachments, the permissions of a file) are not listed — looking is always allowed.
+/// The functions an administrator can switch off, by the ribbon tab they are in, in the order of the tabs: the function file says what the
+/// users of the organization may do. Viewing functions (checking an e-invoice, attachments, the permissions of a file) are not listed —
+/// looking is always allowed.
 /// </summary>
 public static class PolicyCatalog
 {
@@ -39,16 +42,24 @@ public static class PolicyCatalog
             new("secure.redact-text", "Text schwärzen"), new("secure.search-redact", "Suchen und schwärzen"),
             new("secure.apply-redactions", "Schwärzungen anwenden"), new("secure.flatten", "Flachlegen"),
             new("secure.flatten-image", "Flachlegen als Bild"), new("secure.password", "Passwort und Rechte"),
-            new("secure.remove-restrictions", "Einschränkungen entfernen"), new("secure.clean", "Dokument bereinigen"),
+            new("secure.remove-restrictions", "Einschränkungen entfernen"),
+            // removing them without the permissions password, only after confirming the right to (decided by the user on 22.11.2026)
+            new("secure.remove-restrictions-without-password", "Ohne Rechte-Passwort entfernen", "secure.remove-restrictions"),
+            new("secure.clean", "Dokument bereinigen"),
             new("secure.accessibility", "Barrierefreiheit"),
         ]),
         ("E-Rechnung", [new("einvoice.save-xml", "XML speichern")]),   // Andockstelle E-Rechnung
+        // the window that invites support after saving (decided on 21.11.2026): only an organization switches it off
+        ("Programm", [new("program.donation-window", "Spenden-Fenster")]),
     ];
 
     /// <summary>All functions, in the order of the tabs.</summary>
     public static IEnumerable<PolicyFunction> All => Tabs.SelectMany(t => t.Functions);
 
     public static bool IsKnown(string id) => All.Any(f => f.Id == id);
+
+    /// <summary>The function of an id, or null when this version does not know it.</summary>
+    public static PolicyFunction? Find(string id) => All.FirstOrDefault(f => f.Id == id);
 }
 
 /// <summary>The kind of use a function file sets: a file is only laid out by the administrator of a company or an authority.</summary>
@@ -79,7 +90,7 @@ public sealed record FeaturePolicy
     /// <summary>The ids of the switched-off functions; unknown ids (of a later version) are kept.</summary>
     public IReadOnlySet<string> Denied { get; init; } = new HashSet<string>();
 
-    public bool Allows(string id) => !Denied.Contains(id);
+    public bool Allows(string id) => !Denied.Contains(id) && (PolicyCatalog.Find(id)?.Parent is not { } parent || Allows(parent));
 
     /// <summary>Writes the file.</summary>
     public byte[] ToJson()
@@ -245,8 +256,9 @@ public sealed record PolicyLoad(PolicyLoadState State, FeaturePolicy? Policy, st
 
 /// <summary>
 /// The function file that applies to this program run: looked for once at the start beside the program (beside the AppImage under Linux,
-/// like „updates-aus“). Without a file every function is allowed and the kind of use is the one chosen; with one, its list and kind of use
-/// apply; with a damaged one every function of the catalog is switched off (a damaged file must not open everything).
+/// like „updates-aus“). Without a file every function is allowed; with one, its list applies; with a damaged one every function of the
+/// catalog is switched off (a damaged file must not open everything). Its kind of use is read and passed over: PDF-Knead is free for
+/// everyone since 21.11.2026 and asks for no kind of use; the field stays for a paid version later (docs/LIZENZMODELL.md).
 /// </summary>
 public static class ActivePolicy
 {
@@ -267,14 +279,6 @@ public static class ActivePolicy
         PolicyLoadState.Loaded => Current.Policy!.Allows(id),
         PolicyLoadState.Unreadable => !PolicyCatalog.IsKnown(id),
         _ => true,
-    };
-
-    /// <summary>The kind of use the file sets; null without a file. A damaged file counts as commercial.</summary>
-    public static PolicyUsage? FixedUsage => Current.State switch
-    {
-        PolicyLoadState.Loaded => Current.Policy!.Usage,
-        PolicyLoadState.Unreadable => PolicyUsage.Commercial,
-        _ => null,
     };
 
     /// <summary>The organization named in the file; empty when none.</summary>

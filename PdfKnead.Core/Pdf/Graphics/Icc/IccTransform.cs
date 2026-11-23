@@ -177,6 +177,20 @@ internal sealed class IccTransform
         return result;
     }
 
+    /// <summary>
+    /// A single colour without the cache and its rounding to thousandths: for images drawn at their full depth — through the wide working space
+    /// of JPEG 2000 that rounding grew to 2 steps near black (docs/FEHLERGEDAECHTNIS.md, No. 1092).
+    /// </summary>
+    public Rgb ToRgbExact(ReadOnlySpan<double> components)
+    {
+        var n = _profile.Channels;
+        Span<float> device = stackalloc float[n];
+        for (var i = 0; i < n; i++) device[i] = (float)(i < components.Length && !double.IsNaN(components[i]) ? Math.Clamp(components[i], 0, 1) : 0);
+        Span<float> rgb = stackalloc float[3];
+        ToSrgb(device, rgb);
+        return Rgb.FromUnit(rgb[0], rgb[1], rgb[2]);
+    }
+
     // ------------------------------------------------------------ 8-bit images
 
     /// <summary>Grid points per axis: 33 for three channels, 17 for four (as in common colour management modules).</summary>

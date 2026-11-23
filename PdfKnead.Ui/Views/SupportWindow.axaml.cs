@@ -1,38 +1,27 @@
 using Avalonia.Controls;
 using Avalonia.Interactivity;
-using PdfKnead.Core.Licensing;
+using PdfKnead.Services;
 
 namespace PdfKnead.Views;
 
 /// <summary>
-/// Before switching from an authority or commercial use to a free kind of use: friendly, with the way to support the development. True =
-/// switch.
+/// The window that invites support after a successful save (<see cref="Services.SupportPrompt"/>): true after „Unterstützen“ (the page then
+/// opens in the browser of the system), false after „Vielleicht später“; closing it counts as „Vielleicht später“. The contact address under
+/// the picture opens the mail program (<see cref="Contact"/>) and leaves the window open.
 /// </summary>
 public sealed partial class SupportWindow : Window
 {
-    private readonly Func<Task>? _support;
-
-    public SupportWindow() : this(UsageKind.Private, null)
-    {
-    }
-
-    /// <param name="usage">The free kind of use chosen.</param>
-    /// <param name="support">Opens the page to support the development (in the browser of the system, only on the click).</param>
-    public SupportWindow(UsageKind usage, Func<Task>? support)
+    public SupportWindow()
     {
         InitializeComponent();
-        _support = support;
-        var name = Services.Licensing.UsageName(usage);
-        SwitchText.Text = Tr.T("Mit „{0}“ sind alle Funktionen frei. Das ist richtig, wenn Sie sich verklickt haben oder PDF-Knead jetzt privat, in einer Bildungseinrichtung, einer gemeinnützigen Einrichtung oder einem kleinen Verein nutzen.", name);
-        SwitchButton.Content = Tr.T("Auf „{0}“ umstellen", name);
+        ContactAddress.Text = Contact.Address;
     }
 
-    private async void OnSupport(object? sender, RoutedEventArgs e)
-    {
-        if (_support is { } support) await support();
-    }
+    private void OnSupport(object? sender, RoutedEventArgs e) => Close(true);
 
-    private void OnSwitch(object? sender, RoutedEventArgs e) => Close(true);
+    private void OnLater(object? sender, RoutedEventArgs e) => Close(false);
 
-    private void OnCancel(object? sender, RoutedEventArgs e) => Close(false);
+    private async void OnContact(object? sender, RoutedEventArgs e) => await Contact.WriteAsync(this);
+
+    private async void OnCopyContact(object? sender, RoutedEventArgs e) => await Contact.CopyAsync(this);
 }

@@ -203,32 +203,39 @@ internal static class ObjectMetadata
 
     // ------------------------------------------------------------ JPEG 2000
 
-    /// <summary>A JP2/JPX file without its top-level boxes XML, UUID and UUID info, or null if it has none (or is a bare codestream).</summary>
+    /// <summary>
+    /// A JP2/JPX file or a bare codestream without its metadata, or null if it has none: the boxes XML, UUID, UUID info and intellectual
+    /// property rights at any level of the box structure — the top level and the superboxes —, and the comment segments of a contiguous
+    /// codestream (main header and tile-part headers). The lengths of the boxes around a removed part, the Psot of its tile-part and its entry
+    /// in TLM shrink with it. Before only the top level was cleaned; rights, comments and metadata inside
+    /// superboxes stayed (decided on 23.11.2026, L45 brought forward).
+    /// </summary>
     internal static byte[]? Jpx(ReadOnlySpan<byte> data)
     {
-        if (data.Length < 12 || BinaryPrimitives.ReadUInt32BigEndian(data) != 12 || !data.Slice(4, 4).SequenceEqual("jP  "u8)) return null;
         var drop = new List<(int Start, int End)>();
-        var at = 0;
-        while (at + 8 <= data.Length)
-        {
-            long length = BinaryPrimitives.ReadUInt32BigEndian(data[at..]);
-            var header = 8;
-            if (length == 1)
-            {
-                if (at + 16 > data.Length) return null;
-                length = (long)BinaryPrimitives.ReadUInt64BigEndian(data[(at + 8)..]);
-                header = 16;
-            }
-            else if (length == 0)
-            {
-                length = data.Length - at;   // to the end of the file
-            }
-            if (length < header || at + length > data.Length) return null;
-            var type = data.Slice(at + 4, 4);
-            if (type.SequenceEqual("xml "u8) || type.SequenceEqual("uuid"u8) || type.SequenceEqual("uinf"u8)) drop.Add((at, at + (int)length));
-            at += (int)length;
-        }
+        var fields = new List<(int Position, int Size, int Start, int End)>();
+        // a bare codestream (ISO 32000-2, 7.4.9 allows one in a JPXDecode stream): its comment segments all the same — before only a JP2/JPX
+        // file was cleaned, and the comments of a bare codestream stayed (23.11.2026)
+        var bare = data.Length >= 2 && data[0] == 0xFF && data[1] == 0x4F;
+        if (bare) CodestreamComments(data, 0, data.Length, drop, fields);
+        else if (data.Length < 12 || BinaryPrimitives.ReadUInt32BigEndian(data) != 12 || !data.Slice(4, 4).SequenceEqual("jP  "u8)
+                 || !MetadataParts(data, 0, data.Length, 0, drop, fields)) return null;
         if (drop.Count == 0) return null;
+        // the fragments of a Fragment Table or Cross-Reference box lie at offsets from the start of the file (ISO/IEC 15444-2, M.11.3, M.11.4):
+        // a part a fragment points into stays, and every offset behind a removed part moves back by its length — before the boxes were cut out
+        // and the fragments pointed at the wrong bytes, the image was destroyed (M2, T.800 I.7, 23.11.2026)
+        var lists = new List<int>();
+        if (!bare) FragmentLists(data, 0, data.Length, 0, lists);
+        foreach (var p in lists)
+            for (var i = 0; i < BinaryPrimitives.ReadUInt16BigEndian(data[p..]); i++)
+            {
+                var entry = p + 2 + 14 * i;
+                var offset = BinaryPrimitives.ReadUInt64BigEndian(data[entry..]);
+                var end = offset + BinaryPrimitives.ReadUInt32BigEndian(data[(entry + 8)..]);
+                drop.RemoveAll(d => offset < (ulong)d.End && end > (ulong)d.Start);
+            }
+        if (drop.Count == 0) return null;
+        drop.Sort();
         var result = new byte[data.Length - drop.Sum(d => d.End - d.Start)];
         var written = 0;
         var from = 0;
@@ -239,7 +246,184 @@ internal static class ObjectMetadata
             from = end;
         }
         data[from..].CopyTo(result.AsSpan(written));
+        long Before(long position) => drop.Where(d => d.End <= position).Sum(d => (long)(d.End - d.Start));
+        // the length of every box (and the Psot of every tile-part) around a removed part shrinks by what was removed inside it
+        foreach (var (position, size, start, end) in fields)
+        {
+            var inside = drop.Where(d => d.Start >= start && d.End <= end).Sum(d => (long)(d.End - d.Start));
+            if (inside == 0) continue;
+            var at = (int)(position - Before(position));
+            if (size == 8) BinaryPrimitives.WriteUInt64BigEndian(result.AsSpan(at), BinaryPrimitives.ReadUInt64BigEndian(data[position..]) - (ulong)inside);
+            else if (size == 2) BinaryPrimitives.WriteUInt16BigEndian(result.AsSpan(at), (ushort)(BinaryPrimitives.ReadUInt16BigEndian(data[position..]) - inside));
+            else BinaryPrimitives.WriteUInt32BigEndian(result.AsSpan(at), BinaryPrimitives.ReadUInt32BigEndian(data[position..]) - (uint)inside);
+        }
+        foreach (var p in lists)
+            for (var i = 0; i < BinaryPrimitives.ReadUInt16BigEndian(data[p..]); i++)
+            {
+                var entry = p + 2 + 14 * i;
+                var offset = BinaryPrimitives.ReadUInt64BigEndian(data[entry..]);
+                if (BinaryPrimitives.ReadUInt16BigEndian(data[(entry + 12)..]) != 0 || offset > (ulong)data.Length) continue;   // another file, or no place
+                BinaryPrimitives.WriteUInt64BigEndian(result.AsSpan((int)(entry - Before(entry))), offset - (ulong)Before((long)offset));
+            }
         return result;
+    }
+
+    /// <summary>Boxes that carry metadata only: XML, UUID, UUID info, intellectual property rights.</summary>
+    private static readonly string[] MetadataBoxes = ["xml ", "uuid", "uinf", "jp2i"];
+
+    /// <summary>
+    /// The metadata parts of the boxes from <paramref name="s"/> to <paramref name="e"/> (through the superboxes, at most eight deep, and into
+    /// a contiguous codestream), and the length fields of the boxes walked into; false if the structure is damaged.
+    /// </summary>
+    private static bool MetadataParts(ReadOnlySpan<byte> data, int s, int e, int depth, List<(int Start, int End)> drop,
+        List<(int Position, int Size, int Start, int End)> fields)
+    {
+        for (var at = s; at + 8 <= e;)
+        {
+            long length = BinaryPrimitives.ReadUInt32BigEndian(data[at..]);
+            var header = 8;
+            (int Position, int Size)? field = (at, 4);
+            if (length == 1)
+            {
+                if (at + 16 > e) return false;
+                length = (long)BinaryPrimitives.ReadUInt64BigEndian(data[(at + 8)..]);
+                header = 16;
+                field = (at + 8, 8);
+            }
+            else if (length == 0)
+            {
+                length = e - at;   // to the end: no length to change
+                field = null;
+            }
+            // compared without adding: an XLBox near 2^63 ran the sum over (as FG 1030)
+            if (length < header || length > e - at) return false;
+            var type = System.Text.Encoding.ASCII.GetString(data.Slice(at + 4, 4));
+            int cs = at + header, ce = at + (int)length;
+            if (MetadataBoxes.Contains(type)) drop.Add((at, ce));
+            else if ((Superboxes.Contains(type) || type == "res ") && depth < 8)
+            {
+                if (field is { } f) fields.Add((f.Position, f.Size, at, ce));
+                if (!MetadataParts(data, cs, ce, depth + 1, drop, fields)) return false;
+            }
+            else if (type == "jp2c")
+            {
+                if (field is { } f) fields.Add((f.Position, f.Size, at, ce));
+                CodestreamComments(data, cs, ce, drop, fields);
+            }
+            at = ce;
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// The comment segments (COM) of a codestream: those of the main header, and those of the tile-part headers with the Psot of their
+    /// tile-part. Where TLM segments list the tile-part lengths (T.800 A.7.1: Ztlm orders the segments, the entries follow the tile-parts in
+    /// the order of the codestream), the entry of the tile-part shrinks with it — before the comments of the tile-parts stayed there, and a
+    /// name in them went along in spite of „remove metadata“ (probe of 23.11.2026, L45). TLM segments that do not fit the codestream (another
+    /// count of entries than of tile-parts, a length that does not divide into entries) leave the tile-parts as they are. The last tile-part
+    /// may have Psot 0 (it runs to the end of the codestream, A.4.2): its comments go too, its Psot stays 0.
+    /// </summary>
+    private static void CodestreamComments(ReadOnlySpan<byte> data, int s, int e, List<(int Start, int End)> drop,
+        List<(int Position, int Size, int Start, int End)> fields)
+    {
+        if (e - s < 4 || BinaryPrimitives.ReadUInt16BigEndian(data[s..]) != 0xFF4F) return;
+        var comments = new List<(int, int)>();
+        var lengthsListed = false;
+        var tlmFits = true;
+        var tlm = new List<(int Index, List<(int Position, int Size)> Entries)>();
+        var p = s + 2;
+        while (p + 4 <= e)
+        {
+            var marker = BinaryPrimitives.ReadUInt16BigEndian(data[p..]);
+            if (marker == 0xFF90) break;
+            int length = BinaryPrimitives.ReadUInt16BigEndian(data[(p + 2)..]);
+            if (length < 2 || length > e - p - 2) return;
+            if (marker == 0xFF64) comments.Add((p, p + 2 + length));
+            if (marker == 0xFF55)
+            {
+                lengthsListed = true;
+                // Ltlm, Ztlm, Stlm (ST: Ttlm of 0, 1 or 2 bytes; SP: Ptlm of 2 or 4 bytes), then Ttlm and Ptlm per tile-part
+                if (length < 4) { tlmFits = false; p += 2 + length; continue; }
+                var st = (data[p + 5] >> 4) & 3;
+                var size = (data[p + 5] & 0x40) != 0 ? 4 : 2;
+                var step = st + size;
+                int index = data[p + 4];
+                if (st == 3 || (length - 4) % step != 0 || tlm.Any(t => t.Index == index)) tlmFits = false;
+                else
+                {
+                    var entries = new List<(int, int)>();
+                    for (var at = p + 6; at + step <= p + 2 + length; at += step) entries.Add((at + st, size));
+                    tlm.Add((index, entries));
+                }
+            }
+            p += 2 + length;
+        }
+        drop.AddRange(comments);
+        var listed = tlm.OrderBy(t => t.Index).SelectMany(t => t.Entries).ToList();
+        var parts = new List<(int Sot, int End, bool Last, List<(int, int)> Comments)>();
+        var complete = false;
+        while (p + 12 <= e && BinaryPrimitives.ReadUInt16BigEndian(data[p..]) == 0xFF90)
+        {
+            var psot = BinaryPrimitives.ReadUInt32BigEndian(data[(p + 6)..]);
+            if (psot > (uint)(e - p)) break;
+            var last = psot == 0;
+            var partEnd = last ? e : p + (int)psot;
+            var q = p + 12;
+            var inPart = new List<(int, int)>();
+            while (q + 4 <= partEnd)
+            {
+                var marker = BinaryPrimitives.ReadUInt16BigEndian(data[q..]);
+                if (marker == 0xFF93) break;
+                int length = BinaryPrimitives.ReadUInt16BigEndian(data[(q + 2)..]);
+                if (length < 2 || length > partEnd - q - 2) break;
+                if (marker == 0xFF64) inPart.Add((q, q + 2 + length));
+                q += 2 + length;
+            }
+            parts.Add((p, partEnd, last, inPart));
+            p = partEnd;
+            if (last || p + 2 > e || BinaryPrimitives.ReadUInt16BigEndian(data[p..]) == 0xFFD9) { complete = true; break; }
+        }
+        if (lengthsListed && !(tlmFits && complete && listed.Count == parts.Count)) return;
+        for (var i = 0; i < parts.Count; i++)
+        {
+            var (sot, end, last, inPart) = parts[i];
+            if (inPart.Count == 0) continue;
+            drop.AddRange(inPart);
+            if (!last) fields.Add((sot + 6, 4, sot, end));
+            if (lengthsListed && (last ? ReadLength(data, listed[i]) != 0 : true)) fields.Add((listed[i].Position, listed[i].Size, sot, end));
+        }
+    }
+
+    /// <summary>The value of a big-endian length field of 2 or 4 bytes.</summary>
+    private static long ReadLength(ReadOnlySpan<byte> data, (int Position, int Size) field) =>
+        field.Size == 2 ? BinaryPrimitives.ReadUInt16BigEndian(data[field.Position..]) : BinaryPrimitives.ReadUInt32BigEndian(data[field.Position..]);
+
+    /// <summary>Superboxes that may hold a Fragment Table or Cross-Reference box (ISO/IEC 15444-2, M.11): searched for Fragment List boxes.</summary>
+    private static readonly string[] Superboxes = ["jp2h", "jpch", "jplh", "cgrp", "ftbl", "asoc", "jclx", "j2cx", "drep", "comp", "grp "];
+
+    /// <summary>The positions of the contents of all complete Fragment List boxes (NF and its entries) in the boxes from <paramref name="s"/> to
+    /// <paramref name="e"/>, through the superboxes (at most eight deep) and the Cross-Reference boxes.</summary>
+    private static void FragmentLists(ReadOnlySpan<byte> data, int s, int e, int depth, List<int> found)
+    {
+        for (var at = s; at + 8 <= e && depth < 8;)
+        {
+            long length = BinaryPrimitives.ReadUInt32BigEndian(data[at..]);
+            var header = 8;
+            if (length == 1)
+            {
+                if (at + 16 > e) return;
+                length = (long)BinaryPrimitives.ReadUInt64BigEndian(data[(at + 8)..]);
+                header = 16;
+            }
+            else if (length == 0) length = e - at;
+            if (length < header || length > e - at) return;
+            var type = System.Text.Encoding.ASCII.GetString(data.Slice(at + 4, 4));
+            int cs = at + header, ce = at + (int)length;
+            if (type == "flst" && ce - cs >= 2 && ce - cs >= 2 + 14L * BinaryPrimitives.ReadUInt16BigEndian(data[cs..])) found.Add(cs);
+            else if (type == "cref" && ce - cs > 4) FragmentLists(data, cs + 4, ce, depth + 1, found);
+            else if (Superboxes.Contains(type)) FragmentLists(data, cs, ce, depth + 1, found);
+            at = ce;
+        }
     }
 
     // ------------------------------------------------------------ ICC

@@ -1,7 +1,6 @@
 using Avalonia.Controls;
 using Avalonia.VisualTree;
 using PdfKnead.Controls;
-using PdfKnead.Core.Licensing;
 using PdfKnead.Core.Policy;
 using PdfKnead.Services;
 using PdfKnead.ViewModels;
@@ -10,8 +9,9 @@ using PdfKnead.Views;
 namespace PdfKnead.Tests.Ui;
 
 /// <summary>
-/// The function file of an organization in the program (KONZEPT §5.27): it sets the kind of use and switches functions off — greyed out on
-/// the ribbon, refused by the commands —; a damaged file switches everything off; without a file all is as chosen. Everybody can see it.
+/// The function file of an organization in the program (KONZEPT §5.27): it switches functions off — greyed out on the ribbon, refused by the
+/// commands —; a damaged file switches everything off; without a file everything is allowed. Everybody can see it. Its kind of use is read and
+/// passed over: PDF-Knead has been free for everyone since 21.11.2026 and asks for no kind of use.
 /// </summary>
 [Collection(nameof(UiCollection))]
 public sealed class PolicyUiTests
@@ -21,7 +21,6 @@ public sealed class PolicyUiTests
     private static void Reset()
     {
         ActivePolicy.Use(None);
-        UserSettings.Update(s => s with { Usage = UsageKind.NotAsked, LicenseKey = null, LatestSeenDay = null, CommercialSince = null });
     }
 
     private static T Button<T>(Window window, string label) where T : Control =>
@@ -33,12 +32,11 @@ public sealed class PolicyUiTests
         });
 
     [Fact]
-    public void FunctionFile_SetsTheKindOfUse_AndSwitchesFunctionsOff()
+    public void FunctionFile_SwitchesFunctionsOff()
     {
         UiSession.Run(async () =>
         {
             Reset();
-            UserSettings.Update(s => s with { Usage = UsageKind.Private });
             ActivePolicy.Use(new PolicyLoad(PolicyLoadState.Loaded, new FeaturePolicy
             {
                 Usage = PolicyUsage.Authority,
@@ -50,19 +48,6 @@ public sealed class PolicyUiTests
             window.Show();
             try
             {
-                // the file sets the kind of use without overwriting the choice; nobody is asked, nothing can be changed
-                Assert.Equal(UsageKind.Authority, PdfKnead.Services.Licensing.Usage);
-                Assert.Equal(UsageKind.Private, UserSettings.Current.Usage);
-                var asked = 0;
-                vm.AskUsage = _ =>
-                {
-                    asked++;
-                    return Task.FromResult<UsageChoice?>(new UsageChoice(UsageKind.Private, false));
-                };
-                await vm.OfferUsageAsync();
-                await vm.ChangeUsageCommand.ExecuteAsync(null);
-                Assert.Equal(0, asked);
-                Assert.True(vm.Settings.UsageFixed);
                 Assert.Contains("Musteramt – IT", vm.Settings.PolicySummary);
 
                 // switched off: refused by the command, greyed out on the ribbon; the rest and unknown names stay allowed
@@ -151,7 +136,6 @@ public sealed class PolicyUiTests
             {
                 var vm = new MainViewModel();
                 Assert.All(PolicyCatalog.All, f => Assert.False(ActivePolicy.Allows(f.Id)));
-                Assert.Equal(UsageKind.Commercial, PdfKnead.Services.Licensing.Usage);
                 Assert.False(vm.EnsureAllowed("start.save"));
                 Assert.Contains(Tr.T("nicht lesbar"), MainViewModel.PolicySummary());
             }
@@ -164,17 +148,14 @@ public sealed class PolicyUiTests
     }
 
     [Fact]
-    public void WithoutFile_EverythingAsChosen()
+    public void WithoutFile_EverythingAllowed()
     {
         UiSession.Run(() =>
         {
             Reset();
             try
             {
-                UserSettings.Update(s => s with { Usage = UsageKind.Commercial });
                 var vm = new MainViewModel();
-                Assert.False(PdfKnead.Services.Licensing.UsageFixed);
-                Assert.Equal(UsageKind.Commercial, PdfKnead.Services.Licensing.Usage);
                 Assert.All(PolicyCatalog.All, f => Assert.True(vm.EnsureAllowed(f.Id)));
                 Assert.Equal(Tr.T("Keine Funktionsdatei: alle Funktionen sind erlaubt."), vm.Settings.PolicySummary);
             }

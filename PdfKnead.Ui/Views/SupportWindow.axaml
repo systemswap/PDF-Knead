@@ -2,36 +2,292 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:l="using:PdfKnead.Localization"
         x:Class="PdfKnead.Views.SupportWindow"
-        Title="{l:T 'Nutzungsart umstellen'}"
+        Title="{l:T 'PDF-Knead unterstützen'}"
         Icon="/Assets/app.ico"
-        Width="560" SizeToContent="Height"
+        Width="820" SizeToContent="Height"
         CanResize="False" ShowInTaskbar="False"
-        WindowStartupLocation="CenterOwner">
-    <!-- Vor dem Umstellen von Behörde/gewerblich auf eine freie Nutzungsart (auch nach Ablauf, falls sich jemand verklickt hat):
-         freundlich, mit dem Weg zur Unterstützung; nichts wird gesendet, die Seite öffnet erst der Klick im Browser des Systems -->
-    <StackPanel Margin="24" Spacing="14">
-        <StackPanel Orientation="Horizontal" Spacing="12">
-            <Border Width="40" Height="40" CornerRadius="20" Background="{DynamicResource AccentSoftBrush}">
-                <PathIcon Data="{StaticResource Icon.Star}" Width="20" Height="20" Foreground="{DynamicResource AccentBrush}" />
-            </Border>
-            <TextBlock VerticalAlignment="Center" FontWeight="SemiBold" FontSize="15" Text="{l:T 'Schön, dass Sie PDF-Knead nutzen!'}" />
-        </StackPanel>
-        <TextBlock Name="SwitchText" TextWrapping="Wrap" />
-        <TextBlock TextWrapping="Wrap"
-                   Text="{l:T 'In PDF-Knead steckt viel Arbeit — ohne Werbung und ohne Daten zu sammeln. Wenn es Ihnen gefällt und Sie es beruflich nutzen, freuen wir uns sehr über Ihre Wertschätzung durch den Kauf einer Lizenz. Und wer einfach Danke sagen möchte, kann die Entwicklung unterstützen.'}" />
-        <TextBlock Classes="muted" FontSize="12" TextWrapping="Wrap"
-                   Text="{l:T 'Die Nutzungsart ist eine Selbstauskunft nach der Lizenz von PDF-Knead. Eine freiwillige Unterstützung ersetzt keine Lizenz.'}" />
-        <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,4,0,0">
-            <Button Grid.Column="0" Click="OnSupport">
-                <StackPanel Orientation="Horizontal" Spacing="6">
-                    <PathIcon Data="{StaticResource Icon.Star}" Width="14" Height="14" Foreground="{DynamicResource AccentBrush}" />
-                    <TextBlock Text="{l:T 'Unterstützen (Ko-fi)'}" />
+        WindowStartupLocation="CenterOwner"
+        Background="#0B1F3A" RequestedThemeVariant="Dark">
+    <!-- The window that invites support (decided on 21.11.2026, text and look as in docs/entwurf/unterstuetzen-fenster.html): after a
+         successful save, 30 days after the first start at the earliest, then after 9 months („Vielleicht später“) or 18 months
+         („Unterstützen“). Its own look in both themes: a deep blue with one warm button. The page opens only on the click, in the browser of
+         the system; nothing is sent. -->
+    <Window.Resources>
+        <!-- the wordmark „PDF-Knead“ as outlines of the typeface Pacifico (SIL Open Font License 1.1, THIRD-PARTY-NOTICES.md); no font file -->
+        <StreamGeometry x:Key="Wordmark.Pdf">M82.3 -59.6Q82.3 -51.1 77.9 -44Q73.5 -36.9 65.1 -32.4Q56.7 -27.9 45.1 -27.1L40.8 -3Q38.3 10.9 27.2 10.9Q21.1 10.9 15.95 7.3Q10.8 3.7 7.7 -3.7Q4.6 -11.1 4.6 -21.9Q4.6 -42.2 11.15 -56.35Q17.7 -70.5 28.75 -77.55Q39.8 -84.6 53.1 -84.6Q62.5 -84.6 69.05 -81.3Q75.6 -78 78.95 -72.35Q82.3 -66.7 82.3 -59.6ZM46.9 -37.4Q67.4 -40 67.4 -58.7Q67.4 -65.3 63.05 -69.45Q58.7 -73.6 49.6 -73.6Q39.3 -73.6 31.65 -67.1Q24 -60.6 19.85 -49.05Q15.7 -37.5 15.7 -22.7Q15.7 -16.5 16.95 -11.7Q18.2 -6.9 20.15 -4.25Q22.1 -1.6 23.9 -1.6Q26.4 -1.6 27.7 -8.5L31 -27.4Q27.1 -28 27.6 -27.9Q24.6 -28.4 23.7 -29.75Q22.8 -31.1 22.8 -33.2Q22.8 -35.4 24.05 -36.7Q25.3 -38 27.5 -38Q28.5 -38 29 -37.9Q31.4 -37.5 32.7 -37.4Q34 -45.2 36.4 -58.3Q37 -61.7 39.15 -63.15Q41.3 -64.6 44.2 -64.6Q47.5 -64.6 48.95 -63.35Q50.4 -62.1 50.4 -59.4Q50.4 -57.8 50.2 -56.8L46.9 -37.4ZM111.3 0.5Q105.5 0.5 98.2 -0.5Q94.2 -1 92.7 -2.6Q91.2 -4.2 91.4 -7.8Q92.1 -17.7 94.7 -32.25Q97.3 -46.8 101 -60.3Q101.7 -62.8 103.8 -63.8Q105.9 -64.8 109.3 -64.8Q115.4 -64.8 115.4 -61.4Q115.4 -60 114.8 -58.2Q112.2 -50.2 109.6 -36.75Q107 -23.3 105.9 -11.1Q108.9 -10.8 112.7 -10.8Q130.2 -10.8 138.85 -21.4Q147.5 -32 147.5 -49.7Q147.5 -61.6 140.7 -68.1Q133.9 -74.6 121.5 -74.6Q113.5 -74.6 105.65 -72.1Q97.8 -69.6 91.5 -65.5Q90.2 -64.6 88.7 -64.6Q87 -64.6 86 -66.05Q85 -67.5 85 -69.6Q85 -72 85.8 -73.55Q86.6 -75.1 88.5 -76.4Q95.4 -81.1 104.7 -83.55Q114 -86 122.6 -86Q134.8 -86 143.7 -81.75Q152.6 -77.5 157.4 -69.3Q162.2 -61.1 162.2 -49.5Q162.2 -34.4 156.2 -23.15Q150.2 -11.9 138.7 -5.7Q127.2 0.5 111.3 0.5ZM252.8 -82.9Q255.6 -82.5 256.65 -81.2Q257.7 -79.9 257.7 -77.8Q257.7 -70.9 250.3 -71.4L246.8 -71.7Q240.9 -72.2 235.05 -72.5Q229.2 -72.8 222.8 -72.8L218.3 -72.8Q217.1 -58 215.8 -45.8L233 -46.1Q236.7 -46.1 237.95 -44.8Q239.2 -43.5 239.2 -41.3Q239.2 -37.9 237.2 -35.95Q235.2 -34 231.5 -34L214.4 -34L213.8 -29.7Q211.7 -13.2 204.85 -6.2Q198 0.8 186 0.8Q179.2 0.8 173.5 -2.15Q167.8 -5.1 165.1 -9.3Q164 -11 164 -13.4Q164 -15.8 165.15 -17.6Q166.3 -19.4 168 -19.4Q169.2 -19.4 170.35 -18.6Q171.5 -17.8 173.3 -15.5Q178.1 -9.2 185.2 -9.2Q190.9 -9.2 194.75 -13.85Q198.6 -18.5 199.7 -28.5L200.3 -34L195.5 -34Q193.2 -34 191.55 -35.3Q189.9 -36.6 189.9 -39Q189.9 -42.1 191.5 -43.75Q193.1 -45.4 196.2 -45.4Q199 -45.4 201.7 -45.5Q202.9 -56.5 204.3 -72.2Q193.5 -71.2 189.1 -68.7Q184.7 -66.2 184.7 -61.3Q184.7 -57.9 186.7 -54.8Q187.3 -53.9 187.3 -53Q187.3 -51.2 185.3 -49.85Q183.3 -48.5 180.8 -48.5Q178.1 -48.5 176.2 -50.1Q175 -51.1 173.9 -54.2Q172.8 -57.3 172.8 -61.1Q172.8 -73.5 185.55 -79.1Q198.3 -84.7 222.8 -84.7Q239.8 -84.7 252.8 -82.9Z</StreamGeometry>
+        <StreamGeometry x:Key="Wordmark.Hyphen">M246.3 -24.6Q243.9 -24.4 242.45 -26Q241 -27.6 241 -30.5Q241 -33.2 242.35 -34.5Q243.7 -35.8 246.3 -36L266.8 -38Q269.3 -38.2 270.65 -36.75Q272 -35.3 272 -32.5Q272 -27.1 266.8 -26.6L246.3 -24.6Z</StreamGeometry>
+        <StreamGeometry x:Key="Wordmark.Knead">M379.4 -22.3Q380.7 -22.3 381.45 -21.1Q382.2 -19.9 382.2 -17.8Q382.2 -13.9 380.3 -11.6Q375.5 -5.8 370.6 -2.65Q365.7 0.5 359 0.5Q351.6 0.5 346.9 -3.85Q342.2 -8.2 338.1 -17.4Q335.1 -24 333.15 -27.25Q331.2 -30.5 329.3 -31.85Q327.4 -33.2 324.5 -33.5L323.4 -26.1Q321.3 -11.8 315.25 -5.5Q309.2 0.8 298.6 0.8Q291.7 0.8 286.35 -2.55Q281 -5.9 278.9 -11.1Q278.2 -12.9 278.2 -15Q278.2 -18 279.6 -20.2Q281 -22.4 283.2 -22.4Q284.5 -22.4 285.4 -21.75Q286.3 -21.1 287.1 -19.5Q290.2 -13.7 292.55 -11.4Q294.9 -9.1 298.4 -9.1Q302.4 -9.1 305.25 -12.75Q308.1 -16.4 309.3 -24L310.7 -33.5L309.1 -33.5Q306.8 -33.5 305.5 -34.8Q304.2 -36.1 304.2 -38.4Q304.2 -41 305.55 -42.55Q306.9 -44.1 308.9 -44.1L312.2 -44.1Q312.9 -49 313.2 -50.9L316.3 -73.4Q313.7 -73.7 311.4 -73.7Q302.9 -73.7 298.5 -70.75Q294.1 -67.8 294.1 -62.3Q294.1 -59.8 294.65 -58.25Q295.2 -56.7 296.1 -54.8Q296.5 -54 296.5 -53Q296.5 -50.8 294.45 -49.15Q292.4 -47.5 289.9 -47.5Q286.7 -47.5 285.2 -50.3Q282.2 -55.6 282.2 -61.7Q282.2 -68 285.65 -73.2Q289.1 -78.4 296.1 -81.55Q303.1 -84.7 313.4 -84.7Q317.9 -84.7 321.65 -84.2Q325.4 -83.7 329.9 -82.3Q334.8 -80.8 334.8 -76.7Q334.8 -71.2 330.1 -71.2L326.2 -44.3Q337.9 -45.5 345.25 -54.35Q352.6 -63.2 357.5 -78.4Q358.4 -81.2 360.55 -82.7Q362.7 -84.2 366 -84.2Q368.8 -84.2 370.35 -82.95Q371.9 -81.7 371.9 -79.4Q371.9 -78.7 371.5 -77.1Q366.5 -60.6 357.2 -50.9Q347.9 -41.2 336.9 -38Q340.7 -37.1 343.15 -35.3Q345.6 -33.5 347.3 -30.85Q349 -28.2 351.2 -23.5Q354.3 -16.9 357 -14.15Q359.7 -11.4 363.3 -11.4Q366.5 -11.4 369.4 -13.55Q372.3 -15.7 376.7 -20.9Q377.9 -22.3 379.4 -22.3ZM381.2 0.5Q377.4 0.5 375.85 -3.5Q374.3 -7.5 374.3 -16.3Q374.3 -29.3 378 -41Q378.9 -43.9 380.95 -45.25Q383 -46.6 386.7 -46.6Q388.7 -46.6 389.5 -46.1Q390.3 -45.6 390.3 -44.2Q390.3 -42.6 388.8 -37Q387.8 -33 387.2 -30Q386.6 -27 386.2 -22.6Q389.5 -31.2 393.6 -36.6Q397.7 -42 401.65 -44.3Q405.6 -46.6 408.9 -46.6Q415.4 -46.6 415.4 -40.1Q415.4 -36.2 413.2 -26Q411.3 -17.3 411.3 -14.5Q411.3 -10.5 414.2 -10.5Q416.2 -10.5 418.95 -12.95Q421.7 -15.4 426.3 -20.9Q427.5 -22.3 429 -22.3Q430.3 -22.3 431.05 -21.1Q431.8 -19.9 431.8 -17.8Q431.8 -13.8 429.9 -11.6Q425.6 -6.3 420.65 -2.9Q415.7 0.5 409.4 0.5Q404.3 0.5 401.7 -2.45Q399.1 -5.4 399.1 -11Q399.1 -13.8 400.5 -21Q401.8 -27.3 401.8 -29.7Q401.8 -31.3 400.7 -31.3Q399.4 -31.3 397.05 -27.95Q394.7 -24.6 392.25 -19.1Q389.8 -13.6 388.3 -7.5Q387.2 -2.8 385.75 -1.15Q384.3 0.5 381.2 0.5ZM468.3 -22.3Q469.6 -22.3 470.35 -21.1Q471.1 -19.9 471.1 -17.8Q471.1 -13.8 469.2 -11.6Q465.5 -7.1 458.75 -3.3Q452 0.5 444.3 0.5Q433.8 0.5 428 -5.2Q422.2 -10.9 422.2 -20.8Q422.2 -27.7 425.1 -33.65Q428 -39.6 433.15 -43.1Q438.3 -46.6 444.8 -46.6Q450.6 -46.6 454.1 -43.15Q457.6 -39.7 457.6 -33.8Q457.6 -26.9 452.65 -21.95Q447.7 -17 435.9 -14.1Q438.4 -9.5 445.4 -9.5Q449.9 -9.5 455.65 -12.65Q461.4 -15.8 465.6 -20.9Q466.8 -22.3 468.3 -22.3ZM443.1 -36.8Q439.4 -36.8 436.85 -32.5Q434.3 -28.2 434.3 -22.1L434.3 -21.9Q440.2 -23.3 443.6 -26.1Q447 -28.9 447 -32.6Q447 -34.5 445.95 -35.65Q444.9 -36.8 443.1 -36.8ZM475.3 0.5Q469.1 0.5 465.4 -4Q461.7 -8.5 461.7 -15.8Q461.7 -23.8 465.4 -30.95Q469.1 -38.1 475.25 -42.45Q481.4 -46.8 488.3 -46.8Q490.5 -46.8 491.25 -45.95Q492 -45.1 492.5 -42.9Q494.6 -43.3 496.9 -43.3Q501.8 -43.3 501.8 -39.8Q501.8 -37.7 500.3 -29.8Q498 -18.3 498 -13.8Q498 -12.3 498.75 -11.4Q499.5 -10.5 500.7 -10.5Q502.6 -10.5 505.3 -12.95Q508 -15.4 512.6 -20.9Q513.8 -22.3 515.3 -22.3Q516.6 -22.3 517.35 -21.1Q518.1 -19.9 518.1 -17.8Q518.1 -13.8 516.2 -11.6Q512.1 -6.5 507.5 -3Q502.9 0.5 498.6 0.5Q495.3 0.5 492.55 -1.75Q489.8 -4 488.4 -7.9Q483.2 0.5 475.3 0.5ZM478.9 -9.6Q481.1 -9.6 483.1 -12.2Q485.1 -14.8 486 -19.1L489.7 -37.5Q485.5 -37.4 481.95 -34.35Q478.4 -31.3 476.3 -26.3Q474.2 -21.3 474.2 -15.7Q474.2 -12.6 475.45 -11.1Q476.7 -9.6 478.9 -9.6ZM566.8 -22.3Q568.1 -22.3 568.85 -21.1Q569.6 -19.9 569.6 -17.8Q569.6 -13.8 567.7 -11.6Q563.6 -6.6 558.7 -3.05Q553.8 0.5 549 0.5Q541.4 0.5 537.4 -8.4Q533.2 -3.1 530.05 -1.3Q526.9 0.5 522.7 0.5Q516.6 0.5 512.65 -4.05Q508.7 -8.6 508.7 -15.9Q508.7 -23.9 512.1 -30.75Q515.5 -37.6 521.45 -41.95Q527.4 -46.3 534.8 -47.1Q536.7 -66.5 542.05 -80.25Q547.4 -94 556.1 -94Q560.4 -94 563.25 -90.1Q566.1 -86.2 566.1 -78.3Q566.1 -67.1 560.6 -52.1Q555.1 -37.1 545.9 -21.3Q546.3 -15.5 547.65 -13Q549 -10.5 551.1 -10.5Q553.8 -10.5 556.6 -12.9Q559.4 -15.3 564.1 -20.9Q565.3 -22.3 566.8 -22.3ZM555 -84.2Q553.1 -84.2 551.2 -77.45Q549.3 -70.7 547.95 -59.8Q546.6 -48.9 546 -37Q557.2 -61.4 557.2 -76.2Q557.2 -80 556.55 -82.1Q555.9 -84.2 555 -84.2ZM526.2 -9.6Q528.1 -9.6 530 -11.15Q531.9 -12.7 534.8 -16.9Q533.8 -22.3 533.8 -29Q533.8 -31.4 534 -36.8Q528.5 -35.1 524.85 -29.45Q521.2 -23.8 521.2 -16.9Q521.2 -9.6 526.2 -9.6Z</StreamGeometry>
+        <StreamGeometry x:Key="Support.Mail">M3 6h18v12H3z M3 6l9 7 9-7</StreamGeometry>
+        <StreamGeometry x:Key="Support.Heart">M12 21s-7.5-4.6-9.6-9.2C.9 8.4 3 4.5 6.7 4.5c2.1 0 3.6 1.1 4.3 2.4.7-1.3 2.2-2.4 4.3-2.4 3.7 0 5.8 3.9 4.3 7.3C19.5 16.4 12 21 12 21z</StreamGeometry>
+    </Window.Resources>
+    <Window.Styles>
+        <Style Selector="Button.support">
+            <Setter Property="Foreground" Value="#2A1A05" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="FontSize" Value="14.5" />
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="Padding" Value="18,10" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Background">
+                <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
+                    <GradientStop Offset="0" Color="#F7BD6A" />
+                    <GradientStop Offset="1" Color="#F2A541" />
+                </LinearGradientBrush>
+            </Setter>
+        </Style>
+        <Style Selector="Button.support:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Foreground" Value="#2A1A05" />
+            <Setter Property="Background">
+                <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
+                    <GradientStop Offset="0" Color="#F9C77E" />
+                    <GradientStop Offset="1" Color="#F4AE52" />
+                </LinearGradientBrush>
+            </Setter>
+        </Style>
+        <Style Selector="Button.support:pressed /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Foreground" Value="#2A1A05" />
+            <Setter Property="Background" Value="#E89A35" />
+        </Style>
+        <Style Selector="Button.later">
+            <Setter Property="Foreground" Value="#F4F7FB" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="FontSize" Value="14.5" />
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="Padding" Value="18,10" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="#47FFFFFF" />
+            <Setter Property="BorderThickness" Value="1" />
+        </Style>
+        <Style Selector="Button.later:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Foreground" Value="#F4F7FB" />
+            <Setter Property="Background" Value="#0FFFFFFF" />
+            <Setter Property="BorderBrush" Value="#66FFFFFF" />
+        </Style>
+        <Style Selector="Button.later:pressed /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Foreground" Value="#F4F7FB" />
+            <Setter Property="Background" Value="#1AFFFFFF" />
+        </Style>
+        <!-- the contact address: quiet like the line about the invoice, warm when pointed at -->
+        <Style Selector="Button.contact">
+            <Setter Property="Foreground" Value="#9FB3CC" />
+            <Setter Property="FontSize" Value="13.5" />
+            <Setter Property="Padding" Value="6,4" />
+            <Setter Property="CornerRadius" Value="6" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Cursor" Value="Hand" />
+        </Style>
+        <Style Selector="Button.contact Path">
+            <Setter Property="Stroke" Value="#9FB3CC" />
+        </Style>
+        <Style Selector="Button.contact:pointerover Path">
+            <Setter Property="Stroke" Value="#F2A541" />
+        </Style>
+        <Style Selector="Button.contact:pressed Path">
+            <Setter Property="Stroke" Value="#F7BD6A" />
+        </Style>
+        <Style Selector="Button.contact:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Foreground" Value="#F2A541" />
+            <Setter Property="Background" Value="Transparent" />
+        </Style>
+        <Style Selector="Button.contact:pressed /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Foreground" Value="#F7BD6A" />
+            <Setter Property="Background" Value="Transparent" />
+        </Style>
+    </Window.Styles>
+
+    <Panel>
+        <Panel.Background>
+            <LinearGradientBrush StartPoint="33%,0%" EndPoint="67%,100%">
+                <GradientStop Offset="0" Color="#0B1F3A" />
+                <GradientStop Offset="1" Color="#163F73" />
+            </LinearGradientBrush>
+        </Panel.Background>
+        <!-- the fine diagonal -->
+        <Border IsHitTestVisible="False">
+            <Border.Background>
+                <LinearGradientBrush StartPoint="0%,0%" EndPoint="100%,100%">
+                    <GradientStop Offset="0" Color="#002B6CB0" />
+                    <GradientStop Offset="0.62" Color="#002B6CB0" />
+                    <GradientStop Offset="0.62" Color="#382B6CB0" />
+                    <GradientStop Offset="0.64" Color="#382B6CB0" />
+                    <GradientStop Offset="0.64" Color="#002B6CB0" />
+                    <GradientStop Offset="1" Color="#002B6CB0" />
+                </LinearGradientBrush>
+            </Border.Background>
+        </Border>
+        <!-- a soft glow at the bottom right -->
+        <Ellipse Width="260" Height="260" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,-60,-80" IsHitTestVisible="False">
+            <Ellipse.Fill>
+                <RadialGradientBrush>
+                    <GradientStop Offset="0" Color="#592B6CB0" />
+                    <GradientStop Offset="0.7" Color="#002B6CB0" />
+                </RadialGradientBrush>
+            </Ellipse.Fill>
+        </Ellipse>
+
+        <StackPanel Margin="34,30,34,26">
+            <Viewbox Height="34" HorizontalAlignment="Left" Stretch="Uniform" AutomationProperties.Name="PDF-Knead">
+                <!-- the outlines stand on the baseline y = 0 and reach up to −94 at a size of 100: moved down into the box -->
+                <Canvas Name="Wordmark" Width="575" Height="108">
+                    <Canvas.Effect>
+                        <DropShadowEffect OffsetX="0" OffsetY="0" BlurRadius="18" Color="#78AAFF" Opacity="0.35" />
+                    </Canvas.Effect>
+                    <Canvas Canvas.Top="96">
+                        <Path Data="{StaticResource Wordmark.Pdf}" Fill="#F4F7FB" />
+                        <Path Data="{StaticResource Wordmark.Hyphen}" Fill="#F2A541" />
+                        <Path Data="{StaticResource Wordmark.Knead}" Fill="#F4F7FB" />
+                    </Canvas>
+                </Canvas>
+            </Viewbox>
+
+            <TextBlock Margin="0,18,0,0" FontSize="28" FontWeight="Bold" Foreground="#F4F7FB" TextWrapping="Wrap"
+                       Text="{l:T 'Vielen Dank, dass Sie PDF-Knead nutzen.'}" />
+
+            <Grid ColumnDefinitions="*,26,250" Margin="0,18,0,0">
+                <StackPanel Spacing="14">
+                    <TextBlock FontSize="16" LineHeight="25.6" Foreground="#F4F7FB" TextWrapping="Wrap"
+                               Text="{l:T 'Ich hoffe, es erleichtert Ihnen die Arbeit mit Ihren Dokumenten.'}" />
+                    <TextBlock FontSize="15" LineHeight="24" Foreground="#C9D6E8" TextWrapping="Wrap"
+                               Text="{l:T 'Hinter PDF-Knead steht kein Konzern und auch kein großer Sponsor. Es gibt keine Werbung, es werden keine Nutzungsdaten erhoben und schon gar nicht verkauft, um dieses Projekt zu finanzieren.'}" />
+                    <TextBlock FontSize="15" LineHeight="24" Foreground="#C9D6E8" TextWrapping="Wrap"
+                               Text="{l:T 'Mit Ihrer Unterstützung tragen Sie dazu bei, dass dies auch in Zukunft so sein wird, und zeigen gleichzeitig Ihre Wertschätzung für PDF-Knead. Dafür danke ich Ihnen herzlich.'}" />
+                    <TextBlock FontSize="13.5" LineHeight="21" Foreground="#9FB3CC" TextWrapping="Wrap"
+                               Text="{l:T 'Wenn Sie als Firma das Projekt sponsern möchten, stelle ich Ihnen gern eine Rechnung aus.'}" />
                 </StackPanel>
-            </Button>
-            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8">
-                <Button Content="{l:T 'Abbrechen'}" Click="OnCancel" IsCancel="True" />
-                <Button Name="SwitchButton" Classes="primary" Click="OnSwitch" IsDefault="True" />
-            </StackPanel>
-        </Grid>
-    </StackPanel>
+
+                <!-- documents folded into paper planes, rising into a warm evening sky (the shapes of the preview, 250 × 300) -->
+                <Border Grid.Column="2" Width="250" Height="300" VerticalAlignment="Top" CornerRadius="12" ClipToBounds="True"
+                        BorderBrush="#1FFFFFFF" BorderThickness="1" BoxShadow="0 10 30 0 #59000000" AutomationProperties.AccessibilityView="Raw">
+                    <Canvas Width="250" Height="300">
+                        <Rectangle Width="250" Height="300">
+                            <Rectangle.Fill>
+                                <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
+                                    <GradientStop Offset="0" Color="#132F57" />
+                                    <GradientStop Offset="0.55" Color="#3D5F97" />
+                                    <GradientStop Offset="0.8" Color="#E59A5C" />
+                                    <GradientStop Offset="1" Color="#F6C47C" />
+                                </LinearGradientBrush>
+                            </Rectangle.Fill>
+                        </Rectangle>
+                        <Ellipse Canvas.Left="90" Canvas.Top="162" Width="140" Height="140">
+                            <Ellipse.Fill>
+                                <RadialGradientBrush>
+                                    <GradientStop Offset="0" Color="#FFF2CF" />
+                                    <GradientStop Offset="0.45" Color="#FFD58A" />
+                                    <GradientStop Offset="1" Color="#00FFD58A" />
+                                </RadialGradientBrush>
+                            </Ellipse.Fill>
+                        </Ellipse>
+                        <Ellipse Canvas.Left="138" Canvas.Top="210" Width="44" Height="44" Fill="#FFF0C8" />
+                        <Ellipse Canvas.Left="38.8" Canvas.Top="38.8" Width="2.4" Height="2.4" Fill="#CCFFFFFF" />
+                        <Ellipse Canvas.Left="89.1" Canvas.Top="21.1" Width="1.8" Height="1.8" Fill="#CCFFFFFF" />
+                        <Ellipse Canvas.Left="203.9" Canvas.Top="32.9" Width="2.2" Height="2.2" Fill="#CCFFFFFF" />
+                        <Ellipse Canvas.Left="227.2" Canvas.Top="75.2" Width="1.6" Height="1.6" Fill="#CCFFFFFF" />
+                        <Ellipse Canvas.Left="17.2" Canvas.Top="95.2" Width="1.6" Height="1.6" Fill="#CCFFFFFF" />
+                        <Ellipse Canvas.Left="129.3" Canvas.Top="57.3" Width="1.4" Height="1.4" Fill="#CCFFFFFF" />
+                        <Path Data="M0,250 C50,228 95,236 140,252 S220,262 250,246 L250,300 L0,300 Z">
+                            <Path.Fill>
+                                <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
+                                    <GradientStop Offset="0" Color="#2D5285" />
+                                    <GradientStop Offset="1" Color="#1B3660" />
+                                </LinearGradientBrush>
+                            </Path.Fill>
+                        </Path>
+                        <Path Data="M0,268 C60,252 110,262 160,274 S230,282 250,272 L250,300 L0,300 Z">
+                            <Path.Fill>
+                                <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
+                                    <GradientStop Offset="0" Color="#22406B" />
+                                    <GradientStop Offset="1" Color="#14294A" />
+                                </LinearGradientBrush>
+                            </Path.Fill>
+                        </Path>
+
+                        <!-- a sheet still lying in the grass, the start of the flight -->
+                        <Canvas RenderTransformOrigin="0%,0%">
+                            <Canvas.RenderTransform>
+                                <TransformGroup>
+                                    <RotateTransform Angle="-8" />
+                                    <TranslateTransform X="36" Y="262" />
+                                </TransformGroup>
+                            </Canvas.RenderTransform>
+                            <Rectangle Width="30" Height="38" RadiusX="2" RadiusY="2" Fill="#F4F7FB" />
+                            <Path Data="M22,0 L30,8 L22,8 Z" Fill="#CDD8E8" />
+                            <Line StartPoint="5,13" EndPoint="24,13" Stroke="#9FB2CC" StrokeThickness="1.4" StrokeLineCap="Round" />
+                            <Line StartPoint="5,19" EndPoint="24,19" Stroke="#9FB2CC" StrokeThickness="1.4" StrokeLineCap="Round" />
+                            <Line StartPoint="5,25" EndPoint="18,25" Stroke="#9FB2CC" StrokeThickness="1.4" StrokeLineCap="Round" />
+                        </Canvas>
+
+                        <!-- trails (dashes in units of the stroke: 3 and 5 at 1.3) -->
+                        <Path Data="M62,250 C80,205 70,175 110,150" Stroke="#8CFFFFFF" StrokeThickness="1.3" StrokeDashArray="2.3,3.85" StrokeLineCap="Round" />
+                        <Path Data="M120,205 C140,170 150,140 180,112" Stroke="#8CFFFFFF" StrokeThickness="1.3" StrokeDashArray="2.3,3.85" StrokeLineCap="Round" />
+                        <Path Data="M70,140 C90,110 110,90 150,70" Stroke="#8CFFFFFF" StrokeThickness="1.3" StrokeDashArray="2.3,3.85" StrokeLineCap="Round" />
+
+                        <!-- paper planes -->
+                        <Canvas RenderTransformOrigin="0%,0%">
+                            <Canvas.RenderTransform>
+                                <TransformGroup>
+                                    <RotateTransform Angle="-24" />
+                                    <TranslateTransform X="108" Y="132" />
+                                </TransformGroup>
+                            </Canvas.RenderTransform>
+                            <Path Data="M0,10 L34,0 L12,14 Z" Fill="#FFFFFF" />
+                            <Path Data="M12,14 L34,0 L16,22 Z" Fill="#D7E1EF" />
+                            <Path Data="M0,10 L12,14 L10,18 Z" Fill="#B9C8DD" />
+                        </Canvas>
+                        <Canvas RenderTransformOrigin="0%,0%">
+                            <Canvas.RenderTransform>
+                                <TransformGroup>
+                                    <ScaleTransform ScaleX="0.8" ScaleY="0.8" />
+                                    <RotateTransform Angle="-30" />
+                                    <TranslateTransform X="176" Y="94" />
+                                </TransformGroup>
+                            </Canvas.RenderTransform>
+                            <Path Data="M0,10 L34,0 L12,14 Z" Fill="#FFFFFF" />
+                            <Path Data="M12,14 L34,0 L16,22 Z" Fill="#D7E1EF" />
+                            <Path Data="M0,10 L12,14 L10,18 Z" Fill="#B9C8DD" />
+                        </Canvas>
+                        <Canvas RenderTransformOrigin="0%,0%">
+                            <Canvas.RenderTransform>
+                                <TransformGroup>
+                                    <ScaleTransform ScaleX="0.62" ScaleY="0.62" />
+                                    <RotateTransform Angle="-18" />
+                                    <TranslateTransform X="148" Y="56" />
+                                </TransformGroup>
+                            </Canvas.RenderTransform>
+                            <Path Data="M0,10 L34,0 L12,14 Z" Fill="#FFF6E6" />
+                            <Path Data="M12,14 L34,0 L16,22 Z" Fill="#F2DCB8" />
+                            <Path Data="M0,10 L12,14 L10,18 Z" Fill="#E3C596" />
+                        </Canvas>
+                    </Canvas>
+                </Border>
+            </Grid>
+
+            <Grid ColumnDefinitions="*,Auto" Margin="0,24,0,0">
+                <StackPanel Orientation="Horizontal" Spacing="12">
+                    <Button Name="SupportButton" Classes="support" Click="OnSupport">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Path Data="{StaticResource Support.Heart}" Fill="#2A1A05" Width="16" Height="16" Stretch="Uniform" VerticalAlignment="Center" />
+                            <TextBlock Text="{l:T 'Unterstützen'}" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
+                    <Button Name="LaterButton" Classes="later" Click="OnLater" IsCancel="True" Content="{l:T 'Vielleicht später'}" />
+                </StackPanel>
+                <!-- the contact address, under the picture and flush with its right edge -->
+                <Button Name="ContactButton" Grid.Column="1" Classes="contact" VerticalAlignment="Center" Margin="0,0,-6,0" Click="OnContact"
+                        ToolTip.Tip="{l:T 'E-Mail schreiben'}" AutomationProperties.Name="{l:T 'Kontakt per E-Mail'}">
+                    <Button.ContextMenu>
+                        <ContextMenu>
+                            <MenuItem Name="CopyContactItem" Header="{l:T 'Adresse kopieren'}" Click="OnCopyContact" />
+                        </ContextMenu>
+                    </Button.ContextMenu>
+                    <StackPanel Orientation="Horizontal" Spacing="7">
+                        <Path Data="{StaticResource Support.Mail}" StrokeThickness="1.5"
+                              StrokeLineCap="Round" StrokeJoin="Round" Width="16" Height="12" Stretch="Uniform" VerticalAlignment="Center" />
+                        <TextBlock Name="ContactAddress" VerticalAlignment="Center" />
+                    </StackPanel>
+                </Button>
+            </Grid>
+        </StackPanel>
+    </Panel>
 </Window>

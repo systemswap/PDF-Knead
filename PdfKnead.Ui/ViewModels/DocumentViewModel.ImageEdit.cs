@@ -670,7 +670,7 @@ public sealed partial class DocumentViewModel
             using var use = Renderer.Use(item.Source);
             if (use is null) return null;
             if (images.Count == 1)
-                return images[0].Source is { } source ? ImageExport.Write(item.Source, source, output, openMask) : null;
+                return images[0].Source is { } source ? ImageExport.Write(item.Source, source, output, openMask, ImageExport.DrawnSize(images[0].ImageToPage)) : null;
             if (ContentImageExport.Compose(item.Source, images, MaxComposedPixels) is not var (width, height, rgba))
                 throw new Core.Pdf.PdfException(Tr.T("Das Bild lässt sich nicht lesen."));
             var exported = ImageExport.Export(new Core.Imaging.RgbaImage(width, height, rgba));

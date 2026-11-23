@@ -175,4 +175,16 @@ public sealed class AccessibilityAnnotationTests
         using var doc = File("2.0", null, [], [field]);
         Assert.Equal(found, Ids(doc, AccessibilityProfile.PdfUa2).Contains("8.10.3.3-1"));
     }
+
+    /// <summary>
+    /// A text field with a plain value and no rich value: nothing of 8.10.3.3 — there is no rich value to compare. Before, a missing /RV read as
+    /// present (the null object) and every such field was reported (docs/FEHLERGEDAECHTNIS.md, No. 1004).
+    /// </summary>
+    [Fact]
+    public void Ua2_TextFieldWithoutRichValue_NotReported()
+    {
+        var field = Dict(("FT", N("Tx")), ("T", S("name")), ("V", S("Erika Mustermann")));
+        using var doc = File("2.0", null, [], [field]);
+        Assert.DoesNotContain("8.10.3.3-1", Ids(doc, AccessibilityProfile.PdfUa2));
+    }
 }

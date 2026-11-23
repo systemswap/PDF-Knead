@@ -303,4 +303,122 @@ public sealed class MergeUiTests
             }
         });
     }
+
+    /// <summary>
+    /// ISO 32000-2, I.2, sentence 17: pages of a PDF 2.0 file inserted into a PDF 1.4 file — „Speichern“ and the default of „Speichern
+    /// unter“ take the more recent version, 2.0, so that the inserted pages keep what they need of it (docs/FEHLERGEDAECHTNIS.md, No. 1000).
+    /// Before, the version of the open file alone counted, and the copy was 1.4.
+    /// </summary>
+    [Fact]
+    public void InsertedFromNewerFile_SavedInTheNewerVersion()
+    {
+        var target = TestFiles.Write(TestPdf.Simple(1).Build(version: "1.4"), "fassung-alt.pdf");
+        var newer = TestFiles.Write(TestPdf.Simple(2).Build(version: "2.0"), "fassung-neu.pdf");
+        UiSession.Run(async () =>
+        {
+            var vm = new MainViewModel();
+            var window = new MainWindow { DataContext = vm, Width = 1280, Height = 800 };
+            window.Show();
+            try
+            {
+                await vm.OpenAsync([target]);
+                var doc = vm.SelectedDocument!;
+                Assert.Equal("1.4", doc.SaveVersion);
+                vm.ChoosePages = (source, _) => Task.FromResult<IReadOnlyList<int>?>([.. Enumerable.Range(0, source.PageCount)]);
+                await vm.InsertFilesAsync([newer]);
+                Assert.Equal(3, doc.PageCount);
+                Assert.Equal("2.0", doc.SaveVersion);
+                vm.ShowBackstageCommand.Execute(BackstagePage.SaveAs);
+                Assert.Equal("2.0", vm.SelectedVersion.Version);
+                // and saved so: the header of the file written names 2.0
+                var copy = Path.Combine(Path.GetDirectoryName(target)!, "fassung-gespeichert.pdf");
+                Assert.True(await vm.SaveDocumentAsync(doc, copy, doc.SaveVersion));
+                Assert.StartsWith("%PDF-2.0", System.Text.Encoding.Latin1.GetString(File.ReadAllBytes(copy), 0, 8));
+            }
+            finally
+            {
+                vm.AskSaveChanges = _ => Task.FromResult(SaveChoice.Discard);
+                window.Close();
+            }
+        });
+    }
+
+    /// <summary>
+    /// A file that states a version above 2.0 (ISO 32000-2, I.2; S-B B52): opened with a hint in „Probleme“, saved as 2.0 — the version this
+    /// writer conforms to (7.5.2, sentence 15) — in the header and without a /Version above it in the catalogue; „Speichern unter“ proposes 2.0.
+    /// </summary>
+    [Fact]
+    public void NewerThanTwo_SavedAsTwoZero()
+    {
+        var target = TestFiles.Write(TestPdf.Simple(1).Build(version: "2.1"), "fassung-2-1.pdf");
+        UiSession.Run(async () =>
+        {
+            var vm = new MainViewModel();
+            var window = new MainWindow { DataContext = vm, Width = 1280, Height = 800 };
+            window.Show();
+            try
+            {
+                await vm.OpenAsync([target]);
+                var doc = vm.SelectedDocument!;
+                Assert.Contains(doc.Document.Problems, p => p.Contains("2.1", StringComparison.Ordinal));
+                Assert.Equal("2.0", doc.SaveVersion);
+                vm.ShowBackstageCommand.Execute(BackstagePage.SaveAs);
+                Assert.Equal("2.0", vm.SelectedVersion.Version);
+                var copy = Path.Combine(Path.GetDirectoryName(target)!, "fassung-2-1-gespeichert.pdf");
+                Assert.True(await vm.SaveDocumentAsync(doc, copy, doc.SaveVersion));
+                Assert.StartsWith("%PDF-2.0", System.Text.Encoding.Latin1.GetString(File.ReadAllBytes(copy), 0, 8));
+                using var saved = PdfKnead.Core.Pdf.Document.PdfDocument.Open(copy);
+                Assert.Equal("2.0", saved.Version);
+            }
+            finally
+            {
+                vm.AskSaveChanges = _ => Task.FromResult(SaveChoice.Discard);
+                window.Close();
+            }
+        });
+    }
+
+    /// <summary>
+    /// I.2, sentences 12 and 13: an error is always reported, and work goes on where it can — of two files opened together, the one that is no
+    /// PDF is named with its error in the message line, the other opens.
+    /// </summary>
+    [Fact]
+    public void OpenError_Reported_TheOtherFileOpens()
+    {
+        var broken = TestFiles.Write(System.Text.Encoding.ASCII.GetBytes("kein PDF, nur Text"), "kaputt.pdf");
+        var good = TestFiles.Write(TestPdf.Simple(1).Build(), "gut.pdf");
+        UiSession.Run(async () =>
+        {
+            var vm = new MainViewModel();
+            var window = new MainWindow { DataContext = vm, Width = 1280, Height = 800 };
+            window.Show();
+            try
+            {
+                await vm.OpenAsync([broken, good]);
+                Assert.Contains("kaputt.pdf", vm.Message, StringComparison.Ordinal);
+                Assert.Single(vm.Documents);
+                Assert.Equal("gut.pdf", Path.GetFileName(vm.SelectedDocument!.Path));
+                // a file error while saving (the target is write-protected) is reported as well, and the document stays open
+                var locked = Path.Combine(Path.GetDirectoryName(good)!, "schreibgeschuetzt.pdf");
+                File.WriteAllBytes(locked, File.ReadAllBytes(good));
+                File.SetAttributes(locked, FileAttributes.ReadOnly);
+                try
+                {
+                    vm.Message = "";
+                    Assert.False(await vm.SaveDocumentAsync(vm.SelectedDocument!, locked, vm.SelectedDocument!.SaveVersion));
+                    Assert.Contains("schreibgeschützt", vm.Message, StringComparison.Ordinal);
+                    Assert.Single(vm.Documents);
+                }
+                finally
+                {
+                    File.SetAttributes(locked, FileAttributes.Normal);
+                }
+            }
+            finally
+            {
+                vm.AskSaveChanges = _ => Task.FromResult(SaveChoice.Discard);
+                window.Close();
+            }
+        });
+    }
 }

@@ -29,6 +29,9 @@ internal static class Jbig2Decoder
             // Nonsensical values that no check anticipated: treat them like damaged data
             truncated = true;
         }
+        // An extension the decoder does not know but that is necessary for the page (T.88, 7.4.14, bit 31): the page is shown as decoded and
+        // reported as incomplete (FG 1021; before, it was passed over silently)
+        if (document.MissesNecessaryExtension) truncated = true;
 
         var rowBytes = (width + 7) >> 3;
         StreamFilters.CheckSize((long)rowBytes * height);
@@ -52,6 +55,16 @@ internal static class Jbig2Decoder
         return output;
     }
 
+    /// <summary>
+    /// Reads one segment header (ITU-T T.88, 7.2) — for tests: number, type, referred-to segments and data length; <paramref name="p"/> ends
+    /// behind the header.
+    /// </summary>
+    internal static (uint Number, int Type, uint[] Referred, long Length) SegmentHeader(byte[] d, ref int p)
+    {
+        var s = Document.ReadHeader(d, ref p, d.Length);
+        return (s.Number, s.Type, s.Referred, s.Length);
+    }
+
     private sealed record Segment(uint Number, int Type, uint[] Referred, long Length)
     {
         public int Start;
@@ -60,6 +73,15 @@ internal static class Jbig2Decoder
     }
 
     private sealed record RegionInfo(int Width, int Height, long X, long Y, int Operator);
+
+    /// <summary>
+    /// The operator a direct region is composed with (ITU-T T.88, 8.2 step 5): an immediate refinement region that refers to no other
+    /// region refines a part of the page and replaces it (5 c; 7.4.7.5 sentence 48) — whatever the page says; otherwise the region's own
+    /// operator where the page allows overriding (bit 6 of its flags), else the page's. Before a refinement of the page was composed with
+    /// the page operator, so with OR it could not clear a pixel (docs/FEHLERGEDAECHTNIS.md, No. 976).
+    /// </summary>
+    internal static int OperatorFor(bool refinesThePage, bool overrideAllowed, int regionOperator, int pageOperator) =>
+        refinesThePage ? Jbig2Bitmap.Replace : overrideAllowed ? regionOperator : pageOperator;
 
     private sealed class Document(long imagePixels, long dataLength)
     {
@@ -72,6 +94,9 @@ internal static class Jbig2Decoder
         private bool _operatorOverride;
 
         public Jbig2Bitmap? Page { get; private set; }
+
+        /// <summary>Whether an extension segment flagged necessary was passed over (T.88, 7.4.14; no such type is known to this decoder).</summary>
+        public bool MissesNecessaryExtension { get; private set; }
 
         public void Run(byte[] d)
         {
@@ -120,7 +145,7 @@ internal static class Jbig2Decoder
 
         // ------------------------------------------------------------ Segment header (ITU-T T.88, 7.2)
 
-        private static Segment ReadHeader(byte[] d, ref int p, int end)
+        internal static Segment ReadHeader(byte[] d, ref int p, int end)
         {
             var number = Jbig2Read.U32(d, p, end);
             var flags = Jbig2Read.U8(d, p + 4, end);
@@ -154,8 +179,9 @@ internal static class Jbig2Decoder
         }
 
         /// <summary>
-        /// Generic region without a length (ITU-T T.88, 7.2.7): the end is 0xFF 0xAC (arithmetic) or
-        /// 0x00 0x00 (MMR), followed by the row count.
+        /// Generic region without a length (ITU-T T.88, 7.2.7): the end is 0xFF 0xAC (arithmetic) or 0x00 0x00 (MMR), followed by the row count,
+        /// which is at most the height of the region (7.4.6.4 sentence 90; neither sequence occurs inside the coded data, NOTE there). Before an
+        /// MMR region had to have exactly its height, so one with fewer rows was taken as damaged (docs/FEHLERGEDAECHTNIS.md, No. 977).
         /// </summary>
         private static void FindGenericEnd(Segment s, byte[] d, int end)
         {
@@ -163,13 +189,12 @@ internal static class Jbig2Decoder
             var info = ReadRegionInfo(d, s.Start, end);
             var flags = Jbig2Read.U8(d, s.Start + 17, end);
             var mmr = (flags & 1) != 0;
-            RefuseExtendedTemplate(flags);
-            var search = s.Start + 18 + (mmr ? 0 : ((flags >> 1) & 3) == 0 ? 8 : 2);
+            var search = s.Start + 18 + AtBytes(flags);
             for (var i = search; i + 6 <= end; i++)
             {
                 if (mmr ? d[i] != 0 || d[i + 1] != 0 : d[i] != 0xFF || d[i + 1] != 0xAC) continue;
                 var rows = Jbig2Read.U32(d, i + 2, end);
-                if (mmr && info.Height >= 0 ? rows != info.Height : rows > 1 << 24) continue;
+                if (rows > (info.Height >= 0 ? (uint)info.Height : 1u << 24)) continue;
                 s.End = i;
                 s.RowCount = (int)rows;
                 return;
@@ -178,15 +203,13 @@ internal static class Jbig2Decoder
         }
 
         /// <summary>
-        /// The extended template of a generic region (T.88 Amd. 2, 7.4.6.2 bit 4: twelve AT pixels instead of four) is not implemented: read as the
-        /// ordinary one, the AT pixels and the coded data would be taken from the wrong bytes and the image drawn wrongly without notice — a
-        /// reader that knows it would show something else. Refused, the image counts as unreadable (docs/FEHLERGEDAECHTNIS.md, No. 730).
+        /// Length of the AT field of a generic region (T.88, 7.4.6.3): none with MMR; with template 0 eight bytes, or 24 with the extended
+        /// template (EXTTEMPLATE, bit 4 of the flags; Amd. 2, Figure 50: twelve AT pixels — the text of Amd. 2 says a 32-byte field, its figure
+        /// and the conformance stream TT7 have 24); two bytes with the other templates, for which the bit has no meaning
+        /// (docs/FEHLERGEDAECHTNIS.md, No. 966).
         /// </summary>
-        private static void RefuseExtendedTemplate(int flags)
-        {
-            if ((flags & 1) == 0 && ((flags >> 1) & 3) == 0 && (flags & 0x10) != 0)
-                throw new Jbig2Exception("JBIG2: erweitertes Muster (EXTTEMPLATE) wird nicht unterstützt");
-        }
+        private static int AtBytes(int flags) =>
+            (flags & 1) != 0 ? 0 : ((flags >> 1) & 3) != 0 ? 2 : (flags & 0x10) != 0 ? 24 : 8;
 
         private static RegionInfo ReadRegionInfo(byte[] d, int p, int end)
         {
@@ -237,8 +260,11 @@ internal static class Jbig2Decoder
                     Region(s, GenericRegion(s, d, p, end, out var genericInfo), genericInfo);
                     break;
                 case 40 or 42 or 43:
-                    Region(s, RefinementRegion(s, d, p, end, out var refineInfo), refineInfo);
+                {
+                    var refined = RefinementRegion(s, d, p, end, out var refineInfo, out var ofThePage);
+                    Region(s, refined, refineInfo, ofThePage);
                     break;
+                }
                 case 48:
                     if (_pageSeen) return true;   // second page: a PDF image holds only the first
                     PageInformation(d, p, end);
@@ -253,6 +279,11 @@ internal static class Jbig2Decoder
                     return true;
                 case 53:
                     _results[s.Number] = Jbig2Huffman.FromSegment(d, p, end);
+                    break;
+                case 62:
+                    // Extension (7.4.14): the comments of 7.4.15 and every other known or unknown type are passed over; bit 31 marks data the page needs
+                    // (a segment shorter than its type field is passed over like any unknown one)
+                    if (end - p >= 4 && (Jbig2Read.U32(d, p, end) & 0x80000000) != 0) MissesNecessaryExtension = true;
                     break;
             }
             return false;
@@ -292,7 +323,7 @@ internal static class Jbig2Decoder
         }
 
         /// <summary>Keeps an intermediate result (types 4, 20, 36, 40) or composes the region onto the page.</summary>
-        private void Region(Segment s, Jbig2Bitmap bitmap, RegionInfo info)
+        private void Region(Segment s, Jbig2Bitmap bitmap, RegionInfo info, bool refinesThePage = false)
         {
             if (s.Type is 4 or 20 or 36 or 40)
             {
@@ -301,8 +332,9 @@ internal static class Jbig2Decoder
             }
             if (Page is null) throw new Jbig2Exception("JBIG2: Seiteninformation fehlt");
             if (_unknownHeight) EnsureHeight(info.Y + bitmap.Height);
-            Page.Compose(bitmap, info.X, info.Y, _operatorOverride ? info.Operator : _defaultOperator);
+            Page.Compose(bitmap, info.X, info.Y, OperatorFor(refinesThePage, _operatorOverride, info.Operator, _defaultOperator));
         }
+
 
         private Jbig2Bitmap GenericRegion(Segment s, byte[] d, int p, int end, out RegionInfo info)
         {
@@ -312,8 +344,8 @@ internal static class Jbig2Decoder
             var mmr = (flags & 1) != 0;
             var template = (flags >> 1) & 3;
             var tpgdon = (flags & 8) != 0;
-            RefuseExtendedTemplate(flags);
-            var at = new int[mmr ? 0 : template == 0 ? 8 : 2];
+            var extended = !mmr && template == 0 && (flags & 0x10) != 0;
+            var at = new int[AtBytes(flags)];
             for (var i = 0; i < at.Length; i++) at[i] = Jbig2Read.I8(d, p++, end);
             var height = info.Height;
             if (s.RowCount >= 0 && (height < 0 || s.RowCount < height)) height = s.RowCount;
@@ -321,10 +353,10 @@ internal static class Jbig2Decoder
             info = info with { Height = height };
             return mmr
                 ? Jbig2Regions.Mmr(d, p, end, info.Width, height, out _, _budget)
-                : Jbig2Regions.Generic(new MqDecoder(d, p, end), new byte[1 << 16], info.Width, height, template, tpgdon, null, at, _budget);
+                : Jbig2Regions.Generic(new MqDecoder(d, p, end), new byte[1 << 16], info.Width, height, template, tpgdon, null, at, _budget, extended);
         }
 
-        private Jbig2Bitmap RefinementRegion(Segment s, byte[] d, int p, int end, out RegionInfo info)
+        private Jbig2Bitmap RefinementRegion(Segment s, byte[] d, int p, int end, out RegionInfo info, out bool ofThePage)
         {
             info = ReadRegionInfo(d, p, end);
             if (info.Height < 0) throw new Jbig2Exception("JBIG2: Höhe fehlt");
@@ -338,6 +370,7 @@ internal static class Jbig2Decoder
 
             // Reference: the referred intermediate result, otherwise the section of the page (ITU-T T.88, 7.4.7.5)
             var reference = Referred<Jbig2Bitmap>(s).FirstOrDefault();
+            ofThePage = reference is null;
             if (reference is null)
             {
                 if (Page is null) throw new Jbig2Exception("JBIG2: Seiteninformation fehlt");

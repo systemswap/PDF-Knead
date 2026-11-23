@@ -241,7 +241,8 @@ internal static class DataKeepCheck
                     if ((s.Dictionary.GetName(PdfName.Subtype)?.Value == "XML" || s.Dictionary.GetName(PdfName.Type)?.Value == "Metadata" || LastKey(path) == "Metadata") &&
                         Xmp(s, t, path))
                         return;
-                    if (!SameData(s, t)) Note(strict, "Daten anders", path, Canonical(s, t) ? CanonicalReason : null);
+                    if (!SameData(s, t))
+                        Note(strict, "Daten anders", path, Canonical(s, t) ? CanonicalReason : ImageRepaired(s, t) ? ImageReason : null);
                     return;
                 case PdfDictionary d:
                     if (v is not PdfDictionary e)
@@ -569,6 +570,31 @@ internal static class DataKeepCheck
             try
             {
                 return ContentConformance.CanonicalSyntax(a.GetStreamData(s)) is { } canonical && canonical.AsSpan().SequenceEqual(b.GetStreamData(t));
+            }
+            catch (Exception e) when (e is Core.Pdf.PdfException or InvalidDataException or InvalidOperationException)
+            {
+                return false;
+            }
+        }
+
+        /// <summary>Why the data of an image differs that the writer put in the form the standard asks for.</summary>
+        private const string ImageReason =
+            "Bilddaten in der Form der Norm geschrieben, ohne Verlust (ISO 32000-2, 7.4.8, 7.4.9; S-A A14, A75, A76; FG 992, 996)";
+
+        /// <summary>
+        /// Whether the copy's image data is exactly what <see cref="ImageDataConformance.Repair"/> makes of the source's — bytes before the JPEG
+        /// start gone, a bare JPEG 2000 codestream wrapped — and nothing else.
+        /// </summary>
+        private bool ImageRepaired(PdfStream s, PdfStream t)
+        {
+            try
+            {
+                if (s.Dictionary.GetName(PdfName.Subtype)?.Value != "Image") return false;
+                var raw = a.GetRawStreamData(s);
+                var dict = new PdfDictionary();   // changed in place by Repair: a copy
+                foreach (var (key, value) in s.Dictionary.Entries) dict.Set(key, value);
+                return ImageDataConformance.Repair(dict, raw, ImageDataConformance.BareOpacity(s.Dictionary, raw, a)) is { } repaired &&
+                       repaired.AsSpan().SequenceEqual(b.GetRawStreamData(t));
             }
             catch (Exception e) when (e is Core.Pdf.PdfException or InvalidDataException or InvalidOperationException)
             {

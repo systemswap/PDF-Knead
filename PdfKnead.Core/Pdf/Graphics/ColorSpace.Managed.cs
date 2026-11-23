@@ -61,6 +61,12 @@ public abstract partial class ColorSpace
     /// <summary>Can convert whole 8-bit rows quickly (tables instead of a calculation per pixel).</summary>
     internal virtual bool HasRow8 => false;
 
+    /// <summary>
+    /// A colour as exactly as the space can give it, without the rounding a cache of single colours may apply (an ICC space rounds to
+    /// thousandths for its cache); for images drawn at their full depth (docs/FEHLERGEDAECHTNIS.md, No. 1092).
+    /// </summary>
+    internal virtual Rgb ToRgbExact(ReadOnlySpan<double> components) => ToRgb(components);
+
     /// <summary>Row with 8 bits per component → RGBA (opaque); only if <see cref="HasRow8"/>.</summary>
     internal virtual void ConvertRow8(ReadOnlySpan<byte> row, int width, Span<byte> rgba) => throw new NotSupportedException();
 
@@ -286,6 +292,8 @@ public abstract partial class ColorSpace
         public override double[] InitialColor => deviceCmyk ? [0, 0, 0, 1] : base.InitialColor;
 
         public override Rgb ToRgb(ReadOnlySpan<double> components) => transform.ToRgb(components);
+
+        internal override Rgb ToRgbExact(ReadOnlySpan<double> components) => transform.ToRgbExact(components);
 
         internal override bool HasRow8 => _shaper is not null || transform.HasRow8;
 

@@ -354,8 +354,8 @@ public sealed partial class MainViewModel
     {
         if (!EnsureAllowed("start.save")) return;
         if (SelectedDocument is not { } doc) return;
-        if (doc.IsUntitled) await SaveUntitledAsync(doc);
-        else await SaveDocumentAsync(doc, doc.Path, doc.SaveVersion);
+        var saved = doc.IsUntitled ? await SaveUntitledAsync(doc) : await SaveDocumentAsync(doc, doc.Path, doc.SaveVersion);
+        if (saved) await OfferSupportAsync();
     }
 
     /// <summary>Save As: choose the location, version from <see cref="SelectedVersion"/>; the original stays untouched.</summary>
@@ -367,7 +367,9 @@ public sealed partial class MainViewModel
         if (!await RedactFirstAsync(doc, Tr.T("Speichern unter"))) return;
         var path = await PickSavePath(Tr.T("Speichern unter"), doc.FileName, SaveFolder(doc));
         if (path is null) return;
-        if (await SaveDocumentAsync(doc, path, SelectedVersion.Version, SelectedCompression.Settings)) BackstageOpen = false;
+        if (!await SaveDocumentAsync(doc, path, SelectedVersion.Version, SelectedCompression.Settings)) return;
+        BackstageOpen = false;
+        await OfferSupportAsync();
     }
 
     /// <summary>Lets the user choose password and permissions (set by the view): takes whether the file is encrypted, the current permissions and the version; returns the change, or null.</summary>
@@ -395,7 +397,8 @@ public sealed partial class MainViewModel
     /// <summary>Asks „Einschränkungen entfernen“ (set by the view): takes the file, what is locked, whether there is an open password and a check for the owner password; returns the reply, or null.</summary>
     public Func<string, string, bool, Func<string, bool>, Task<RestrictionsReply?>>? PickRestrictions { get; set; }
 
-    private bool CanLiftRestrictions => SelectedDocument is { HasRestrictions: true, IsWorking: false };
+    // also when the file permits everything but has an owner password that was not given: otherwise that password could never be removed
+    private bool CanLiftRestrictions => SelectedDocument is { CanLiftRestrictions: true, IsWorking: false };
 
     /// <summary>
     /// „Sicher“ tab → „Einschränkungen entfernen“: when opened with the owner password no question is asked (an open password stays),
@@ -406,9 +409,7 @@ public sealed partial class MainViewModel
     private async Task LiftRestrictions()
     {
         if (!EnsureAllowed("secure.remove-restrictions")) return;
-        if (SelectedDocument is not { HasRestrictions: true } doc || doc.Document.Security is not { } security) return;
-        // a licensed feature (LICENSE, section 1 (5)): checked when it starts
-        if (!EnsureLicensed(Core.Licensing.LicensedFeature.Restrictions)) return;
+        if (SelectedDocument is not { CanLiftRestrictions: true } doc || doc.Document.Security is not { } security) return;
         var openPassword = doc.HasOpenPassword;
         // Only attachments encrypted and locked: without their password the file could not be rewritten correctly. Likewise when all
         // permissions cannot be granted while the file has an open password
@@ -452,7 +453,7 @@ public sealed partial class MainViewModel
             Tool = ViewTool.SelectText;
             return;
         }
-        if (!CheckCanEdit(doc) || !EnsureLicensed(Core.Licensing.LicensedFeature.Redaction)) return;
+        if (!CheckCanEdit(doc)) return;
         doc.RedactSelection();
         Tool = ViewTool.RedactText;
     }
@@ -471,7 +472,7 @@ public sealed partial class MainViewModel
             Tool = ViewTool.SelectText;
             return;
         }
-        if (!CheckCanEdit(doc) || !EnsureLicensed(Core.Licensing.LicensedFeature.Redaction)) return;
+        if (!CheckCanEdit(doc)) return;
         Tool = ViewTool.RedactHidden;
     }
 
@@ -483,7 +484,7 @@ public sealed partial class MainViewModel
     private async Task SearchRedact()
     {
         if (!EnsureAllowed("secure.search-redact")) return;
-        if (SelectedDocument is not { } doc || PickRedactionHits is null || !CheckCanEdit(doc) || !EnsureLicensed(Core.Licensing.LicensedFeature.Redaction)) return;
+        if (SelectedDocument is not { } doc || PickRedactionHits is null || !CheckCanEdit(doc)) return;
         if (await PickRedactionHits((words, patterns, matchCase) => doc.FindForRedactionAsync(words, patterns, matchCase)) is not { Hits.Count: > 0 } pick) return;
         // a hit under a mark already is not marked again (report of 4.11.2026)
         var count = await doc.RedactHitsAsync(pick.Hits.Where(h => !h.Marked), reasonOf: pick.For);
@@ -595,7 +596,7 @@ public sealed partial class MainViewModel
     [RelayCommand(CanExecute = nameof(CanSave))]
     private async Task ExportPdfA()
     {
-        if (SelectedDocument is not { } doc || PickPdfA is null || PickSavePath is null || !EnsureLicensed(Core.Licensing.LicensedFeature.PdfA)) return;
+        if (SelectedDocument is not { } doc || PickPdfA is null || PickSavePath is null) return;
         // PDF/A allows no encryption: an unprotected copy only where the protection could be changed anyway (as for „Speichern unter“)
         if (!doc.CanChangeProtection)
         {

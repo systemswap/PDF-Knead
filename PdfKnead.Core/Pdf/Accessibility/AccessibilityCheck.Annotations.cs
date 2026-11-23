@@ -205,7 +205,9 @@ public static partial class AccessibilityCheck
                 var (node, inherited, depth) = stack.Pop();
                 if (node is not PdfDictionary field || depth > 32 || !seen.Add(field)) continue;
                 var type = field.GetName(PdfName.Get("FT"))?.Value ?? inherited;
-                if (type == "Tx" && field.Get(PdfName.Get("RV")) is { } rv &&
+                // only a field with a rich value (a missing /RV reads as the null object: before, every text field with a plain value was
+                // reported; docs/FEHLERGEDAECHTNIS.md, No. 1004)
+                if (type == "Tx" && field.Get(PdfName.Get("RV")) is { } rv and not PdfNull &&
                     (field.Get(PdfName.Get("V")) is not PdfString value || RichText(rv) is not { } rich || Normalised(rich) != Normalised(PdfACheck.RawText(value))))
                     Add(AccessibilityRules.RichValue, Tr.T("Ein Textfeld hat einen formatierten Wert (/RV), aber keinen gleichen einfachen Wert (/V)."));
                 if (field.Get(PdfName.Kids) is PdfArray kids)

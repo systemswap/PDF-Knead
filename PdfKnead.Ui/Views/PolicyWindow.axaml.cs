@@ -39,13 +39,13 @@ public sealed partial class PolicyWindow : Window
         {
             var list = new StackPanel { Spacing = 3 };
             list.Children.Add(new TextBlock { Text = Tr.T(tab), FontWeight = FontWeight.SemiBold, Margin = new Thickness(0, 0, 0, 2) });
-            foreach (var function in functions) list.Children.Add(Line(Tr.T(function.Name), ActivePolicy.Allows(function.Id)));
+            foreach (var function in functions) list.Children.Add(Line(Tr.T(function.Name), ActivePolicy.Allows(function.Id), function.Parent is not null));
             var column = columns.TryGetValue(tab, out var c) ? c : next++ % 3;
             stacks[column].Children.Add(new Border { Classes = { "card" }, Padding = new Thickness(12, 8), Child = list });
         }
     }
 
-    private Control Line(string name, bool allowed)
+    private Control Line(string name, bool allowed, bool part)
     {
         var mark = new Border
         {
@@ -61,7 +61,8 @@ public sealed partial class PolicyWindow : Window
         ToolTip.SetTip(mark, allowed ? Tr.T("erlaubt") : Tr.T("gesperrt"));
         var text = new TextBlock { Text = name, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap, Opacity = allowed ? 1 : 0.7 };
         // a long name wraps beside its mark instead of being cut off at the edge of the card
-        var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*"), Margin = new Thickness(10, 0, 0, 0) };
+        // a part of the function above stands indented under it
+        var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*"), Margin = new Thickness(part ? 32 : 10, 0, 0, 0) };
         grid.Children.Add(mark);
         Grid.SetColumn(text, 1);
         grid.Children.Add(text);

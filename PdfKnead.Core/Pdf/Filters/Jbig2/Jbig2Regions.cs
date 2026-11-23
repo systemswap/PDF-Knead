@@ -61,6 +61,32 @@ internal static class Jbig2Regions
     // Context for SLTP with TPGDON (6.2.5.7), in the bit order of 6.2.5.3
     private static readonly int[] TpgdonContexts = [0x9B25, 0x0795, 0x00E5, 0x0195];
 
+    /// <summary>
+    /// Context for SLTP with the extended template (T.88 Amd. 2, GBTEMPLATE 0 and EXTTEMPLATE 1): Figure 8 gives the pixel values of the
+    /// template of GBTEMPLATE 0 — rows −2, −1, 0 with 5, 7 and 4 pixels, „10011“, „0110010“, „0101“ from left to right —; Figure 3(b) has the
+    /// same shape, so each value goes to the pixel of Figure 3(b) at the same place, the AT pixels at their nominal places (6.2.5.7, NOTE: the
+    /// same values wherever the AT pixels are). In the bit order of <see cref="ExtendedRow"/>: 0x5749. No conformance data covers it; the
+    /// sample software of the norm forms it otherwise. Decided on 20.11.2026: after Figure 8 rather than refused
+    /// (docs/normabgleich/sonderregeln.md, S-B B50; docs/FEHLERGEDAECHTNIS.md, No. 990).
+    /// </summary>
+    internal static readonly int ExtendedTpgdonContext = ExtendedSltp();
+
+    private static int ExtendedSltp()
+    {
+        string[] figure8 = ["10011", "0110010", "0101"];
+        int Value(int dx, int dy)
+        {
+            var (row, left) = dy switch { -2 => (figure8[0], -2), -1 => (figure8[1], -3), _ => (figure8[2], -4) };
+            return row[dx - left] - '0';
+        }
+        (int X, int Y)[] fixedPixels = [(-1, 0), (1, -1), (0, -1), (-1, -1)];
+        (int X, int Y)[] nominal = [(-2, 0), (0, -2), (-2, -1), (-1, -2), (1, -2), (2, -1), (-3, 0), (-4, 0), (2, -2), (3, -1), (-2, -2), (-3, -1)];
+        var context = 0;
+        for (var k = 0; k < 4; k++) context |= Value(fixedPixels[k].X, fixedPixels[k].Y) << k;
+        for (var k = 0; k < 12; k++) context |= Value(nominal[k].X, nominal[k].Y) << (k + 4);
+        return context;
+    }
+
     /// <summary>Context for SLTP with TPGRON (6.3.5.6) per template, in the bit order of <see cref="Refine"/>.</summary>
     internal static readonly int[] TpgronContexts = [0x0100, 0x0080];
 
@@ -73,21 +99,22 @@ internal static class Jbig2Regions
     /// Generic region, arithmetic (6.2.5). The context is formed per row from three
     /// shift registers (rows −2, −1, 0) and the AT pixels, in the bit order of
     /// Figures 3–6 of the standard; otherwise the fixed SLTP contexts would not match.
+    /// With <paramref name="extended"/> (template 0 only, Amd. 2): the template of Figure 3(b), see <see cref="ExtendedRow"/>.
     /// </summary>
     public static Jbig2Bitmap Generic(MqDecoder dec, byte[] cx, int width, int height, int template, bool tpgdon,
-        Jbig2Bitmap? skip, int[] at, Jbig2Budget budget)
+        Jbig2Bitmap? skip, int[] at, Jbig2Budget budget, bool extended = false)
     {
+        var atCount = extended ? 12 : template == 0 ? 4 : 1;
+        if (at.Length < atCount * 2 || extended && template != 0) throw new Jbig2Exception("JBIG2: AT-Pixel");
         budget.Allocate(width, height);
         budget.Spend((long)width * height);
         var bm = new Jbig2Bitmap(width, height);
         var data = bm.Data;
         var stride = bm.Stride;
-        var atCount = template == 0 ? 4 : 1;
-        if (at.Length < atCount * 2) throw new Jbig2Exception("JBIG2: AT-Pixel");
-        Span<int> atRow = stackalloc int[4];
+        Span<int> atRow = stackalloc int[12];
         // AT pixels at the usual positions (almost always): they then lie right next to the fixed
         // pixels, and the whole context comes from three shift registers
-        var nominal = skip is null && template switch
+        var nominal = skip is null && !extended && template switch
         {
             0 => at is [3, -1, -3, -1, 2, -2, -2, -2],
             1 => at is [3, -1],
@@ -99,7 +126,7 @@ internal static class Jbig2Regions
             var row = y * stride;
             if (tpgdon)
             {
-                ltp ^= dec.Decode(cx, TpgdonContexts[template]);
+                ltp ^= dec.Decode(cx, extended ? ExtendedTpgdonContext : TpgdonContexts[template]);
                 if (ltp != 0)
                 {
                     // Row equal to the one above (the first one: empty)
@@ -108,6 +135,11 @@ internal static class Jbig2Regions
                 }
             }
             if (width == 0) continue;
+            if (extended)
+            {
+                ExtendedRow(dec, cx, data, stride, y, width, at, atRow, skip);
+                continue;
+            }
             int r1 = y >= 1 ? row - stride : -1, r2 = y >= 2 ? row - 2 * stride : -1;
             if (nominal)
             {
@@ -191,6 +223,38 @@ internal static class Jbig2Regions
             }
         }
         return bm;
+    }
+
+    /// <summary>
+    /// One row with the extended template (T.88 Amd. 2; 6.2.5.3, Figure 3(b); 6.2.5.4): four fixed pixels — the current row at x − 1 and the row
+    /// above at x + 1, x, x − 1, in bits 0 to 3 — and the twelve AT pixels A1 … A12 in bits 4 to 15. The order of the bits is free (6.2.5.3:
+    /// consistent, independent of the AT positions); the SLTP context <see cref="ExtendedTpgdonContext"/> is formed in the same order. The
+    /// positions are checked with the conformance stream TT7 of Annex K (docs/FEHLERGEDAECHTNIS.md, No. 966).
+    /// </summary>
+    private static void ExtendedRow(MqDecoder dec, byte[] cx, byte[] data, int stride, int y, int width, int[] at, Span<int> atRow, Jbig2Bitmap? skip)
+    {
+        var row = y * stride;
+        var r1 = y >= 1 ? row - stride : -1;
+        for (var k = 0; k < 12; k++)
+        {
+            var ay = y + at[2 * k + 1];
+            atRow[k] = ay >= 0 && ay <= y ? ay * stride : -1;
+        }
+        // row above: x − 1, x, x + 1 in the lowest three bits; current row: x − 1
+        int w1 = P(data, r1, 0, width) << 1 | P(data, r1, 1, width), w0 = 0;
+        for (var x = 0; x < width; x++)
+        {
+            var bit = 0;
+            if (skip is null || skip.Get(x, y) == 0)
+            {
+                var context = (w1 & 7) << 1 | w0;
+                for (var k = 0; k < 12; k++) context |= P(data, atRow[k], x + at[2 * k], width) << (k + 4);
+                bit = dec.Decode(cx, context);
+            }
+            if (bit != 0) data[row + (x >> 3)] |= (byte)(0x80 >> (x & 7));
+            w0 = bit;
+            w1 = (w1 << 1 | P(data, r1, x + 2, width)) & 7;
+        }
     }
 
     /// <summary>
@@ -339,7 +403,9 @@ internal static class Jbig2Regions
 
         var all = new List<Jbig2Bitmap>(input.Count + numNew);
         all.AddRange(input);
+        // SBSYMCODELEN of an aggregation (6.5.8.2.3): with Huffman at least 1
         var symbolCodeLength = Jbig2Read.CeilLog2((long)input.Count + numNew);
+        if (huff) symbolCodeLength = Math.Max(1, symbolCodeLength);
         var newCount = 0;
         var heightClassHeight = 0;
         var widths = new List<int>();

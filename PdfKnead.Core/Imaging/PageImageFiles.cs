@@ -40,6 +40,15 @@ public sealed record PageImageSettings(PageImageFormat Format = PageImageFormat.
 /// <summary>File names and small format details shared by every way of saving pages as images.</summary>
 public static class PageImageFiles
 {
+    /// <summary>
+    /// The profile of rendered page pixels: sRGB for colour, grey with the sRGB tone curve for grey (own profiles). Page images name it, so
+    /// that their colours are exact (RFC 2083, 9.2, 9.3; decided by the user on 22.11.2026; the TIFF pages carry the same, No. 980).
+    /// </summary>
+    /// <param name="colour">Colour (RGB) or grey.</param>
+    /// <returns>A new copy of the profile.</returns>
+    public static byte[] RenderedProfile(bool colour) =>
+        colour ? Pdf.Graphics.Icc.CalibratedProfile.Srgb() : Pdf.Graphics.Icc.CalibratedProfile.SrgbGray();
+
     /// <summary>The file extension of a format, with the dot.</summary>
     public static string Extension(PageImageFormat format) => format switch
     {

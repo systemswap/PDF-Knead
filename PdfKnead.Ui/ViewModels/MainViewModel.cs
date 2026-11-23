@@ -94,7 +94,8 @@ public sealed partial class MainViewModel : ObservableObject
             Avalonia.Threading.Dispatcher.UIThread.Post(() => vm.Message = MissingCjkFontsMessage);
         }
         Core.Pdf.Document.PdfDocument.MissingCjkFontsFound += OnMissingCjk;
-        WatchLicensing();
+        Settings.ShowPermissions = () => ShowPermissions?.Invoke() ?? Task.CompletedTask;
+        Settings.ImportPolicy = ImportPolicyAsync;
     }
 
     /// <summary>Message shown when a PDF needs a Chinese, Japanese or Korean font but the „Schriften-CJK“ folder is missing.</summary>
@@ -405,7 +406,7 @@ public sealed partial class MainViewModel : ObservableObject
             case nameof(DocumentViewModel.HasTextSelection):
                 CopyTextCommand.NotifyCanExecuteChanged();
                 break;
-            case nameof(DocumentViewModel.HasRestrictions) or nameof(DocumentViewModel.IsProtected):
+            case nameof(DocumentViewModel.HasRestrictions) or nameof(DocumentViewModel.CanLiftRestrictions) or nameof(DocumentViewModel.IsProtected):
                 NotifyDocumentCommands();
                 break;
             case nameof(DocumentViewModel.Title):
@@ -524,9 +525,9 @@ public sealed partial class MainViewModel : ObservableObject
         RibbonPeek = false;
         if (page == BackstagePage.Settings) Settings.ReloadLanguages();
         if (page == BackstagePage.ScanProfiles) ScanProfiles.Reload();
-        // Save As: default 1.7; files at PDF 2.0 or later stay 2.0
+        // Save As: default 1.7; files at PDF 2.0 or later stay 2.0 — also where pages of such a file were inserted (ISO 32000-2, I.2, sentence 17)
         if (page == BackstagePage.SaveAs && SelectedDocument is { } doc)
-            SelectedVersion = PdfKnead.Core.Pdf.Writing.PdfWriter.CompareVersions(doc.PdfVersion, "2.0") >= 0 ? VersionOptions[^1] : VersionOptions[1];
+            SelectedVersion = PdfKnead.Core.Pdf.Writing.PdfWriter.CompareVersions(doc.NewestSourceVersion, "2.0") >= 0 ? VersionOptions[^1] : VersionOptions[1];
     }
 
     [RelayCommand]
@@ -636,9 +637,8 @@ public sealed partial class MainViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(HasSelection))]
     private void SetTool(ViewTool tool)
     {
-        // „Bereich schwärzen“ is a licensed feature (LICENSE, section 1 (5)): checked when it is switched on
+        // a tool the function file of the organization switches off: checked when it is switched on
         if (tool != Tool && PolicyIdOf(tool) is { } function && !EnsureAllowed(function)) return;
-        if (tool != Tool && tool == ViewTool.InsertRedaction && !EnsureLicensed(Core.Licensing.LicensedFeature.Redaction)) return;
         Tool = tool == Tool ? ViewTool.SelectText : tool;
     }
 
@@ -734,14 +734,38 @@ public sealed partial class MainViewModel : ObservableObject
     public const string DonationAddress = "https://ko-fi.com/systemswap";
 
     /// <summary>
-    /// The donate button at the top right: opens the donation page in the browser of the system — only on this click, nothing is sent
-    /// before or by itself; no window inside the program, so that payment data and logins stay in the browser the user knows.
+    /// Opens the donation page in the browser of the system — only after „Unterstützen“ in the donation window, nothing is sent before or by
+    /// itself; the payment itself never happens inside the program, so that payment data and logins stay in the browser the user knows.
     /// </summary>
-    [RelayCommand]
     public async Task DonateAsync()
     {
         if (OpenAddress is { } open) await open(DonationAddress);
     }
+
+    /// <summary>
+    /// The donate button at the top right (decided on 22.11.2026): it opens the donation window first — friendlier than the page straight
+    /// away. „Unterstützen“ there opens the page and counts as an answer (the window waits 18 months, <see cref="Services.SupportPrompt"/>);
+    /// closing it or „Vielleicht später“ leaves the timetable of the window as it is — a window opened on purpose does not move it.
+    /// </summary>
+    [RelayCommand]
+    public async Task ShowDonationWindowAsync()
+    {
+        if (!DonateButtonVisible) return;
+        if (ShowSupportInvitation is not { } show)
+        {
+            await DonateAsync();
+            return;
+        }
+        if (await show() != true) return;
+        Services.SupportPrompt.Answered(Today(), supported: true);
+        await DonateAsync();
+    }
+
+    /// <summary>
+    /// Whether the donate button is there: it goes with the donation window — an organization that switches the window off in its function
+    /// file („Spenden-Fenster“, <see cref="Services.SupportPrompt.PolicyId"/>) sees no hint at donating at all.
+    /// </summary>
+    public bool DonateButtonVisible => Core.Policy.ActivePolicy.Allows(Services.SupportPrompt.PolicyId);
 
     /// <summary>Opens the address of the code that was read — only after asking, never by itself.</summary>
     [RelayCommand]

@@ -11,6 +11,8 @@
   <img src="https://img.shields.io/badge/Processing-local-1f232b?style=flat-square" alt="Local processing">
   <img src="https://img.shields.io/badge/Telemetry-none-1f232b?style=flat-square" alt="No telemetry">
   <img src="https://img.shields.io/badge/AI-local%20only-1f232b?style=flat-square" alt="AI local only">
+  <img src="https://img.shields.io/badge/Made%20in-Germany-1f232b?style=flat-square" alt="Made in Germany">
+  <img src="https://img.shields.io/badge/Source-available-1f232b?style=flat-square" alt="Source available">
   <img src="https://img.shields.io/badge/Status-Beta-1f232b?style=flat-square" alt="Status: Beta">
 </p>
 
@@ -23,7 +25,7 @@
 
 ---
 
-## For everyone who wants digital sovereignty
+## Made in Germany. For your digital sovereignty.
 
 Public administrations, courts, archives and companies that are moving their workstations to open systems need more than a viewer for
 PDF: redacting, signing, archiving, filling in forms, checking e-invoices – on Linux just as on Windows. PDF-Knead is built for this.
@@ -168,6 +170,46 @@ Hill et al.: Mosaicing and Blurring as Tools for Document Redaction (PoPETs 2016
 
 </details>
 
+### Managing permissions and passwords
+
+<p align="center">
+  <img src="docs/bilder/readme/rechte.png" width="460" alt="“Password and permissions” window with open password, permissions password and individual permissions">
+</p>
+
+- **Password to open** with AES-256, set **permissions** individually: printing, copying, changing, commenting, forms, pages.
+- **Honestly explained:** without a password to open, permissions are only a request to the viewer. Only “Flatten as image” makes
+  content truly impossible to copy – PDF-Knead says so in the window too.
+
+### Administrative permissions
+
+<p align="center">
+  <img src="docs/bilder/readme/berechtigungen-verwalten.png" width="49%" align="top" alt="FunktionManager: organization, kind of use and, for each tab of the program, its functions with ticks – under Start only printing, under Secure only area redaction and applying redactions">
+  <img src="docs/bilder/readme/berechtigungen.png" width="49%" align="top" alt="“Permissions” window in PDF-Knead: every function by tab, green tick allowed, red cross switched off">
+</p>
+<p align="center">
+  <img src="docs/bilder/readme/menueband-start.png" width="100%" alt="Start tab with this function file: only printing, opening and the view can be used, everything else is greyed out">
+  <img src="docs/bilder/readme/menueband-sicher.png" width="100%" alt="Secure tab with this function file: only area redaction, applying redactions and showing the permissions can be used">
+</p>
+
+The same function file everywhere: made in the FunktionManager (left), in PDF-Knead under “Show permissions” (right) and on the
+ribbon – under “Start” only printing is left, under “Secure” only area redaction and applying redactions. Opening, viewing and searching
+always work.
+
+Authorities and larger companies need to decide who may do what: no “Remove restrictions” for case workers, signing with a certificate
+only where it is intended, printing only where it is needed. That is what the function file is for – no server, no sign-in, nothing
+sent anywhere.
+
+- **One small file beside the program** (`berechtigungen.json`) says which functions are switched off: ordered by the tabs of the
+  program, each function on its own, forms as a whole. IT hands it out like any other file.
+- **Made with the FunktionManager,** which comes with every package: set the ticks, save, and put it beside the program with
+  “Install function file …” in PDF-Knead – PDF-Knead then starts anew by itself. Where users cannot write, it cannot be bypassed.
+- **For every function:** permissions decide what staff may do. PDF-Knead itself is free of charge for everyone, in companies and
+  authorities too.
+- **Safe when in doubt:** a damaged file switches off every function that can be restricted instead of allowing everything. Opening,
+  viewing and checking always work.
+- **Visible to everyone:** switched-off buttons are greyed out and say why; under Settings → “Permissions” → “Show permissions”
+  everyone sees what applies.
+
 ### Archiving to standard
 
 For archives and authorities: PDF/A, built rule by rule.
@@ -241,18 +283,17 @@ Open, read and check XRechnung and ZUGFeRD/Factur-X – as support, not as a ver
   - XRechnung 4.0 – follows as soon as the final version is published (announced for 2027)
 - **Peppol BIS Billing 3.0** (UBL) – recognised, checked according to EN 16931, codes in plain text
 
-### Small. And sharp.
+### Scanning and preparing
 
-Every kind of image gets its own method – and you see the result before you save.
+From the scanner straight into PDF-Knead – on Linux via SANE, on Windows via WIA.
 
 <p align="center">
-  <img src="docs/bilder/readme/komprimieren.png" width="860" alt="“Compress” window with a method for each kind of image and a before/after preview">
+  <img src="docs/bilder/readme/scannen.png" width="860" alt="“Scan” window: on the left profile and settings, on the right the scanned pages as tiles and the preview of a page with before and after">
 </p>
 
-- **Photos** as JPEG, **graphics** with a palette or Flate, **black-and-white scans** as JBIG2 – without pattern matching, so that no digits get swapped.
-- **Colour scans with MRC:** text as a sharp mask in the colour and weight of the original, background as JPEG. Measured on three
-  scanned letters: around one tenth of the original size.
-- **Before/after** with a dividing line, the size known in advance from a real trial run; for each method, which common readers display it.
+- **Profiles** with all settings, **tiles** for sorting, a large **preview** with before/after.
+- **Preparing:** correct skew, flatten book pages at the spine, crop margins, rotate freely – can be discarded for each page.
+- **Import** as a new document or append to the open one, with text recognition straight away if you wish.
 
 ### Recognising forms automatically
 
@@ -266,32 +307,6 @@ Turn an empty form into a fillable one – PDF-Knead suggests, you decide.
 - **Recognise** by lines, boxes and tables, with names taken from the labels. In official forms of German federal authorities, the
   recognition without AI found around 98% of the fields.
 - **Create** with all field types, properties, tab order and calculations as formulas. **Fill in** forms from elsewhere too.
-
-### Measuring to scale
-
-For architecture, construction, and garden and landscape design: measure plans as they are drawn.
-
-<p align="center">
-  <img src="docs/bilder/readme/messen.png" width="860" alt="Garden plan with a purple polyline along a curved path, the radii at the arcs, an orange area with its area value and the green dashed calibration line along the scale bar">
-</p>
-
-- **Lengths, polylines, areas with perimeter, angles, circles and arcs** – each arc shows its radius, and the area includes the circular segments.
-- **With the file's scale** (ISO 32000-2) or calibrated yourself: set the start and end of a known distance with the magnifier, enter the
-  length. The scale is written into the page so that other programs measure the same.
-- **Placed precisely:** points snap to corners and lines of the drawing, straight lines at 0°, 45° and 90°.
-- **Saved as a dimension** according to the PDF standard – with arrows according to ISO 129-1, movable again later, also in dimensions from other programs.
-
-### Scanning and preparing
-
-From the scanner straight into PDF-Knead – on Linux via SANE, on Windows via WIA.
-
-<p align="center">
-  <img src="docs/bilder/readme/scannen.png" width="860" alt="“Scan” window: on the left profile and settings, on the right the scanned pages as tiles and the preview of a page with before and after">
-</p>
-
-- **Profiles** with all settings, **tiles** for sorting, a large **preview** with before/after.
-- **Preparing:** correct skew, flatten book pages at the spine, crop margins, rotate freely – can be discarded for each page.
-- **Import** as a new document or append to the open one, with text recognition straight away if you wish.
 
 ### Pages under control
 
@@ -309,15 +324,18 @@ Split and merge without losing track: every page can be seen as a preview, every
 - **Clearly stated what changes:** a notice box states what no longer applies after merging, such as permissions, passwords or signatures of the sources.
 - **Sort** in a large tile view. When merging, the source files remain untouched.
 
-### Printing as a booklet
+### Small. And sharp.
+
+Every kind of image gets its own method – and you see the result before you save.
 
 <p align="center">
-  <img src="docs/bilder/readme/broschuere.png" width="860" alt="Print window with the print mode “Booklet” and the open book preview: on the left a page of text, on the right a sketch with text flowing around it">
+  <img src="docs/bilder/readme/komprimieren.png" width="860" alt="“Compress” window with a method for each kind of image and a before/after preview">
 </p>
 
-- **Booklet** with a book preview you can page through: A4 sheets become an A5 booklet, with gutter, binding on the left or right, and
-  signatures for thick booklets.
-- **Poster** across several sheets, **several pages per sheet** – see beforehand what will come out of the printer.
+- **Photos** as JPEG, **graphics** with a palette or Flate, **black-and-white scans** as JBIG2 – without pattern matching, so that no digits get swapped.
+- **Colour scans with MRC:** text as a sharp mask in the colour and weight of the original, background as JPEG. Measured on three
+  scanned letters: around one tenth of the original size.
+- **Before/after** with a dividing line, the size known in advance from a real trial run; for each method, which common readers display it.
 
 ### QR codes and barcodes
 
@@ -329,46 +347,19 @@ Split and merge without losing track: every page can be seen as a preview, every
 - **Insert and edit** as vector graphics; every new code is read back as a test.
 - **Safe:** contents are never executed, addresses are opened only after confirmation, hidden characters are made visible.
 
-### Managing permissions and passwords
+### Measuring to scale
+
+For architecture, construction, and garden and landscape design: measure plans as they are drawn.
 
 <p align="center">
-  <img src="docs/bilder/readme/rechte.png" width="460" alt="“Password and permissions” window with open password, permissions password and individual permissions">
+  <img src="docs/bilder/readme/messen.png" width="860" alt="Garden plan with a purple polyline along a curved path, the radii at the arcs, an orange area with its area value and the green dashed calibration line along the scale bar">
 </p>
 
-- **Password to open** with AES-256, set **permissions** individually: printing, copying, changing, commenting, forms, pages.
-- **Honestly explained:** without a password to open, permissions are only a request to the viewer. Only “Flatten as image” makes
-  content truly impossible to copy – PDF-Knead says so in the window too.
-
-### Administrative permissions
-
-<p align="center">
-  <img src="docs/bilder/readme/berechtigungen-verwalten.png" width="49%" align="top" alt="FunktionManager: organization, kind of use and, for each tab of the program, its functions with ticks – under Start only printing, under Secure only area redaction and applying redactions">
-  <img src="docs/bilder/readme/berechtigungen.png" width="49%" align="top" alt="“Permissions” window in PDF-Knead: every function by tab, green tick allowed, red cross switched off">
-</p>
-<p align="center">
-  <img src="docs/bilder/readme/menueband-start.png" width="100%" alt="Start tab with this function file: only printing, opening and the view can be used, everything else is greyed out">
-  <img src="docs/bilder/readme/menueband-sicher.png" width="100%" alt="Secure tab with this function file: only area redaction, applying redactions and showing the permissions can be used">
-</p>
-
-The same function file everywhere: made in the FunktionManager (left), in PDF-Knead under “Show permissions” (right) and on the
-ribbon – under “Start” only printing is left, under “Secure” only area redaction and applying redactions. Opening, viewing and searching
-always work.
-
-Authorities and larger companies need to decide who may do what: no “Remove restrictions” for case workers, signing with a certificate
-only where it is intended, printing only where it is needed. That is what the function file is for – no server, no sign-in, nothing
-sent anywhere.
-
-- **One small file beside the program** (`berechtigungen.json`) says which functions are switched off: ordered by the tabs of the
-  program, each function on its own, forms as a whole. IT hands it out like any other file.
-- **Made with the FunktionManager,** which comes with every package: set the ticks, save, and put it beside the program with
-  “Install function file …” in PDF-Knead – PDF-Knead then starts anew by itself. Where users cannot write, it cannot be bypassed – the
-  kind of use is then fixed as well.
-- **Not tied to licenses:** permissions decide what staff may do, not what has been paid for. They apply to every function, the free
-  ones included.
-- **Safe when in doubt:** a damaged file switches off every function that can be restricted instead of allowing everything. Opening,
-  viewing and checking always work.
-- **Visible to everyone:** switched-off buttons are greyed out and say why; under Settings → “Show permissions” everyone sees what
-  applies.
+- **Lengths, polylines, areas with perimeter, angles, circles and arcs** – each arc shows its radius, and the area includes the circular segments.
+- **With the file's scale** (ISO 32000-2) or calibrated yourself: set the start and end of a known distance with the magnifier, enter the
+  length. The scale is written into the page so that other programs measure the same.
+- **Placed precisely:** points snap to corners and lines of the drawing, straight lines at 0°, 45° and 90°.
+- **Saved as a dimension** according to the PDF standard – with arrows according to ISO 129-1, movable again later, also in dimensions from other programs.
 
 ### Prepress: seeing overprint
 
@@ -378,6 +369,16 @@ sent anywhere.
 
 What lies on top of each other in print mixes – on screen you normally do not see it. The **overprint preview** in the
 “View” tab shows it (left off, right on). In addition: transparency groups, masks, blend modes and shadings according to the PDF standard.
+
+### Printing as a booklet
+
+<p align="center">
+  <img src="docs/bilder/readme/broschuere.png" width="860" alt="Print window with the print mode “Booklet” and the open book preview: on the left a page of text, on the right a sketch with text flowing around it">
+</p>
+
+- **Booklet** with a book preview you can page through: A4 sheets become an A5 booklet, with gutter, binding on the left or right, and
+  signatures for thick booklets.
+- **Poster** across several sheets, **several pages per sheet** – see beforehand what will come out of the printer.
 
 ### Scripts of the world, languages of your choice
 
@@ -389,7 +390,9 @@ What lies on top of each other in print mixes – on screen you normally do not 
   translate it, put it in the `languages` folder – and it appears in the selection, with singular and plural, number and date formats.
   Anything not yet translated appears in English.
 
-### Your computer. Your data.
+---
+
+## Your computer. Your data.
 
 - **Local:** viewing, editing, redacting, compressing, PDF/A and text recognition run on your computer.
 - **AI without the cloud:** The AI models for text recognition (PP-OCRv6) and field recognition (FFDetr) are included in the package and
@@ -406,14 +409,12 @@ What lies on top of each other in print mixes – on screen you normally do not 
 **Principle:** PDF-Knead never opens a connection on its own. It goes online only for the following functions – and only when you
 trigger them or switch them on.
 
-
 **Checking for updates**<br>
 *When:* only if you switch it on (default: off; PDF-Knead asks once at the first start), then at start at most once a day;
 manually at any time. In administrations, IT can switch it off centrally.<br>
 *What:* only the request for a version file from GitHub – GitHub sees the address of your connection, the time and the program name with
 version, nothing about you or your documents. An update is downloaded only after your click and installed only if its signature is
 valid.
-
 
 **Timestamp when signing**<br>
 *When:* only if you switch it on (default: off).<br>
@@ -549,15 +550,31 @@ Digitally signing 200 MB: around 3 s, using less than half a gigabyte of memory.
 
 ---
 
-## Support PDF-Knead
+## Getting started
+
+- **Linux:** download the AppImage, make it executable, start it. **Windows:** start the single `.exe`. No installation needed.
+- **Build it yourself:** `./publish.sh` (Linux) or `publish.ps1` (Windows) with a .NET 10 SDK.
+- **Text recognition and field recognition with AI** run entirely on your computer: the models (PP-OCRv6 small and medium, the field
+  detector FFDetr) are in the package in the `ocr` folder next to the program — nothing needs to be downloaded, and no document leaves the computer.
+
+**Development status:** PDF-Knead is a beta.
+
+---
+
+<a id="unterstuetzen"></a>
+<p align="center">
+  <img src="docs/bilder/readme/unterstuetzen.en.png" width="100%" alt="Support PDF-Knead – free for everyone, without advertising and without trading data; to keep it that way, PDF-Knead needs your support.">
+</p>
 
 > **There is no corporation behind PDF-Knead.** No investor, no advertising, no business with your data – but a single person, with
 > their own time and their own money. That the source code is available for anyone to read does not mean it cost nothing: every check,
 > every test run across thousands of files, every standard read sentence by sentence costs time and money. And some things cannot be
 > replaced by diligence alone.
 
-**What is still missing: standard texts.** PDF-Knead is compared with the standard text sentence by sentence – just as for PDF itself,
-PDF/UA and the signature standards. For two areas the texts are still missing; they are only available for purchase:
+### What is still missing: the standard texts
+
+PDF-Knead is compared with the standard text sentence by sentence – just as for PDF itself,
+PDF/UA and the signature standards. For four areas the texts are still missing; they are only available for purchase:
 
 - **PDF/A – archiving**, from the PDF Association. Today PDF-Knead works from the public rule collections and has every file
   cross-checked by veraPDF; the standard texts are the source of each of these rules.
@@ -573,31 +590,37 @@ PDF/UA and the signature standards. For two areas the texts are still missing; t
   - **[DIN CEN/TS 16931-3-3 – Syntax binding to UN/CEFACT CII](https://www.dinmedia.de/en/pre-standard/din-cen-ts-16931-3-3/308617415)**:
     how the data model is expressed in CII – the basis of ZUGFeRD, Factur-X and XRechnung in CII. The 2026 edition is not yet listed as a
     German version at DIN Media; the link leads to the previous one.
+- **Colour spaces of images**, from IEC and ISO. JPEG 2000 images in PDF often name their colour space only by a code number; what it means
+  exactly is defined in standards of its own. Today PDF-Knead computes them from the freely available ITU Recommendations and the details given
+  in JPEG 2000; without the standard text, scRGB grey is left aside rather than guessed.
+  - **[IEC 61966-2-1:1999 – sRGB](https://webstore.iec.ch/en/publication/6169)** with **[Amendment 1:2003 – sYCC](https://webstore.iec.ch/en/publication/6168)**:
+    the default colour space of almost every image and its extended YCC version.
+  - **[IEC 61966-2-2:2003 – scRGB](https://webstore.iec.ch/en/publication/6171)**: linear RGB colour space with an extended range.
+  - **[ISO 22028-2:2013 – ROMM RGB](https://www.iso.org/standard/56591.html)**: the wide colour space of print and photography.
+- **Barcodes**, from ISO. PDF-Knead reads and creates QR, Data Matrix, Code 128, EAN/UPC, Code 39 and ITF and today checks them against
+  the freely available GS1 specifications; the symbology standards define the structure, dimensions and check rules of each code.
+  - **[ISO/IEC 18004:2024 – QR Code](https://www.iso.org/standard/83389.html)**
+  - **[ISO/IEC 16022:2024 – Data Matrix](https://www.iso.org/standard/80926.html)**
+  - **[ISO/IEC 15417:2007 – Code 128](https://www.iso.org/standard/43896.html)** with **[Amendment 1:2026](https://www.iso.org/standard/87124.html)**
+  - **[ISO/IEC 15420:2025 – EAN/UPC](https://www.iso.org/standard/84892.html)**
+  - **[ISO/IEC 16388:2023 – Code 39](https://www.iso.org/standard/77799.html)**
+  - **[ISO/IEC 16390:2007 – Interleaved 2 of 5 (ITF)](https://www.iso.org/standard/43898.html)**
 
-**Why this matters.** What authorities, courts and archives file as PDF/A today must look exactly the same in thirty years as it did on
-the first day, and an e-invoice must be checked according to the rules that apply to it. An independent, verifiable tool for this should
-not fail because of the cost of a few standard texts.
+### Why these standards matter
 
-**How you can help:**
+What authorities, courts and archives file as PDF/A today must look exactly the same in thirty years as it did on
+the first day, and an e-invoice must be checked according to the rules that apply to it. Colours should appear as they are meant, and an
+inserted code must be readable at every till and every scanner.
 
-- **Sponsor a standard:** you cover the cost of one of these standards. If you wish, we will name you here.
-- **Support the development:** once or regularly.
-- **Spread the word:** to administrations, archives, law firms and everyone who wants digital sovereignty.
+<p align="center">
+  <img src="docs/bilder/readme/unterstuetzen-hilfe.en.png" width="100%" alt="How you can help: Sponsor a standard – you cover the cost of one of the standards above; if you wish, we will name you here. Support the development – once or regularly; companies receive an invoice on request. Spread the word – to administrations, archives, law firms and everyone who wants digital sovereignty. Verified, not claimed – help keep it that way.">
+</p>
 
-**Verified, not claimed – help keep it that way.**
+<p align="center"><b>Invoice, sponsoring a standard or questions:</b> <a href="mailto:pdf-knead@tuta.io">pdf-knead@tuta.io</a></p>
 
 <sub>The way to support will follow here shortly. Please do not send standard texts: they are licensed to one person, and PDF-Knead only works with lawfully acquired texts.</sub>
 
 ---
-
-## Getting started
-
-- **Linux:** download the AppImage, make it executable, start it. **Windows:** start the single `.exe`. No installation needed.
-- **Build it yourself:** `./publish.sh` (Linux) or `publish.ps1` (Windows) with a .NET 10 SDK.
-- **Text recognition and field recognition with AI** run entirely on your computer: the models (PP-OCRv6 small and medium, the field
-  detector FFDetr) are in the package in the `ocr` folder next to the program — nothing needs to be downloaded, and no document leaves the computer.
-
-**Development status:** PDF-Knead is a beta.
 
 ## Technology
 
@@ -608,19 +631,11 @@ not fail because of the cost of a few standard texts.
   QR codes and barcodes, PKCS#11. Drawing is done via SkiaSharp.
 - **Packages:** Linux x64 as an AppImage, Windows x64 as a single `.exe`.
 
-## Acknowledgements
-
-To the people behind the standards: ISO 32000 (PDF), ISO 19005 (PDF/A), ETSI EN 319 142 (PAdES), ETSI TS 119 612 (trusted lists), EN 16931 (e-invoicing), the
-RFCs on CMS, timestamps and revocation information, and the standards for JPEG, JPEG 2000, JBIG2, CCITT, ICC profiles, OpenType and barcodes.
-
-To the free projects that PDF-Knead ships with or downloads on request – among them .NET, Avalonia, SkiaSharp and Skia, HarfBuzz,
-CommunityToolkit.Mvvm, ONNX Runtime, the models PP-OCRv6 and FFDetr, the fonts Liberation, Inter and Noto CJK, and the Fluent UI
-System Icons. Complete with versions and licences: [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
-
 ## Licence
 
-PDF-Knead is released under its own licence. Only the text in [LICENSE](LICENSE) is authoritative. Bundled components are subject
-to their own licences ([THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)).
+PDF-Knead is source available and free of charge – for everyone, with all features, in companies, authorities, schools and associations
+too. The only thing not permitted is selling PDF-Knead or parts of it, or passing it on against payment. Only the text in
+[LICENSE](LICENSE) is authoritative. Bundled components are subject to their own licences ([THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)).
 
 ---
 

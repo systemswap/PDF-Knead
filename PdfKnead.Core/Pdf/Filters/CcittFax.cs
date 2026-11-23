@@ -1,3 +1,4 @@
+using System.Numerics;
 using PdfKnead.Core.Pdf.Objects;
 
 namespace PdfKnead.Core.Pdf.Filters;
@@ -76,26 +77,29 @@ internal static class CcittFax
         var count = 0;
         var row = 0;
         var previousDamaged = false;
-        while (row < maxRows && !reader.AtEnd)
+        // the uncompressed mode running on into the next row (Group 4, T.6, 2.3.1)
+        var carry = new UncompressedCarry();
+        while (row < maxRows && (!reader.AtEnd || carry.Active))
         {
             // Start of row: fill bits and EOL (Group 3); two EOLs in a row = end (RTC / EOFB)
             var eols = 0;
             var tag = -1;
             // Group 4 with EncodedByteAlign: align to the byte boundary first, then look for EOFB; otherwise the fill zeros plus the start
             // of the next code look like an EOL and the image ends after a few rows (test file issue16485; other readers do the same)
-            if (byteAlign && k < 0 && row > 0) reader.Align();
-            while (reader.TryEol())
+            if (carry is { Active: true, Whites: 0, Black: false, Exit: false } && reader.Peek(11) == 0) carry = default;
+            if (byteAlign && k < 0 && row > 0 && !carry.Active) reader.Align();
+            while (!carry.Active && reader.TryEol())
             {
                 eols++;
                 if (k > 0) tag = reader.ReadBit();
             }
-            if (eols >= 2 || reader.AtEnd) break;
-            if (eols == 0 && byteAlign) reader.Align();
+            if (eols >= 2 || (reader.AtEnd && !carry.Active)) break;
+            if (eols == 0 && byteAlign && !carry.Active) reader.Align();
             if (k > 0 && tag < 0) tag = reader.ReadBit();
 
             var twoD = k < 0 || (k > 0 && tag == 0);
             var ok = twoD
-                ? Decode2D(ref reader, reference, current, out count, columns)
+                ? Decode2D(ref reader, reference, current, out count, columns, ref carry, k < 0)
                 : Decode1D(ref reader, current, out count, columns);
 
             if (output.Length < (long)(row + 1) * rowBytes)
@@ -138,7 +142,9 @@ internal static class CcittFax
             if (!reader.SeekEol()) break;
         }
 
-        // An EOFB after the last row still belongs to the data
+        // An exit code of the uncompressed mode (without pixels) after a last row the mode filled, and an EOFB after the last row, still belong
+        // to the data
+        if (row == maxRows && carry is { Active: true, Whites: 0, Black: false, Exit: false } && reader.Peek(8) >> 1 == 1) reader.Skip(8);
         if (row == maxRows && reader.TryEol()) reader.TryEol();
         endBit = reader.Position;
 
@@ -155,6 +161,14 @@ internal static class CcittFax
         var color = 0;   // 0 = white (every row starts white), 1 = black
         while (a0 < columns)
         {
+            // the entrance to the uncompressed mode in place of a run (T.4, Table 5: 000000001111)
+            if (reader.Peek(12) == 0b0000_0000_1111)
+            {
+                reader.Skip(12);
+                var none = new UncompressedCarry();
+                if (!Uncompressed(ref reader, changes, ref count, ref a0, out color, columns, ref none, false)) return false;
+                continue;
+            }
             var run = ReadRun(ref reader, color);
             if (run < 0) return false;
             a0 += run;
@@ -165,12 +179,36 @@ internal static class CcittFax
     }
 
     /// <summary>Two-dimensional coding (ITU-T T.4, 4.2 / T.6): changing elements relative to the row above.</summary>
-    private static bool Decode2D(ref BitReader reader, int[] reference, int[] changes, out int count, int columns)
+    private static bool Decode2D(ref BitReader reader, int[] reference, int[] changes, out int count, int columns, ref UncompressedCarry carry,
+        bool runsOn)
     {
         count = 0;
         var a0 = -1;     // imaginary white pixel before the row
         var color = 0;
         var bi = 0;
+        if (carry.Active)
+        {
+            // the uncompressed mode from the row before: its rest of a pattern first, then on in the mode unless it ended there
+            var position = 0;
+            var exit = carry.Exit;
+            var tag = carry.Tag;
+            carry.Active = false;
+            if (!Emit(changes, ref count, ref position, carry.Whites, carry.Black, columns, ref carry, runsOn, exit, tag)) return false;
+            if (carry.Active) return true;
+            if (!exit && position == columns)
+            {
+                carry = new UncompressedCarry { Active = true };
+                return true;
+            }
+            if (exit)
+            {
+                color = tag;
+                if ((count & 1) != color) Add(changes, ref count, position, columns);
+            }
+            else if (!Uncompressed(ref reader, changes, ref count, ref position, out color, columns, ref carry, runsOn)) return false;
+            if (carry.Active) return true;
+            a0 = position;
+        }
         while (a0 < columns)
         {
             // b1: first changing element of the reference row to the right of a0 with the opposite colour of a0;
@@ -180,6 +218,16 @@ internal static class CcittFax
             if ((bi & 1) != color) bi++;
             int b1 = reference[bi], b2 = reference[bi + 1];
 
+            // the entrance to the uncompressed mode in place of a mode code (T.4, Table 4 extension 0000001 with 111; Table 5)
+            if (reader.Peek(10) == 0b00_0000_1111)
+            {
+                reader.Skip(10);
+                var position = Math.Max(a0, 0);
+                if (!Uncompressed(ref reader, changes, ref count, ref position, out color, columns, ref carry, runsOn)) return false;
+                if (carry.Active) return true;   // the row ended inside the mode: it runs on into the next row
+                a0 = position;
+                continue;
+            }
             var mode = ModeTable[reader.Peek(7)];
             if (mode == 0) return false;
             reader.Skip(mode & 0xF);
@@ -203,10 +251,89 @@ internal static class CcittFax
                     color ^= 1;
                     break;
                 default:
-                    return false;   // extensions (uncompressed mode) practically never occur in PDF files
+                    return false;   // not reached: ModeTable has no other codes (the other extensions are not defined, mode 0 above)
             }
         }
         return true;
+    }
+
+    /// <summary>
+    /// The uncompressed mode (ITU-T T.4, 4.2.1.3.3, Table 5; T.6, 2.3.1, Table 4), entered at <paramref name="position"/>: the pixels follow one
+    /// by one — k zeros and a one are k white pixels and a black one (k = 0 … 4), 000001 five white ones; 6 to 10 zeros and a one leave the mode
+    /// after k − 6 white pixels, and the tag bit after it is the colour of the next run (1 black). The colour so far is that of the changing
+    /// elements (white at an even count). In Group 4 (<paramref name="runsOn"/>) the last pixels of a row and the first of the next form one
+    /// pattern (T.6, 2.3.1): what does not fit goes into <paramref name="carry"/>, the row ends, and the next row goes on in the mode; in Group 3
+    /// a row ends with its EOL, so pixels beyond it make the row damaged. At 11 zeros or more (an EOL, or the end of the data) the row ends
+    /// without taking them: complete where the mode filled it in Group 3, otherwise damaged (false). Reading the mode: FG 1020, decided by the
+    /// user on 23.11.2026; before, every extension made the row damaged.
+    /// </summary>
+    private static bool Uncompressed(ref BitReader reader, int[] changes, ref int count, ref int position, out int color, int columns,
+        ref UncompressedCarry carry, bool runsOn)
+    {
+        color = count & 1;
+        while (true)
+        {
+            // the zeros of the code, counted without taking them: 11 or more are an EOL (or the end of the data), which stays for the
+            // resynchronisation of Group 3 — a row the mode filled ends there complete, any other is damaged
+            var zeros = BitOperations.LeadingZeroCount((uint)reader.Peek(11)) - 21;
+            if (zeros > 10) return position == columns && !runsOn;
+            reader.Skip(zeros + 1);   // the zeros and the one that ends the code
+            var whites = zeros <= 5 ? zeros : zeros - 6;
+            var black = zeros <= 4;
+            var exit = zeros >= 6;
+            var tag = exit ? reader.ReadBit() : 0;
+            if (!Emit(changes, ref count, ref position, whites, black, columns, ref carry, runsOn, exit, tag)) return false;
+            if (carry.Active) return true;
+            if (!exit)
+            {
+                // a full row with the mode still on: it goes on in the next row
+                if (position == columns && runsOn)
+                {
+                    carry = new UncompressedCarry { Active = true };
+                    return true;
+                }
+                continue;
+            }
+            // exit: the tag bit gives the colour from here on
+            color = tag;
+            if ((count & 1) != color) Add(changes, ref count, position, columns);
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// The pixels of one pattern of the uncompressed mode: <paramref name="whites"/> white ones, then a black one if <paramref name="black"/>.
+    /// Where the row ends first, the rest goes into <paramref name="carry"/> (Group 4) or the row is damaged (false).
+    /// </summary>
+    private static bool Emit(int[] changes, ref int count, ref int position, int whites, bool black, int columns, ref UncompressedCarry carry,
+        bool runsOn, bool exit, int tag)
+    {
+        var pixels = whites + (black ? 1 : 0);
+        for (var i = 0; i < pixels; i++)
+        {
+            if (position >= columns)
+            {
+                if (!runsOn) return false;
+                var left = pixels - i;
+                carry = new UncompressedCarry { Active = true, Whites = Math.Max(0, whites - i), Black = black, Exit = exit, Tag = tag };
+                if (left == 1 && black) carry.Whites = 0;
+                return true;
+            }
+            var value = black && i == pixels - 1 ? 1 : 0;
+            if ((count & 1) != value) Add(changes, ref count, position, columns);
+            position++;
+        }
+        return true;
+    }
+
+    /// <summary>The uncompressed mode carried over the end of a row (Group 4): the rest of a pattern and whether it was the exit.</summary>
+    private struct UncompressedCarry
+    {
+        public bool Active;
+        public int Whites;
+        public bool Black;
+        public bool Exit;
+        public int Tag;
     }
 
     /// <summary>Appends a changing element; a second one at the same or an earlier position cancels the previous one (run of length 0).</summary>

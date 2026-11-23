@@ -179,7 +179,7 @@ public sealed class AccessibilityStructureTests
     {
         { "eigene Art ohne Abbildung", "8.2.4-1" }, { "Kreis im Namensraum", "8.2.4-2" }, { "Abbildung im selben Namensraum", "8.2.4-3" },
         { "Standardart umgedeutet", "8.2.4-4" }, { "zweites Kind der Wurzel", "8.2.5.2-1" }, { "Document im Namensraum 1.7", "8.2.5.2-2" },
-        { "TOCI ohne Ref", "8.2.5.8-1" }, { "H", "8.2.5.12-1" }, { "Note", "8.2.5.14-1" }, { "FENote mit falscher Art", "8.2.5.14-4" },
+        { "TOCI ohne Ref", "8.2.5.8-1" }, { "H", "8.2.5.12-1" }, { "Note", "8.2.5.14-1" }, { "FENote mit falscher Art", "8.2.5.14-4" }, { "FENote mit falscher Art im zweiten Attribut", "8.2.5.14-4" },
         { "Liste mit Lbl ohne Nummerierung", "8.2.5.25-1" }, { "Figure ohne Alt", "8.2.5.28.2-1" }, { "math ohne Formula", "8.2.5.29-1" },
     };
 
@@ -209,6 +209,10 @@ public sealed class AccessibilityStructureTests
             case "H": t.Top.Add(t.El("H")); break;
             case "Note": t.Top.Add(t.El("Note", ("NS", Dict(("Type", N("Namespace")), ("NS", S("http://iso.org/pdf/ssn")))))); break;
             case "FENote mit falscher Art": t.Top.Add(t.El("FENote", ("A", Dict(("O", N("Layout")), ("NoteType", N("Randnotiz")))))); break;
+            // the attribute in the second attribute object (No. 1004: before, the search ended at the first)
+            case "FENote mit falscher Art im zweiten Attribut":
+                t.Top.Add(t.El("FENote", ("A", new PdfArray([Dict(("O", N("Layout")), ("Placement", N("Block"))), Dict(("O", N("Layout")), ("NoteType", N("Randnotiz")))]))));
+                break;
             case "Liste mit Lbl ohne Nummerierung": t.Top.Add(t.El("L", t.El("LI", t.El("Lbl"), t.El("LBody")))); break;
             case "Figure ohne Alt": t.Top.Add(t.El("Figure")); break;
             case "math ohne Formula":
@@ -233,6 +237,18 @@ public sealed class AccessibilityStructureTests
     {
         using var doc = File(t => Ua2(t, name), pdf20: true);
         Assert.Contains(id, Ids(doc, AccessibilityProfile.PdfUa2));
+    }
+
+    /// <summary>
+    /// A list with labels whose numbering stands in the second attribute object of the owner List: numbered, nothing of 8.2.5.25. Before, the
+    /// first attribute object without /ListNumbering ended the search, and the list counted as not numbered (docs/FEHLERGEDAECHTNIS.md, No. 1004).
+    /// </summary>
+    [Fact]
+    public void Ua2_ListNumberingInTheSecondAttributeObject_Found()
+    {
+        using var doc = File(t => t.Top.Add(t.El("L", ("A", new PdfArray([Dict(("O", N("List")), ("ContinuedList", PdfBoolean.True)),
+            Dict(("O", N("List")), ("ListNumbering", N("Disc")))])), t.El("LI", t.El("Lbl"), t.El("LBody")))), pdf20: true);
+        Assert.DoesNotContain("8.2.5.25-1", Ids(doc, AccessibilityProfile.PdfUa2));
     }
 
     /// <summary>A 2.0 tree meeting the rules (Figure with an empty /Alt counts in PDF/UA-2, a numbered list, MathML in a formula): nothing of stage E.</summary>

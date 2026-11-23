@@ -327,9 +327,16 @@ public sealed partial class DocumentViewModel
                && ReferenceEquals(History.Main ?? Document, Document) && SignedSaving.AppendsOnly(Document, History.SavedPages, History.Pages, out reason);
     }
 
-    /// <summary>Version for „Speichern“: that of the file (at least 1.4, as PDF-Knead writes nothing older; an unknown newer version becomes 2.0).</summary>
-    public string SaveVersion => PdfWriter.Versions.Contains(Document.Version) ? Document.Version
-        : PdfWriter.CompareVersions(Document.Version, "1.4") < 0 ? "1.4" : "2.0";
+    /// <summary>
+    /// Version for „Speichern“: that of the file, or the newer one of a file whose pages were inserted (ISO 32000-2, I.2, sentence 17) — at
+    /// least 1.4, as PDF-Knead writes nothing older; an unknown newer version becomes 2.0 (7.5.2, sentence 15).
+    /// </summary>
+    public string SaveVersion => PdfWriter.Versions.Contains(NewestSourceVersion) ? NewestSourceVersion
+        : PdfWriter.CompareVersions(NewestSourceVersion, "1.4") < 0 ? "1.4" : "2.0";
+
+    /// <summary>The newest version of the file and of the files its pages come from (<see cref="PdfWriter.NewestVersion"/>).</summary>
+    public string NewestSourceVersion =>
+        PdfWriter.NewestVersion(History.Pages.Select(p => p.Source).Prepend(Document).Distinct().Select(d => d.Version));
 
     /// <summary>
     /// Saves all pages to <paramref name="path"/> (also over the opened file) and opens the

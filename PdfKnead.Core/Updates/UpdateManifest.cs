@@ -59,12 +59,6 @@ public sealed record UpdatePackage(string Platform, string File, string Url, lon
 /// </summary>
 public sealed record UpdateManifest(UpdateVersion Version, string Date, string Notes, IReadOnlyList<UpdatePackage> Packages)
 {
-    /// <summary>
-    /// A later end of the introductory period for the licensed features (yyyy-MM-dd; LICENSE, section 3 (5)): the signed version file is the
-    /// way to extend it also for versions already installed. Null = none; only a valid date is read.
-    /// </summary>
-    public string? IntroductionUntil { get; init; }
-
     /// <summary>The largest version file accepted.</summary>
     public const int MaxBytes = 64 * 1024;
 
@@ -109,9 +103,8 @@ public sealed record UpdateManifest(UpdateVersion Version, string Date, string N
                     return null;
                 packages.Add(new UpdatePackage(platform, file, url, bytes, sha));
             }
-            var introduction = Text(root, "introductionUntil");
-            if (!DateOnly.TryParseExact(introduction, "yyyy-MM-dd", out _)) introduction = null;
-            return new UpdateManifest(version, Text(root, "date") ?? "", Text(root, "notes") ?? "", packages) { IntroductionUntil = introduction };
+            // „introductionUntil“ of older version files (the end of an introductory period, until 21.11.2026) is passed over
+            return new UpdateManifest(version, Text(root, "date") ?? "", Text(root, "notes") ?? "", packages);
         }
         catch (JsonException)
         {
@@ -129,7 +122,6 @@ public sealed record UpdateManifest(UpdateVersion Version, string Date, string N
             w.WriteString("version", Version.ToString());
             w.WriteString("date", Date);
             w.WriteString("notes", Notes);
-            if (IntroductionUntil is not null) w.WriteString("introductionUntil", IntroductionUntil);
             w.WriteStartArray("packages");
             foreach (var p in Packages)
             {

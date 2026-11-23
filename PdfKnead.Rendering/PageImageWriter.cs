@@ -66,7 +66,8 @@ public static class PageImageWriter
             cancel.ThrowIfCancellationRequested();
             using var raster = page(i);
             var path = PageImageFiles.Free(folder, PageImageFiles.Name(baseName, i + 1, count), extension);
-            PdfFileSaver.SaveFile(path, output => Encode(raster, settings, output));   // temporary file, then moved: never half an image
+            var number = i;
+            PdfFileSaver.SaveFile(path, output => Encode(raster, settings, output, number, count));   // temporary file, then moved: never half an image
             written.Add(path);
             progress?.Report(i + 1);
         }
@@ -74,12 +75,14 @@ public static class PageImageWriter
     }
 
     /// <summary>Encodes one page in the chosen format.</summary>
-    internal static void Encode(Raster raster, PageImageSettings settings, Stream output)
+    /// <param name="page">The number of the page in its document (0 for the first), for PageNumber in TIFF.</param>
+    /// <param name="pages">The pages of the document.</param>
+    internal static void Encode(Raster raster, PageImageSettings settings, Stream output, int page = 0, int pages = 1)
     {
         switch (settings.Format)
         {
             case PageImageFormat.Tiff:
-                TiffEncoder.EncodePages(1, _ => Tiff(raster), output);
+                TiffEncoder.EncodePages(1, _ => Tiff(raster), output, firstPage: page, documentPages: pages);
                 break;
             case PageImageFormat.Jpeg:
             case PageImageFormat.WebP:
@@ -103,18 +106,21 @@ public static class PageImageWriter
         var (w, h) = (raster.Width, raster.Height);
         switch (raster.Kind)
         {
+            // the pages are rendered in sRGB: grey and colour say so with the profile (RFC 2083, 9.2, 9.3; decided by the user on
+            // 22.11.2026); black and white needs none, as in the TIFF pages
             case TiffPageKind.BlackWhite:
                 // one bit, 1 = white (PNG greyscale)
                 PngEncoder.Encode(w, h, 1, PngColorType.Gray, (y, row) => Pack(raster.Line(y), row, inkIsOne: false), output,
                     dpi: raster.Dpi, level: CompressionLevel.Optimal);
                 break;
             case TiffPageKind.Gray:
-                PngEncoder.Encode(w, h, 8, PngColorType.Gray, (y, row) => raster.Line(y).CopyTo(row), output, dpi: raster.Dpi,
-                    level: CompressionLevel.Optimal);
+                PngEncoder.Encode(w, h, 8, PngColorType.Gray, (y, row) => raster.Line(y).CopyTo(row), output, iccProfile: PageImageFiles.RenderedProfile(false),
+                    dpi: raster.Dpi, level: CompressionLevel.Optimal);
                 break;
             default:
-                PngEncoder.Encode(w, h, 8, PngColorType.Rgb, (y, row) => raster.Line(y).CopyTo(row), output, dpi: raster.Dpi,
-                    level: CompressionLevel.Optimal);
+                // at most 256 colours (a chart, a form): a palette image (RFC 2083, 9.6)
+                PngEncoder.EncodeColour(w, h, false, () => (y, row) => raster.Line(y).CopyTo(row), output, iccProfile: PageImageFiles.RenderedProfile(true),
+                    dpi: raster.Dpi, level: CompressionLevel.Optimal);
                 break;
         }
     }

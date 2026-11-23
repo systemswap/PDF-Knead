@@ -11,6 +11,8 @@
   <img src="https://img.shields.io/badge/Verarbeitung-lokal-1f232b?style=flat-square" alt="Verarbeitung lokal">
   <img src="https://img.shields.io/badge/Telemetrie-keine-1f232b?style=flat-square" alt="Keine Telemetrie">
   <img src="https://img.shields.io/badge/KI-nur%20lokal-1f232b?style=flat-square" alt="KI nur lokal">
+  <img src="https://img.shields.io/badge/Entwickelt%20in-Deutschland-1f232b?style=flat-square" alt="Entwickelt in Deutschland">
+  <img src="https://img.shields.io/badge/Quelltext-einsehbar-1f232b?style=flat-square" alt="Quelltext einsehbar">
   <img src="https://img.shields.io/badge/Status-Beta-1f232b?style=flat-square" alt="Status: Beta">
 </p>
 
@@ -23,7 +25,7 @@
 
 ---
 
-## Für alle, die digitale Souveränität wollen
+## Aus Deutschland. Für Ihre digitale Souveränität.
 
 Verwaltungen, Gerichte, Archive und Unternehmen, die ihre Arbeitsplätze auf offene Systeme umstellen, brauchen für PDF mehr als einen
 Betrachter: schwärzen, signieren, archivieren, Formulare ausfüllen, E-Rechnungen prüfen – unter Linux genauso wie unter Windows.
@@ -169,6 +171,47 @@ Hill u. a.: Mosaicing and Blurring as Tools for Document Redaction (PoPETs 2016)
 
 </details>
 
+### Rechte und Passwörter verwalten
+
+<p align="center">
+  <img src="docs/bilder/readme/rechte.png" width="460" alt="Fenster „Passwort und Rechte“ mit Öffnen-Passwort, Rechte-Passwort und einzelnen Rechten">
+</p>
+
+- **Passwort zum Öffnen** mit AES-256, **Rechte** einzeln festlegen: Drucken, Kopieren, Ändern, Kommentieren, Formulare, Seiten.
+- **Ehrlich erklärt:** Ohne Passwort zum Öffnen sind Rechte nur eine Bitte an das Anzeigeprogramm. Wirklich nicht mehr kopierbar ist nur
+  „Flachlegen als Bild“ – das sagt PDF-Knead auch im Fenster.
+
+### Administrative Berechtigungen
+
+<p align="center">
+  <img src="docs/bilder/readme/berechtigungen-verwalten.png" width="49%" align="top" alt="FunktionManager: Organisation, Nutzungsart und je Reiter des Programms die Funktionen mit Häkchen – unter Start nur Drucken, unter Sicher nur Bereich schwärzen und Schwärzungen anwenden">
+  <img src="docs/bilder/readme/berechtigungen.png" width="49%" align="top" alt="Fenster „Berechtigungen“ in PDF-Knead: alle Funktionen je Reiter, grüner Haken erlaubt, rotes Kreuz gesperrt">
+</p>
+<p align="center">
+  <img src="docs/bilder/readme/menueband-start.png" width="100%" alt="Reiter Start mit dieser Funktionsdatei: nur Drucken, Öffnen und die Ansicht sind bedienbar, alles andere ist ausgegraut">
+  <img src="docs/bilder/readme/menueband-sicher.png" width="100%" alt="Reiter Sicher mit dieser Funktionsdatei: nur Bereich schwärzen, Schwärzungen anwenden und die Anzeige der Berechtigungen sind bedienbar">
+</p>
+
+Dieselbe Funktionsdatei überall: im FunktionManager erstellt (links), in PDF-Knead unter „Berechtigungen anzeigen“ (rechts) und auf
+dem Menüband – unter „Start“ bleibt nur „Drucken“, unter „Sicher“ nur „Bereich schwärzen“ und „Schwärzungen anwenden“. Öffnen, Ansehen
+und Suchen gehen immer.
+
+Behörden und größere Firmen müssen festlegen können, wer was darf: keine „Einschränkungen entfernen“ in der Sachbearbeitung, Signieren
+mit Zertifikat nur, wo es vorgesehen ist, Drucken nur, wo es gebraucht wird. Dafür gibt es die Funktionsdatei – ohne Server, ohne
+Anmeldung, ohne dass etwas gesendet wird.
+
+- **Eine kleine Datei neben dem Programm** (`berechtigungen.json`) legt fest, welche Funktionen gesperrt sind: geordnet nach den Reitern
+  des Programms, jede Funktion einzeln, Formulare als Ganzes. Die IT verteilt sie wie jede andere Datei.
+- **Mit dem FunktionManager erstellt,** der jedem Paket beiliegt: Häkchen setzen, speichern, in PDF-Knead mit „Funktionsdatei
+  einspielen …“ neben das Programm legen – PDF-Knead startet danach von selbst neu. Wo Nutzer nicht schreiben dürfen, lässt sie sich
+  nicht umgehen.
+- **Für alle Funktionen:** Berechtigungen regeln, was Mitarbeiter dürfen. PDF-Knead selbst ist für alle kostenlos, auch in Firmen und
+  Behörden.
+- **Im Zweifel sicher:** Eine beschädigte Datei sperrt alle einschränkbaren Funktionen, statt alles zu erlauben. Öffnen, Ansehen und
+  Prüfen gehen immer.
+- **Für jeden sichtbar:** Gesperrte Knöpfe sind ausgegraut und sagen, warum; unter Einstellungen → „Nutzungsberechtigung“ →
+  „Berechtigungen anzeigen“ sieht jeder, was gilt.
+
 ### Archivieren nach Norm
 
 Für Archive und Behörden: PDF/A, gebaut Regel für Regel.
@@ -241,18 +284,17 @@ XRechnung und ZUGFeRD/Factur-X öffnen, lesen und prüfen – als Unterstützung
   - XRechnung 4.0 – folgt, sobald die endgültige Fassung erscheint (angekündigt für 2027)
 - **Peppol BIS Billing 3.0** (UBL) – erkannt, geprüft nach EN 16931, Codes in Klartext
 
-### Klein. Und scharf.
+### Scannen und aufbereiten
 
-Jede Bildart bekommt ihr Verfahren – und Sie sehen das Ergebnis, bevor Sie speichern.
+Vom Scanner direkt in PDF-Knead – unter Linux über SANE, unter Windows über WIA.
 
 <p align="center">
-  <img src="docs/bilder/readme/komprimieren.png" width="860" alt="Fenster „Komprimieren“ mit Verfahren je Bildart und Vorher-Nachher-Vorschau">
+  <img src="docs/bilder/readme/scannen.png" width="860" alt="Fenster „Scannen“: links Profil und Einstellungen, rechts die gescannten Seiten als Kacheln und die Vorschau einer Seite mit Vorher und Nachher">
 </p>
 
-- **Fotos** als JPEG, **Grafiken** mit Palette oder Flate, **Schwarzweiß-Scans** als JBIG2 – ohne Mustervergleich, damit keine Ziffern vertauscht werden.
-- **Farbscans mit MRC:** Schrift als scharfe Maske in der Farbe und Kräftigkeit des Originals, Hintergrund als JPEG. Gemessen an drei
-  Briefscans: rund ein Zehntel der Originalgröße.
-- **Vorher/Nachher** mit Trennlinie, die Größe vorab aus einem echten Probelauf; je Verfahren, welche verbreiteten Leser es anzeigen.
+- **Profile** mit allen Einstellungen, **Kacheln** zum Sortieren, eine große **Vorschau** mit Vorher/Nachher.
+- **Aufbereiten:** Schräglage ausgleichen, Buchseiten am Bund entzerren, Ränder abschneiden, frei drehen – je Seite verwerfbar.
+- **Übernehmen** als neues Dokument oder ans offene anhängen, auf Wunsch gleich mit Texterkennung.
 
 ### Formulare automatisch erkennen
 
@@ -266,32 +308,6 @@ Aus einem leeren Formular ein ausfüllbares machen – PDF-Knead schlägt vor, S
 - **Erkennen** an Linien, Kästchen und Tabellen, mit Namen aus der Beschriftung. In amtlichen Formularen deutscher Bundesbehörden fand
   die Erkennung ohne KI rund 98 % der Felder.
 - **Erstellen** mit allen Feldarten, Eigenschaften, Tab-Reihenfolge und Berechnungen als Formel. **Ausfüllen** auch fremder Formulare.
-
-### Messen mit Maßstab
-
-Für Architektur, Bau sowie Garten- und Landschaftsbau: Pläne nachmessen, wie sie gezeichnet sind.
-
-<p align="center">
-  <img src="docs/bilder/readme/messen.png" width="860" alt="Gartenplan mit einem lila Linienzug entlang eines geschwungenen Wegs, an den Bögen die Radien, einer orangen Fläche mit Flächenangabe und der grün gestrichelten Kalibrierungsstrecke entlang der Maßstabsleiste">
-</p>
-
-- **Längen, Linienzüge, Flächen mit Umfang, Winkel, Kreise und Bögen** – am Bogen steht sein Radius, die Fläche rechnet die Kreisabschnitte mit.
-- **Mit dem Maßstab der Datei** (ISO 32000-2) oder selbst kalibriert: Anfang und Ende einer bekannten Strecke mit der Lupe setzen, Länge
-  eingeben. Der Maßstab wird in die Seite geschrieben, damit andere Programme dasselbe messen.
-- **Genau gesetzt:** Punkte rasten an Ecken und Linien der Zeichnung ein, gerade Linien bei 0°, 45° und 90°.
-- **Als Bemaßung gespeichert** nach der PDF-Norm – mit Pfeilen nach ISO 129-1, später wieder verschiebbar, auch in Bemaßungen anderer Programme.
-
-### Scannen und aufbereiten
-
-Vom Scanner direkt in PDF-Knead – unter Linux über SANE, unter Windows über WIA.
-
-<p align="center">
-  <img src="docs/bilder/readme/scannen.png" width="860" alt="Fenster „Scannen“: links Profil und Einstellungen, rechts die gescannten Seiten als Kacheln und die Vorschau einer Seite mit Vorher und Nachher">
-</p>
-
-- **Profile** mit allen Einstellungen, **Kacheln** zum Sortieren, eine große **Vorschau** mit Vorher/Nachher.
-- **Aufbereiten:** Schräglage ausgleichen, Buchseiten am Bund entzerren, Ränder abschneiden, frei drehen – je Seite verwerfbar.
-- **Übernehmen** als neues Dokument oder ans offene anhängen, auf Wunsch gleich mit Texterkennung.
 
 ### Seiten im Griff
 
@@ -309,15 +325,18 @@ Teilen und zusammenführen, ohne den Überblick zu verlieren: Jede Seite ist als
 - **Klar gesagt, was sich ändert:** Ein Hinweisfeld nennt, was nach dem Zusammenführen nicht mehr gilt, etwa Rechte, Passwörter oder Signaturen der Quellen.
 - **Sortieren** in einer großen Kachelansicht. Beim Zusammenführen bleiben die Quelldateien unberührt.
 
-### Drucken als Broschüre
+### Klein. Und scharf.
+
+Jede Bildart bekommt ihr Verfahren – und Sie sehen das Ergebnis, bevor Sie speichern.
 
 <p align="center">
-  <img src="docs/bilder/readme/broschuere.png" width="860" alt="Druckfenster mit der Druckart „Broschüre“ und der aufgeschlagenen Buchvorschau: links eine Textseite, rechts eine Skizze mit umfließendem Text">
+  <img src="docs/bilder/readme/komprimieren.png" width="860" alt="Fenster „Komprimieren“ mit Verfahren je Bildart und Vorher-Nachher-Vorschau">
 </p>
 
-- **Broschüre** mit Buchvorschau zum Umblättern: aus A4-Bögen wird ein A5-Heft, mit Bund, Bindung links oder rechts und Heften für dicke
-  Broschüren.
-- **Poster** über mehrere Blätter, **mehrere Seiten pro Blatt** – vorher sehen, was aus dem Drucker kommt.
+- **Fotos** als JPEG, **Grafiken** mit Palette oder Flate, **Schwarzweiß-Scans** als JBIG2 – ohne Mustervergleich, damit keine Ziffern vertauscht werden.
+- **Farbscans mit MRC:** Schrift als scharfe Maske in der Farbe und Kräftigkeit des Originals, Hintergrund als JPEG. Gemessen an drei
+  Briefscans: rund ein Zehntel der Originalgröße.
+- **Vorher/Nachher** mit Trennlinie, die Größe vorab aus einem echten Probelauf; je Verfahren, welche verbreiteten Leser es anzeigen.
 
 ### QR- und Strichcodes
 
@@ -329,46 +348,19 @@ Teilen und zusammenführen, ohne den Überblick zu verlieren: Jede Seite ist als
 - **Einfügen und ändern** als Vektorgrafik; jeder neue Code wird zur Probe gelesen.
 - **Sicher:** Inhalte werden nie ausgeführt, Adressen nur nach Rückfrage geöffnet, versteckte Zeichen sichtbar gemacht.
 
-### Rechte und Passwörter verwalten
+### Messen mit Maßstab
+
+Für Architektur, Bau sowie Garten- und Landschaftsbau: Pläne nachmessen, wie sie gezeichnet sind.
 
 <p align="center">
-  <img src="docs/bilder/readme/rechte.png" width="460" alt="Fenster „Passwort und Rechte“ mit Öffnen-Passwort, Rechte-Passwort und einzelnen Rechten">
+  <img src="docs/bilder/readme/messen.png" width="860" alt="Gartenplan mit einem lila Linienzug entlang eines geschwungenen Wegs, an den Bögen die Radien, einer orangen Fläche mit Flächenangabe und der grün gestrichelten Kalibrierungsstrecke entlang der Maßstabsleiste">
 </p>
 
-- **Passwort zum Öffnen** mit AES-256, **Rechte** einzeln festlegen: Drucken, Kopieren, Ändern, Kommentieren, Formulare, Seiten.
-- **Ehrlich erklärt:** Ohne Passwort zum Öffnen sind Rechte nur eine Bitte an das Anzeigeprogramm. Wirklich nicht mehr kopierbar ist nur
-  „Flachlegen als Bild“ – das sagt PDF-Knead auch im Fenster.
-
-### Administrative Berechtigungen
-
-<p align="center">
-  <img src="docs/bilder/readme/berechtigungen-verwalten.png" width="49%" align="top" alt="FunktionManager: Organisation, Nutzungsart und je Reiter des Programms die Funktionen mit Häkchen – unter Start nur Drucken, unter Sicher nur Bereich schwärzen und Schwärzungen anwenden">
-  <img src="docs/bilder/readme/berechtigungen.png" width="49%" align="top" alt="Fenster „Berechtigungen“ in PDF-Knead: alle Funktionen je Reiter, grüner Haken erlaubt, rotes Kreuz gesperrt">
-</p>
-<p align="center">
-  <img src="docs/bilder/readme/menueband-start.png" width="100%" alt="Reiter Start mit dieser Funktionsdatei: nur Drucken, Öffnen und die Ansicht sind bedienbar, alles andere ist ausgegraut">
-  <img src="docs/bilder/readme/menueband-sicher.png" width="100%" alt="Reiter Sicher mit dieser Funktionsdatei: nur Bereich schwärzen, Schwärzungen anwenden und die Anzeige der Berechtigungen sind bedienbar">
-</p>
-
-Dieselbe Funktionsdatei überall: im FunktionManager erstellt (links), in PDF-Knead unter „Berechtigungen anzeigen“ (rechts) und auf
-dem Menüband – unter „Start“ bleibt nur „Drucken“, unter „Sicher“ nur „Bereich schwärzen“ und „Schwärzungen anwenden“. Öffnen, Ansehen
-und Suchen gehen immer.
-
-Behörden und größere Firmen müssen festlegen können, wer was darf: keine „Einschränkungen entfernen“ in der Sachbearbeitung, Signieren
-mit Zertifikat nur, wo es vorgesehen ist, Drucken nur, wo es gebraucht wird. Dafür gibt es die Funktionsdatei – ohne Server, ohne
-Anmeldung, ohne dass etwas gesendet wird.
-
-- **Eine kleine Datei neben dem Programm** (`berechtigungen.json`) legt fest, welche Funktionen gesperrt sind: geordnet nach den Reitern
-  des Programms, jede Funktion einzeln, Formulare als Ganzes. Die IT verteilt sie wie jede andere Datei.
-- **Mit dem FunktionManager erstellt,** der jedem Paket beiliegt: Häkchen setzen, speichern, in PDF-Knead mit „Funktionsdatei
-  einspielen …“ neben das Programm legen – PDF-Knead startet danach von selbst neu. Wo Nutzer nicht schreiben dürfen, lässt sie sich
-  nicht umgehen – auch die Nutzungsart steht dann fest.
-- **Nicht an Lizenzen geknüpft:** Berechtigungen regeln, was Mitarbeiter dürfen, nicht, was bezahlt ist. Sie gelten für alle Funktionen,
-  auch für die freien.
-- **Im Zweifel sicher:** Eine beschädigte Datei sperrt alle einschränkbaren Funktionen, statt alles zu erlauben. Öffnen, Ansehen und
-  Prüfen gehen immer.
-- **Für jeden sichtbar:** Gesperrte Knöpfe sind ausgegraut und sagen, warum; unter Einstellungen → „Berechtigungen anzeigen“ sieht jeder,
-  was gilt.
+- **Längen, Linienzüge, Flächen mit Umfang, Winkel, Kreise und Bögen** – am Bogen steht sein Radius, die Fläche rechnet die Kreisabschnitte mit.
+- **Mit dem Maßstab der Datei** (ISO 32000-2) oder selbst kalibriert: Anfang und Ende einer bekannten Strecke mit der Lupe setzen, Länge
+  eingeben. Der Maßstab wird in die Seite geschrieben, damit andere Programme dasselbe messen.
+- **Genau gesetzt:** Punkte rasten an Ecken und Linien der Zeichnung ein, gerade Linien bei 0°, 45° und 90°.
+- **Als Bemaßung gespeichert** nach der PDF-Norm – mit Pfeilen nach ISO 129-1, später wieder verschiebbar, auch in Bemaßungen anderer Programme.
 
 ### Druckvorstufe: Überdrucken sehen
 
@@ -378,6 +370,16 @@ Anmeldung, ohne dass etwas gesendet wird.
 
 Was im Druck übereinanderliegt, mischt sich – am Bildschirm sieht man es normalerweise nicht. Die **Überdrucken-Vorschau** im Reiter
 „Ansicht“ zeigt es (links aus, rechts an). Dazu Transparenzgruppen, Masken, Mischmodi und Verläufe nach der PDF-Norm.
+
+### Drucken als Broschüre
+
+<p align="center">
+  <img src="docs/bilder/readme/broschuere.png" width="860" alt="Druckfenster mit der Druckart „Broschüre“ und der aufgeschlagenen Buchvorschau: links eine Textseite, rechts eine Skizze mit umfließendem Text">
+</p>
+
+- **Broschüre** mit Buchvorschau zum Umblättern: aus A4-Bögen wird ein A5-Heft, mit Bund, Bindung links oder rechts und Heften für dicke
+  Broschüren.
+- **Poster** über mehrere Blätter, **mehrere Seiten pro Blatt** – vorher sehen, was aus dem Drucker kommt.
 
 ### Schriften der Welt, Sprachen nach Wahl
 
@@ -389,7 +391,9 @@ Was im Druck übereinanderliegt, mischt sich – am Bildschirm sieht man es norm
   exportieren, übersetzen, in den Ordner `languages` legen – schon steht sie in der Auswahl, mit Einzahl und Mehrzahl, Zahlen- und
   Datumsformaten. Was noch nicht übersetzt ist, erscheint auf Englisch.
 
-### Ihr Rechner. Ihre Daten.
+---
+
+## Ihr Rechner. Ihre Daten.
 
 - **Lokal:** Anzeigen, Bearbeiten, Schwärzen, Komprimieren, PDF/A und Texterkennung laufen auf Ihrem Rechner.
 - **KI ohne Cloud:** Die KI-Modelle für Texterkennung (PP-OCRv6) und Felderkennung (FFDetr) liegen im Paket und rechnen direkt auf Ihrem
@@ -406,14 +410,12 @@ Was im Druck übereinanderliegt, mischt sich – am Bildschirm sieht man es norm
 **Grundsatz:** PDF-Knead baut von sich aus keine Verbindung auf. Ins Netz geht es nur für die folgenden Funktionen – und nur, wenn Sie sie
 auslösen oder einschalten.
 
-
 **Suche nach Updates**<br>
 *Wann:* nur, wenn Sie sie einschalten (Vorgabe: aus; beim ersten Start fragt PDF-Knead einmal), dann beim Start höchstens einmal am Tag;
 von Hand jederzeit. In Verwaltungen kann die IT sie zentral abschalten.<br>
 *Was:* nur die Abfrage einer Versionsdatei bei GitHub – GitHub sieht dabei die Adresse Ihres Anschlusses, den Zeitpunkt und den
 Programmnamen mit Version, nichts über Sie oder Ihre Dokumente. Ein Update wird erst nach Ihrem Klick geladen und nur installiert, wenn
 seine Signatur stimmt.
-
 
 **Zeitstempel beim Signieren**<br>
 *Wann:* nur, wenn Sie ihn einschalten (Vorgabe: aus).<br>
@@ -549,15 +551,31 @@ Ein Plan im Format A0 mit rund 780 000 Linien ist beim ersten Öffnen in gut 1 s
 
 ---
 
-## PDF-Knead unterstützen
+## Loslegen
+
+- **Linux:** die AppImage herunterladen, ausführbar machen, starten. **Windows:** die einzelne `.exe` starten. Keine Installation nötig.
+- **Selbst bauen:** `./publish.sh` (Linux) bzw. `publish.ps1` (Windows) mit einem .NET-10-SDK.
+- **Texterkennung und Felderkennung mit KI** laufen ganz auf dem Rechner: Die Modelle (PP-OCRv6 small und medium, der Feld-Erkenner
+  FFDetr) liegen im Paket im Ordner `ocr` neben dem Programm — es muss nichts nachgeladen werden, und kein Dokument verlässt den Rechner.
+
+**Stand der Entwicklung:** PDF-Knead ist eine Beta.
+
+---
+
+<a id="unterstuetzen"></a>
+<p align="center">
+  <img src="docs/bilder/readme/unterstuetzen.png" width="100%" alt="PDF-Knead unterstützen – kostenlos für alle, ohne Werbung und ohne Handel mit Daten; damit das so bleibt, braucht PDF-Knead Ihre Unterstützung.">
+</p>
 
 > **Hinter PDF-Knead steht kein Konzern.** Kein Investor, keine Werbung, kein Geschäft mit Ihren Daten – sondern ein Einzelner, mit
 > eigener Zeit und eigenem Geld. Dass der Quelltext offen einsehbar ist, heißt nicht, dass er nichts gekostet hat: Jede Prüfung, jeder
 > Testlauf über Tausende Dateien, jede Norm, die Satz für Satz gelesen wird, kostet Zeit und Geld. Und manches lässt sich mit Fleiß allein
 > nicht ersetzen.
 
-**Was noch fehlt: Normtexte.** PDF-Knead wird Satz für Satz am Normtext abgeglichen – so, wie PDF selbst, PDF/UA und die
-Signaturnormen. Für zwei Bereiche fehlen die Texte noch; es gibt sie nur zu kaufen:
+### Was noch fehlt: die Normtexte
+
+PDF-Knead wird Satz für Satz am Normtext abgeglichen – so, wie PDF selbst, PDF/UA und die
+Signaturnormen. Für vier Bereiche fehlen die Texte noch; es gibt sie nur zu kaufen:
 
 - **PDF/A – Archivieren**, bei der PDF Association. Heute arbeitet PDF-Knead nach den öffentlichen Regelsammlungen und lässt jede Datei
   von veraPDF gegenprüfen; die Normtexte sind die Quelle jeder dieser Regeln.
@@ -573,31 +591,37 @@ Signaturnormen. Für zwei Bereiche fehlen die Texte noch; es gibt sie nur zu kau
   - **[DIN CEN/TS 16931-3-3 – Syntaxbindung an UN/CEFACT CII](https://www.dinmedia.de/en/pre-standard/din-cen-ts-16931-3-3/308617415)**:
     wie das Datenmodell in CII steht – die Grundlage von ZUGFeRD, Factur-X und XRechnung in CII. Die Ausgabe 2026 ist bei DIN Media noch
     nicht als deutsche Fassung gelistet; der Link führt zur bisherigen.
+- **Farbräume von Bildern**, bei IEC und ISO. JPEG-2000-Bilder in PDF nennen ihren Farbraum oft nur mit einer Kennzahl; was diese genau
+  bedeutet, steht in eigenen Normen. PDF-Knead rechnet sie heute nach den frei zugänglichen ITU-Empfehlungen und den Angaben aus JPEG 2000;
+  scRGB-Grau bleibt ohne den Normtext unbeachtet, statt geraten zu werden.
+  - **[IEC 61966-2-1:1999 – sRGB](https://webstore.iec.ch/en/publication/6169)** mit **[Änderung 1:2003 – sYCC](https://webstore.iec.ch/en/publication/6168)**:
+    der Standard-Farbraum fast aller Bilder und seine erweiterte YCC-Fassung.
+  - **[IEC 61966-2-2:2003 – scRGB](https://webstore.iec.ch/en/publication/6171)**: linearer RGB-Farbraum mit erweitertem Umfang.
+  - **[ISO 22028-2:2013 – ROMM RGB](https://www.iso.org/standard/56591.html)**: der weite Farbraum der Druck- und Fotowelt.
+- **Strichcodes**, bei ISO. PDF-Knead liest und erzeugt QR, Data Matrix, Code 128, EAN/UPC, Code 39 und ITF und prüft heute gegen die
+  frei zugänglichen GS1-Spezifikationen; die Symbologie-Normen legen Aufbau, Maße und Prüfregeln jedes Codes fest.
+  - **[ISO/IEC 18004:2024 – QR-Code](https://www.iso.org/standard/83389.html)**
+  - **[ISO/IEC 16022:2024 – Data Matrix](https://www.iso.org/standard/80926.html)**
+  - **[ISO/IEC 15417:2007 – Code 128](https://www.iso.org/standard/43896.html)** mit **[Änderung 1:2026](https://www.iso.org/standard/87124.html)**
+  - **[ISO/IEC 15420:2025 – EAN/UPC](https://www.iso.org/standard/84892.html)**
+  - **[ISO/IEC 16388:2023 – Code 39](https://www.iso.org/standard/77799.html)**
+  - **[ISO/IEC 16390:2007 – Interleaved 2 of 5 (ITF)](https://www.iso.org/standard/43898.html)**
 
-**Warum das zählt.** Was Behörden, Gerichte und Archive heute als PDF/A ablegen, muss in dreißig Jahren noch genauso aussehen wie am ersten
-Tag, und eine E-Rechnung muss nach den Regeln geprüft werden, die für sie gelten. Ein unabhängiges, nachprüfbares Werkzeug dafür sollte
-nicht an den Kosten für ein paar Normtexte scheitern.
+### Warum diese Normen wichtig sind
 
-**So helfen Sie:**
+Was Behörden, Gerichte und Archive heute als PDF/A ablegen, muss in dreißig Jahren noch genauso aussehen wie am ersten
+Tag, und eine E-Rechnung muss nach den Regeln geprüft werden, die für sie gelten. Farben sollen so erscheinen, wie sie gemeint sind, und
+ein eingefügter Code muss an jeder Kasse und jedem Scanner lesbar sein.
 
-- **Eine Norm übernehmen:** Sie tragen die Kosten für eine dieser Normen. Auf Wunsch nennen wir Sie hier mit Namen.
-- **Die Entwicklung tragen:** einmalig oder regelmäßig.
-- **Weitersagen:** an Verwaltungen, Archive, Kanzleien und alle, die digitale Souveränität wollen.
+<p align="center">
+  <img src="docs/bilder/readme/unterstuetzen-hilfe.png" width="100%" alt="So helfen Sie: Eine Norm übernehmen – Sie tragen die Kosten für eine der Normen oben, auf Wunsch nennen wir Sie hier mit Namen. Die Entwicklung tragen – einmalig oder regelmäßig, Firmen erhalten auf Wunsch eine Rechnung. Weitersagen – an Verwaltungen, Archive, Kanzleien und alle, die digitale Souveränität wollen. Geprüft, nicht behauptet – helfen Sie mit, dass das so bleibt.">
+</p>
 
-**Geprüft, nicht behauptet – helfen Sie mit, dass das so bleibt.**
+<p align="center"><b>Rechnung, Normpatenschaft oder Fragen:</b> <a href="mailto:pdf-knead@tuta.io">pdf-knead@tuta.io</a></p>
 
 <sub>Der Weg zum Unterstützen folgt in Kürze an dieser Stelle. Bitte keine Normtexte zusenden: Sie sind für eine Person lizenziert, und PDF-Knead arbeitet nur mit rechtmäßig erworbenen Texten.</sub>
 
 ---
-
-## Loslegen
-
-- **Linux:** die AppImage herunterladen, ausführbar machen, starten. **Windows:** die einzelne `.exe` starten. Keine Installation nötig.
-- **Selbst bauen:** `./publish.sh` (Linux) bzw. `publish.ps1` (Windows) mit einem .NET-10-SDK.
-- **Texterkennung und Felderkennung mit KI** laufen ganz auf dem Rechner: Die Modelle (PP-OCRv6 small und medium, der Feld-Erkenner
-  FFDetr) liegen im Paket im Ordner `ocr` neben dem Programm — es muss nichts nachgeladen werden, und kein Dokument verlässt den Rechner.
-
-**Stand der Entwicklung:** PDF-Knead ist eine Beta.
 
 ## Technik
 
@@ -608,19 +632,11 @@ nicht an den Kosten für ein paar Normtexte scheitern.
   QR- und Strichcodes, PKCS#11. Gezeichnet wird über SkiaSharp.
 - **Pakete:** Linux x64 als AppImage, Windows x64 als einzelne `.exe`.
 
-## Dank
-
-An die Menschen hinter den Normen: ISO 32000 (PDF), ISO 19005 (PDF/A), ETSI EN 319 142 (PAdES), ETSI TS 119 612 (Vertrauenslisten), EN 16931 (E-Rechnung), die
-RFCs zu CMS, Zeitstempeln und Sperrinformationen sowie die Normen zu JPEG, JPEG 2000, JBIG2, CCITT, ICC-Profilen, OpenType und Strichcodes.
-
-An die freien Projekte, die PDF-Knead mitliefert oder auf Wunsch lädt – darunter .NET, Avalonia, SkiaSharp und Skia, HarfBuzz,
-CommunityToolkit.Mvvm, ONNX Runtime, die Modelle PP-OCRv6 und FFDetr, die Schriften Liberation, Inter und Noto CJK und die Fluent UI
-System Icons. Vollständig mit Versionen und Lizenzen: [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
-
 ## Lizenz
 
-PDF-Knead steht unter einer eigenen Lizenz. Maßgeblich ist allein der Text in [LICENSE](LICENSE). Für mitgelieferte Bestandteile gelten
-deren Lizenzen ([THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)).
+Der Quelltext von PDF-Knead ist offen einsehbar, und PDF-Knead ist kostenlos – für alle, mit allen Funktionen, auch in Firmen, Behörden, Schulen und Vereinen. Nicht erlaubt
+ist nur, PDF-Knead oder Teile davon zu verkaufen oder gegen Geld weiterzugeben. Maßgeblich ist allein der Text in [LICENSE](LICENSE). Für
+mitgelieferte Bestandteile gelten deren Lizenzen ([THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)).
 
 ---
 

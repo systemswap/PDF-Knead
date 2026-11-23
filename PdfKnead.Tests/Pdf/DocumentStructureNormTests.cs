@@ -11,7 +11,7 @@ namespace PdfKnead.Tests.Pdf;
 /// Document structure (ISO 32000-2, 7.7 to 7.12; Konformitätsabgleich M5, docs/normabgleich/M5-dokumentaufbau.md): catalogue, page tree,
 /// name dictionary, data structures, functions, file specifications, extensions. Nachweise „DS.“ in the report.
 /// </summary>
-public sealed class DocumentStructureNormTests
+public sealed partial class DocumentStructureNormTests
 {
     /// <summary>A file of the given objects (1 is the catalogue) with a classic table.</summary>
     internal static byte[] FileOf(params string[] objects)
@@ -377,6 +377,32 @@ public sealed class DocumentStructureNormTests
         var shortData = Function("/Domain [0 1] /Range [0 1] /Size [4] /BitsPerSample 8", "\xFF");
         shortData.Evaluate([1.0], output);
         Assert.Equal(0.0, output[0]);
+    }
+
+    /// <summary>
+    /// 7.10.2, the evaluation of a sampled function step by step (sentences 40, 47, 48, 57–59, 70): the input clipped to /Domain, encoded by
+    /// /Encode (here reversed, [2 0]), clipped to the table, interpolated as a real number between the samples, decoded by /Decode (reversed,
+    /// [1 0]) and clipped to /Range ([0 0.5]). Samples 0, 128, 255. Expected values worked out by hand from the equations of 7.10.2 (Bericht M5,
+    /// Zeile 41 aufgeteilt nach dem Prüfer für Sammelzeilen, 20.11.2026).
+    /// </summary>
+    [Fact]
+    public void SampledFunction_EvaluationChain_DomainEncodeTableDecodeRange()
+    {
+        var doc = PdfDocument.Open(FileOf("<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Kids [] /Count 0 >>",
+            "<< /FunctionType 0 /Domain [0 2] /Range [0 0.5] /Size [3] /BitsPerSample 8 /Encode [2 0] /Decode [1 0] /Length 3 >>\nstream\n\x00\x80\xFF\nendstream"));
+        var function = PdfKnead.Core.Pdf.Graphics.PdfFunction.Create(doc.GetObject(3), doc)!;
+        var output = new double[1];
+        double At(double x)
+        {
+            function.Evaluate([x], output);
+            return output[0];
+        }
+        Assert.Equal(0, At(0), 6);                        // e = 2 → sample 255 → decoded 0
+        Assert.Equal(0.5, At(2), 6);                      // e = 0 → sample 0 → decoded 1 → clipped to the range
+        Assert.Equal(0.5, At(3), 6);                      // clipped to the domain first: as x = 2
+        Assert.Equal(0, At(-1), 6);                       // as x = 0
+        Assert.Equal(1 - 191.5 / 255, At(0.5), 6);        // e = 1.5: halfway between 128 and 255, a real number, decoded 1 − r/255
+        Assert.Equal(0.5, At(1.5), 6);                    // e = 0.5: r = 64, decoded 0.749 → clipped to 0.5
     }
 
     /// <summary>
@@ -1660,6 +1686,11 @@ public sealed class DocumentStructureNormTests
         Assert.Equal("Max", PdfTextEncoding.Decode([0xFE, 0xFF, 0x00, 0x1B, 0x00, 0x64, 0x00, 0x65, 0x00, 0x44, 0x00, 0x45, 0x00, 0x1B,
                                                      0x00, 0x4D, 0x00, 0x61, 0x00, 0x78]));
         Assert.Equal("Erika", PdfTextEncoding.Decode([0xEF, 0xBB, 0xBF, 0x1B, 0x64, 0x65, 0x1B, 0x45, 0x72, 0x69, 0x6B, 0x61]));
+        // no language marker: text between two ESC that is not two or four letters, and a single ESC, stay text — before both hid the text
+        // from search, leak search and redaction (M5, 23.11.2026)
+        Assert.Equal("Ab geheim cd", PdfTextEncoding.Decode([0xEF, 0xBB, 0xBF, .. "Ab \u001Bgeheim\u001B cd"u8]));
+        Assert.Equal("Ab geheim", PdfTextEncoding.Decode([0xFE, 0xFF, 0x00, 0x41, 0x00, 0x62, 0x00, 0x20, 0x00, 0x1B,
+                                                         .. "geheim".SelectMany(c => (byte[])[0, (byte)c])]));
     }
 
     /// <summary>

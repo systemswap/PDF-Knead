@@ -4,6 +4,7 @@ using PdfKnead.Core.Pdf.Document;
 using PdfKnead.Core.Pdf.Editing;
 using PdfKnead.Core.Pdf.Filters;
 using PdfKnead.Core.Pdf.Objects;
+using PdfKnead.Core.Pdf.Security;
 using PdfKnead.Core.Pdf.Writing;
 
 namespace PdfKnead.Tests.Pdf;
@@ -47,7 +48,8 @@ public sealed class CryptFilterTests
     /// <summary>
     /// The public test file with crypt filters of their own (V 4: /StmF AES-128, /StrF and the form and image RC4 by their own /Crypt
     /// filter, /EFF Identity, one attachment with a filter of its own): the form, the image and both attachments read as plain data, and
-    /// they still do after saving — with the encryption kept, and without it (no /Crypt filter left then). Every stream was read with
+    /// they still do after saving — with the encryption kept (then without the RC4 filters of their own, S-B B46: FG 991), and without it (no
+    /// /Crypt filter left then). Every stream was read with
     /// /StmF: the RC4 form came as garbage, the image empty, the unencrypted attachment as zero bytes, and saving destroyed it
     /// (docs/FEHLERGEDAECHTNIS.md, No. 442).
     /// </summary>
@@ -68,6 +70,21 @@ public sealed class CryptFilterTests
             var files = Streams(saved).Where(s => s.Dictionary.IsType(PdfName.Get("EmbeddedFile"))).Select(s => Text(saved, s)).Order().ToList();
             Assert.Equal(attachments, files);
             if (!keep) Assert.DoesNotContain(Streams(saved), s => StreamFilters.Chain(s.Dictionary).Any(f => f.Name == "Crypt"));
+            // ISO 32000-2, Table 14 (S-B B46, decided on 20.11.2026): no stream keeps a filter of its own with V2 or AESV2 — the RC4
+            // form goes to the default filter of the document and still reads; the Identity filter of the attachments stays. The exception
+            // (FG 991): the attachment with AES of its own keeps it, as /EFF is Identity — without it the copy would hold it unencrypted
+            Assert.Contains(Streams(saved), s => Text(saved, s).StartsWith("% This comment", StringComparison.Ordinal));
+            var keptOwn = 0;
+            foreach (var s in Streams(saved))
+                if (StreamFilters.Chain(s.Dictionary) is [("Crypt", var parms), ..] &&
+                    saved.Security!.CipherNamed(parms?.GetName(PdfName.Name)) is PdfCipher.Rc4 or PdfCipher.Aes128)
+                {
+                    var file = s.Dictionary.IsType(PdfName.Get("EmbeddedFile"));
+                    Assert.True(file && saved.Security.EmbeddedFileCipher == PdfCipher.None || !file && saved.Security.StreamCipher == PdfCipher.None,
+                        $"eigener Kryptfilter {parms?.GetName(PdfName.Name)?.Value}");
+                    keptOwn++;
+                }
+            Assert.Equal(keep ? 1 : 0, keptOwn);
         }
     }
     /// <summary>
@@ -131,5 +148,32 @@ public sealed class CryptFilterTests
         Assert.Equal(PdfDocument.AttachmentUnlock.NotDecryptable, doc.UnlockAttachments("1"));
         Assert.True(doc.Security!.AttachmentsLocked);
         Assert.Throws<PdfAttachmentsLockedException>(() => Save(doc, new PdfSaveOptions()));
+    }
+
+    /// <summary>
+    /// S-B B46 (FG 991): a stream with an AES-128 filter of its own in a file whose default filter does not encrypt it (only the attachments are
+    /// encrypted, /StmF Identity) keeps that filter when saved with the encryption kept — written without it, it would lie in the copy
+    /// unencrypted. The stream: the page content, encrypted under the filter /StdCF of the attachments, read after unlocking them.
+    /// </summary>
+    [Fact]
+    public void OwnFilter_WhereTheDefaultDoesNotEncrypt_KeptWhenSaved()
+    {
+        var pdf = TestPdf.Simple(1);
+        var plain = "BT /F1 12 Tf 72 700 Td (geheim) Tj ET"u8.ToArray();
+        byte[] firstId = [.. Enumerable.Range(1, 16).Select(i => (byte)(i * 7))];
+        var (_, handler) = StandardSecurityHandler.Create(PdfCipher.Aes128, "Anhang", "Anhang", PdfPermissions.Print, firstId, true);
+        var parms = TestPdf.Dict(("Type", TestPdf.N("CryptFilterDecodeParms")), ("Name", TestPdf.N("StdCF")));
+        pdf.Replace(4, new PdfStream(TestPdf.Dict(("Filter", new PdfArray([TestPdf.N("Crypt")])), ("DecodeParms", new PdfArray([parms]))),
+            handler.EncryptStream(new PdfObjectId(4, 0), plain)));
+        using var doc = PdfDocument.Open(pdf.Build(cipher: PdfCipher.Aes128, user: "Anhang", owner: "Anhang", attachmentsOnly: true));
+        Assert.Equal(PdfDocument.AttachmentUnlock.Opened, doc.UnlockAttachments("Anhang"));
+        Assert.Equal(plain, doc.DecodeStream((PdfStream)doc.GetObject(4)).Data);
+
+        using var copy = PdfDocument.Open(Save(doc, new PdfSaveOptions { KeepEncryption = true }));
+        var content = (PdfStream)copy.Pages[0].Dictionary.Get(PdfName.Contents);
+        Assert.Equal("Crypt", StreamFilters.Chain(content.Dictionary)[0].Name);
+        Assert.False(copy.StoredStreamData(content).SequenceEqual(plain), "unverschlüsselt in der Kopie");
+        Assert.Equal(PdfDocument.AttachmentUnlock.Opened, copy.UnlockAttachments("Anhang"));
+        Assert.Equal(plain, copy.DecodeStream(content).Data);
     }
 }

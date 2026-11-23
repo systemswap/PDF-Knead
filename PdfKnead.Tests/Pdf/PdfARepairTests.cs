@@ -3,6 +3,7 @@ using PdfKnead.Core.Fonts;
 using PdfKnead.Core.Pdf.Content;
 using PdfKnead.Core.Pdf.Document;
 using PdfKnead.Core.Pdf.Editing;
+using PdfKnead.Core.Pdf.Filters.Jpx;
 using PdfKnead.Core.Pdf.Objects;
 using PdfKnead.Core.Pdf.Writing;
 using static PdfKnead.Tests.Pdf.TestPdf;
@@ -15,7 +16,7 @@ namespace PdfKnead.Tests.Pdf;
 /// outlines, Type 3 with procedures of the file's widths), content written anew without faulty syntax, and the rules on dictionaries — each
 /// time the copy conforms, and the page looks and reads the same.
 /// </summary>
-public sealed class PdfARepairTests
+public sealed partial class PdfARepairTests
 {
     private static PdfAResult Write(byte[] data)
     {
@@ -546,6 +547,107 @@ public sealed class PdfARepairTests
         Assert.Null(PdfAJpeg2000.Wrap(mixed));
     }
 
+    /// <summary>
+    /// ITU-T T.800, Table I.10 and I.5.3.3: JP2 knows only sRGB, sRGB-grey and sYCC, all unsigned. Four components (CMYK) are wrapped as a JPX
+    /// file — brand „jpx “ without „jp2 “, the Reader Requirements box right after the file type naming standard feature 55 (CMYK; ISO/IEC
+    /// 15444-2, M.11.1) —, three components stay JP2 without it; signed components are not wrapped. The decoder reads the CMYK file as CMYK.
+    /// Before both were written as JP2 (docs/FEHLERGEDAECHTNIS.md, No. 981).
+    /// </summary>
+    [Fact]
+    public void Jpeg2000Codestream_CmykAsJpx_SignedNotWrapped()
+    {
+        var cmyk = JpxRobustTests.Codestream(0, 64, 64, 4, 1, 0, 1, 0);
+        var wrapped = PdfAJpeg2000.Wrap(cmyk)!;
+        Assert.Equal("ftyp", System.Text.Encoding.ASCII.GetString(wrapped, 16, 4));
+        Assert.Equal("jpx ", System.Text.Encoding.ASCII.GetString(wrapped, 20, 4));
+        Assert.Equal(1, System.Buffers.Binary.BinaryPrimitives.ReadInt32BigEndian(wrapped.AsSpan(24)));   // minor version 1 (T.801 M.8)
+        Assert.Equal("jpx ", System.Text.Encoding.ASCII.GetString(wrapped, 28, 4));
+        Assert.Equal(32, System.Buffers.Binary.BinaryPrimitives.ReadInt32BigEndian(wrapped.AsSpan(12)) + 12);   // ftyp ends where rreq begins
+        Assert.Equal("rreq", System.Text.Encoding.ASCII.GetString(wrapped, 36, 4));
+        // T.801 M.11.1, Table M.14, M.6.2.1: mask length 1; two features needed together — CMYK (55) in mask bit 0x80 and the unrestricted
+        // Part 1 codestream (5, Rsiz 0) in bit 0x40 —, both masks 0xC0; no vendor features (FG 987: before only 55; FG 1033: before both in
+        // 0x80, which read „CMYK or the codestream“)
+        Assert.Equal(21, System.Buffers.Binary.BinaryPrimitives.ReadInt32BigEndian(wrapped.AsSpan(32)));
+        Assert.Equal(new byte[] { 1, 0xC0, 0xC0, 0, 2, 0, 55, 0x80, 0, 5, 0x40, 0, 0 }, wrapped[40..53]);
+        var colr = wrapped.AsSpan().IndexOf("colr"u8);
+        Assert.Equal(new byte[] { 1, 0, 1, 0, 0, 0, 12 }, wrapped[(colr + 4)..(colr + 11)]);   // enumerated CMYK, APPROX 1 (M.11.7.2: not 0)
+        var profile1 = JpxRobustTests.Codestream(0, 64, 64, 4, 1, 0, 1, 0);
+        profile1[7] = 2;   // Rsiz: Part 1 profile 1 — feature 4
+        Assert.Equal(new byte[] { 0, 4, 0x40 }, PdfAJpeg2000.Wrap(profile1)![48..51]);
+        var part2 = JpxRobustTests.Codestream(0, 64, 64, 4, 1, 0, 1, 0);
+        part2[6] = 0x80;   // Rsiz: capabilities of ISO/IEC 15444-2 — feature 6
+        Assert.Equal(new byte[] { 0, 6, 0x40 }, PdfAJpeg2000.Wrap(part2)![48..51]);
+        var profile0 = JpxRobustTests.Codestream(0, 64, 64, 4, 1, 0, 1, 0);
+        profile0[7] = 1;   // Rsiz: Part 1 profile 0 — nothing beyond JP2 and profile 0 but CMYK
+        Assert.Equal(new byte[] { 1, 0x80, 0x80, 0, 1, 0, 55, 0x80, 0, 0 }, PdfAJpeg2000.Wrap(profile0)![40..50]);
+        Assert.Null(PdfAJpeg2000.Fault(wrapped));
+        var image = JpxDecoder.Decode(wrapped, 16_000_000);
+        Assert.Equal((JpxColor.Cmyk, 4), (image.Color, image.Channels));
+        var rgbCodestream = JpxRobustTests.Codestream(0, 64, 64, 3, 1, 0, 1, 0);
+        var rgb = PdfAJpeg2000.Wrap(rgbCodestream)!;
+        // T.800 I.5.1, I.5.2: the signature box (12 fixed bytes), the file type box of 20 bytes — brand „jp2 “, minor version 0, the
+        // compatibility list „jp2 “ —, then the JP2 Header box; at the end the contiguous codestream box with the codestream as it was, which
+        // the decoder reads to the same image as the bare codestream (Zeile 258)
+        Assert.Equal(new byte[] { 0, 0, 0, 12, 0x6A, 0x50, 0x20, 0x20, 0x0D, 0x0A, 0x87, 0x0A, 0, 0, 0, 20 }, rgb[..16]);
+        Assert.Equal("ftypjp2 \0\0\0\0jp2 ", System.Text.Encoding.Latin1.GetString(rgb, 16, 16));
+        Assert.Equal("jp2 ", System.Text.Encoding.ASCII.GetString(rgb, 20, 4));
+        Assert.Equal("jp2h", System.Text.Encoding.ASCII.GetString(rgb, 36, 4));
+        var jp2c = rgb.Length - rgbCodestream.Length - 8;
+        Assert.Equal(rgbCodestream.Length + 8, System.Buffers.Binary.BinaryPrimitives.ReadInt32BigEndian(rgb.AsSpan(jp2c)));
+        Assert.Equal("jp2c", System.Text.Encoding.ASCII.GetString(rgb, jp2c + 4, 4));
+        Assert.Equal(rgbCodestream, rgb[(jp2c + 8)..]);
+        Assert.Equal(JpxDecoder.Decode(rgbCodestream, 16_000_000).Samples, JpxDecoder.Decode(rgb, 16_000_000).Samples);
+        // T.800 I.5.3.1, I.5.3.3 byte for byte: image header (height, width, 3 components, depth 8 − 1, compression 7, colourspace not known —
+        // guessed from the number of components, FG 1074 —, no IPR), then the enumerated colour specification sRGB (16) with precedence and
+        // approximation 0 (Zeilen 258, 297, 559)
+        Assert.Equal("ihdr", System.Text.Encoding.ASCII.GetString(rgb, 44, 4));
+        Assert.Equal(new byte[] { 0, 0, 0, 1, 0, 0, 0, 64, 0, 3, 7, 7, 1, 0 }, rgb[48..62]);
+        Assert.Equal("colr", System.Text.Encoding.ASCII.GetString(rgb, 66, 4));
+        Assert.Equal(new byte[] { 1, 0, 0, 0, 0, 0, 16 }, rgb[70..77]);
+        var signed = JpxRobustTests.Codestream(0, 64, 64, 3, 1, 0, 1, 0);
+        for (var c = 0; c < 3; c++) signed[42 + 3 * c] |= 0x80;
+        Assert.Null(PdfAJpeg2000.Wrap(signed));
+    }
+
+    /// <summary>
+    /// A JPEG 2000 image without /ColorSpace takes the colour of its data (ISO 32000-2, 8.9.5); an enumerated CMYK space there is CMYK device
+    /// colour for ISO 19005-2, 6.2.4.3. The check counts it (by the channels, as in a bare codestream; an ICC profile inside does not count),
+    /// and the copy takes the CMYK output intent for it (RGB beside it then gets /DefaultRGB). Before the image counted as no colour at all: the
+    /// copy took the sRGB intent without a /DefaultCMYK and broke 6.2.4.3 — found by the reference validator on the counter-check file of the M2 writers (docs/FEHLERGEDAECHTNIS.md, No. 995).
+    /// </summary>
+    [Fact]
+    public void Jpeg2000WithTheColourOfItsData_CmykCountedAsDeviceColour_IntentCmyk()
+    {
+        var cmyk = JpxRobustTests.Codestream(0, 64, 64, 4, 1, 0, 1, 0);
+        Assert.Equal("DeviceCMYK", PdfAJpeg2000.DeviceSpace(cmyk));
+        Assert.Equal("DeviceCMYK", PdfAJpeg2000.DeviceSpace(PdfAJpeg2000.Wrap(cmyk)!));
+        var rgb = PdfAJpeg2000.Wrap(JpxRobustTests.Codestream(0, 64, 64, 3, 1, 0, 1, 0))!;
+        Assert.Equal("DeviceRGB", PdfAJpeg2000.DeviceSpace(rgb));
+        rgb[70] = 2;   // the colour specification as an ICC profile (method 2): device-independent
+        Assert.Null(PdfAJpeg2000.DeviceSpace(rgb));
+
+        foreach (var data in new[] { cmyk, PdfAJpeg2000.Wrap(cmyk)! })
+        {
+            var pdf = Simple(1, title: null);
+            var image = pdf.Add(new PdfStream(Dict(("Type", N("XObject")), ("Subtype", N("Image")), ("Width", PdfInteger.Of(64)),
+                ("Height", PdfInteger.Of(1)), ("Filter", N("JPXDecode"))), data));
+            ((PdfDictionary)pdf.Get(5)).Set(PdfName.Resources, Dict(("Font", Dict(("F1", Ref(3)))), ("XObject", Dict(("Jpx", Ref(image))))));
+            // RGB beside it (with CMYK alone nothing would need a default space)
+            pdf.Replace(4, new PdfStream(new PdfDictionary(), "0 1 0 rg 10 10 20 20 re f q 64 0 0 8 20 100 cm /Jpx Do Q"u8.ToArray()));
+            var original = pdf.Build();
+            using (var source = PdfDocument.Open(original))
+                Assert.Contains(PdfACheck.Check(source, PdfAConformance.A2b), v => v.Id == PdfARules.DeviceCmyk.Id(PdfAConformance.A2b));
+            var result = Write(original);
+            Assert.True(result.Conforms, string.Join("\n", result.Violations.Select(v => $"{v.Rule} {v.Text}")));
+            using var written = PdfDocument.Open(result.Bytes);
+            // CMYK in use: the copy takes a CMYK output intent, and the RGB beside it gets the default space
+            var intent = (PdfDictionary)written.Catalog!.GetArray(PdfName.Get("OutputIntents"))!.Get(0);
+            Assert.Equal(4, ((PdfStream)intent.Get(PdfName.Get("DestOutputProfile"))).Dictionary.GetInteger(PdfName.Get("N")));
+            Assert.NotNull(written.Pages[0].Resources!.GetDictionary(PdfName.Get("ColorSpace"))?.Get(PdfName.Get("DefaultRGB")) as PdfArray);
+            Assert.DoesNotContain(PdfACheck.Check(written), v => v.Id == PdfARules.DeviceCmyk.Id(PdfAConformance.A2b));
+        }
+    }
+
     [Fact]
     public void SmoothedInlineImage_AndFontNameInGbk_BroughtInLine()
     {
@@ -736,6 +838,24 @@ public sealed class PdfARepairTests
         var content = Encoding.Latin1.GetString(written.GetStreamData((PdfStream)written.Pages[0].Dictionary.Get(PdfName.Contents)!));
         Assert.Contains("/AHx", content);
         Assert.Contains("45492078>", content);
+    }
+
+    /// <summary>
+    /// The same with the filter named in full (/Filter /RunLengthDecode, allowed in an inline image): the hexadecimal copy keeps it after /AHx.
+    /// Before, only the abbreviation /F was asked — missing, it read as the null object, the filter was lost and the samples were the packed
+    /// bytes (docs/FEHLERGEDAECHTNIS.md, No. 1004).
+    /// </summary>
+    [Fact]
+    public void InlineImageWithEiInItsData_FullFilterName_KeptInTheHexadecimalCopy()
+    {
+        // run length: copy the next four bytes „E“, „I“, „ “, „x“, then the end
+        var (pdf, _) = PdfACheckTests.Page("q 100 0 0 100 72 600 cm BI /W 4 /H 1 /CS /G /BPC 8 /Filter /RunLengthDecode ID \u0003EI x\u0080 EI Q",
+            new PdfDictionary());
+        var original = pdf.Build();
+        using var written = Same(original, Write(original));
+        var content = Encoding.Latin1.GetString(written.GetStreamData((PdfStream)written.Pages[0].Dictionary.Get(PdfName.Contents)!));
+        Assert.Contains("/AHx", content);
+        Assert.Contains("RunLengthDecode", content);
     }
 
     /// <summary>

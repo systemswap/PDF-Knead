@@ -33,9 +33,10 @@ public sealed record TiffPage(int Width, int Height, TiffPageKind Kind, double D
 /// </summary>
 public static class TiffEncoder
 {
-    // at most 32 KB of raw data per strip, so that no strip packs to more than 64 KB, as TIFF 6.0, section 3 asks for old readers (decision of
-    // the user 19.11.2026, M2 row 211; before 256 KB); only a single row above 32 KB makes a larger strip (docs/FEHLERGEDAECHTNIS.md, No. 964)
-    private const int StripBytes = 32 << 10;
+    // about 8 KB of raw data per strip, as TIFF 6.0 recommends (sections 7 and 8), and a single row per strip when a row is larger (section 7,
+    // a should); no strip packs to more than 64 KB, as section 8 asks for old readers (decisions of the user 19.11.2026, M2 row 211, and
+    // 22.11.2026, FG 1019; before 32 KB, before that 256 KB; docs/FEHLERGEDAECHTNIS.md, No. 964)
+    private const int StripBytes = 8 << 10;
 
     // black and white: Group 4 can grow a row of single-pixel runs to about six bits per pixel (horizontal mode with the shortest codes), so at
     // most 8 KB of raw bits per strip keep it below 64 KB packed — the size TIFF 6.0 itself recommends (No. 964)
@@ -50,10 +51,15 @@ public static class TiffEncoder
     /// <param name="iccProfile">The CMYK profile, or null.</param>
     /// <param name="output">Where the file goes.</param>
     /// <exception cref="ArgumentException">Unsupported bit depth or size.</exception>
-    public static void EncodeCmyk(int width, int height, int bitDepth, bool alpha, Action<int, Span<byte>> row, byte[]? iccProfile, Stream output)
+    /// <param name="dpi">The resolution on both axes — that of the image as drawn on its page — or null when it is not known: then the longest
+    /// side measures four inches, as TIFF 6.0, section 8 advises for an arbitrary resolution (FG 1019; before 72 per inch always).</param>
+    public static void EncodeCmyk(int width, int height, int bitDepth, bool alpha, Action<int, Span<byte>> row, byte[]? iccProfile, Stream output,
+        (double X, double Y)? dpi = null)
     {
         if (bitDepth is not (8 or 16) || width <= 0 || height <= 0) throw new ArgumentException($"TIFF: {bitDepth} Bit, {width} × {height}");
         var channels = alpha ? 5 : 4;
+        var fourInches = Math.Max(width, height) / 4.0;
+        (double X, double Y) resolution = dpi is { X: > 0, Y: > 0 } d ? d : (fourInches, fourInches);
         var bytesPerSample = bitDepth / 8;
         var rowBytes = checked(width * channels * bytesPerSample);
         var rowsPerStrip = Math.Clamp(StripBytes / rowBytes, 1, height);
@@ -100,10 +106,9 @@ public static class TiffEncoder
             (278, 4, 1, U32(rowsPerStrip)),
             (279, 4, (uint)strips.Count, strips.SelectMany(s => U32(s.Length)).ToArray()),
             // XResolution and YResolution are required of every Baseline image, and a separated file meets those requirements too
-            // (TIFF 6.0, sections 8 and 16); an image of a PDF has no resolution of its own: 72 per inch, the unit of PDF user space
-            // (docs/FEHLERGEDAECHTNIS.md, No. 942)
-            (282, 5, 1, Rational(72)),
-            (283, 5, 1, Rational(72)),
+            // (TIFF 6.0, sections 8 and 16; No. 942); an image of a PDF has no resolution of its own — that of its drawn size, else four inches
+            (282, 5, 1, Rational(resolution.X)),
+            (283, 5, 1, Rational(resolution.Y)),
             (284, 3, 1, U16(1)),             // chunky
             (296, 3, 1, U16(2)),             // inch
             (317, 3, 1, U16(2)),             // horizontal differencing
@@ -160,12 +165,19 @@ public static class TiffEncoder
     /// <remarks>
     /// Each page is laid out as directory, long values, image data; its size is known once the page is packed, so the offset of the next
     /// directory can be written into the directory before it. Black and white pages are WhiteIsZero with T6Options 0, each strip its own
-    /// Group 4 encoding of at most 8 KB of raw bits; the other pages strips of at most 32 KB of raw data — no strip above 64 KB packed
-    /// (TIFF 6.0, section 3).
+    /// Group 4 encoding of at most 8 KB of raw bits (a multiple of eight rows where it fits); the other pages strips of about 8 KB of raw data —
+    /// no strip above 64 KB packed (TIFF 6.0, section 8). Greyscale and RGB pages carry their profile and the TransferFunction of the sRGB curve.
     /// </remarks>
-    public static void EncodePages(int count, Func<int, TiffPage> page, Stream output, CancellationToken cancel = default)
+    /// <param name="firstPage">The number of the first page in its document (0 for the first): a file of one page out of several says which
+    /// one in PageNumber.</param>
+    /// <param name="documentPages">The pages of the document, or 0 when they are all in this file.</param>
+    public static void EncodePages(int count, Func<int, TiffPage> page, Stream output, CancellationToken cancel = default, int firstPage = 0,
+        int documentPages = 0)
     {
         if (count <= 0) throw new ArgumentException("TIFF: keine Seite", nameof(count));
+        // PageNumber counts the pages of the document (TIFF 6.0, section 12), also when each page is a file of its own (FG 1019: before (0, 1)
+        // in each of them); NewSubfileType bit 1 marks a page of a multi-page document (No. 1017)
+        var total = Math.Max(documentPages, firstPage + count);
         var header = new byte[8];
         "MM"u8.CopyTo(header);
         BinaryPrimitives.WriteUInt16BigEndian(header.AsSpan(2), 42);
@@ -182,7 +194,8 @@ public static class TiffEncoder
             var resolution = Rational(p.Dpi);
             var entries = new List<(ushort Tag, ushort Type, uint Count, byte[] Value)>
             {
-                (254, 4, 1, U32(0)),
+                // NewSubfileType: bit 1 marks a page of a multi-page image (TIFF 6.0, section 8; FG 1017: before 0 on every page)
+                (254, 4, 1, U32(total > 1 ? 2 : 0)),
                 (256, 4, 1, U32(p.Width)),
                 (257, 4, 1, U32(p.Height)),
                 (258, 3, (uint)channels, Repeat(U16(bw ? 1 : 8), channels)),
@@ -200,8 +213,19 @@ public static class TiffEncoder
             if (bw) entries.Insert(entries.FindIndex(e => e.Tag == 273), (266, 3, 1, U16(1)));
             if (bw) entries.Add((293, 4, 1, U32(0)));                // T6Options: no uncompressed mode
             entries.Add((296, 3, 1, U16(2)));                          // inch
-            entries.Add((297, 3, 2, [.. U16(index), .. U16(count)]));  // PageNumber
+            entries.Add((297, 3, 2, [.. U16(firstPage + index), .. U16(total)]));   // PageNumber
+            // the values are not linear (rendered or scanned in the sRGB curve): TIFF 6.0, section 17 asks for a TransferFunction then — the
+            // profile below says the same to readers that know it (decided by the user on 22.11.2026, FG 1019)
+            if (!bw) entries.Add((301, 3, 256, SrgbTransferFunction.Value));
             if (!bw) entries.Add((317, 3, 1, U16(2)));               // horizontal differencing
+            // the colour of the values: without a profile TIFF takes grey as linear (section 17; the values are rendered or scanned, so in the
+            // sRGB curve) and RGB with a gamma of about 2.2 (section 20) — the profile says exactly what they are (decided on
+            // 20.11.2026; docs/FEHLERGEDAECHTNIS.md, No. 980). Black and white needs none.
+            if (!bw)
+            {
+                var profile = channels == 3 ? Pdf.Graphics.Icc.CalibratedProfile.Srgb() : Pdf.Graphics.Icc.CalibratedProfile.SrgbGray();
+                entries.Add((34675, 7, (uint)profile.Length, profile));
+            }
 
             // layout: directory, long values, strips; the next directory right behind the strips
             var directoryAt = offset;
@@ -257,7 +281,9 @@ public static class TiffEncoder
             // strips as for the other pages, each its own Group 4 encoding (TIFF 6.0, section 11: every strip starts afresh; No. 964 — before
             // the whole page was one strip)
             var rowBytes = (p.Width + 7) / 8;
-            var rows = Math.Clamp(BilevelStripBytes / rowBytes, 1, p.Height);
+            // a multiple of eight rows per strip where it fits, as section 11 advises for the interchange of T.6 data (FG 1018)
+            var fit = BilevelStripBytes / rowBytes;
+            var rows = Math.Clamp(fit >= 8 ? fit / 8 * 8 : fit, 1, p.Height);
             var parts = new List<byte[]>();
             for (var top = 0; top < p.Height; top += rows)
             {
@@ -292,6 +318,22 @@ public static class TiffEncoder
         }
         return (strips, rowsPerStrip);
     }
+
+    /// <summary>
+    /// The TransferFunction of 8-bit values in the sRGB curve (TIFF 6.0, section 20): for each value its linear intensity, 0 … 65535, one table
+    /// for all channels; the curve of IEC 61966-2-1.
+    /// </summary>
+    private static readonly Lazy<byte[]> SrgbTransferFunction = new(() =>
+    {
+        var table = new byte[512];
+        for (var v = 0; v < 256; v++)
+        {
+            var c = v / 255.0;
+            var linear = c <= 0.04045 ? c / 12.92 : Math.Pow((c + 0.055) / 1.055, 2.4);
+            BinaryPrimitives.WriteUInt16BigEndian(table.AsSpan(2 * v), (ushort)Math.Round(linear * 65535));
+        }
+        return table;
+    });
 
     /// <summary>A resolution as a TIFF RATIONAL (hundredths of a pixel per inch).</summary>
     private static byte[] Rational(double dpi)

@@ -315,6 +315,80 @@ public sealed class LimitTests
             PdfLimits.DynamicStreamLimit();
         }
     }
+
+    /// <summary>A page whose /Contents names <paramref name="mentions"/> times one Flate stream of <paramref name="size"/> NUL bytes (white space).</summary>
+    private static byte[] PageNaming(int mentions, int size, bool asForm = false)
+    {
+        using var packed = new MemoryStream();
+        using (var z = new ZLibStream(packed, CompressionLevel.Optimal, true)) z.Write(new byte[size]);
+        var data = packed.ToArray();
+        var output = new MemoryStream();
+        void Text(string t) => output.Write(Encoding.Latin1.GetBytes(t));
+        Text("%PDF-1.7\n");
+        var offsets = new List<long>();
+        var refs = string.Join(" ", Enumerable.Repeat("4 0 R", mentions));
+        var names = string.Join(" ", Enumerable.Range(0, mentions).Select(i => $"/F{i} 4 0 R"));
+        var draw = string.Concat(Enumerable.Range(0, mentions).Select(i => $"/F{i} Do\n"));
+        var bodies = new[]
+        {
+            "<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            asForm ? $"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources << /XObject << {names} >> >> /Contents 5 0 R >>"
+                   : $"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents [{refs}] >>",
+        };
+        foreach (var body in bodies)
+        {
+            offsets.Add(output.Position);
+            Text($"{offsets.Count} 0 obj\n{body}\nendobj\n");
+        }
+        offsets.Add(output.Position);
+        Text($"4 0 obj\n<< {(asForm ? "/Type /XObject /Subtype /Form /BBox [0 0 1 1] " : "")}/Filter /FlateDecode /Length {data.Length} >>\nstream\n");
+        output.Write(data);
+        Text("\nendstream\nendobj\n");
+        offsets.Add(output.Position);
+        Text($"5 0 obj\n<< /Length {draw.Length} >>\nstream\n{draw}\nendstream\nendobj\n");
+        var xref = output.Position;
+        Text($"xref\n0 {offsets.Count + 1}\n0000000000 65535 f \n");
+        foreach (var o in offsets) Text($"{o:D10} 00000 n \n");
+        Text($"trailer\n<< /Size {offsets.Count + 1} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n");
+        return output.ToArray();
+    }
+
+    /// <summary>
+    /// /Contents naming one small decompression bomb 64 times (docs/FEHLERGEDAECHTNIS.md, No. 1002): all parts together decode to no more
+    /// than one stream may — the page content is refused after the parts that reach the limit, before the rest is decoded. Before, every
+    /// mention was decoded and all were held at once (24 GB and minutes from a file of 256 KB); the limit here is 1 MB, each part 512 KB.
+    /// </summary>
+    [Fact]
+    public void ContentsArray_OneBombNamedAgain_StoppedAtTheLimitOfOneStream()
+    {
+        PdfLimits.MaxDecodedStreamBytes = 1 << 20;
+        try
+        {
+            using var doc = PdfKnead.Core.Pdf.Document.PdfDocument.Open(PageNaming(64, 512 << 10));
+            var before = GC.GetAllocatedBytesForCurrentThread();
+            Assert.Throws<PdfLimitException>(() => PdfKnead.Core.Pdf.Content.PageInterpreter.PageContent(doc, doc.Pages[0].Dictionary).Dispose());
+            Assert.True(GC.GetAllocatedBytesForCurrentThread() - before < 16 << 20, "no more than a few parts decoded");
+        }
+        finally
+        {
+            PdfLimits.DynamicStreamLimit();
+        }
+    }
+
+    /// <summary>
+    /// One large form of nothing but white space drawn 200 times (docs/FEHLERGEDAECHTNIS.md, No. 1002): the bytes read count towards the work
+    /// limit of a page, 64 to an operator — the display stops with its notice that the page is shown only in part, redaction refuses the
+    /// page. Before, there was no operator to count: 64 uses of a form of 256 MB took six minutes over drawing, redacting and saving.
+    /// </summary>
+    [Fact]
+    public void Form_OfWhiteSpaceDrawnAgainAndAgain_WithinTheWorkLimit()
+    {
+        using var doc = PdfKnead.Core.Pdf.Document.PdfDocument.Open(PageNaming(200, 8 << 20, asForm: true));   // 1.6 GB to read in all
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        PdfKnead.Core.Pdf.Content.PageInterpreter.Build(doc, doc.Pages[0]);
+        Assert.Contains(doc.Problems, p => p.Contains("zu aufwendig", StringComparison.Ordinal));
+        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(20), $"{watch.Elapsed.TotalSeconds:0.0} s");
+    }
 }
 
 [CollectionDefinition(nameof(LimitCollection), DisableParallelization = true)]

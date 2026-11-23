@@ -47,7 +47,7 @@ public sealed class PageImageWriterTests : IDisposable
     }
 
     /// <summary>
-    /// TIFF 6.0, section 3 (M2 row 211, decided on 19.11.2026; docs/FEHLERGEDAECHTNIS.md, No. 964): no strip above 64 KB for old
+    /// TIFF 6.0, section 8 (M2 row 211, decided on 19.11.2026; docs/FEHLERGEDAECHTNIS.md, No. 964): no strip above 64 KB for old
     /// readers, black and white pages in several strips too, each its own Group 4 encoding; every page reads back exactly. Before, black and
     /// white pages were one strip and the others strips of 256 KB of raw data.
     /// </summary>
@@ -91,20 +91,30 @@ public sealed class PageImageWriterTests : IDisposable
         var files = PageImageWriter.Write(pages.Length, i => pages[i], _folder, "Scan", new PageImageSettings(PageImageFormat.Tiff));
         Assert.Equal(["Scan_001.tif", "Scan_002 (2).tif"], files.Select(Path.GetFileName));
         Assert.Equal("vorhanden", File.ReadAllText(Path.Combine(_folder, "Scan_002.tif")));
-        Assert.Equal(Colour().Pixels, Assert.Single(TiffReader.Read(File.ReadAllBytes(files[1]))).Pixels);
+        var second = Assert.Single(TiffReader.Read(File.ReadAllBytes(files[1])));
+        Assert.Equal(Colour().Pixels, second.Pixels);
+        Assert.Equal((1, 2), second.PageNumber);   // page 2 of 2 in a file of its own (TIFF 6.0, section 12; FG 1019: before (0, 1))
     }
 
+    /// <summary>
+    /// PNG pages: black and white with one bit, grey with one channel, colour as RGB, each with its resolution; grey and colour name the sRGB
+    /// profile they are rendered in (iCCP), black and white needs none (RFC 2083, 9.2, 9.3; decided by the user on 22.11.2026); a colour page
+    /// of three colours is a palette image of 2 bits (9.6).
+    /// </summary>
     [Fact]
     public void Png_BlackWhiteOneBit_GreyOneChannel_ResolutionNoted()
     {
-        ScannedImage[] pages = [BlackWhite(), Gray(), Colour()];
+        var few = new byte[40 * 20 * 3];
+        for (var i = 0; i < 40 * 20; i++) few[i * 3 + i % 3] = 200;
+        ScannedImage[] pages = [BlackWhite(), Gray(), Colour(), new ScannedImage(40, 20, 3, 150, few)];
         var files = PageImageWriter.Write(pages.Length, i => pages[i], _folder, "Brief", new PageImageSettings(PageImageFormat.Png));
-        Assert.Equal(["Brief_001.png", "Brief_002.png", "Brief_003.png"], files.Select(Path.GetFileName));
-        (int Depth, int Type)[] expected = [(1, 0), (8, 0), (8, 2)];
+        Assert.Equal(["Brief_001.png", "Brief_002.png", "Brief_003.png", "Brief_004.png"], files.Select(Path.GetFileName));
+        (int Depth, int Type)[] expected = [(1, 0), (8, 0), (8, 2), (2, 3)];
         for (var i = 0; i < pages.Length; i++)
         {
             var data = File.ReadAllBytes(files[i]);
             Assert.Equal(expected[i], ((int)data[24], (int)data[25]));   // IHDR: bit depth, colour type
+            Assert.Equal(i > 0, data.AsSpan().IndexOf("iCCP"u8) > 0);
             var phys = data.AsSpan().IndexOf("pHYs"u8);
             Assert.True(phys > 0 && phys < data.AsSpan().IndexOf("IDAT"u8));
             Assert.Equal(Math.Round(pages[i].Dpi / 0.0254), BinaryPrimitives.ReadUInt32BigEndian(data.AsSpan(phys + 4)));

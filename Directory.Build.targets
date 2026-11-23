@@ -18,16 +18,6 @@
               Link="ocr/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="Never" Visible="false" />
     </ItemGroup>
 
-    <!-- Erscheinungstag der Version (LICENSE § 3 Abs. 2: ein Lizenzschlüssel deckt die Versionen bis zum Ende seines Update-Zeitraums):
-         der Tag des Baus, beim Release auf GitHub also der Tag des Releases; von außen mit -p:PdfKneadReleaseDate=yyyy-MM-dd zu setzen.
-         Gelesen von PdfKnead.Core.Licensing.ReleaseInfo. -->
-    <PropertyGroup Condition="'$(PdfKneadReleaseDate)' == ''">
-        <PdfKneadReleaseDate>$([System.DateTime]::UtcNow.ToString('yyyy-MM-dd'))</PdfKneadReleaseDate>
-    </PropertyGroup>
-    <ItemGroup Condition="'$(MSBuildProjectName)' == 'PdfKnead.Core'">
-        <AssemblyMetadata Include="PdfKneadReleaseDate" Value="$(PdfKneadReleaseDate)" />
-    </ItemGroup>
-
     <!-- PdfKneadTool=true: Hilfsprogramme, die weder Modelle noch Handschriften brauchen -->
     <ItemGroup Condition="('$(OutputType)' == 'Exe' or '$(OutputType)' == 'WinExe' or '$(IsTestProject)' == 'true') and '$(PdfKneadTool)' != 'true'">
         <None Include="$(MSBuildThisFileDirectory)Schriften/Handschriften-lizenziert/*.ttf;$(MSBuildThisFileDirectory)Schriften/Handschriften-lizenziert/*.otf"

@@ -78,14 +78,10 @@ public enum ThemeChoice
 /// <param name="ScanHidden">Scanners the user removed from the list of the scan window with „×“ (their ids, every way of a device;
 /// docs/FEHLERGEDAECHTNIS.md, No. 926): the system and the multicast search report them again and again — a device installed in the system
 /// stays there after it is gone — so they are left out of the list until „Ausgeblendete wieder zeigen“.</param>
-/// <param name="Usage">The kind of use declared at the first start (LICENSE, section 3 (3)); a self-declaration that stays on this computer.</param>
-/// <param name="LicenseKey">The license key entered for commercial use; null = none.</param>
-/// <param name="LicenseEmail">The e-mail address confirmed for a key bound to one; null = none.</param>
-/// <param name="IntroductionUntil">A later end of the introductory period announced in the signed version file (yyyy-MM-dd); null = the one
-/// of the license.</param>
-/// <param name="LatestSeenDay">The latest day the program ran (yyyy-MM-dd): turning the clock back does not give back days.</param>
-/// <param name="LicenseReminderDay">The day of the last reminder before the end of the free time (yyyy-MM-dd): at most one a day.</param>
-/// <param name="CommercialSince">The first day a commercial kind of use applied (yyyy-MM-dd): the trial counts from it, and switching back and forth does not start it again.</param>
+/// <param name="FirstUseDay">The first day the program ran on this computer (yyyy-MM-dd): the window that invites support comes 30 days
+/// later at the earliest.</param>
+/// <param name="SupportNextDay">The earliest day the window that invites support may come again (yyyy-MM-dd): 9 months after „Vielleicht
+/// später“, 18 months after „Unterstützen“.</param>
 public sealed record AppSettings(
     string? Language = null,
     ThemeChoice Theme = ThemeChoice.System,
@@ -136,13 +132,8 @@ public sealed record AppSettings(
     bool UpdateCheck = false,
     string? UpdateLastCheck = null,
     bool UpdatesAsked = false,
-    Licensing.UsageKind Usage = Licensing.UsageKind.NotAsked,
-    string? LicenseKey = null,
-    string? LicenseEmail = null,
-    string? IntroductionUntil = null,
-    string? LatestSeenDay = null,
-    string? LicenseReminderDay = null,
-    string? CommercialSince = null)
+    string? FirstUseDay = null,
+    string? SupportNextDay = null)
 {
     /// <summary>The most scanners hidden — also from a settings file edited by hand.</summary>
     public const int MaxScanHidden = 64;

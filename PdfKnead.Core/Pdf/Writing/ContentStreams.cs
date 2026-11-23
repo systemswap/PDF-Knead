@@ -42,6 +42,20 @@ internal sealed class ContentStreams
     /// <param name="stream">The stream.</param>
     public bool Contains(PdfDocument doc, PdfStream stream) => stream.DataOffset >= 0 && _streams.Contains((doc, stream.DataOffset));
 
+    // the resources a form-like stream (form, tiling pattern, group, appearance) draws with: its own, or those of what draws it
+    private readonly Dictionary<(PdfDocument, long), PdfDictionary?> _drawnWith = [];
+
+    /// <summary>
+    /// Whether the stream is a form-like content stream (form, tiling pattern, soft-mask group, appearance) with the resources it draws with:
+    /// its own /Resources, or — without them — those of the page or form that draws it (null if there are none). False for page contents
+    /// and Type 3 glyphs, whose resources lie with the page or the font (<see cref="InlineImageConformance"/> rewrites those elsewhere).
+    /// </summary>
+    public bool FormResources(PdfDocument doc, PdfStream stream, out PdfDictionary? resources)
+    {
+        resources = null;
+        return stream.DataOffset >= 0 && _drawnWith.TryGetValue((doc, stream.DataOffset), out resources);
+    }
+
     /// <summary>Adds the content streams of a page: its contents, what its resources draw, the appearances of its annotations.</summary>
     /// <param name="doc">The document of the page.</param>
     /// <param name="page">The page.</param>
@@ -67,12 +81,12 @@ internal sealed class ContentStreams
                     switch (Resolve(doc, value))
                     {
                         case PdfStream stream:
-                            Form(doc, stream, 0);
+                            Form(doc, stream, 0, null);
                             break;
                         case PdfDictionary states:
                             // appearances by state (on, off …)
                             foreach (var (_, state) in states.Entries)
-                                if (Resolve(doc, state) is PdfStream stateStream) Form(doc, stateStream, 0);
+                                if (Resolve(doc, state) is PdfStream stateStream) Form(doc, stateStream, 0, null);
                             break;
                     }
             }
@@ -83,12 +97,17 @@ internal sealed class ContentStreams
         if (stream.DataOffset >= 0) _streams.Add((doc, stream.DataOffset));
     }
 
-    /// <summary>A stream with content and perhaps resources of its own (form, tiling pattern, group, appearance, glyph).</summary>
-    private void Form(PdfDocument doc, PdfStream stream, int depth)
+    /// <summary>
+    /// A stream with content and perhaps resources of its own (form, tiling pattern, group, appearance); <paramref name="drawer"/>: the
+    /// resources of what draws it, which it uses without resources of its own (an appearance: none).
+    /// </summary>
+    private void Form(PdfDocument doc, PdfStream stream, int depth, PdfDictionary? drawer)
     {
         if (!_seen.Add(stream) || _seen.Count >= MaxVisited) return;
         Add(doc, stream);
-        if (depth < MaxDepth) Walk(doc, Resolve(doc, stream.Dictionary.GetRaw(PdfName.Resources)) as PdfDictionary, depth + 1);
+        var own = Resolve(doc, stream.Dictionary.GetRaw(PdfName.Resources)) as PdfDictionary;
+        if (stream.DataOffset >= 0) _drawnWith[(doc, stream.DataOffset)] = own ?? drawer;
+        if (depth < MaxDepth) Walk(doc, own, depth + 1);
     }
 
     private void Walk(PdfDocument doc, PdfDictionary? resources, int depth)
@@ -96,16 +115,16 @@ internal sealed class ContentStreams
         if (resources is null || depth > MaxDepth || !_seen.Add(resources) || _seen.Count >= MaxVisited) return;
         if (Resolve(doc, resources.GetRaw(XObject)) is PdfDictionary xobjects)
             foreach (var (_, value) in xobjects.Entries)
-                if (Resolve(doc, value) is PdfStream form && form.Dictionary.GetName(PdfName.Subtype)?.Value == "Form") Form(doc, form, depth);
+                if (Resolve(doc, value) is PdfStream form && form.Dictionary.GetName(PdfName.Subtype)?.Value == "Form") Form(doc, form, depth, resources);
         if (Resolve(doc, resources.GetRaw(Pattern)) is PdfDictionary patterns)
             foreach (var (_, value) in patterns.Entries)
                 // a tiling pattern is a stream with content (8.7.3.1); a shading pattern is a dictionary without
-                if (Resolve(doc, value) is PdfStream tiling) Form(doc, tiling, depth);
+                if (Resolve(doc, value) is PdfStream tiling) Form(doc, tiling, depth, resources);
         if (Resolve(doc, resources.GetRaw(ExtGState)) is PdfDictionary states)
             foreach (var (_, value) in states.Entries)
                 if (Resolve(doc, value) is PdfDictionary state && Resolve(doc, state.GetRaw(SMask)) is PdfDictionary mask &&
                     Resolve(doc, mask.GetRaw(Group)) is PdfStream group)
-                    Form(doc, group, depth);
+                    Form(doc, group, depth, resources);
         if (Resolve(doc, resources.GetRaw(Font)) is PdfDictionary fonts)
             foreach (var (_, value) in fonts.Entries)
             {

@@ -56,6 +56,48 @@ public sealed class JpegNormTextTests
             }
     }
 
+    /// <summary>
+    /// T.81, D.1.5.1, Table D.3: the Qe values, the next indices after an LPS and an MPS renormalization and the Switch_MPS column of the
+    /// decoder (read by reflection, the tables are private) are those printed in the norm, all 113 entries. The text extraction prints a
+    /// leading 1 before the short numbers of the next indices (the first half 1–9 as 11–19, the second half every number below 100, e.g. 32 as 132); an entry
+    /// counts as the same when it is equal or, for exactly those values, carries that prefix. In the first half a printed 11–19 stays
+    /// ambiguous (1–9 with the prefix or 11–19 itself) — there the test sequence of K.4 and the images of libjpeg-turbo check the decoder. The
+    /// table is found by its number.
+    /// </summary>
+    [Fact]
+    public void TableD3_SameAsTheNormText()
+    {
+        if (T81Text() is not { } text) return;
+        var value = text.IndexOf("\n_Value\n", StringComparison.Ordinal);
+        var at = value < 0 ? -1 : text.LastIndexOf("Table D.3", value, StringComparison.Ordinal);
+        Assert.True(at >= 0, "Tabelle D.3 nicht im Normtext");
+        var lines = text[at..].Split('\n').Select(l => l.Trim()).Where(l => l.Length > 0).Take(120).ToList();
+        List<int> qe = [], lps = [], mps = [], switches = [];
+        for (var i = 0; i + 1 < lines.Count; i++)
+        {
+            var next = lines[i + 1];
+            if (lines[i] == "_Value") qe.AddRange(Regex.Matches(next, @"X[’']([0-9A-F]{4})[’']").Select(m => Convert.ToInt32(m.Groups[1].Value, 16)));
+            else if (lines[i] == "_LPS") lps.AddRange(next.Split(' ').Select(int.Parse));
+            else if (lines[i] == "_MPS" && lines[i - 1] == "Switch") switches.AddRange(next.Split(' ').Select(int.Parse));
+            else if (lines[i] == "_MPS") mps.AddRange(next.Split(' ').Select(int.Parse));
+        }
+        static T[] Field<T>(string name) =>
+            (T[])typeof(JpegArithmetic).GetField(name, System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!.GetValue(null)!;
+        var ownQe = Field<ushort>("Qe");
+        var ownLps = Field<byte>("NextLps");
+        var ownMps = Field<byte>("NextMps");
+        var ownSwitches = Field<int>("Switches");
+        Assert.Equal(113, ownQe.Length);
+        Assert.Equal(ownQe.Select(q => (int)q), qe);
+        Assert.Equal(Enumerable.Range(0, 113).Select(i => ownSwitches.Contains(i) ? 1 : 0), switches);
+        Assert.Equal(113, lps.Count);
+        Assert.Equal(113, mps.Count);
+        for (var i = 0; i < 113; i++)
+            foreach (var (printed, own) in new[] { (lps[i], (int)ownLps[i]), (mps[i], (int)ownMps[i]) })
+                Assert.True(printed == own || (i < 57 ? own < 10 && printed == own + 10 : own < 100 && printed == own + 100),
+                    $"Index {i}: gedruckt {printed}, Dekoder {own}");
+    }
+
     /// <summary>The 256 decisions of T.81, K.4.1 (the hexadecimal sequence, most significant bit first) and the coded bytes.</summary>
     private static (byte[] Decisions, byte[] Coded)? K4()
     {

@@ -20,6 +20,9 @@ public partial class MainViewModel
     public static string PolicyRefusal(string id) =>
         Tr.T("„{0}“ ist durch die Funktionsdatei Ihrer Organisation gesperrt.", PolicyName(id));
 
+    /// <summary>Why „Digital signieren“ cannot be chosen because the function file switches it off; null when it can.</summary>
+    public string? SigningPolicyRefusal => ActivePolicy.Allows("signature.digital") ? null : PolicyRefusal("signature.digital");
+
     /// <summary>The name of a function as in the program.</summary>
     public static string PolicyName(string id) => PolicyCatalog.All.FirstOrDefault(f => f.Id == id) is { } function ? Tr.T(function.Name) : id;
 

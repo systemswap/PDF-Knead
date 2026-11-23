@@ -36,6 +36,16 @@ internal static class CalibratedProfile
     /// <returns>A new copy of the profile.</returns>
     public static byte[] Srgb() => (byte[])SrgbBytes.Value.Clone();
 
+    public const string SrgbGrayName = "Grey with the sRGB tone curve";
+
+    private static readonly Lazy<byte[]> SrgbGrayBytes = new(() => Build(IccProfile.GraySpace, [("kTRC", SrgbCurve())], SrgbGrayName));
+
+    /// <summary>
+    /// A grey profile with the tone curve of sRGB (IEC 61966-2.1): what PDF-Knead's grey pixels are — rendered or scanned values, not linear
+    /// ones. For the TIFF export, where grey without a profile counts as linear (TIFF 6.0, section 17; docs/FEHLERGEDAECHTNIS.md, No. 980).
+    /// </summary>
+    public static byte[] SrgbGray() => (byte[])SrgbGrayBytes.Value.Clone();
+
     /// <summary>The registry name of ROMM RGB, the description of <see cref="RommRgb"/>.</summary>
     public const string RommName = "ROMM RGB (ISO 22028-2)";
 
@@ -70,25 +80,90 @@ internal static class CalibratedProfile
     /// <summary>The XYZ of three primaries (chromaticities x, y) that add up to <paramref name="white"/>.</summary>
     internal static (float[] R, float[] G, float[] B) Colorants((double X, double Y) r, (double X, double Y) g, (double X, double Y) b, float[] white)
     {
-        // columns: XYZ of each primary with Y = 1; scaled by S = M⁻¹·W (Cramer's rule)
-        double[,] m =
-        {
-            { r.X / r.Y, g.X / g.Y, b.X / b.Y },
-            { 1, 1, 1 },
-            { (1 - r.X - r.Y) / r.Y, (1 - g.X - g.Y) / g.Y, (1 - b.X - b.Y) / b.Y },
-        };
-        double Det(double[,] a) =>
-            a[0, 0] * (a[1, 1] * a[2, 2] - a[1, 2] * a[2, 1]) - a[0, 1] * (a[1, 0] * a[2, 2] - a[1, 2] * a[2, 0]) + a[0, 2] * (a[1, 0] * a[2, 1] - a[1, 1] * a[2, 0]);
-        var det = Det(m);
-        var s = new double[3];
+        var m = ToXyz(r, g, b, [white[0], white[1], white[2]]);
+        float[] Column(int c) => [(float)m[0, c], (float)m[1, c], (float)m[2, c]];
+        return (Column(0), Column(1), Column(2));
+    }
+
+    /// <summary>
+    /// RGB → XYZ of three primaries given as chromaticities x, y: the columns x, y, z of each primary, scaled by S = M⁻¹·W so that they add up
+    /// to <paramref name="white"/> (XYZ). Unlike scaling to Y = 1 first, this also holds for a primary with y = 0 (the X and Z primaries of
+    /// CIE XYZ, ITU-T H.273, Table 2, value 10).
+    /// </summary>
+    internal static double[,] ToXyz((double X, double Y) r, (double X, double Y) g, (double X, double Y) b, double[] white)
+    {
+        var m = new double[,] { { r.X, g.X, b.X }, { r.Y, g.Y, b.Y }, { 1 - r.X - r.Y, 1 - g.X - g.Y, 1 - b.X - b.Y } };
+        var inverse = Invert(m);
+        var result = new double[3, 3];
         for (var c = 0; c < 3; c++)
         {
-            var a = (double[,])m.Clone();
-            for (var row = 0; row < 3; row++) a[row, c] = white[row];
-            s[c] = Det(a) / det;
+            var s = inverse[c, 0] * white[0] + inverse[c, 1] * white[1] + inverse[c, 2] * white[2];
+            for (var row = 0; row < 3; row++) result[row, c] = m[row, c] * s;
         }
-        float[] Column(int c) => [(float)(m[0, c] * s[c]), (float)(m[1, c] * s[c]), (float)(m[2, c] * s[c])];
-        return (Column(0), Column(1), Column(2));
+        return result;
+    }
+
+    /// <summary>The inverse of a 3 × 3 matrix: the cofactors over the determinant (the cyclic form carries the signs).</summary>
+    internal static double[,] Invert(double[,] a)
+    {
+        var det = a[0, 0] * (a[1, 1] * a[2, 2] - a[1, 2] * a[2, 1]) - a[0, 1] * (a[1, 0] * a[2, 2] - a[1, 2] * a[2, 0])
+            + a[0, 2] * (a[1, 0] * a[2, 1] - a[1, 1] * a[2, 0]);
+        var inverse = new double[3, 3];
+        for (var i = 0; i < 3; i++)
+            for (var j = 0; j < 3; j++)
+            {
+                int r0 = (j + 1) % 3, r1 = (j + 2) % 3, c0 = (i + 1) % 3, c1 = (i + 2) % 3;
+                inverse[i, j] = (a[r0, c0] * a[r1, c1] - a[r0, c1] * a[r1, c0]) / det;
+            }
+        return inverse;
+    }
+
+    /// <summary>The product <paramref name="a"/> · <paramref name="b"/> of two 3 × 3 matrices.</summary>
+    internal static double[,] Multiply(double[,] a, double[,] b)
+    {
+        var product = new double[3, 3];
+        for (var i = 0; i < 3; i++)
+            for (var j = 0; j < 3; j++) product[i, j] = a[i, 0] * b[0, j] + a[i, 1] * b[1, j] + a[i, 2] * b[2, j];
+        return product;
+    }
+
+    /// <summary>
+    /// The chromatic adaptation from the white <paramref name="from"/> to the white <paramref name="to"/> (XYZ) with Bradford, as a matrix — the
+    /// same cone space as the adaptation to D50 of the profiles here, so that adapting with it and then to D50 equals adapting to D50 directly.
+    /// </summary>
+    internal static double[,] Bradford(double[] from, double[] to)
+    {
+        var cone = new[,] { { 0.8951, 0.2664, -0.1614 }, { -0.7502, 1.7135, 0.0367 }, { 0.0389, -0.0685, 1.0296 } };
+        double[] Cone(double[] w) => [.. Enumerable.Range(0, 3).Select(i => cone[i, 0] * w[0] + cone[i, 1] * w[1] + cone[i, 2] * w[2])];
+        var (s, d) = (Cone(from), Cone(to));
+        var scale = new double[3, 3];
+        for (var i = 0; i < 3; i++) scale[i, i] = d[i] / s[i];
+        return Multiply(Invert(cone), Multiply(scale, cone));
+    }
+
+    /// <summary>
+    /// An RGB profile of three primaries and a white point given as chromaticities x, y (ITU-T H.273, Table 2): the colorants under that white,
+    /// adapted to D50 with Bradford as the other profiles here, and the sRGB tone curve — for samples that carry the linear light of these
+    /// primaries written with that curve (the Parameterized colour specification of JPEG 2000, ISO/IEC 15444-2, M.11.7.3.4).
+    /// </summary>
+    /// <returns>A new profile.</returns>
+    public static byte[] Primaries((double X, double Y) r, (double X, double Y) g, (double X, double Y) b, (double X, double Y) white, string description)
+    {
+        float[] w = [(float)(white.X / white.Y), 1f, (float)((1 - white.X - white.Y) / white.Y)];
+        var m = ToXyz(r, g, b, [white.X / white.Y, 1, (1 - white.X - white.Y) / white.Y]);
+        var curve = SrgbCurve();
+        var tags = new List<(string, byte[])>();
+        string[] colorants = ["rXYZ", "gXYZ", "bXYZ"];
+        for (var c = 0; c < 3; c++)
+        {
+            Span<float> v = [(float)m[0, c], (float)m[1, c], (float)m[2, c]];
+            IccColor.AdaptToD50(w, v);
+            tags.Add((colorants[c], Xyz(v[0], v[1], v[2])));
+        }
+        tags.Add(("rTRC", curve));
+        tags.Add(("gTRC", curve));
+        tags.Add(("bTRC", curve));
+        return Build(IccProfile.RgbSpace, tags, description);
     }
 
     /// <summary>Profile for CalGray.</summary>

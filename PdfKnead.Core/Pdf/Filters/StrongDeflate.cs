@@ -1044,7 +1044,7 @@ public static class StrongDeflate
 
     // ------------------------------------------------------------ Huffman
 
-    private static class Huffman
+    internal static class Huffman
     {
         /// <summary>Optimal code lengths of at most <paramref name="limit"/> bits (package-merge if needed); a single symbol gets length 1.</summary>
         public static void Lengths(ReadOnlySpan<int> freq, int limit, Span<byte> lengths)

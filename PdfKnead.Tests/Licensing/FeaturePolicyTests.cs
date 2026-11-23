@@ -17,6 +17,25 @@ public sealed class FeaturePolicyTests
         // „tab.function“ in lower case: the ids stand in the files of the organizations and must never change
         Assert.All(ids, id => Assert.Matches("^[a-z]+\\.[a-z-]+$", id));
         Assert.All(PolicyCatalog.Tabs, t => Assert.NotEmpty(t.Functions));
+        // a part names a function of the same tab that stands before it
+        foreach (var (_, functions) in PolicyCatalog.Tabs)
+            for (var i = 0; i < functions.Length; i++)
+                if (functions[i].Parent is { } parent) Assert.Contains(functions[..i], f => f.Id == parent);
+    }
+
+    /// <summary>
+    /// A part of a function (decided by the user on 22.11.2026: „Ohne Rechte-Passwort entfernen“ under „Einschränkungen entfernen“) is
+    /// allowed only while its parent is: denied itself, or with the parent denied, it is off; the parent does not depend on its part.
+    /// </summary>
+    [Fact]
+    public void Part_AllowedOnlyWithItsParent()
+    {
+        const string parent = "secure.remove-restrictions", part = "secure.remove-restrictions-without-password";
+        Assert.Equal(parent, PolicyCatalog.Find(part)?.Parent);
+        Assert.True(new FeaturePolicy().Allows(part));
+        Assert.False(new FeaturePolicy { Denied = new HashSet<string> { part } }.Allows(part));
+        Assert.True(new FeaturePolicy { Denied = new HashSet<string> { part } }.Allows(parent));
+        Assert.False(new FeaturePolicy { Denied = new HashSet<string> { parent } }.Allows(part));
     }
 
     [Fact]

@@ -76,6 +76,7 @@ public static class EsclImage
         {
             throw Damaged();
         }
+        if (image.Damaged) throw Damaged();   // read past an error: a page with wrong pixels is not taken (FG 1013)
         var pixels = image.Pixels;
         var count = image.Width * image.Height;
         var gray = true;
@@ -110,7 +111,9 @@ public static class EsclImage
             var length = BinaryPrimitives.ReadUInt32BigEndian(data[at..]);
             if (length > int.MaxValue || at + 12 + (long)length > data.Length) return null;
             var type = data.Slice(at + 4, 4);
-            if (type.SequenceEqual("pHYs"u8) && length >= 9 && data[at + 16] == 1)
+            // nine bytes with a right CRC (RFC 2083, 4.2.5, 10.1), unit metre
+            if (type.SequenceEqual("pHYs"u8) && length == 9 && data[at + 16] == 1 &&
+                (Imaging.Crc32.Update(0xFFFFFFFF, data.Slice(at + 4, 13)) ^ 0xFFFFFFFF) == BinaryPrimitives.ReadUInt32BigEndian(data[(at + 17)..]))
                 return (BinaryPrimitives.ReadUInt32BigEndian(data[(at + 8)..]) * 0.0254, BinaryPrimitives.ReadUInt32BigEndian(data[(at + 12)..]) * 0.0254);
             if (type.SequenceEqual("IDAT"u8) || type.SequenceEqual("IEND"u8)) return null;
             at += 12 + (int)length;

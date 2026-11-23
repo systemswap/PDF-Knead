@@ -20,7 +20,7 @@ public sealed partial class JpxConformance
         var (inputs, refDirs) = Folders();
         string? Ref(string file) => refDirs.Select(d => Path.Combine(d, file)).FirstOrDefault(File.Exists);
         // reference names: c1p0_01-0.pgx (ITU archive) or c1p0_01_0.pgx (former archive)
-        string? Component(string name, int c) => Ref($"c1{name}-{c}.pgx") ?? Ref($"c1{name}_{c}.pgx");
+        string? Component(string name, int c) => Ref($"c1{name}-{c}.pgx") ?? Ref($"c1{name}_{c}.pgx") ?? Ref($"{name}-{c}.pgx");
         var report = new StringBuilder();
         var filter = Environment.GetEnvironmentVariable("PDFKNEAD_JPX");
         var failures = new List<string>();
@@ -33,7 +33,13 @@ public sealed partial class JpxConformance
             {
                 var data = File.ReadAllBytes(file);
                 var watch = Stopwatch.StartNew();
-                if (name.StartsWith("p0_") || name.StartsWith("p1_"))
+                var extended = Path.GetFileName(Path.GetDirectoryName(file)) == "codestreams_extended";
+                if (Path.GetExtension(file) is ".jp2" or ".jpx" && (Ref(name.StartsWith("file", StringComparison.Ordinal) ? $"jp2_{name[4..]}.tif" : $"{name}.tif")
+                    ?? Ref($"{name}-0.tif")) is not null)
+                {
+                    line.Append($"{watch.ElapsedMilliseconds,6} ms ").Append(CompareFile(name, data, Ref, failures));
+                }
+                else if (name.StartsWith("p0_") || name.StartsWith("p1_") || extended)
                 {
                     // Reduction as in the reference (p0_08 is decoded with one level less)
                     var full = JpxDecoder.DecodePlanes(data, 1, fixedReduce: 32);   // header only: as small as possible (without the size limit)
@@ -47,13 +53,13 @@ public sealed partial class JpxConformance
                     }
                     watch.Restart();
                     var planes = JpxDecoder.DecodePlanes(data, long.MaxValue, reduce);
-                    var (peaks, mses) = Limits(name);
+                    var (peaks, mses) = extended ? Extended(name) : Limits(name);
                     line.Append($"{watch.ElapsedMilliseconds,6} ms {planes.Width}×{planes.Height}{(planes.Truncated ? " ABGESCHNITTEN" : "")}");
                     for (var c = 0; c < planes.Planes.Length; c++)
                     {
                         if (Component(name, c) is not { } path) continue;
                         var (w, h, signed, depth, values) = ReadPgx(path);
-                        var comp = planes.Codestream.Components[c];
+                        var comp = planes.Codestream.Output[c];
                         var offset = signed ? 1 << (Math.Min(16, comp.Precision) - 1) : 0;
                         if (w != planes.PlaneWidth[c] || h != planes.PlaneHeight[c])
                         {
@@ -72,7 +78,7 @@ public sealed partial class JpxConformance
                         var mse = sum / values.Length;
                         var ok = peak <= peaks[Math.Min(c, peaks.Length - 1)] && mse <= mses[Math.Min(c, mses.Length - 1)];
                         // better than the norm demands, where reached (decided on 11.11.2026): the own bound guards the quality reached
-                        var (qPeaks, qMses) = Quality(name) ?? (peaks, mses);
+                        var (qPeaks, qMses) = (extended ? null : Quality(name)) ?? (peaks, mses);
                         var good = peak <= qPeaks[Math.Min(c, qPeaks.Length - 1)] && mse <= qMses[Math.Min(c, qMses.Length - 1)];
                         if (!ok) failures.Add($"{name} K{c} über der Norm");
                         else if (!good) failures.Add($"{name} K{c} schlechter als bisher erreicht");
@@ -117,6 +123,8 @@ public sealed partial class JpxConformance
             catch (Exception e)
             {
                 line.Append($" FEHLER {e.GetType().Name}: {e.Message}");
+                // a file that fails to decode fails the run (before 20.11.2026 it was only written into the report)
+                if (!Refused(name, e)) failures.Add($"{name}: {e.GetType().Name}: {e.Message}");
             }
             report.AppendLine(line.ToString());
             if (filter is not null) report.AppendLine(Describe(File.ReadAllBytes(file)));
@@ -145,6 +153,25 @@ public sealed partial class JpxConformance
     };
 
     /// <summary>
+    /// Files the decoder refuses on purpose: the wavelet-based multiple component transformation of ISO/IEC 15444-2, J.3 (mct1, mct2) is not
+    /// implemented — the JPX baseline that ISO 32000-2, 7.4.9 requires does not use it (M.9.2.3; M2 report, row 274).
+    /// </summary>
+    private static bool Refused(string name, Exception e) =>
+        name is "mct1" or "mct2" && e is JpxException && e.Message.Contains("Wavelet-Komponenten-Transformation", StringComparison.Ordinal);
+
+    /// <summary>
+    /// The extended codestreams of T.803, Annex H.2: the standard gives reference components but no bounds — measured first (20.11.2026),
+    /// then set here as own bounds like the class 1 bounds of Annex C.
+    /// </summary>
+    private static (double[] Peak, double[] Mse) Extended(string name) => name switch
+    {
+        // reached 20.11.2026: peak 1 and MSE 0.137, 0.066, 0.158 (3×2 matrix); peak 2 and MSE 0.456, 0.489, 0.527 (gamma, after No. 971)
+        "mct3o" => ([2, 2, 2], [0.24, 0.17, 0.26]),
+        "nlt1" => ([3, 3, 3], [0.56, 0.59, 0.63]),
+        _ => ([0], [0]),
+    };
+
+    /// <summary>
     /// Own bounds below those of the norm, where PDF-Knead reaches better values (11.11.2026, ITU archive of T.803): the values reached, the peak
     /// plus one and the mean squared error plus a tenth, so that float differences between platforms do not count — but a decoder that gets
     /// worse does. Null where the norm demands exactness (lossless files) or no better value is reached.
@@ -169,6 +196,12 @@ public sealed partial class JpxConformance
         for (var dir = new DirectoryInfo(Path.GetDirectoryName(source) ?? AppContext.BaseDirectory); dir is not null; dir = dir.Parent)
         {
             if (!File.Exists(Path.Combine(dir.FullName, "PdfKnead.sln"))) continue;
+            // the electronic attachment of T.803 (V3, 02/2024): the codestreams of 2002 and the JP2 files, and the extended codestreams and JPX
+            // files of Annex H
+            var v3 = Path.Combine(dir.FullName, "Normen-ISO", "grundlagen", "pruefdaten", "jpeg2000-t803-2024", "entpackt");
+            if (Directory.Exists(v3))
+                return ([.. new[] { "codestreams_profile0", "codestreams_profile1", "testfiles_jp2", "testfiles_jpx", "codestreams_extended" }.Select(d => Path.Combine(v3, d))],
+                    [.. new[] { "reference_class1_profile0", "reference_class1_profile1", "reference_jp2", "reference_jpx", "reference_extended" }.Select(d => Path.Combine(v3, d))]);
             var itu = Path.Combine(dir.FullName, "Normen-ISO", "grundlagen", "pruefdaten", "jpeg2000-t803", "entpackt", "J2KP4files");
             if (Directory.Exists(itu))
                 return ([.. new[] { "codestreams_profile0", "codestreams_profile1", "testfiles_jp2" }.Select(d => Path.Combine(itu, d))],

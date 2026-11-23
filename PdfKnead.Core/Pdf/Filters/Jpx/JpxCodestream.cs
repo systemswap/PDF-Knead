@@ -82,6 +82,13 @@ internal sealed class JpxHeaderValues
     /// <summary>The marker segments of ISO/IEC 15444-2 in this header (MCT, MCC, MCO, NLT).</summary>
     public readonly JpxPart2Header Part2 = new();
 
+    /// <summary>The value of component <paramref name="c"/> in a per-component array; null where the header names none (tile headers get
+    /// their arrays only with a COC, QCC or RGN).</summary>
+    public static T? At<T>(T?[] values, int c) where T : struct => c < values.Length ? values[c] : null;
+
+    /// <inheritdoc cref="At{T}(T?[], int)"/>
+    public static T? At<T>(T?[] values, int c, bool _ = false) where T : class => c < values.Length ? values[c] : null;
+
     public void Init(int components)
     {
         ComponentCoding = new JpxCoding?[components];
@@ -95,7 +102,8 @@ internal sealed class JpxTileData
 {
     public readonly JpxHeaderValues Header = new();
     public readonly List<(int Start, int End)> Bodies = [];
-    public readonly List<(int Index, byte[] Data)> Ppt = [];
+    /// <summary>The PPT segments of the tile: the tile-part they stand in, Zppt and their packet headers.</summary>
+    public readonly List<(int Part, int Index, byte[] Data)> Ppt = [];
     public readonly List<byte[]> PpmChunks = [];
     public int Parts;
 }
@@ -110,8 +118,15 @@ internal sealed class JpxCodestream
     private const int MaxComponents = 16384;
 
     public readonly byte[] Data;
-    public int X0, Y0, X1, Y1;
-    public int TileWidth, TileHeight, TileX0, TileY0;
+
+    /// <summary>
+    /// The image area and the tiling on the reference grid (ISO/IEC 15444-1, Table A.9): sizes up to 2^32 − 1, offsets up to 2^32 − 2 — in
+    /// 64 bits, as everything derived from them; before every value above 2^31 − 1 was refused (docs/FEHLERGEDAECHTNIS.md, No. 1051).
+    /// </summary>
+    public long X0, Y0, X1, Y1;
+
+    /// <inheritdoc cref="X0"/>
+    public long TileWidth, TileHeight, TileX0, TileY0;
     public int TilesX, TilesY;
     public JpxComponent[] Components = [];
 
@@ -131,10 +146,28 @@ internal sealed class JpxCodestream
     public JpxTileData?[] Tiles = [];
     public bool Truncated;
 
+    /// <summary>
+    /// CAP is present and the second most significant bit of Rsiz is set (ISO/IEC 15444-1, A.5.2): then the bits of Scod and of the code-block
+    /// style a decoder may otherwise ignore (Tables A.13 and A.19, the sentence below each) carry a meaning the decoder does not know.
+    /// </summary>
+    private bool _extendedCapabilities;
+
+    /// <summary>Whether a COD or COC read so far set such bits (they count once CAP turns up behind them).</summary>
+    private bool _ignoredBits;
+
     private JpxCodestream(byte[] data) => Data = data;
 
-    public int Width => X1 - X0;
-    public int Height => Y1 - Y0;
+    public long Width => X1 - X0;
+    public long Height => Y1 - Y0;
+
+    /// <summary>A copy with the image area and the tiling moved by (−<paramref name="dx"/>, −<paramref name="dy"/>) on the reference grid.</summary>
+    internal JpxCodestream Moved(long dx, long dy)
+    {
+        var moved = (JpxCodestream)MemberwiseClone();
+        (moved.X0, moved.X1, moved.TileX0) = (X0 - dx, X1 - dx, TileX0 - dx);
+        (moved.Y0, moved.Y1, moved.TileY0) = (Y0 - dy, Y1 - dy, TileY0 - dy);
+        return moved;
+    }
 
     public static JpxCodestream Parse(byte[] data, int start, int end)
     {
@@ -153,7 +186,14 @@ internal sealed class JpxCodestream
         pos += 2;
         var ppm = new List<(int Index, byte[] Data)>();
         var sawSiz = false;
+        var mainPocs = 0;
+        var cbds = 0;
         JpxComponentDepth[]? cbd = null;
+        // segments between SOC and SIZ other than the functional ones (COM, CAP, PPM, CBD, the segments of ISO/IEC 15444-2, unknown codes): SIZ
+        // follows SOC directly (ISO/IEC 15444-1, A.5.1, A.2), so each is kept and read right behind SIZ, where everything it depends on (Rsiz,
+        // the component count) is known, and the codestream is reported as damaged — before they went through without a word, and a CAP among
+        // them was dropped because Rsiz was still 0 (decided on 23.11.2026: read and report)
+        var beforeSiz = new List<(int Marker, int Start, int End)>();
 
         // Main header up to the first tile-part
         while (true)
@@ -168,36 +208,82 @@ internal sealed class JpxCodestream
                 continue;
             }
             if (marker == 0xFFD9) throw new JpxException("JPX: keine Kacheln");
+            NotAMarker(marker);
             var length = U16(pos + 2);
             if (length < 2 || pos + 2 + length > end) throw new JpxException("JPX: Markerlänge");
             var s = pos + 4;
             var e = pos + 2 + length;
             if (marker == 0xFF51)
             {
-                ReadSiz(s, e);
-                sawSiz = true;
+                if (sawSiz)
+                {
+                    // a second SIZ (ISO/IEC 15444-1, A.5.1: one per codestream): passed over, the first one holds, and reported — before it
+                    // replaced the image size, the tiling and the components read so far without a word
+                    Truncated = true;
+                }
+                else
+                {
+                    ReadSiz(s, e);
+                    sawSiz = true;
+                    foreach (var (early, es, ee) in beforeSiz) MainSegment(early, es, ee);
+                }
             }
             else if (!sawSiz && marker is >= 0xFF52 and <= 0xFF5F)
             {
                 throw new JpxException("JPX: SIZ fehlt");
             }
-            else if (marker == 0xFF60)
+            else if (!sawSiz)
             {
-                if (e > s) ppm.Add((U8(s), Data[(s + 1)..e]));
-            }
-            else if (marker == 0xFF78)
-            {
-                cbd = JpxPart2.ReadCbd(Data, s, e);   // CBD: main header only
+                beforeSiz.Add((marker, s, e));
+                Truncated = true;
             }
             else
             {
-                ReadCommon(Main, marker, s, e);
+                MainSegment(marker, s, e);
             }
             pos = e;
         }
         if (!sawSiz) throw new JpxException("JPX: SIZ fehlt");
         if (Main.Coding is null || Main.Quantization is null) throw new JpxException("JPX: COD/QCD fehlt");
         SetOutput(cbd);
+
+        // One segment of the main header behind SIZ.
+        void MainSegment(int marker, int s, int e)
+        {
+            if (marker == 0xFF60)
+            {
+                if (e > s) ppm.Add((U8(s), Data[(s + 1)..e]));
+            }
+            else if (marker == 0xFF50)
+            {
+                // CAP (A.5.2): extended capabilities, e.g. the block coder of ISO/IEC 15444-15, signalled by the bits otherwise ignored
+                if ((Rsiz & 0x4000) != 0)
+                {
+                    _extendedCapabilities = true;
+                    if (_ignoredBits) throw new JpxException("JPX: erweiterte Fähigkeiten (CAP) werden nicht unterstützt");
+                }
+            }
+            else if (marker == 0xFF78)
+            {
+                // CBD: main header only, at most one (ISO/IEC 15444-2, A.3.6) — a further one is read as before (the last holds) and reported
+                if (++cbds > 1) Truncated = true;
+                cbd = JpxPart2.ReadCbd(Data, s, e);
+                if (cbd is null) Truncated = true;    // damaged or reserved values: passed over, and reported (No. 1049)
+            }
+            else if (marker is 0xFF58 or 0xFF61)
+            {
+                // PLT and PPT belong in a tile-part header (A.2, Table A.2; A.7.3, A.7.5); in the main header they are passed over as
+                // before, and reported
+                Truncated = true;
+            }
+            else
+            {
+                // at most one POC in a header (ISO/IEC 15444-1, A.6.6): a second one is read all the same and reported — before it went
+                // without a word (decided on 23.11.2026: read and report)
+                if (marker == 0xFF5F && ++mainPocs > 1) Truncated = true;
+                ReadCommon(Main, marker, s, e);
+            }
+        }
 
         // PPM: packet headers of all tile-parts, each tile-part preceded by Nppm (4 bytes)
         Queue<byte[]>? ppmChunks = null;
@@ -230,6 +316,7 @@ internal sealed class JpxCodestream
             var partEnd = psot == 0 ? end : (int)Math.Min(end, pos + psot);
             var p = pos + 12;
             var sod = false;
+            var partPocs = 0;
             while (p + 2 <= partEnd)
             {
                 var marker = U16(p);
@@ -245,18 +332,36 @@ internal sealed class JpxCodestream
                     break;
                 }
                 if (p + 4 > partEnd) break;
+                NotAMarker(marker);
                 var length = U16(p + 2);
                 if (length < 2 || p + 2 + length > partEnd) break;
                 var s = p + 4;
                 var e = p + 2 + length;
                 if (marker == 0xFF61)
                 {
-                    if (e > s) data.Ppt.Add((U8(s), Data[(s + 1)..e]));
+                    // with a PPM in the main header no PPT (A.7.5): the PPM holds (JpxTile.ReadPackets) and the PPT is passed over as before,
+                    // now reported
+                    if (ppm.Count > 0) Truncated = true;
+                    if (e > s) data.Ppt.Add((data.Parts - 1, U8(s), Data[(s + 1)..e]));
+                }
+                else if (MainHeaderOnly(marker))
+                {
+                    // SIZ, CAP, TLM, PRF, PLM, PPM, CRG (and CBD of ISO/IEC 15444-2) belong in the main header (A.2, Table A.2; A.7.4): in a
+                    // tile-part header passed over as before, and reported
+                    Truncated = true;
                 }
                 else if (first || marker == 0xFF5F)
                 {
-                    // COD, COC, QCD, QCC, RGN only in the first tile-part; POC in every one
+                    // COD, COC, QCD, QCC, RGN only in the first tile-part; POC in every one, at most one per tile-part header (A.6.6) — a
+                    // second one in the same header is read all the same and reported
+                    if (marker == 0xFF5F && ++partPocs > 1) Truncated = true;
                     ReadCommon(data.Header, marker, s, e);
+                }
+                else if (FirstTilePartOnly(marker))
+                {
+                    // in a later tile-part of the tile (A.6.1 to A.6.5; ISO/IEC 15444-2, A.3.7 to A.3.10: main and first tile-part header
+                    // only): passed over as before, now reported
+                    Truncated = true;
                 }
                 p = e;
             }
@@ -277,6 +382,25 @@ internal sealed class JpxCodestream
     }
 
     /// <summary>
+    /// The marker segments of the main header only (ISO/IEC 15444-1, A.2, Table A.2): CAP, SIZ, TLM, PRF, PLM, PPM, CRG, and CBD where Rsiz gives
+    /// it a meaning (ISO/IEC 15444-2, A.3.6).
+    /// </summary>
+    private bool MainHeaderOnly(int marker) => marker is 0xFF50 or 0xFF51 or 0xFF55 or 0xFF56 or 0xFF57 or 0xFF60 or 0xFF63
+        || marker == 0xFF78 && JpxPart2.MultipleComponent(Rsiz);
+
+    /// <summary>
+    /// The marker segments that stand only in the main header and the first tile-part header of a tile: COD, COC, QCD, QCC, RGN (ISO/IEC
+    /// 15444-1, A.6.1 to A.6.5) and, where Rsiz gives them a meaning, MCT, MCC, MCO (ISO/IEC 15444-2, A.3.7 to A.3.9) and NLT (A.3.10).
+    /// </summary>
+    private bool FirstTilePartOnly(int marker) => marker switch
+    {
+        0xFF52 or 0xFF53 or 0xFF5C or 0xFF5D or 0xFF5E => true,
+        0xFF74 or 0xFF75 or 0xFF77 => JpxPart2.MultipleComponent(Rsiz),
+        0xFF76 => JpxPart2.Extended(Rsiz),
+        _ => false,
+    };
+
+    /// <summary>
     /// The components the decoder hands out (ISO/IEC 15444-2, J.2 and K.1.2): with the multiple component transformation the ones of CBD, which
     /// takes their number and bit depths from SIZ — all of the size of the codestream components, which therefore must share their
     /// subsampling (the inputs of a collection must, J.2.3); then the bit depth after a non-linearity of the main header.
@@ -284,9 +408,13 @@ internal sealed class JpxCodestream
     private void SetOutput(JpxComponentDepth[]? cbd)
     {
         Reconstructed = Components;
+        _hasCbd = cbd is not null;
         if (JpxPart2.MultipleComponent(Rsiz))
         {
             if ((Main.ComponentTransform & 4) != 0) throw new JpxException("JPX: Wavelet-Komponenten-Transformation nicht unterstützt");
+            // the array-based transformation without CBD, which ISO/IEC 15444-2, K.1.2 asks for with every component transformation: decoded
+            // with the components of SIZ, and reported (docs/FEHLERGEDAECHTNIS.md, No. 1049)
+            if (cbd is null && (Main.ComponentTransform & 2) != 0) Truncated = true;
             if (cbd is not null)
             {
                 if (Components.Any(c => c.Dx != Components[0].Dx || c.Dy != Components[0].Dy))
@@ -301,25 +429,67 @@ internal sealed class JpxCodestream
             if (JpxPart2.NonLinearityOf(none, Main.Part2, c) is { } nlt) Output[c] = Output[c] with { Precision = nlt.Bits, Signed = nlt.Signed };
     }
 
-    private JpxTileData NewTile()
+    /// <summary>
+    /// A tile's data; its per-component arrays come with the first COC, QCC or RGN of its header (<see cref="ComponentArrays"/>) — before each
+    /// tile got three arrays of Csiz entries at once: 16 384 components in 65 535 tiles took about 25 GB while the header was read (M2, T.800 A.5.1,
+    /// 23.11.2026).
+    /// </summary>
+    private static JpxTileData NewTile() => new();
+
+    /// <summary>The per-component arrays of a header, made on first use.</summary>
+    private void ComponentArrays(JpxHeaderValues h)
     {
-        var tile = new JpxTileData();
-        tile.Header.Init(Components.Length);
-        return tile;
+        if (h.ComponentCoding.Length == 0) h.Init(Components.Length);
+    }
+
+    /// <summary>Most components times tiles: every tile is set up with all its components (memory and time grow with the product).</summary>
+    private const long MaxComponentTiles = 1L << 22;
+
+    /// <summary>The largest component depth of ISO/IEC 15444-1, Table A.11 (Ssiz 0x25); 39 to 128 bits are reserved.</summary>
+    internal const int MaxDepth = 38;
+
+    /// <summary>Whether the codestream has a CBD segment (ISO/IEC 15444-2, A.3.6; main header only).</summary>
+    private bool _hasCbd;
+
+    /// <summary>
+    /// A code in a header that is no marker — 0xFF followed by 0x01 to 0xFE (ISO/IEC 15444-1, A.1): read on as a segment of unknown meaning,
+    /// as before, but the codestream counts as damaged (docs/FEHLERGEDAECHTNIS.md, No. 1048).
+    /// </summary>
+    private void NotAMarker(int code)
+    {
+        if (code >> 8 != 0xFF || (code & 0xFF) is 0x00 or 0xFF) Truncated = true;
+    }
+
+    /// <summary>
+    /// Rsiz of a codestream of ISO/IEC 15444-1 (most significant bit 0) that Table A.10 names: 0 to 7, the broadcast profiles 0x010w and
+    /// 0x020w (main level w up to 11, Table A.49), 0x0306 and 0x0307, the IMF profiles 0x04yw to 0x09yw (sublevel y up to 9, main level w up to
+    /// 11, Tables A.53 and A.54) and 0x0FFF; bit 14 announces CAP (A.5.2) beside any of them. Everything else is reserved.
+    /// </summary>
+    internal static bool KnownRsiz(int rsiz)
+    {
+        if ((rsiz & 0x8000) != 0) return true;   // ISO/IEC 15444-2, Table A.2: its own capability bits
+        var v = rsiz & 0x3FFF;
+        int family = v >> 8, sub = v >> 4 & 15, main = v & 15;
+        return v <= 7 || v == 0x0FFF || v is 0x0306 or 0x0307
+            || family is 1 or 2 && sub == 0 && main <= 11
+            || family is >= 4 and <= 9 && sub <= 9 && main <= 11;
     }
 
     private void ReadSiz(int s, int e)
     {
         if (e - s < 36) throw new JpxException("JPX: SIZ zu kurz");
         Rsiz = U16(s);
-        X1 = Int(U32(s + 2));
-        Y1 = Int(U32(s + 6));
-        X0 = Int(U32(s + 10));
-        Y0 = Int(U32(s + 14));
-        TileWidth = Int(U32(s + 18));
-        TileHeight = Int(U32(s + 22));
-        TileX0 = Int(U32(s + 26));
-        TileY0 = Int(U32(s + 30));
+        if (JpxPart2.Unsupported(Rsiz)) throw new JpxException("JPX: Fähigkeit von ISO/IEC 15444-2 wird nicht unterstützt");
+        // a reserved capability value: decoded as a codestream of ISO/IEC 15444-1 without restrictions, and reported (No. 1048)
+        if (!KnownRsiz(Rsiz)) Truncated = true;
+        X1 = U32(s + 2);
+        Y1 = U32(s + 6);
+        X0 = U32(s + 10);
+        Y0 = U32(s + 14);
+        TileWidth = U32(s + 18);
+        TileHeight = U32(s + 22);
+        TileX0 = U32(s + 26);
+        TileY0 = U32(s + 30);
         var count = U16(s + 34);
         if (count is < 1 or > MaxComponents || e - s < 36 + 3 * count) throw new JpxException("JPX: Komponenten");
         if (X1 <= X0 || Y1 <= Y0 || TileWidth <= 0 || TileHeight <= 0 || TileX0 > X0 || TileY0 > Y0
@@ -332,19 +502,28 @@ internal sealed class JpxCodestream
             var dx = U8(s + 37 + 3 * c);
             var dy = U8(s + 38 + 3 * c);
             if (dx == 0 || dy == 0) throw new JpxException("JPX: Unterabtastung");
-            Components[c] = new JpxComponent((ssiz & 0x7F) + 1, (ssiz & 0x80) != 0, dx, dy);
+            // a reserved depth of 39 to 128 bits: decoded as 38 bits throughout — the step sizes of the 9-7 path follow the depth (E-3), so the
+            // image comes out as with the depth given, scaled to its range — and reported; before the step sizes took the depth given and
+            // the level shift and the range 38 bits, and the image came out wrong without a word (docs/FEHLERGEDAECHTNIS.md, No. 1048)
+            var depth = (ssiz & 0x7F) + 1;
+            if (depth > MaxDepth)
+            {
+                depth = MaxDepth;
+                Truncated = true;
+            }
+            Components[c] = new JpxComponent(depth, (ssiz & 0x80) != 0, dx, dy);
         }
-        long tilesX = ((long)X1 - TileX0 + TileWidth - 1) / TileWidth;
-        long tilesY = ((long)Y1 - TileY0 + TileHeight - 1) / TileHeight;
+        var tilesX = (X1 - TileX0 + TileWidth - 1) / TileWidth;
+        var tilesY = (Y1 - TileY0 + TileHeight - 1) / TileHeight;
         // Isot has 16 bits, so there cannot be more tiles
         if (tilesX * tilesY > 65535) throw new JpxException("JPX: zu viele Kacheln");
+        // crafted files: all components in every tile (see NewTile) — 16 384 components in 65 535 tiles from a header of about a megabyte
+        if (tilesX * tilesY * count > MaxComponentTiles) throw new JpxException("JPX: zu viele Kacheln für so viele Komponenten");
         TilesX = (int)tilesX;
         TilesY = (int)tilesY;
         Tiles = new JpxTileData?[TilesX * TilesY];
         Main.Init(count);
     }
-
-    private static int Int(long v) => v > int.MaxValue ? throw new JpxException("JPX: Koordinate zu groß") : (int)v;
 
     private void ReadCommon(JpxHeaderValues h, int marker, int s, int e)
     {
@@ -360,58 +539,131 @@ internal sealed class JpxCodestream
         {
             case 0xFF52:   // COD
             {
-                if (e - s < 10) return;
+                // too short (Equation A-2: at least 10 bytes after the length): passed over as before, and reported (No. 1048)
+                if (e - s < 10)
+                {
+                    Truncated = true;
+                    return;
+                }
                 var scod = U8(s);
+                // ISO/IEC 15444-2, Table A.5: offsets of the code-block anchor and the block coder extensions (SXcod) are not implemented
+                if (JpxPart2.Extended(Rsiz) && (scod & 0x38) != 0) throw new JpxException("JPX: Codierstil von ISO/IEC 15444-2 wird nicht unterstützt");
+                Ignorable(scod & (JpxPart2.Extended(Rsiz) ? 0xC0 : 0xF8));
+                // one COD per header (A.6.1): a second one is read as before (the last holds) and reported
+                if (h.HasCod) Truncated = true;
                 h.HasCod = true;
+                // the reserved values of Table A.16 (5 to 255) are read like CPRL (JpxTile.Packets), zero layers like one (Table A.14 allows 1 to
+                // 65 535): both as before, now reported (No. 1048)
                 h.Order = U8(s + 1);
-                h.Layers = Math.Max(1, U16(s + 2));
+                if (h.Order > 4) Truncated = true;
+                h.Layers = U16(s + 2);
+                if (h.Layers == 0)
+                {
+                    h.Layers = 1;
+                    Truncated = true;
+                }
                 // ISO/IEC 15444-1: any value means RCT/ICT; with the multiple component capability of ISO/IEC 15444-2 bit 0 alone does, bit 1
                 // is the array-based and bit 2 the wavelet-based transformation (Table A.8)
                 h.ComponentTransform = U8(s + 4);
                 h.MultipleComponentTransform = JpxPart2.MultipleComponent(Rsiz) ? (h.ComponentTransform & 1) != 0 : h.ComponentTransform != 0;
+                // reserved: 2 to 255 in ISO/IEC 15444-1 (Table A.17, read like 1), and with the multiple component capability everything but
+                // 0, 1, 2, 4 and 6 (ISO/IEC 15444-2, Table A.8)
+                if (JpxPart2.MultipleComponent(Rsiz) ? h.ComponentTransform is not (0 or 1 or 2 or 4 or 6) : h.ComponentTransform > 1) Truncated = true;
+                // the array-based transformation in a tile without CBD (ISO/IEC 15444-2, K.1.2; CBD stands in the main header only) (No. 1049)
+                if (!ReferenceEquals(h, Main) && JpxPart2.MultipleComponent(Rsiz) && (h.ComponentTransform & 2) != 0 && !_hasCbd) Truncated = true;
                 h.Coding = ReadCoding(scod, s + 5, e);
                 return;
             }
             // ISO/IEC 15444-2: only with the capability in Rsiz; in a codestream of ISO/IEC 15444-1 these codes mean nothing
             case 0xFF74 when JpxPart2.MultipleComponent(Rsiz):   // MCT
                 JpxPart2.ReadMct(h.Part2, Data, s, e);
+                if (h.Part2.Damaged) Truncated = true;   // too short for its fields (A.3.7): passed over and reported
                 return;
             case 0xFF75 when JpxPart2.MultipleComponent(Rsiz):   // MCC
                 JpxPart2.ReadMcc(h.Part2, Data, s, e);
+                if (h.Part2.Damaged) Truncated = true;   // too short for its fields (A.3.8): passed over and reported
                 return;
             case 0xFF77 when JpxPart2.MultipleComponent(Rsiz):   // MCO
+                // at most one per header (ISO/IEC 15444-2, A.3.9): a further one is read as before (the last holds) and reported
+                if (h.Part2.Order is not null) Truncated = true;
                 JpxPart2.ReadMco(h.Part2, Data, s, e);
+                if (h.Part2.Damaged) Truncated = true;
                 return;
             case 0xFF76 when JpxPart2.Extended(Rsiz):            // NLT
                 JpxPart2.ReadNlt(h.Part2, Data, s, e);
+                // an NLT where Rsiz does not announce the non-linearity (bit 9, ISO/IEC 15444-2, K.1): applied as before, and reported (No. 1049)
+                if (!JpxPart2.NonLinear(Rsiz)) Truncated = true;
+                if (h.Part2.Damaged) Truncated = true;
                 return;
             case 0xFF53:   // COC
             {
                 var p = s;
-                if (e - p < (wideIndex ? 2 : 1) + 6) return;
+                // too short (Equation A-3), or a component that is not there: passed over as before, and reported (No. 1048)
+                if (e - p < (wideIndex ? 2 : 1) + 6)
+                {
+                    Truncated = true;
+                    return;
+                }
                 var c = Index(ref p);
-                if (c >= h.ComponentCoding.Length) return;
+                ComponentArrays(h);
+                if (c >= h.ComponentCoding.Length)
+                {
+                    Truncated = true;
+                    return;
+                }
                 var scoc = U8(p);
+                // Table A.23 defines Scoc 0 and 1 (the precincts); every other value is reserved, and unlike Scod (Table A.13) no sentence lets
+                // a decoder ignore those bits: read by bit 0 alone, as before, and reported (docs/FEHLERGEDAECHTNIS.md, No. 1062)
+                if ((scoc & 0xFE) != 0) Truncated = true;
+                // no more than one COC per component in a header (A.6.2): a second one is read as before (it replaces the first) and reported
+                if (h.ComponentCoding[c] is not null) Truncated = true;
                 h.ComponentCoding[c] = ReadCoding(scoc, p + 1, e);
                 return;
             }
             case 0xFF5C:   // QCD
+                // one QCD per header (A.6.4): a second one is read as before (the last holds) and reported
+                if (h.Quantization is not null) Truncated = true;
                 h.Quantization = ReadQuantization(s, e);
                 return;
             case 0xFF5D:   // QCC
             {
                 var p = s;
-                if (e - p < (wideIndex ? 3 : 2)) return;
+                // too short (Equation A-5), or a component that is not there: passed over as before, and reported (No. 1048)
+                if (e - p < (wideIndex ? 3 : 2))
+                {
+                    Truncated = true;
+                    return;
+                }
                 var c = Index(ref p);
-                if (c < h.ComponentQuantization.Length) h.ComponentQuantization[c] = ReadQuantization(p, e);
+                ComponentArrays(h);
+                // no more than one QCC per component in a header (A.6.5): a second one is read as before (it replaces the first) and reported
+                if (c < h.ComponentQuantization.Length)
+                {
+                    if (h.ComponentQuantization[c] is not null) Truncated = true;
+                    h.ComponentQuantization[c] = ReadQuantization(p, e);
+                }
+                else Truncated = true;
                 return;
             }
             case 0xFF5E:   // RGN
             {
                 var p = s;
-                if (e - p < (wideIndex ? 4 : 3)) return;
+                // too short, a component that is not there, or a reserved style Srgn (Table A.25: only 0): passed over as before, and
+                // reported (No. 1048)
+                if (e - p < (wideIndex ? 4 : 3))
+                {
+                    Truncated = true;
+                    return;
+                }
                 var c = Index(ref p);
-                if (c < h.RoiShift.Length && U8(p) == 0) h.RoiShift[c] = U8(p + 1);
+                ComponentArrays(h);
+                // at most one RGN per component in a header (A.6.3): a second one is read as before (it replaces the first) and reported
+                if (c < h.RoiShift.Length && U8(p) == 0)
+                {
+                    if (h.RoiShift[c] is not null) Truncated = true;
+                    h.RoiShift[c] = U8(p + 1);
+                }
+                else Truncated = true;
                 return;
             }
             case 0xFF5F:   // POC
@@ -419,7 +671,7 @@ internal sealed class JpxCodestream
                 var p = s;
                 var entry = wideIndex ? 9 : 7;
                 h.Progressions ??= [];
-                while (e - p >= entry && h.Progressions.Count < 1024)
+                while (e - p >= entry && h.Progressions.Count < MaxProgressions)
                 {
                     var rs = U8(p++);
                     var cs = Index(ref p);
@@ -428,12 +680,32 @@ internal sealed class JpxCodestream
                     var re = U8(p++);
                     var ce = Index(ref p);
                     var order = U8(p++);
-                    h.Progressions.Add(new JpxProgression(rs, cs, lye, re, ce == 0 && !wideIndex ? 256 : ce, order));
+                    // CEpoc 0 means 256 with 8-bit indices (Table A.32); with 16-bit indices it is outside the range (CSpoc + 1 to 16 384) — read
+                    // as all components, like the value 0 of the 8-bit field, and reported; before the entry had no packets (No. 1048)
+                    if (ce == 0)
+                    {
+                        ce = wideIndex ? MaxComponents : 256;
+                        if (wideIndex) Truncated = true;
+                    }
+                    // a reserved progression order (5 to 255): read like CPRL, as in COD, and reported (No. 1048)
+                    if (order > 4) Truncated = true;
+                    h.Progressions.Add(new JpxProgression(rs, cs, lye, re, ce, order));
                 }
+                // entries beyond the limit are left out: the image is incomplete, and says so — before they went without a word (M2, T.800
+                // B.12.2, 23.11.2026); bytes left over that make no whole entry (Equation A-6) count the same
+                if (e - p > 0) Truncated = true;
                 return;
             }
         }
     }
+
+    /// <summary>
+    /// The most progression order changes one header keeps: what one POC segment can hold — Lpoc has 16 bits, so at most (65 535 − 2) / 7 = 9 361
+    /// entries (with 16-bit component indices (65 535 − 2) / 9 = 7 281), and A.6.6 allows one POC segment per header. Before the limit was
+    /// 1 024 and a longer segment was cut (docs/FEHLERGEDAECHTNIS.md, No. 1053). The packet loop counts every entry it looks at
+    /// (<see cref="JpxTile.Packets"/>), so the work stays bounded however many there are.
+    /// </summary>
+    internal const int MaxProgressions = (65535 - 2) / 7;
 
     private JpxCoding ReadCoding(int style, int p, int e)
     {
@@ -446,6 +718,10 @@ internal sealed class JpxCodestream
             Style = U8(p + 3),
             Reversible = U8(p + 4) == 1,
         };
+        // a reserved wavelet (Table A.20: 2 to 255; ISO/IEC 15444-2 gives them to ATK, a capability that is refused with its Rsiz bit): read
+        // as the 9-7 filter as before, and reported (No. 1048)
+        if (U8(p + 4) > 1) Truncated = true;
+        Ignorable(coding.Style & 0xC0);
         if (coding.Levels > 32 || coding.BlockWidth > 10 || coding.BlockHeight > 10 || coding.BlockWidth + coding.BlockHeight > 12)
             throw new JpxException("JPX: Codierung");
         if ((style & 1) != 0)
@@ -457,11 +733,25 @@ internal sealed class JpxCodestream
         return coding;
     }
 
+    /// <summary>
+    /// Bits a decoder may ignore unless extended capabilities are signalled (ISO/IEC 15444-1, Tables A.13 and A.19): with them, their meaning
+    /// is unknown to the decoder — refused rather than decoded wrongly (docs/FEHLERGEDAECHTNIS.md, No. 967).
+    /// </summary>
+    private void Ignorable(int bits)
+    {
+        if (bits == 0) return;
+        if (_extendedCapabilities) throw new JpxException("JPX: erweiterte Fähigkeiten (CAP) werden nicht unterstützt");
+        _ignoredBits = true;
+    }
+
     private JpxQuantization ReadQuantization(int s, int e)
     {
         if (e - s < 1) throw new JpxException("JPX: QCD zu kurz");
         var sq = U8(s);
         var q = new JpxQuantization { Style = sq & 0x1F, GuardBits = sq >> 5 };
+        // a reserved style (Table A.28: 3 to 31; ISO/IEC 15444-2, Table A.12 names 9 and 10 for trellis coded quantization, which a decoder
+        // may pass over): read like 2 as before, and reported (No. 1048)
+        if (q.Style > 2 && !(JpxPart2.Extended(Rsiz) && q.Style is 9 or 10)) Truncated = true;
         var p = s + 1;
         if (q.Style == 0)
         {

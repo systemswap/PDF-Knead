@@ -512,6 +512,7 @@ public static class ImageInspector
             if (e.Orientation is { } o) rows.Add((Tr.T("Ausrichtung"), Orientation(o)));
             if (e.JpxColor is { } jpx)
                 rows.Add((Tr.T("Farbraum im Bild"), jpx switch { 16 => "sRGB", 17 => Tr.T("Graustufen"), 18 => "sYCC", 12 => "CMYK", 14 => "Lab", _ => jpx.ToString(c) }));
+            if (e.JpxNotUnderstood is { } open) rows.Add((Tr.T("Nicht vollständig verstanden"), Filters.Jpx.JpxRequirements.Describe(open)));
             if (e.Artist is { } artist) rows.Add((Tr.T("Urheber"), artist));
             if (e.Copyright is { } copyright) rows.Add((Tr.T("Copyright"), copyright));
             if (e.Gps is { } gps)

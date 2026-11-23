@@ -171,14 +171,13 @@ public static partial class PdfACheck
                     case PdfStream single:
                         return doc.GetStreamData(single);
                     case PdfArray parts:
-                        var all = new MemoryStream();
-                        for (var i = 0; i < parts.Count && i < 10_000; i++)
-                            if (parts.Get(i) is PdfStream part)
-                            {
-                                all.Write(doc.GetStreamData(part));
-                                all.WriteByte((byte)'\n');
-                            }
-                        return all.ToArray();
+                        // bounded together as one stream (No. 1002), counted while joined (No. 1003)
+                        {
+                            var all = new PdfKnead.Core.Pdf.Content.ContentJoiner(parts.Count);
+                            for (var i = 0; i < parts.Count && i < 10_000; i++)
+                                if (parts.Get(i) is PdfStream part) all.Add(doc.GetStreamData(part));
+                            return all.ToArray();
+                        }
                     default:
                         return null;
                 }

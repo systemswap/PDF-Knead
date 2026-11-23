@@ -2594,7 +2594,8 @@ public sealed class RedactionTests
         // a snapshot of every character 588 and 688 MB). Since the last check of what stays covers pages beyond the limit for hiding lengths
         // (decided on 4.11.2026: safety before speed; No. 460), every character is taken before and after redacting and compared:
         // 1 713 MB allocated for the 1.1 million characters (short-lived; 2 398 MB with a list per character and copies of both snapshots);
-        // with lines checked in their own direction (No. 485) 1 845 MB — a direction stored as two doubles took 2 032 MB
+        // with lines checked in their own direction (No. 485) 1 845 MB — a direction stored as two doubles took 2 032 MB; with the index of
+        // that check (No. 999) 1 856 MB, with a closure per character there 2 005 MB
         Assert.True(hidden < 250_000_000, $"Bereinigen: {hidden / 1_000_000} MB");
         Assert.True(applied < 1_900_000_000, $"Schwärzen: {applied / 1_000_000} MB");
     }
@@ -4280,6 +4281,32 @@ public sealed class RedactionTimingTests
         // awaited, not waited for (a blocking wait in a test can deadlock, xUnit1031)
         var first = await Task.WhenAny(work, Task.Delay(TimeSpan.FromSeconds(60)));
         Assert.True(ReferenceEquals(first, work), "das Schwärzen hängt");
+        await work;
+    }
+
+    /// <summary>
+    /// Many huge characters on one line (a font size of 4 294 967 295, the sample of the fuzzing run over the file structure, M3): the last
+    /// check of what stays went through every character of the page for each one — 4 173 repetitions (the sample) took 9 s in a release build,
+    /// these 12 000 about 75 s (docs/FEHLERGEDAECHTNIS.md, No. 999). Now one or two seconds in a debug build.
+    /// </summary>
+    [Fact]
+    public async Task HugeFontSize_ManyCharacters_CheckNotSquare()
+    {
+        var content = new System.Text.StringBuilder("BT /F1 4294967295 Tf 72 700 Td (Example");
+        for (var i = 0; i < 12_000; i++) content.Append("(a) Tj ");
+        content.Append(") Tj ET");
+        var pdf = TestPdf.Simple(1);
+        pdf.Replace(4, TestPdf.FlateStream(System.Text.Encoding.ASCII.GetBytes(content.ToString())));
+        var work = Task.Run(() =>
+        {
+            using var doc = PdfDocument.Open(pdf.Build());
+            var items = PageItem.From(doc);
+            items[0] = items[0].WithElements([new RedactionElement { Rect = new PdfRectangle(102, 300, 582, 630) }]);
+            using var output = new MemoryStream();
+            PdfWriter.Write(doc, items, output, new PdfSaveOptions { ApplyRedactions = true });
+        });
+        var first = await Task.WhenAny(work, Task.Delay(TimeSpan.FromSeconds(20)));
+        Assert.True(ReferenceEquals(first, work), "die Prüfung nach dem Schwärzen wächst mit dem Quadrat der Zeichen");
         await work;
     }
 }

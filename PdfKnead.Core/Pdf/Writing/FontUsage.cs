@@ -150,14 +150,11 @@ internal sealed class FontUsage(PdfDocument doc, IReadOnlyDictionary<int, PdfObj
             case PdfStream s:
                 return doc.GetStreamData(s);
             case PdfArray parts:
-                using (var all = new MemoryStream())
+                // bounded together as one stream (No. 1002), counted while joined (No. 1003)
                 {
+                    var all = new PdfKnead.Core.Pdf.Content.ContentJoiner(parts.Count);
                     for (var i = 0; i < parts.Count; i++)
-                        if (parts.Get(i) is PdfStream part)
-                        {
-                            all.Write(doc.GetStreamData(part));
-                            all.WriteByte((byte)'\n');
-                        }
+                        if (parts.Get(i) is PdfStream part) all.Add(doc.GetStreamData(part));
                     return all.ToArray();
                 }
             default:

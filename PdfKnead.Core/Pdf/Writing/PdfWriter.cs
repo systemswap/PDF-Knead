@@ -379,7 +379,7 @@ public static partial class PdfWriter
             output.Position = start;
             output.ReadExactly(bytes);
             output.Position = end;
-            using (var written = PdfDocument.OpenWritten(bytes, result.Security)) Redactor.CheckWritten(written, checks.Pages, checks.ContentAsRedacted);
+            using (var written = PdfDocument.OpenWritten(bytes, result.Security)) Redactor.CheckWritten(written, checks.Pages, checks.ContentAsRedacted, cancel);
             result = result with { RedactionChecks = null };
         }
         return result;
@@ -394,14 +394,49 @@ public static partial class PdfWriter
     public static PdfSaveResult Write(PdfDocument doc, Stream output, PdfSaveOptions? options = null, CancellationToken cancel = default) =>
         Write(doc, PageItem.From(doc), output, options, cancel);
 
-    /// <summary>Compares versions such as "1.7" and "2.0" numerically; texts that are not numbers are compared ordinally.</summary>
+    /// <summary>
+    /// Compares versions such as "1.7" and "2.0": a version is two integers, major and minor (ISO 32000-2, I.2; 7.12.5 for BaseVersion), so
+    /// „1.10“ comes after „1.9“ — before both were compared as decimal fractions (M3, Annex I; M5, 7.12.5; 23.11.2026). Texts that are no such
+    /// version are compared as numbers, else ordinally.
+    /// </summary>
     /// <param name="a">The first version.</param>
     /// <param name="b">The second version.</param>
     /// <returns>Negative, zero or positive, as for <see cref="IComparer{T}.Compare"/>.</returns>
-    public static int CompareVersions(string a, string b) =>
-        double.TryParse(a, CultureInfo.InvariantCulture, out var x) && double.TryParse(b, CultureInfo.InvariantCulture, out var y)
-            ? x.CompareTo(y)
+    public static int CompareVersions(string a, string b)
+    {
+        if (VersionParts(a) is { } x && VersionParts(b) is { } y) return x.CompareTo(y);
+        return double.TryParse(a, CultureInfo.InvariantCulture, out var p) && double.TryParse(b, CultureInfo.InvariantCulture, out var q)
+            ? p.CompareTo(q)
             : string.CompareOrdinal(a, b);
+    }
+
+    /// <summary>Major and minor of a version „M.m“ (digits only); null for anything else.</summary>
+    internal static (int Major, int Minor)? VersionParts(string version)
+    {
+        var dot = version.IndexOf('.');
+        return dot > 0 && int.TryParse(version.AsSpan(0, dot), NumberStyles.None, CultureInfo.InvariantCulture, out var major) &&
+               int.TryParse(version.AsSpan(dot + 1), NumberStyles.None, CultureInfo.InvariantCulture, out var minor)
+            ? (major, minor) : null;
+    }
+
+    /// <summary>
+    /// The newest of the versions of the files whose pages are saved together: a document with pages inserted from another file is saved in
+    /// the more recent of the two versions by default (ISO 32000-2, I.2, sentence 17; docs/FEHLERGEDAECHTNIS.md, No. 1000). Only version numbers
+    /// count — a /Version that is no number raises nothing.
+    /// </summary>
+    /// <param name="versions">The versions (<see cref="PdfDocument.Version"/> of each file).</param>
+    /// <returns>The newest; "1.0" if none is a number.</returns>
+    public static string NewestVersion(IEnumerable<string> versions) =>
+        versions.Where(v => double.TryParse(v, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out _))
+            .Aggregate("1.0", (newest, v) => CompareVersions(v, newest) > 0 ? v : newest);
+
+    /// <summary>
+    /// The version a merge of whole files is written in without a chosen one (command line `zusammenfuegen`): 2.0 where one of the files is
+    /// 2.0 or later — a file above 2.0 is written as 2.0, the version this writer conforms to (ISO 32000-2, 7.5.2, sentence 15; S-B B52) —,
+    /// otherwise 1.7, which holds every feature of the 1.x files (I.2, sentence 17; docs/FEHLERGEDAECHTNIS.md, No. 1000).
+    /// </summary>
+    /// <param name="versions">The versions of the files merged.</param>
+    public static string MergeVersion(IEnumerable<string> versions) => CompareVersions(NewestVersion(versions), "2.0") >= 0 ? "2.0" : "1.7";
 
     /// <summary>Minimum version for an encryption.</summary>
     internal static string RequiredVersion(StandardSecurityHandler security) => security.Revision >= 7 ? "2.0" : security.StreamCipher switch
@@ -1308,7 +1343,15 @@ public static partial class PdfWriter
             }
             // 7.8.3 sentences 13 and 15: the page names only the resources its content uses (decided on 12.11.2026) — not where the
             // writer writes the content anew itself (flattened, overlaid, PDF/A: those resources are its own) (docs/FEHLERGEDAECHTNIS.md, No. 788)
-            if (!flat && _pdfA is null && UsedResources(item, original, source) is { } usedOnly) dict.Set(PdfName.Resources, usedOnly);
+            // an inline image the display reads only with a tolerance (JPEG 2000 or JBIG2 inline, ASCII85 without its end, „EI“ in the data):
+            // an image XObject in the page's resources, the content otherwise byte for byte (decided on 20.11.2026; S-A A12, A13,
+            // A86, A110; docs/FEHLERGEDAECHTNIS.md, No. 993) — its resources keep only what is used, as below
+            if (!flat && _pdfA is null && PageInlineImages(item, original, source) is var (inlineContents, inlineResources))
+            {
+                dict.Set(PdfName.Contents, inlineContents);
+                dict.Set(PdfName.Resources, inlineResources);
+            }
+            else if (!flat && _pdfA is null && UsedResources(item, original, source) is { } usedOnly) dict.Set(PdfName.Resources, usedOnly);
             if (!Present(dict, PdfName.MediaBox))
             {
                 var box = page.MediaBox;
@@ -3729,12 +3772,16 @@ public static partial class PdfWriter
             }
         }
 
-        /// <summary>An entry of a field, from the widget or the field above it (inherited through /Parent, a few levels).</summary>
+        /// <summary>
+        /// An entry of a field, from the widget or the field above it (inherited through /Parent, a few levels). A level without the entry reads
+        /// it as the null object: before, the search ended there, and /FT, /Ff and /TU on the parent field — the usual place — were never found
+        /// (docs/FEHLERGEDAECHTNIS.md, No. 1004).
+        /// </summary>
         private static PdfObject? FieldValue(PdfDictionary widget, PdfName key)
         {
             var d = widget;
             for (var level = 0; d is not null && level < 32; level++, d = d.GetDictionary(PdfName.Get("Parent")))
-                if (d.Get(key) is { } value) return value;
+                if (d.Get(key) is { } value and not PdfNull) return value;
             return null;
         }
 
@@ -4206,11 +4253,21 @@ public static partial class PdfWriter
             // A Q that closes more than was opened goes from the content first: before the q it would restore the initial state where
             // readers pass over it (docs/FEHLERGEDAECHTNIS.md, No. 383)
             PdfObject? nested = null;
+            List<(PdfName Name, PdfStream Image)>? inlineImages = null;
             var old = new List<PdfObject>();
             var (open, close) = (1, 1);
             if (page.Dictionary.Get(PdfName.Contents) is PdfArray or PdfStream && _pdfA is not null &&
                 PdfAContent(page.Dictionary, page.Resources, source, out nested) is { } content)
                 old.Add(content);   // balanced: every q has its Q (ContentNesting)
+            else if (_pdfA is null && PageInlineImageContent(page.Dictionary, source) is var (inlineContent, images))
+            {
+                // an inline image the display reads only with a tolerance: an XObject of the page (see PageInlineImages; No. 993)
+                var single = new PdfStream(new PdfDictionary(), inlineContent);
+                var (cleanedParts, balance) = Balanced(source.Doc, [single]);
+                (open, close) = balance;
+                old.Add(Fresh(cleanedParts?[0] is { } cleanedPart ? new PdfStream(new PdfDictionary(), cleanedPart) : single));
+                inlineImages = images;
+            }
             else
             {
                 var raw = page.Dictionary.Get(PdfName.Contents) switch
@@ -4236,6 +4293,8 @@ public static partial class PdfWriter
             // PDF/A: the forms content nested too deep moved into (PdfAContent)
             if (nested is PdfDictionary { } withNests && withNests.Get(XObject) is PdfDictionary nestForms)
                 foreach (var (key, value) in nestForms.Entries) xobjects.Set(key, value);
+            if (inlineImages is not null)
+                foreach (var (name, image) in inlineImages) xobjects.Set(name, Fresh(image));
             var text = new System.Text.StringBuilder(string.Concat(Enumerable.Repeat("Q\n", close)));
             var k = 0;
             var closeAt = -1;
@@ -4273,7 +4332,16 @@ public static partial class PdfWriter
         {
             try
             {
-                var streams = parts.Select(p => (p is PdfReference r ? source.Resolve(r.Id) : p) is PdfStream s ? source.GetStreamData(s) : []).ToList();
+                // part by part, within the bound of all parts together (No. 1002): beyond it as for a single stream above the limit
+                var streams = new List<byte[]>(parts.Count);
+                long total = 0;
+                foreach (var p in parts)
+                {
+                    var data = (p is PdfReference r ? source.Resolve(r.Id) : p) is PdfStream s ? source.GetStreamData(s) : [];
+                    total += data.Length + 1L;
+                    if (total > PdfKnead.Core.Pdf.Content.PageInterpreter.ContentPartsLimit(parts.Count)) throw new PdfLimitException(Tr.T("Der Seiteninhalt ist zu groß."));
+                    streams.Add(data);
+                }
                 var cleaned = Content.StateBalance.WithoutStrayRestores(streams);
                 if (cleaned.All(c => c is null)) return (null, Content.StateBalance.Of(streams));
                 return (cleaned, Content.StateBalance.Of(streams.Select((s, i) => cleaned[i] ?? s)));
@@ -5434,12 +5502,22 @@ public static partial class PdfWriter
 
             // A crypt filter of its own (/Crypt first, ISO 32000-2, 7.4.10): kept only where the encryption is kept and knows it (/Identity:
             // stored unencrypted); otherwise the filter goes and the data is written as any other stream — a named filter in a file without
-            // /Encrypt, or one the new protection does not know, left the stream unreadable (docs/FEHLERGEDAECHTNIS.md, No. 442)
+            // /Encrypt, or one the new protection does not know, left the stream unreadable (docs/FEHLERGEDAECHTNIS.md, No. 442). A filter of
+            // its own with V2 or AESV2 is never written either: Table 14 asks for the file key unchanged there, readers and writers take the key
+            // per object (Algorithm 1) — the stream goes to the default filter of the document, read as before (decided on
+            // 20.11.2026, S-B B46; docs/FEHLERGEDAECHTNIS.md, No. 991). Identity and AES-256 (no key per object) stay as they are.
             var chain = StreamFilters.Chain(original);
             PdfCipher? ownCipher = null;
             if (chain is [("Crypt", var cryptParms), ..])
             {
-                if (_keepsFilters && _security?.CipherNamed(cryptParms?.GetName(PdfName.Name)) is { } own) ownCipher = own;
+                // where the document's default filter for the stream does not encrypt (only some streams are), the stream keeps its filter of
+                // its own as before: written without it, it would lie in the copy unencrypted
+                var fallback = _security is not { } protection ? PdfCipher.None
+                    : protection.EmbeddedFileCipher != protection.StreamCipher && source is not null && IsEmbeddedFileStream(stream, source)
+                        ? protection.EmbeddedFileCipher : protection.StreamCipher;
+                if (_keepsFilters && _security?.CipherNamed(cryptParms?.GetName(PdfName.Name)) is { } own &&
+                    (own is not (PdfCipher.Rc4 or PdfCipher.Aes128) || fallback == PdfCipher.None))
+                    ownCipher = own;
                 else RemoveFirstFilter(dict);
             }
             var identityCrypt = ownCipher is not null;   // the stream keeps its crypt filter: its filters are not rewritten
@@ -5489,6 +5567,18 @@ public static partial class PdfWriter
             // parts as the display reads them, the rest byte for byte — the copy is well-formed, and other readers show what PDF-Knead showed
             // (S-A A01, A02; No. 930, 931)
             var intact = false;
+            // a form, pattern, group or appearance with an inline image the display reads only with a tolerance: the image as an XObject in
+            // the resources it draws with, now its own (decided on 20.11.2026; docs/FEHLERGEDAECHTNIS.md, No. 993)
+            if (_pdfA is null && !identityCrypt && !original.ContainsKey(PdfName.Get("F")) && _contentStreams.Contains(doc, stream) &&
+                FormInlineImages(stream, doc, source) is var (formContent, formResources))
+            {
+                dict.Remove(PdfName.Filter);
+                dict.Remove(PdfName.DecodeParms);
+                dict.Remove(DecodedLength);
+                dict.Set(PdfName.Resources, formResources);
+                WriteStreamData(number, dict, Compress(formContent), compressed: true, encrypt, source, cipher);
+                return;
+            }
             if (_pdfA is null && !identityCrypt && !original.ContainsKey(PdfName.Get("F")) && _contentStreams.Contains(doc, stream) &&
                 CanonicalContent(stream, doc, out intact) is { } canonical)
             {
@@ -5533,6 +5623,15 @@ public static partial class PdfWriter
                 if (flate.Filter is { } imageFilter) dict.Set(PdfName.Filter, imageFilter);
                 if (flate.Parms is { } imageParms) dict.Set(PdfName.DecodeParms, imageParms);
                 WriteStreamData(number, dict, flate.Filter is null ? Compress(flate.Data) : flate.Data, flate.Filter is null, encrypt, source, cipher);
+                return;
+            }
+            // an image the display reads only with a tolerance — bytes before the JPEG start, a bare JPEG 2000 codestream, /Width and /Height not
+            // those of the JPEG 2000 data: written as ISO 32000-2 asks, nothing lost (decided on 20.11.2026; S-A A14, A75, A76;
+            // docs/FEHLERGEDAECHTNIS.md, No. 992) — the opacity channel /SMaskInData announces for a bare codestream named in the wrapper (No. 996)
+            if (_pdfA is null && !identityCrypt && !original.ContainsKey(PdfName.F) && original.GetName(PdfName.Subtype)?.Value == "Image" &&
+                ImageDataConformance.Repair(dict, raw, ImageDataConformance.BareOpacity(original, raw, source?.Doc)) is { } conformingImage)
+            {
+                WriteStreamData(number, dict, conformingImage, compressed: false, encrypt, source, cipher);
                 return;
             }
             // a Flate stream the decoder read to its end, whose header (a window above 32 KB) or Adler-32 sum (missing, wrong) is not as RFC 1950

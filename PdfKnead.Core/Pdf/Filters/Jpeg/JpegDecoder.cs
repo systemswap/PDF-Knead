@@ -126,7 +126,7 @@ internal static class JpegDecoder
         private readonly byte[] _arithDc = [0, 0, 0, 0], _arithDcU = [1, 1, 1, 1], _arithAcK = [5, 5, 5, 5];
         private Component[] _components = [];
         private int _restartInterval, _hMax = 1, _vMax = 1, _mcusWide, _mcusHigh, _width, _height, _scale = 1, _blockSize = 8;
-        private bool _progressive, _arithmetic, _damaged, _frame;
+        private bool _progressive, _arithmetic, _baseline, _damaged, _frame;
         private int _adobeTransform = -1;
         private bool _jfif;
         private long _blockScans, _blocks;
@@ -191,6 +191,7 @@ internal static class JpegDecoder
                         break;
                     case 0xDD:
                         if (segment.Length < 2) throw new JpegException("DRI zu kurz");
+                        if (segment.Length > 2) _damaged = true;   // Lr = 4 (Table B.7): a longer one read, reported (S-A A119)
                         _restartInterval = segment[0] << 8 | segment[1];
                         break;
                     case 0xEE when segment.Length >= 12 && segment[..5].SequenceEqual("Adobe"u8):
@@ -240,10 +241,13 @@ internal static class JpegDecoder
             // SOF0, 1, 2 (Huffman), 9, 10 (arithmetic); lossless (3, 11) and hierarchical (5–7, 13–15) are not DCT images of PDF
             if (marker is not (0xC0 or 0xC1 or 0xC2 or 0xC9 or 0xCA)) throw new JpegException($"JPEG-Verfahren SOF{marker - 0xC0} nicht unterstützt");
             _progressive = marker is 0xC2 or 0xCA;
+            _baseline = marker == 0xC0;
             _arithmetic = marker >= 0xC9;
             int lines = s[1] << 8 | s[2], width = s[3] << 8 | s[4], n = s[5];
             if (n is < 1 or > 4) throw new JpegException($"{n} Komponenten");
             if (s.Length < 6 + 3 * n) throw new JpegException("Bildkopf zu kurz");
+            // longer than Lf = 8 + 3 × Nf (Table B.2): read by its length, reported (S-A A119, FG 1011)
+            if (s.Length > 6 + 3 * n) _damaged = true;
             if (width == 0) throw new JpegException("Breite 0");
             _components = new Component[n];
             for (var i = 0; i < n; i++)
@@ -429,6 +433,8 @@ internal static class JpegDecoder
             if (s.Length < 1) throw new JpegException("SOS zu kurz");
             int ns = s[0];
             if (ns is < 1 or > 4 || s.Length < 4 + 2 * ns) throw new JpegException("SOS ungültig");
+            // longer than Ls = 6 + 2 × Ns (Table B.3): read by its length, reported (S-A A119, FG 1011)
+            if (s.Length > 4 + 2 * ns) _damaged = true;
             var comps = new Component[ns];
             var dc = new JpegHuffmanTable?[ns];
             var ac = new JpegHuffmanTable?[ns];
@@ -440,6 +446,8 @@ internal static class JpegDecoder
                 var c = _components.FirstOrDefault(x => x.Id == id) ?? throw new JpegException("Scan nennt eine unbekannte Komponente");
                 if (Array.IndexOf(comps, c) >= 0) throw new JpegException("Komponente doppelt im Scan");
                 if (td > 3 || ta > 3) throw new JpegException("Tabellennummer außerhalb 0–3");
+                // a baseline frame has the destinations 0, 1 (Table B.3): others read, reported (S-A A120, FG 1011)
+                if (_baseline && (td > 1 || ta > 1)) _damaged = true;
                 comps[i] = c;
                 // a Huffman table no DHT segment defined: the typical table of T.81, K.3 (Motion-JPEG; S-A A102)
                 (dc[i], ac[i], dcIndex[i], acIndex[i]) = (_dcTables[td] ?? JpegHuffmanTable.Standard(false, td), _acTables[ta] ?? JpegHuffmanTable.Standard(true, ta), td, ta);

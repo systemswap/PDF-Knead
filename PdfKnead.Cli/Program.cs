@@ -91,6 +91,7 @@ if (args.Length < 2)
     Console.WriteLine("  pdf-knead speichern <datei> <ausgabe> [--version 1.7] [--seiten 1-3,7] [--passwort <p>]");
     Console.WriteLine("  pdf-knead zusammenfuegen <ausgabe> <datei>[:1-3] … [--neu] [--version 2.0]");
     Console.WriteLine("  pdf-knead speichertest <datei|ordner> [--version 1.7] [--seiten <n>]");
+    Console.WriteLine("  pdf-knead drucktest <datei|ordner> [--seiten <n>] [--dpi <n>] [--ablegen <ordner>]");
     Console.WriteLine("  pdf-knead schwaerzpruefung erzeugt <anzahl> [--start <n>] | bildfallen <anzahl> [--modelle <ordner>] | <ordner> [--seiten <n>]  [--ablegen <ordner>] [--laengen]");
     Console.WriteLine("  pdf-knead laengenangriff <anzahl> [--start <n>] [--ohne-laengen] [--stufe <geviert>] [--ablegen <ordner>]");
     Console.WriteLine("  pdf-knead schwaerzpruefung <ordner> --mausplan | --ergebnisse <ordner> [--laengen] [--nur-balken]");
@@ -98,7 +99,7 @@ if (args.Length < 2)
     Console.WriteLine("  pdf-knead herkunft <datei> [--passwort <p>]");
     Console.WriteLine("  pdf-knead signaturen <datei|ordner> [--passwort <p>] [--bericht text|html]");
     Console.WriteLine("  pdf-knead release-schluessel <ordner>   (einmalig: Schlüsselpaar für die Updates)");
-    Console.WriteLine("  pdf-knead release-signieren <paketordner> --schluessel <geheim.pem> [--hinweise <datei>] [--einfuehrung-bis <yyyy-MM-dd>]");
+    Console.WriteLine("  pdf-knead release-signieren <paketordner> --schluessel <geheim.pem> [--hinweise <datei>]");
     Console.WriteLine("  pdf-knead release-pruefen <ordner>             version.json, Signatur und Pakete prüfen wie die Update-Prüfung");
     Console.WriteLine("  pdf-knead signiertest <datei|ordner> [--ablegen <ordner>] [--dateien <n>]");
     return 2;
@@ -139,6 +140,12 @@ if (command is "namen" or "namen-messen")
     return PdfKnead.Cli.EntityTools.Measure(isJson ? null : file, isJson ? file : null, args.Contains("--sicher"), entityOptions, args.Contains("--einzeln"));
 }
 if (command is "jpegvergleich" or "jpegcompare") return PdfKnead.Cli.JpegCompare.Run(file, Array.IndexOf(args, "--zeigen") is var zi and >= 0 && zi + 1 < args.Length && int.TryParse(args[zi + 1], out var zn) ? zn : 20);
+if (command is "drucktest")
+{
+    // every page as the printed sheet, drawn again and compared (PrintCheck.cs; docs/FEHLERGEDAECHTNIS.md, No. 1004)
+    string? Arg(string name) => Array.IndexOf(args, name) is var k and >= 0 && k + 1 < args.Length ? args[k + 1] : null;
+    return PdfKnead.Cli.PrintCheck.Run(file, int.TryParse(Arg("--seiten"), out var dp) && dp > 0 ? dp : 20, int.TryParse(Arg("--dpi"), out var dd) && dd > 0 ? dd : 54, Arg("--ablegen"));
+}
 if (command is "speichertest")
 {
     string? Arg(string name) => Array.IndexOf(args, name) is var k and >= 0 && k + 1 < args.Length ? args[k + 1] : null;
@@ -295,7 +302,7 @@ if (command is "release-pruefen") return PdfKnead.Cli.ReleaseTools.Verify(file);
 if (command is "release-signieren")
 {
     string? ReleaseArg(string name) => Array.IndexOf(args, name) is var k and >= 0 && k + 1 < args.Length ? args[k + 1] : null;
-    return PdfKnead.Cli.ReleaseTools.Sign(file, ReleaseArg("--schluessel"), ReleaseArg("--hinweise"), ReleaseArg("--einfuehrung-bis"));
+    return PdfKnead.Cli.ReleaseTools.Sign(file, ReleaseArg("--schluessel"), ReleaseArg("--hinweise"));
 }
 if (command is "signiertest")
 {
@@ -319,7 +326,7 @@ if (command is "schrift" or "font")
 if (command is "zusammenfuegen" or "merge")
 {
     var versionAt = Array.IndexOf(args, "--version");
-    var mergeVersion = versionAt >= 0 && versionAt + 1 < args.Length ? args[versionAt + 1] : "1.7";
+    var mergeVersion = versionAt >= 0 && versionAt + 1 < args.Length ? args[versionAt + 1] : null;
     return Merge(file, args.Skip(2).Where((a, i) => !a.StartsWith("--", StringComparison.Ordinal) && (versionAt < 0 || i + 2 != versionAt + 1)).ToList(),
         args.Contains("--neu"), mergeVersion);
 }
@@ -546,7 +553,8 @@ try
                         try
                         {
                             var imageSource = imageList.Images[imageItems[k].Image];
-                            var exported = PdfKnead.Core.Pdf.Graphics.ImageExport.Export(doc, imageSource);
+                            var exported = PdfKnead.Core.Pdf.Graphics.ImageExport.Export(doc, imageSource,
+                                PdfKnead.Core.Pdf.Graphics.ImageExport.DrawnSize(imageList.Matrices[imageItems[k].Matrix]));
                             File.WriteAllBytes(stem + exported.Extension, exported.Data);
                             if (exported.MaskPng is { } maskPng) File.WriteAllBytes(stem + "-maske.png", maskPng);
                             var verdict = ImageExportCheck.Check(doc, imageSource, exported);
@@ -664,7 +672,7 @@ static int FontInfo(string which, string? text)
 
 // Writes files (name, optionally ":range") one after another into a new file — on the first file, or (asNewFile) on an empty document as
 // „als neue Datei“ without an open document does
-static int Merge(string target, List<string> inputs, bool asNewFile, string version)
+static int Merge(string target, List<string> inputs, bool asNewFile, string? version)
 {
     if (inputs.Count == 0)
     {
@@ -697,6 +705,8 @@ static int Merge(string target, List<string> inputs, bool asNewFile, string vers
         }
         using var blank = asNewFile ? BlankPage.CreateDocument(595.28, 841.89, 1) : null;
         using var output = File.Create(target);
+        // without --version: 1.7, or 2.0 where one of the files is 2.0 — the newest of their versions (ISO 32000-2, I.2, sentence 17; No. 1000)
+        version ??= PdfWriter.MergeVersion(docs.Select(d => d.Version));
         var saved = PdfWriter.Write(blank ?? docs[0], items, output, new PdfSaveOptions { Version = version });
         Console.WriteLine(Tr.T("Gespeichert: {0} (PDF {1}, {2} Seiten, {3} Bytes)", target, saved.Version, items.Count, saved.Length));
         return 0;

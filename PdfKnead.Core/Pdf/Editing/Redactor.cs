@@ -150,7 +150,7 @@ public static partial class Redactor
             }
             var pieceRects = pieces.Select(p => p.Rect).ToList();
             Verify(doc, page, result.Page, result.Resources, [.. rects, .. pieceRects], rects, [.. rects, .. pieceRects, .. Joined(rects, pieceRects)]);
-            if (!StaysChecked(doc, page, checkBefore, result.Page, result.Resources, rects, hideLengths && pieces.Count > 0))
+            if (!StaysChecked(doc, page, checkBefore, result.Page, result.Resources, rects, hideLengths && pieces.Count > 0, cancel))
                 throw new PdfException(Tr.T("Die Schwärzung ließ sich auf Seite {0} nicht vollständig anwenden — es wurde nichts gespeichert.", page.Index + 1));
             return result with { Check = new WrittenCheck(checkBefore, rects, pieceRects, hideLengths && pieces.Count > 0) };
         }
@@ -175,8 +175,9 @@ public static partial class Redactor
     /// <param name="written">The written file.</param>
     /// <param name="checks">The redacted pages (index in the written file) and what to check there.</param>
     /// <param name="contentAsRedacted">Saving changes the content of the pages no further than redacting (no cleanup, no PDF/A).</param>
+    /// <param name="cancel">Abort.</param>
     /// <exception cref="PdfException">A check failed: the file must not be handed out.</exception>
-    internal static void CheckWritten(PdfDocument written, IReadOnlyList<(int Page, WrittenCheck Check)> checks, bool contentAsRedacted)
+    internal static void CheckWritten(PdfDocument written, IReadOnlyList<(int Page, WrittenCheck Check)> checks, bool contentAsRedacted, CancellationToken cancel = default)
     {
         foreach (var (index, check) in checks)
         {
@@ -185,7 +186,7 @@ public static partial class Redactor
             var resources = page.Resources ?? new PdfDictionary();
             Verify(written, page, page.Dictionary, resources, [.. check.Rects, .. check.Pieces], check.Rects,
                 [.. check.Rects, .. check.Pieces, .. Joined(check.Rects, check.Pieces)]);
-            if (contentAsRedacted && !StaysChecked(written, page, check.Before, page.Dictionary, resources, check.Rects, check.Moved))
+            if (contentAsRedacted && !StaysChecked(written, page, check.Before, page.Dictionary, resources, check.Rects, check.Moved, cancel))
                 throw new PdfException(Tr.T("Die Schwärzung ließ sich auf Seite {0} nicht vollständig anwenden — es wurde nichts gespeichert.", index + 1));
         }
     }

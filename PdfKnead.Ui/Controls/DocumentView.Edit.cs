@@ -349,9 +349,9 @@ public sealed partial class DocumentView
         edit.Click += (_, _) =>
         {
             if (!ReferenceEquals(doc, _doc)) return;
-            // „Bearbeiten“ is a licensed feature (LICENSE, section 1 (5)), also from this menu
+            // „Bearbeiten“ can be switched off by the function file of the organization, also from this menu
             if (TopLevel.GetTopLevel(this)?.DataContext is MainViewModel main
-                && (!main.EnsureAllowed("start.edit") || !main.EnsureLicensed(Core.Licensing.LicensedFeature.Editing))) return;
+                && !main.EnsureAllowed("start.edit")) return;
             doc.Tool = ViewTool.Edit;
             // the tool's panel opens and the page fits beside it: the choice waits for that layout and finds the spot on the page again
             Avalonia.Threading.Dispatcher.UIThread.Post(() =>

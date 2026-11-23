@@ -6,7 +6,7 @@ namespace PdfKnead.Core.Pdf.Objects;
 /// Text strings (title, author, bookmarks …) according to ISO 32000-2, 7.9.2.2: UTF-16BE with the byte order mark
 /// FE FF, UTF-8 with EF BB BF (PDF 2.0), otherwise PDFDocEncoding.
 /// </summary>
-public static class PdfTextEncoding
+public static partial class PdfTextEncoding
 {
     /// <summary>PDFDocEncoding → Unicode. Bytes without an entry are read as Latin-1.</summary>
     private static readonly Dictionary<byte, char> DocEncoding = new()
@@ -81,22 +81,18 @@ public static class PdfTextEncoding
     }
 
     /// <summary>
-    /// Removes language markers (ESC … ESC in UTF-16, ISO 32000-2, 7.9.2.2.1) and trailing null characters; neither
-    /// belongs in the displayed text.
+    /// Removes language markers (ISO 32000-2, 7.9.2.2.2: ESC, a language code of two letters, optionally a country code of two letters, ESC)
+    /// and trailing null characters; neither belongs in the displayed text. Only such markers go: before everything between two ESC was
+    /// dropped and a single ESC dropped the rest of the string — text hidden that way escaped search, leak search and redaction while other
+    /// readers may show it (M5, 7.9.2.2.2, 23.11.2026). A stray ESC goes alone, the text around it stays.
     /// </summary>
     private static string Clean(string text)
     {
         if (text.Contains('\u001B'))
-        {
-            var sb = new StringBuilder(text.Length);
-            var inMarker = false;
-            foreach (var c in text)
-            {
-                if (c == '\u001B') inMarker = !inMarker;
-                else if (!inMarker) sb.Append(c);
-            }
-            text = sb.ToString();
-        }
+            text = LanguageMarker().Replace(text, "").Replace("\u001B", "", StringComparison.Ordinal);
         return text.TrimEnd('\0');
     }
+
+    [System.Text.RegularExpressions.GeneratedRegex("\u001B[A-Za-z]{2}(?:[A-Za-z]{2})?\u001B")]
+    private static partial System.Text.RegularExpressions.Regex LanguageMarker();
 }

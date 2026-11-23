@@ -265,4 +265,33 @@ public sealed class ObjectMetadataTests
         Assert.Equal(ttf.Length, program.Length);
         Assert.DoesNotContain(DocumentCleanup.Inspect(saved, PageItem.From(saved)), f => f.Item == CleanupItems.Notices);
     }
+
+    /// <summary>The JPEG with Exif and a colour profile in two APP2 segments (sequence numbers <paramref name="first"/>, then the other).</summary>
+    private static byte[] WithProfileInTwoParts(byte[] jpeg, byte[] profile, int first)
+    {
+        var half = profile.Length / 2;
+        byte[] Part(int number) => Segment(0xE2, [.. "ICC_PROFILE"u8, 0, (byte)number, 2, .. number == 1 ? profile[..half] : profile[half..]]);
+        return [.. jpeg[..2], .. Segment(0xE1, [.. "Exif"u8, 0, 0, .. "KAMERAGEHEIM"u8]), .. Part(first), .. Part(3 - first), .. jpeg[2..]];
+    }
+
+    /// <summary>
+    /// ITU-T T.872, 6.5.1 (ICC.1, Annex B.4): a colour profile may be split over several APP2 segments, numbered. „Bereinigen: Metadaten“
+    /// removes Exif and keeps both profile segments byte for byte (Bericht M2, Zeile 156; the test before had no profile segment at all); the
+    /// image information puts the profile together in the order of the numbers, also when the segments stand the other way round, and names it
+    /// (Zeile 352).
+    /// </summary>
+    [Fact]
+    public void JpegProfileInTwoSegments_KeptAndPutTogether()
+    {
+        var profile = PdfKnead.Core.Pdf.Graphics.Icc.CalibratedProfile.Srgb();
+        var jpeg = Jpeg();
+        var file = WithProfileInTwoParts(jpeg, profile, 1);
+        var cleaned = ObjectMetadata.Jpeg(file)!;
+        Assert.Equal(-1, cleaned.AsSpan().IndexOf("KAMERAGEHEIM"u8));
+        var half = profile.Length / 2;
+        Assert.True(cleaned.AsSpan().IndexOf(profile.AsSpan(0, half)) > 0);
+        Assert.True(cleaned.AsSpan().IndexOf(profile.AsSpan(half)) > 0);
+        foreach (var first in new[] { 1, 2 })
+            Assert.Equal(PdfKnead.Core.Pdf.Graphics.Icc.CalibratedProfile.SrgbName, PdfKnead.Core.Imaging.ImageMetadata.FromJpeg(WithProfileInTwoParts(jpeg, profile, first))!.IccProfile);
+    }
 }

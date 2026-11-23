@@ -261,7 +261,10 @@ public sealed class IncrementalUpdate
         output.Write("\n"u8);
     }
 
-    /// <summary>Cross-reference stream, uncompressed, fields 1/8/2 bytes wide (ISO 32000-2, 7.5.8).</summary>
+    /// <summary>
+    /// Cross-reference stream, fields 1/8/2 bytes wide (ISO 32000-2, 7.5.8), Flate-encoded as 7.5.8.4 recommends (before 21.11.2026 it was
+    /// written uncompressed; docs/FEHLERGEDAECHTNIS.md, No. 1001). /Filter stands directly in it, as 7.5.8.2 asks.
+    /// </summary>
     private void WriteXRefStream(CountingStream output, int number, PdfDictionary trailer)
     {
         var numbers = _offsets.Keys.OrderBy(n => n).ToList();
@@ -283,6 +286,10 @@ public sealed class IncrementalUpdate
         trailer.Set(PdfName.Type, PdfName.Get("XRef"));
         trailer.Set(PdfName.Get("W"), new PdfArray { PdfInteger.Of(1), PdfInteger.Of(8), PdfInteger.Of(2) });
         trailer.Set(PdfName.Get("Index"), index);
+        var packed = new MemoryStream();
+        using (var z = new System.IO.Compression.ZLibStream(packed, System.IO.Compression.CompressionLevel.Optimal, leaveOpen: true)) z.Write(data);
+        data = packed.ToArray();
+        trailer.Set(PdfName.Get("Filter"), PdfName.Get("FlateDecode"));
         trailer.Set(PdfName.Get("Length"), PdfInteger.Of(data.Length));
         output.Write(Encoding.ASCII.GetBytes($"{number} 0 obj\n"));
         PdfSerializer.Write(trailer, output);

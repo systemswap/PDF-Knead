@@ -236,16 +236,63 @@ internal static class ResourceUsage
         };
         var visited = new HashSet<PdfStream>(ReferenceEqualityComparer.Instance);
         long budget = MaxOperations;
-        // the parts of the content in one: an operator may be split between two (7.8.2) — each part on its own could misread its names
-        var body = new List<byte>();
-        foreach (var part in parts)
+        // the parts of the content in one: an operator may be split between two (7.8.2) — each part on its own could misread its names. Each
+        // part in a pooled buffer, one part read where it lies, more joined into one counted buffer: before, the parts went into a growing list
+        // and were copied out of it — four times a stream at the limit at once (docs/FEHLERGEDAECHTNIS.md, No. 1003)
+        var pieces = new List<PooledBytes>();
+        try
         {
-            if (part is not PdfStream stream || Decoded(doc, stream) is not { } data) return null;
-            body.AddRange(data);
-            body.Add((byte)'\n');
+            long total = 0;
+            foreach (var part in parts)
+            {
+                if (part is not PdfStream stream || Pooled(doc, stream) is not { } piece) return null;
+                pieces.Add(piece);
+                total += piece.Length + 1L;
+                // beyond the bound of all parts together: not known, as for a single stream that does not decode (No. 1002)
+                if (total > PdfKnead.Core.Pdf.Content.PageInterpreter.ContentPartsLimit(parts.Count)) return null;
+            }
+            if (pieces.Count == 1)
+                return UsedNames(doc, pieces[0].Array, pieces[0].Length, resources, resources, used, visited, 0, ref budget) ? used : null;
+            byte[] buffer;
+            bool pooled;
+            try
+            {
+                buffer = DecodedMemory.Rent((int)Math.Max(total, 1), out pooled);
+            }
+            catch (PdfLimitException)
+            {
+                return null;   // more than may be held at once: not known
+            }
+            var length = 0;
+            foreach (var piece in pieces)
+            {
+                piece.Span.CopyTo(buffer.AsSpan(length));
+                length += piece.Length;
+                buffer[length++] = (byte)'\n';
+            }
+            using var joined = new PooledBytes(buffer, length, pooled);
+            return UsedNames(doc, joined.Array, joined.Length, resources, resources, used, visited, 0, ref budget) ? used : null;
         }
-        var bytes = body.ToArray();
-        return UsedNames(doc, bytes, bytes.Length, resources, resources, used, visited, 0, ref budget) ? used : null;
+        finally
+        {
+            foreach (var piece in pieces) piece.Dispose();
+        }
+    }
+
+    /// <summary>A content stream decoded into a pooled buffer; null where it does not decode whole (another reader may read more).</summary>
+    private static PooledBytes? Pooled(PdfDocument doc, PdfStream stream)
+    {
+        try
+        {
+            var result = StreamFilters.DecodePooled(doc.GetRawStreamData(stream), stream.Dictionary, out var truncated);
+            if (!truncated) return result;
+            result.Dispose();
+            return null;
+        }
+        catch (PdfException)
+        {
+            return null;
+        }
     }
 
     /// <summary>The decoded data of a stream; null if it does not decode whole (an error, or data cut short and read as far as it went).</summary>
@@ -795,10 +842,32 @@ internal static class ResourceUsage
                 var pieces = new List<PooledBytes>();
                 try
                 {
+                    long count = 0;
                     for (var i = 0; i < parts.Count; i++)
-                        if (parts.Get(i) is PdfStream part) pieces.Add(Data(doc, part));
+                    {
+                        if (parts.Get(i) is not PdfStream part) continue;
+                        var piece = Data(doc, part);
+                        // beyond the bound of all parts together the rest counts as empty, as a single stream above the limit (No. 1002)
+                        if (count + piece.Length + 1 > PdfKnead.Core.Pdf.Content.PageInterpreter.ContentPartsLimit(parts.Count))
+                        {
+                            piece.Dispose();
+                            break;
+                        }
+                        count += piece.Length + 1;
+                        pieces.Add(piece);
+                    }
                     var total = (int)Math.Min(int.MaxValue / 2, pieces.Sum(p => (long)p.Length + 1));
-                    var buffer = System.Buffers.ArrayPool<byte>.Shared.Rent(Math.Max(total, 1));
+                    // large: allocated and counted, not rented (No. 1003); beyond what may be held at once empty, as a stream above the limit
+                    byte[] buffer;
+                    bool pooled;
+                    try
+                    {
+                        buffer = DecodedMemory.Rent(Math.Max(total, 1), out pooled);
+                    }
+                    catch (PdfLimitException)
+                    {
+                        return new PooledBytes([], 0, pooled: false);
+                    }
                     var length = 0;
                     foreach (var piece in pieces)
                     {
@@ -807,7 +876,7 @@ internal static class ResourceUsage
                         length += piece.Length;
                         buffer[length++] = (byte)'\n';
                     }
-                    return new PooledBytes(buffer, length, pooled: true);
+                    return new PooledBytes(buffer, length, pooled);
                 }
                 finally
                 {

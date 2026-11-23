@@ -126,6 +126,11 @@ public sealed class CompressionWriterTests
         {
             Assert.Equal("JBIG2Decode", image.GetName(PdfName.Filter)?.Value);
             Assert.Equal("CCITTFaxDecode", g4Image.GetName(PdfName.Filter)?.Value);
+            // ISO 32000-2, Table 11 (Bericht M2, Zeilen 21, 26): the own writer codes Group 4 — /K −1 — with 0 as black, /BlackIs1 left out
+            // (false); pixel-identical below
+            var parms = g4Image.GetDictionary(PdfName.DecodeParms)!;
+            Assert.Equal(-1, parms.GetInteger(PdfName.Get("K")));
+            Assert.True(parms.Get(PdfName.Get("BlackIs1")) is PdfNull or PdfBoolean { Value: false });
             Assert.Equal(1, image.GetInteger(PdfName.Get("BitsPerComponent")));
             Assert.Equal(0, Difference(original, jbig2));
             Assert.Equal(0, Difference(original, g4));
@@ -723,6 +728,49 @@ public sealed class CompressionWriterTests
         {
             Assert.Equal("DCTDecode", image.GetName(PdfName.Filter)?.Value);
             Assert.Equal(300, image.GetInteger(PdfName.Get("Width")));
+        }
+    }
+
+    /// <summary>
+    /// What the compressor writes as JPEG (ISO 32000-2, 7.4.8; ITU-T T.81, clause 6; T.871, 5 and 6.1; Adobe TN 5116, sections 18 and 20;
+    /// docs/normabgleich/M2-filter.md, rows 32, 35, 59, 141): the baseline process (SOF0) with 8-bit samples and 1 or 3 components, the
+    /// JFIF marker directly after SOI, no Adobe marker (the default /ColorTransform of three components, 1, fits YCbCr) — and the own decoder
+    /// reads it at the size of the image dictionary with the components it declares.
+    /// </summary>
+    [Fact]
+    public void JpegOfTheCompressor_BaselineWithJfif_OneOrThreeComponents()
+    {
+        foreach (var components in new[] { 1, 3 })
+        {
+            var file = WithImage(2400, 1600, components, (x, y, c) => (byte)(128 + 100 * Math.Sin(x / (37.0 + c * 5)) * Math.Cos(y / 23.0)), inches: 2);
+            var (doc, image) = Compress(file, CompressionSettings.For(CompressionPreset.EBook));
+            using (doc)
+            {
+                Assert.Equal("DCTDecode", image.GetName(PdfName.Filter)?.Value);
+                var stream = (PdfStream)doc.Pages[0].Resources!.GetDictionary(PdfName.Get("XObject"))!.Get(Im)!;
+                var jpeg = doc.GetRawStreamData(stream);
+                Assert.Equal([0xFF, 0xD8, 0xFF, 0xE0], jpeg[..4]);
+                Assert.Equal("JFIF\0"u8.ToArray(), jpeg[6..11]);
+                int? frame = null;
+                for (var at = 2; at + 4 <= jpeg.Length && jpeg[at] == 0xFF && jpeg[at + 1] != 0xDA; at += 2 + (jpeg[at + 2] << 8 | jpeg[at + 3]))
+                {
+                    var marker = jpeg[at + 1];
+                    Assert.False(marker == 0xEE, "Adobe-Marke geschrieben");
+                    if (marker is >= 0xC0 and <= 0xCF and not (0xC4 or 0xC8 or 0xCC))
+                    {
+                        Assert.Null(frame);
+                        frame = at;
+                        Assert.Equal(0xC0, marker);                  // baseline
+                        Assert.Equal(8, jpeg[at + 4]);                // sample precision
+                        Assert.Equal(components, jpeg[at + 9]);       // components in the frame
+                    }
+                }
+                Assert.NotNull(frame);
+                var decoded = Core.Pdf.Filters.Jpeg.JpegDecoder.Decode(jpeg);
+                Assert.Equal((image.GetInteger(PdfName.Get("Width")), image.GetInteger(PdfName.Get("Height")), components),
+                    ((long?)decoded.Width, (long?)decoded.Height, decoded.Channels));
+                Assert.False(decoded.Damaged);
+            }
         }
     }
 

@@ -120,7 +120,8 @@ public partial class MainWindow
             var type = extension switch
             {
                 "jpg" => new FilePickerFileType(Tr.T("JPEG-Bilder")) { Patterns = ["*.jpg", "*.jpeg"], MimeTypes = ["image/jpeg"] },
-                "jp2" or "j2k" => new FilePickerFileType(Tr.T("JPEG-2000-Bilder")) { Patterns = ["*." + extension], MimeTypes = ["image/" + (extension == "jp2" ? "jp2" : "x-jp2-codestream")] },
+                "jp2" or "j2k" or "jpf" => new FilePickerFileType(Tr.T("JPEG-2000-Bilder")) { Patterns = ["*." + extension],
+                    MimeTypes = ["image/" + extension switch { "jp2" => "jp2", "jpf" => "jpx", _ => "x-jp2-codestream" }] },
                 "tif" => new FilePickerFileType(Tr.T("TIFF-Bilder")) { Patterns = ["*.tif", "*.tiff"], MimeTypes = ["image/tiff"] },
                 _ => new FilePickerFileType(Tr.T("PNG-Bilder")) { Patterns = ["*.png"], MimeTypes = ["image/png"] },
             };

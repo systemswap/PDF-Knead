@@ -1,3 +1,4 @@
+using Avalonia.VisualTree;
 using System.Text.RegularExpressions;
 using PdfKnead.Services;
 using PdfKnead.ViewModels;
@@ -53,6 +54,24 @@ public sealed class AboutTests
                 window.Close();
             }
             return Task.CompletedTask;
+        });
+    }
+
+    [Fact]
+    public void Window_ContactAddress_OpensTheMailProgram_OrCopies()
+    {
+        UiSession.Run(async () =>
+        {
+            var window = new AboutWindow(new AboutViewModel());
+            window.Show();
+            try
+            {
+                await SupportUiTests.ContactWorks(window);
+            }
+            finally
+            {
+                window.Close();
+            }
         });
     }
 }

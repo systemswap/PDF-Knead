@@ -11,7 +11,7 @@ namespace PdfKnead.Tests.Pdf;
 /// JPEG 2000 with the files of the public test collection (TestPDFs). The full breadth of the standard (all progression orders, ROI, PPM/PPT,
 /// 9/7 …) is checked by the probe run <see cref="JpxConformance"/> against the reference images of ITU-T T.803.
 /// </summary>
-public sealed class JpxTests
+public sealed partial class JpxTests
 {
     private static string PdfJs(string name, [System.Runtime.CompilerServices.CallerFilePath] string source = "")
     {
@@ -37,8 +37,134 @@ public sealed class JpxTests
 
     private static byte[] Raw(PdfDocument doc, PdfStream stream) => doc.DecodeStream(stream).Data;
 
+    /// <summary>
+    /// ISO/IEC 15444-1, Table B.4 (rows as data): the codewords of the number of coding passes — 1, 2, 3 to 5, 6 to 36 and 37 to 164 at both
+    /// ends of each range — read through the bit stuffing of B.10.1 (after a byte 0xFF the next one carries only 7 bits).
+    /// </summary>
+    [Theory]
+    [InlineData("0", 1)]
+    [InlineData("10", 2)]
+    [InlineData("1100", 3)]
+    [InlineData("1101", 4)]
+    [InlineData("1110", 5)]
+    [InlineData("111100000", 6)]
+    [InlineData("111111110", 36)]
+    [InlineData("1111111110000000", 37)]
+    [InlineData("1111111111111111", 164)]
+    public void CodingPasses_AsTableB4(string codeword, int passes)
+    {
+        // pack with the bit stuffing of B.10.1: a 0 bit in front of the byte after 0xFF
+        var bytes = new List<byte>();
+        int current = 0, count = 0;
+        var limit = 8;
+        foreach (var bit in codeword + "0000000000000000")
+        {
+            current = current << 1 | (bit - '0');
+            if (++count < limit) continue;
+            bytes.Add((byte)current);
+            limit = current == 0xFF ? 7 : 8;
+            current = 0;
+            count = 0;
+        }
+        var data = bytes.ToArray();
+        Assert.Equal(passes, JpxTile.Passes(new JpxBits(data, 0, data.Length)));
+    }
+
+    /// <summary>
+    /// ISO/IEC 15444-1, Table D.1 (rows as data, "x" for any): the context of every one of the 256 neighbour patterns for the three kinds of
+    /// sub-band — LL and LH by the sums of the horizontal, vertical and diagonal neighbours, HL with horizontal and vertical swapped, HH by the
+    /// diagonal sum first. The first row of the table that matches decides (checked row by row on 23.11.2026).
+    /// </summary>
+    [Fact]
+    public void ZeroCodingContexts_AsTableD1()
+    {
+        // (H, V, D, context) for LL and LH; -1 = any, 10 + n = at least n
+        int[][] lhRows = [[2, -1, -1, 8], [1, 11, -1, 7], [1, 0, 11, 6], [1, 0, 0, 5], [0, 2, -1, 4], [0, 1, -1, 3], [0, 0, 12, 2], [0, 0, 1, 1], [0, 0, 0, 0]];
+        // (H + V, D, context) for HH
+        int[][] hhRows = [[-1, 13, 8], [11, 2, 7], [0, 2, 6], [12, 1, 5], [1, 1, 4], [0, 1, 3], [12, 0, 2], [1, 0, 1], [0, 0, 0]];
+        static bool Fits(int want, int value) => want == -1 || (want >= 10 ? value >= want - 10 : value == want);
+        for (var n = 0; n < 256; n++)
+        {
+            int h = (n & 1) + (n >> 1 & 1), v = (n >> 2 & 1) + (n >> 3 & 1), d = (n >> 4 & 1) + (n >> 5 & 1) + (n >> 6 & 1) + (n >> 7 & 1);
+            var ll = lhRows.First(r => Fits(r[0], h) && Fits(r[1], v) && Fits(r[2], d))[3];
+            var hl = lhRows.First(r => Fits(r[0], v) && Fits(r[1], h) && Fits(r[2], d))[3];
+            var hh = hhRows.First(r => Fits(r[0], h + v) && Fits(r[1], d))[2];
+            Assert.Equal(ll, JpxBlockDecoder.ZeroContexts[0][n]);
+            Assert.Equal(hl, JpxBlockDecoder.ZeroContexts[1][n]);
+            Assert.Equal(hh, JpxBlockDecoder.ZeroContexts[2][n]);
+        }
+    }
+
+    /// <summary>
+    /// ISO/IEC 15444-1, Tables D.2 and D.3 (rows as data): the contributions of the horizontal and vertical neighbours (both positive or one
+    /// positive and none: 1, both negative or one negative and none: −1, else 0) and for each of the nine pairs the context (9 to 13) and the
+    /// XOR bit — for every one of the 256 patterns of significance and sign of the four direct neighbours.
+    /// </summary>
+    [Fact]
+    public void SignContexts_AsTablesD2AndD3()
+    {
+        var table = new Dictionary<(int H, int V), (int Context, int Xor)>
+        {
+            [(1, 1)] = (13, 0), [(1, 0)] = (12, 0), [(1, -1)] = (11, 0), [(0, 1)] = (10, 0), [(0, 0)] = (9, 0),
+            [(0, -1)] = (10, 1), [(-1, 1)] = (11, 1), [(-1, 0)] = (12, 1), [(-1, -1)] = (13, 1),
+        };
+        static int Contribution(int a, int b) => (a, b) switch
+        {
+            (1, 1) or (1, 0) or (0, 1) => 1,
+            (-1, -1) or (-1, 0) or (0, -1) => -1,
+            _ => 0,
+        };
+        for (var index = 0; index < 256; index++)
+        {
+            int Neighbour(int k) => (index >> k & 1) == 0 ? 0 : (index >> (4 + k) & 1) != 0 ? -1 : 1;
+            var (context, xor) = table[(Contribution(Neighbour(0), Neighbour(1)), Contribution(Neighbour(2), Neighbour(3)))];
+            Assert.Equal(context | xor << 7, JpxBlockDecoder.SignContexts[index]);
+        }
+    }
+
+    /// <summary>ISO/IEC 15444-1, Table D.7: after a reset UNIFORM (18) starts in state 46, run-length (17) in state 3, all neighbours
+    /// insignificant (0) in state 4, all others in state 0 — each with MPS 0.</summary>
+    [Fact]
+    public void InitialContextStates_AsTableD7()
+    {
+        var expected = new byte[19];
+        expected[0] = 4 << 1;
+        expected[17] = 3 << 1;
+        expected[18] = 46 << 1;
+        Assert.Equal(expected, JpxBlockDecoder.InitialContexts());
+    }
+
+    /// <summary>ISO/IEC 15444-1, Table F.4: the lifting parameters of the irreversible 9-7 filter.</summary>
+    [Fact]
+    public void LiftingParameters_AsTableF4()
+    {
+        Assert.Equal((float)-1.586134342059924, JpxWavelet.Alpha);
+        Assert.Equal((float)-0.052980118572961, JpxWavelet.Beta);
+        Assert.Equal((float)0.882911075530934, JpxWavelet.Gamma);
+        Assert.Equal((float)0.443506852043971, JpxWavelet.Delta);
+        Assert.Equal((float)1.230174104914001, JpxWavelet.K);
+    }
+
+    /// <summary>
+    /// ISO/IEC 15444-1, G.2.2 and G.3.2: the inverse RCT — G = Y0 − ⌊(Y2 + Y1) / 4⌋, R = Y2 + G, B = Y1 + G, rounded down also for a negative
+    /// sum — and the inverse ICT with the coefficients 1.402, 0.34413, 0.71414 and 1.772.
+    /// </summary>
+    [Fact]
+    public void InverseComponentTransforms_AsG22AndG32()
+    {
+        float[] y0 = [100, 100], y1 = [-20, -40], y2 = [30, 9];
+        JpxWavelet.InverseColor(y0, y1, y2, 2, reversible: true);
+        Assert.Equal([128f, 98f, 78f], new[] { y0[0], y1[0], y2[0] });
+        Assert.Equal([117f, 108f, 68f], new[] { y0[1], y1[1], y2[1] });
+        float[] y = [100], cb = [10], cr = [-20];
+        JpxWavelet.InverseColor(y, cb, cr, 1, reversible: false);
+        Assert.Equal(100 + 1.402 * -20, y[0], 0.001);
+        Assert.Equal(100 - 0.34413 * 10 - 0.71414 * -20, cb[0], 0.001);
+        Assert.Equal(100 + 1.772 * 10, cr[0], 0.001);
+    }
+
     [TestPdfsFact]
-    public void TwoTilesWithEmptyTileParts_DecodeLikeTheWindowsReader()
+    public void TwoTilesWithEmptyTileParts_DecodedWhole()
     {
         // 128 × 64 grey in two tiles with empty tile-parts in between; one of the reference readers shows a black area
         using var doc = PdfDocument.Open(File.ReadAllBytes(PdfJs("bug_jpx.pdf")));

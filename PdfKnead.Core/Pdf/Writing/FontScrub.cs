@@ -268,7 +268,7 @@ internal static class FontScrub
     {
         var cleared = new PdfArray();
         for (var i = 0; i < widths.Count; i++)
-            cleared.Add(first + i is >= 0 and < 256 && used[first + i] ? widths.Get(i) ?? PdfInteger.Of(0) : PdfInteger.Of(0));
+            cleared.Add(first + i is >= 0 and < 256 && used[first + i] ? widths.Get(i) : PdfInteger.Of(0));
         return cleared;
     }
 

@@ -18,6 +18,12 @@ public sealed class RgbaImage(int width, int height, byte[] pixels)
     /// <summary>R, G, B, A per pixel.</summary>
     public byte[] Pixels { get; } = pixels;
 
+    /// <summary>
+    /// The file had an error the reader read past (a palette index beyond the palette, RFC 2083, 4.1.2: read as opaque black, as the reference
+    /// implementation does); callers that need a whole image (a scanned page) refuse it (FG 1013).
+    /// </summary>
+    public bool Damaged { get; internal set; }
+
     /// <summary>Creates a fully transparent image.</summary>
     /// <param name="width">Width in px.</param>
     /// <param name="height">Height in px.</param>
@@ -68,7 +74,7 @@ public sealed class RgbaImage(int width, int height, byte[] pixels)
 /// a wrong CRC, IHDR not first, a second palette or one after the image data, image data not in one run (docs/FEHLERGEDAECHTNIS.md, No. 940).
 /// Ancillary chunks it does not use, or with a wrong CRC or in a wrong place, are passed over (RFC 2083, 10.1).
 /// </summary>
-/// <remarks>16-bit samples are reduced to their upper byte; tRNS is applied to greyscale, RGB (8 and 16 bits, the key compared with the full
+/// <remarks>16-bit samples are scaled to 8 bits by the rounded linear equation of RFC 2083, 10.4; tRNS is applied to greyscale, RGB (8 and 16 bits, the key compared with the full
 /// sample) and palette images.</remarks>
 public static class PngDecoder
 {
@@ -149,6 +155,15 @@ public static class PngDecoder
         if (width <= 0 || height <= 0 || (long)width * height > MaxPixels) throw new InvalidDataException("PNG-Größe ungültig");
         var channels = colorType switch { 0 => 1, 2 => 3, 3 => 1, 4 => 2, 6 => 4, _ => throw new InvalidDataException("PNG-Farbart") };
         if (colorType == 3 && palette is null) throw new InvalidDataException("PNG: Palette fehlt");
+        // tRNS of an unexpected length is passed over as a whole (RFC 2083, 10.1: an unexpected value in an ancillary chunk; 4.2.9: two bytes
+        // for grey, six for RGB, none with an alpha channel); one longer than the palette is cut to it, as the reference implementation does
+        transparency = colorType switch
+        {
+            0 => transparency is { Length: 2 } ? transparency : null,
+            2 => transparency is { Length: 6 } ? transparency : null,
+            3 when transparency is not null && palette is not null => transparency[..Math.Min(transparency.Length, palette.Length / 3)],
+            _ => null,
+        };
         // Allowed bit depths per colour type (ISO/IEC 15948, 11.2.2); any other (such as 0) would later divide by zero
         var depthOk = colorType switch
         {
@@ -273,7 +288,8 @@ public static class PngDecoder
             case 8:
                 return line[index];
             case 16:
-                return line[index * 2];
+                // the most accurate scaling, ROUND(v · 255 / 65535) (RFC 2083, 10.4; before, the upper byte — up to one step off)
+                return ((line[index * 2] << 8 | line[index * 2 + 1]) * 255 + 32767) / 65535;
             default:
                 var bit = index * depth;
                 var value = (line[bit >> 3] >> (8 - depth - (bit & 7))) & ((1 << depth) - 1);
@@ -308,10 +324,19 @@ public static class PngDecoder
                 break;
             case 3:
                 var index = Sample(line, col, depth, raw: true);
-                if (palette is null || index * 3 + 2 >= palette.Length) return;
-                r = palette[index * 3];
-                g = palette[index * 3 + 1];
-                b = palette[index * 3 + 2];
+                // an index beyond the palette is an error (RFC 2083, 4.1.2): opaque black as the reference implementation draws it (the palette
+                // filled up to 256 entries with black), the image reported as damaged (FG 1013: before, silently left transparent)
+                if (palette is null || index * 3 + 2 >= palette.Length)
+                {
+                    image.Damaged = true;
+                    (r, g, b) = (0, 0, 0);
+                }
+                else
+                {
+                    r = palette[index * 3];
+                    g = palette[index * 3 + 1];
+                    b = palette[index * 3 + 2];
+                }
                 if (transparency is not null && index < transparency.Length) a = transparency[index];
                 break;
             case 4:

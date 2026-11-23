@@ -914,8 +914,9 @@ internal static class ContentConformance
     {
         var filters = new PdfArray([PdfName.Get("AHx")]);
         var parms = new PdfArray([PdfNull.Instance]);
-        var filter = dict.Get(PdfName.Get("F")) ?? dict.Get(PdfName.Filter);
-        var given = dict.Get(PdfName.Get("DP")) ?? dict.Get(PdfName.DecodeParms);
+        // the abbreviation or the full name (a missing entry reads as the null object: before, a full /Filter was lost here, No. 1004)
+        var filter = dict.Get(PdfName.Get("F")) is { } shortFilter and not PdfNull ? shortFilter : dict.Get(PdfName.Filter);
+        var given = dict.Get(PdfName.Get("DP")) is { } shortParms and not PdfNull ? shortParms : dict.Get(PdfName.DecodeParms);
         if (filter is PdfName single)
         {
             filters.Add(single);

@@ -244,6 +244,7 @@ public sealed partial class PageInterpreter
     /// </summary>
     internal static PooledBytes PageContent(PdfDocument doc, PdfDictionary page)
     {
+        // (the other readers of /Contents as an array keep to ContentPartsLimit as well)
         switch (page.Get(PdfName.Contents))
         {
             case PdfStream s:
@@ -253,11 +254,17 @@ public sealed partial class PageInterpreter
                 var pieces = new List<PooledBytes>();
                 try
                 {
+                    long total = 0;
                     for (var i = 0; i < parts.Count; i++)
-                        if (parts.Get(i) is PdfStream part) pieces.Add(ContentBytes(doc, part));
-                    var total = pieces.Sum(p => (long)p.Length + 1);
-                    if (total > Array.MaxLength) throw new PdfLimitException(Tr.T("Der Seiteninhalt ist zu groß."));
-                    var buffer = System.Buffers.ArrayPool<byte>.Shared.Rent((int)Math.Max(total, 1));
+                    {
+                        if (parts.Get(i) is not PdfStream part) continue;
+                        var piece = ContentBytes(doc, part);
+                        pieces.Add(piece);
+                        total += piece.Length + 1L;
+                        if (total > ContentPartsLimit(parts.Count)) throw new PdfLimitException(Tr.T("Der Seiteninhalt ist zu groß."));
+                    }
+                    // large: allocated and counted, not rented — the pool would keep it after the page (docs/FEHLERGEDAECHTNIS.md, No. 1003)
+                    var buffer = DecodedMemory.Rent((int)Math.Max(total, 1), out var pooled);
                     var length = 0;
                     foreach (var piece in pieces)
                     {
@@ -265,7 +272,7 @@ public sealed partial class PageInterpreter
                         length += piece.Length;
                         buffer[length++] = (byte)'\n';   // operators may span the stream boundaries, tokens may not
                     }
-                    return new PooledBytes(buffer, length, pooled: true);
+                    return new PooledBytes(buffer, length, pooled);
                 }
                 finally
                 {
@@ -276,6 +283,16 @@ public sealed partial class PageInterpreter
                 return new PooledBytes([], 0, pooled: false);
         }
     }
+
+    /// <summary>
+    /// The bound of all parts of a page's content together (/Contents as an array, each part followed by one end of line): no more than one
+    /// stream may decode to (<see cref="PdfLimits.MaxDecodedStreamBytes"/>), counted after every part before the next is decoded. One small
+    /// decompression bomb named again and again in /Contents was decoded once per mention and held at once — 24 GB and minutes from a file
+    /// of 256 KB (docs/FEHLERGEDAECHTNIS.md, No. 1002). Every reader that puts the parts together keeps to it and, beyond it, does what it does
+    /// with a single stream above the limit.
+    /// </summary>
+    /// <param name="parts">The number of entries in /Contents.</param>
+    internal static long ContentPartsLimit(int parts) => Math.Min(Array.MaxLength, PdfLimits.MaxDecodedStreamBytes + parts);
 
     // Forms and Type 3 glyphs are often drawn many times (CAD symbols, letters): from the second
     // use on, the decoded content is kept for this build (capped)
@@ -335,8 +352,11 @@ public sealed partial class PageInterpreter
         {
             throw;
         }
-        catch (PdfException)
+        catch (PdfException e)
         {
+            // shown empty, and said so: a content stream PDF-Knead cannot decode (an unknown or damaged filter) is noted among the document's
+            // problems (ISO 32000-2, I.2 sentence 12, I.3) — before it stayed empty without a word (M3, Annex I, 23.11.2026); the same cause once
+            doc.AddProblem(Tr.T("Ein Inhalt der Datei lässt sich nicht lesen ({0}); er wird leer gezeigt.", e.Message));
             return new PooledBytes([], 0, pooled: false);
         }
     }
@@ -353,6 +373,11 @@ public sealed partial class PageInterpreter
     private void Execute(PooledBytes content, PdfDictionary? resources, CancellationToken cancel)
     {
         _cancel = cancel;
+        // the bytes read count towards the work limit as well, 64 to an operator (16 million operators: 1 GB, as much as one stream may
+        // decode to): a large form of nothing but white space drawn again and again has no operator, and 64 uses of one form of 256 MB took
+        // six minutes over drawing, redacting and saving (docs/FEHLERGEDAECHTNIS.md, No. 1002)
+        _operations += content.Length >> 6;
+        if (_operations + _builder.ShadingWork > _maxOperations && OverBudget()) return;
         var parser = new ContentParser(content.Array, content.Length);
         var counter = 0;
         var timer = OperatorTimer;
@@ -683,7 +708,9 @@ public sealed partial class PageInterpreter
         if (obj is PdfName { Value: "DeviceGray" or "G" }) return DeviceSpace(1, resources);
         if (obj is PdfName { Value: "DeviceRGB" or "RGB" }) return DeviceSpace(3, resources);
         if (obj is PdfName { Value: "DeviceCMYK" or "CMYK" }) return DeviceSpace(4, resources);
-        var key = obj is PdfName n ? resources?.GetDictionary(PdfName.Get("ColorSpace"))?.Get(n) ?? obj : obj;
+        // a name the resources do not list stays the name: a missing entry reads as the null object, and all such names shared one entry of
+        // the cache — /Pattern after a name not listed drew in that name's space (docs/FEHLERGEDAECHTNIS.md, No. 1004)
+        var key = obj is PdfName n && resources?.GetDictionary(PdfName.Get("ColorSpace"))?.Get(n) is { } listed and not PdfNull ? listed : obj;
         // a resource name for a device space (/CS0 /DeviceCMYK) is the device space: also redefined by the group (No. 568)
         if (!ReferenceEquals(key, obj) && key is PdfName { Value: "DeviceGray" or "DeviceRGB" or "DeviceCMYK" }) return Space(key, resources);
         if (_spaceCache.TryGetValue(key, out var cached)) return cached;
@@ -1469,7 +1496,8 @@ public sealed partial class PageInterpreter
         if (!image.IsStencil && _gs.FillOverprint)
         {
             var dict = image.Dictionary;
-            var overprints = OverprintsIn(dict.Get(PdfName.Get("ColorSpace")) ?? dict.Get(PdfName.Get("CS")), image.Resources);
+            // an inline image's dictionary has its abbreviations expanded (ContentParser), /ColorSpace stands there
+            var overprints = OverprintsIn(dict.Get(PdfName.Get("ColorSpace")), image.Resources);
             var style = _builder.PaintAt(paint);
             paint = _builder.AddPaint(style with { Overprint = (byte)((style.Overprint & ~1) | (overprints ? 1 : 0)) });
         }

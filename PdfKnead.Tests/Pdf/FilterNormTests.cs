@@ -52,6 +52,18 @@ public sealed class FilterNormTests
         Assert.Equal(original, Decode(encoded, dict));
     }
 
+    /// <summary>
+    /// 7.4.1 sentences 48, 49, 52, 53: after the pattern of the standard's example (own data) — a page content packed with Flate and then
+    /// encoded in ASCII base-85, /Filter [/ASCII85Decode /FlateDecode] without /DecodeParms, decodes to the unfiltered content.
+    /// </summary>
+    [Fact]
+    public void Chain_Ascii85ThenFlate_AsTheExample()
+    {
+        var content = Encoding.ASCII.GetBytes("2 J BT /F1 12 Tf 72.5 712 TD (Ein ungefilterter Inhalt) Tj T* (zweite Zeile) Tj ET");
+        var dict = Dict(("Filter", new PdfArray { PdfName.Get("ASCII85Decode"), PdfName.Get("FlateDecode") }));
+        Assert.Equal(content, Decode(Ascii85Encode(Zlib(content)), dict));
+    }
+
     /// <summary>7.4.1, Table 6: a filter that is not one of the standard filters (nor a registered extension) makes the stream unreadable.</summary>
     [Fact]
     public void UnknownFilter_IsAnError() =>
@@ -193,6 +205,81 @@ public sealed class FilterNormTests
             ? Dict(("Filter", PdfName.Get("LZWDecode")))
             : Dict(("Filter", PdfName.Get("LZWDecode")), ("DecodeParms", Dict(("EarlyChange", PdfInteger.Of(0)))));
         Assert.Equal(data, Decode(LzwEncode(data, earlyChange), dict));
+    }
+
+    /// <summary>
+    /// 7.4.4.2, Table 7 (sentences 17–40, 45, 46): the encoding of the standard's example sequence — clear-table, then codes of 9 bits for
+    /// single characters and table entries from 258 on, EOD 257 — packed high-order bit first; the norm's encoder of this class writes exactly
+    /// these codes and PDF-Knead decodes them back (EarlyChange 1, the default).
+    /// </summary>
+    [Fact]
+    public void Lzw_Table7_EncodedAndDecoded()
+    {
+        byte[] input = [45, 45, 45, 45, 45, 65, 45, 45, 45, 66];
+        // the codes of Table 7: 256 (clear), 45, 258 (45 45), 258, 65, 259 (45 45 45), 66, 257 (EOD) — 9 bits each, high-order bit first
+        var bits = string.Concat(new[] { 256, 45, 258, 258, 65, 259, 66, 257 }.Select(c => Convert.ToString(c, 2).PadLeft(9, '0')));
+        var packed = new byte[(bits.Length + 7) / 8];
+        for (var i = 0; i < bits.Length; i++)
+            if (bits[i] == '1') packed[i >> 3] |= (byte)(0x80 >> (i & 7));
+        Assert.Equal(packed, LzwEncode(input, 1));
+        Assert.Equal(input, Decode(packed, Dict(("Filter", PdfName.Get("LZWDecode")))));
+    }
+
+    /// <summary>
+    /// 7.4.1, Table 6 (column „Parameters“): ASCIIHexDecode, ASCII85Decode and RunLengthDecode take no parameters — a /DecodeParms beside them,
+    /// even one naming a predictor, changes nothing; FlateDecode and LZWDecode take theirs (the predictor counts there, for both).
+    /// </summary>
+    [Fact]
+    public void Table6_FiltersWithoutParameters_IgnoreDecodeParms()
+    {
+        var parms = Dict(("Predictor", PdfInteger.Of(12)), ("Columns", PdfInteger.Of(2)), ("Colors", PdfInteger.Of(1)));
+        foreach (var (filter, data) in new (string, byte[])[]
+                 {
+                     ("ASCIIHexDecode", "41 42 43 44>"u8.ToArray()),
+                     ("ASCII85Decode", "5sdq,~>"u8.ToArray()),
+                     ("RunLengthDecode", [3, (byte)'A', (byte)'B', (byte)'C', (byte)'D', 128]),
+                 })
+        {
+            var plain = Decode(data, Dict(("Filter", PdfName.Get(filter))));
+            Assert.Equal("ABCD"u8.ToArray(), plain);
+            Assert.Equal(plain, Decode(data, Dict(("Filter", PdfName.Get(filter)), ("DecodeParms", parms))));
+        }
+        byte[] rows = [2, 1, 2, 2, 3, 4];   // two PNG rows of two bytes, the second „Up“
+        Assert.Equal([1, 2, 4, 6], Decode(Zlib(rows), Dict(("Filter", PdfName.Get("FlateDecode")), ("DecodeParms", parms))));
+        Assert.Equal([1, 2, 4, 6], Decode(LzwEncode(rows, 1), Dict(("Filter", PdfName.Get("LZWDecode")), ("DecodeParms", parms))));
+    }
+
+    /// <summary>
+    /// 7.4.4.4, Table 9: the PNG tags are 0 to 4 (None, Sub, Up, Average, Paeth). A row with another tag (5, 7, 255) keeps its bytes, as two of
+    /// the reference readers read it, and the stream counts as damaged — in the whole stream and in the image rows (before: read as None
+    /// without a note; docs/FEHLERGEDAECHTNIS.md, No. 1009, S-A A118).
+    /// </summary>
+    [Theory]
+    [InlineData(5)]
+    [InlineData(7)]
+    [InlineData(255)]
+    public void Png_RowTagOutsideTable9_DataAsTheyAre_Damage(int tag)
+    {
+        const int width = 4;
+        byte[] rows = [0, 10, 20, 30, 40, (byte)tag, 50, 60, 70, 80, 2, 1, 1, 1, 1];
+        var result = StreamFilters.Decode(Zlib(rows), Predicted(12, 1, 8, width));
+        Assert.Equal([10, 20, 30, 40, 50, 60, 70, 80, 51, 61, 71, 81], result.Data);
+        Assert.True(result.Truncated);
+        var valid = StreamFilters.Decode(Zlib([0, 10, 20, 30, 40]), Predicted(12, 1, 8, width));
+        Assert.False(valid.Truncated);
+
+        var zlib = Zlib(rows);
+        var image = $"<< /Type /XObject /Subtype /Image /Width {width} /Height 3 /ColorSpace /DeviceGray /BitsPerComponent 8 /Filter /FlateDecode " +
+                    $"/DecodeParms << /Predictor 12 /Columns {width} >> /Length {zlib.Length} >>\nstream\n{Latin1(zlib)}\nendstream";
+        using var doc = Core.Pdf.Document.PdfDocument.Open(DocumentStructureNormTests.FileOf(
+            ["<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+             "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources << /XObject << /Im0 5 0 R >> >> /Contents 4 0 R >>",
+             "<< /Length 0 >>\nstream\n\nendstream", image]));
+        using var reader = Assert.IsType<Core.Pdf.Graphics.ImageRows>(Core.Pdf.Graphics.ImageRows.Open(doc, Assert.IsType<PdfStream>(doc.GetObject(5)), width));
+        var read = new byte[3 * width];
+        for (var y = 0; y < 3; y++) Assert.True(reader.Read(read.AsSpan(y * width, width)));
+        Assert.Equal(result.Data, read);
+        Assert.True(reader.Truncated);
     }
 
     /// <summary>
@@ -603,6 +690,76 @@ public sealed class FilterNormTests
         var data = Sample(100, 9);
         Assert.Equal(data, Decode(Zlib(data), Predicted(1, 3, 8, 10)));
         Assert.Equal(data, Decode(Zlib(data), Dict(("Filter", PdfName.Get("FlateDecode")), ("DecodeParms", new PdfDictionary()))));
+    }
+
+    /// <summary>
+    /// Table 8: Colors, BitsPerComponent and Columns count only with a Predictor above 1 (<see cref="Predictor1_IsNone"/>) and default to 1, 8
+    /// and 1 (docs/normabgleich/M2-filter.md, row 13): without the three entries PNG „Up“ and TIFF predictor 2 read rows of one byte, as
+    /// with them given so — one row over all the data would read otherwise.
+    /// </summary>
+    [Fact]
+    public void Predictor_ColorsBitsColumns_DefaultOneEightOne()
+    {
+        byte[] rows = [2, 5, 2, 3, 2, 250];   // three rows of one byte, each with the tag „Up“
+        var png = Dict(("Filter", PdfName.Get("FlateDecode")), ("DecodeParms", Dict(("Predictor", PdfInteger.Of(12)))));
+        Assert.Equal([5, 8, 2], Decode(Zlib(rows), png));
+        Assert.Equal(Decode(Zlib(rows), Predicted(12, 1, 8, 1)), Decode(Zlib(rows), png));
+        var tiff = Dict(("Filter", PdfName.Get("FlateDecode")), ("DecodeParms", Dict(("Predictor", PdfInteger.Of(2)))));
+        Assert.Equal([5, 3, 250], Decode(Zlib([5, 3, 250]), tiff));   // one pixel per row: nothing to its left
+    }
+
+    /// <summary>
+    /// Table 8 (7.4.4.3 sentences 13, 14, 16, 17): /Colors is 1 or greater since PDF 1.3 — a predictor of 33 and 40 colours decodes as it is
+    /// given, TIFF and PNG (before, clamped to 32 without a note: wrong data; docs/FEHLERGEDAECHTNIS.md, No. 1007). Of the reference readers
+    /// only one reads such a stream (S-A A117).
+    /// </summary>
+    [Theory]
+    [InlineData(33)]
+    [InlineData(40)]
+    public void Predictor_ColorsAbove32_DecodedAsGiven(int colors)
+    {
+        const int width = 3, height = 4;
+        var samples = Sample(colors * width * height, colors);
+        var tiff = StreamFilters.Decode(Zlib(TiffEncode(samples, width, height, colors, 8)), Predicted(2, colors, 8, width));
+        Assert.Equal(samples, tiff.Data);
+        Assert.False(tiff.Truncated);
+        var png = StreamFilters.Decode(Zlib(PngEncode(samples, width, height, colors, 8, y => y % 5)), Predicted(12, colors, 8, width));
+        Assert.Equal(samples, png.Data);
+        Assert.False(png.Truncated);
+    }
+
+    /// <summary>
+    /// Table 8 (7.4.4.3 sentences 16, 20, 23): /Colors below 1, /BitsPerComponent other than 1, 2, 4, 8, 16 and /Columns below 1 are values the
+    /// table does not allow — the data as they are and the stream damaged, the rule of an unassigned /Predictor (No. 938); the image rows hand
+    /// such a stream to the whole decoding, which reads it by the same rule (before: clamped without a note, 3 and 12 bits passed; No. 1007).
+    /// So do the bounds against malicious files, /Colors above <see cref="Predictor.MaxColors"/> and /Columns above 2^24.
+    /// </summary>
+    [Theory]
+    [InlineData(0, 8, 8)]
+    [InlineData(-3, 8, 8)]
+    [InlineData(1, 3, 8)]
+    [InlineData(1, 12, 8)]
+    [InlineData(1, 32, 8)]
+    [InlineData(1, 8, 0)]
+    [InlineData(Predictor.MaxColors + 1, 8, 1)]
+    [InlineData(1, 8, (1 << 24) + 1)]
+    public void Predictor_ValueTable8DoesNotAllow_DataAsTheyAre_Damage(int colors, int bits, int columns)
+    {
+        var data = Sample(64, 7);
+        foreach (var predictor in new[] { 2, 12 })
+        {
+            var result = StreamFilters.Decode(Zlib(data), Predicted(predictor, colors, bits, columns));
+            Assert.Equal(data, result.Data);
+            Assert.True(result.Truncated);
+        }
+        var zlib = Zlib(data);
+        var image = $"<< /Type /XObject /Subtype /Image /Width 8 /Height 8 /ColorSpace /DeviceGray /BitsPerComponent 8 /Filter /FlateDecode " +
+                    $"/DecodeParms << /Predictor 12 /Colors {colors} /BitsPerComponent {bits} /Columns {columns} >> /Length {zlib.Length} >>\nstream\n{Latin1(zlib)}\nendstream";
+        using var doc = Core.Pdf.Document.PdfDocument.Open(DocumentStructureNormTests.FileOf(
+            ["<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+             "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources << /XObject << /Im0 5 0 R >> >> /Contents 4 0 R >>",
+             "<< /Length 0 >>\nstream\n\nendstream", image]));
+        Assert.Null(Core.Pdf.Graphics.ImageRows.Open(doc, Assert.IsType<PdfStream>(doc.GetObject(5)), 8));
     }
 
     // ------------------------------------------------------------ 7.4.5 run length

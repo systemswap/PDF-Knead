@@ -381,19 +381,26 @@ public static class PdfImageDecoder
                 // a /ColorSpace of the image that fits the channels determines them, the colour specifications of the data are ignored
                 // (ISO 32000-2, 7.4.9)
                 ColorSpace? declared = spaceObj is not PdfNull && !stencil ? space : null;
+                // /SMaskInData for data without a channel definition, channels no colour fits (docs/FEHLERGEDAECHTNIS.md, No. 996)
                 if (Jpx(decoded.Data, doc, applyPalette: !(declared?.IsIndexed ?? false), n => declared is null || declared.Components != n, limits.Full,
-                        declared is { IsIndexed: true } ? decodeArray : null) is not { } jpx) return null;
+                        declared is { IsIndexed: true } ? decodeArray : null, SMaskInData(dict), declared?.Components) is not { } decodedJpx) return null;
+                var jpx = stencil ? decodedJpx : decodedJpx.Fitted(declared?.Components);
                 (width, height) = (jpx.Width, jpx.Height);
                 if (stencil) return JpxStencil(jpx, inverted, stencilColor);
                 var jpxSpace = JpxSpace(declared, jpx, doc, renderingIntent, blackPoint);
                 // /Decode counts with a /ColorSpace of the image (on the samples stretched to 8 bits, the same mapping), without one it is
                 // ignored (ISO 32000-2, 7.4.9); for /Indexed the decoder has mapped the raw indices with their own bits already
                 // (docs/FEHLERGEDAECHTNIS.md, No. 739, 945)
-                var converter = new RowConverter(jpxSpace, 8, ReferenceEquals(jpxSpace, declared) && !declared.IsIndexed ? decodeArray : null);
+                // an image in the wide working space from its colours at 16 bits: its 8-bit steps are coarser than those of sRGB
+                // (docs/FEHLERGEDAECHTNIS.md, No. 1092)
+                var fine = jpx.Fine is { } f && jpxSpace.Components == jpx.Channels ? f : null;
+                var converter = new RowConverter(jpxSpace, fine is null ? 8 : 16, ReferenceEquals(jpxSpace, declared) && !declared.IsIndexed ? decodeArray : null,
+                    exact: fine is not null);
+                var jpxData = fine ?? jpx.Samples;
                 // opacity from the image only with /SMaskInData and without a separate /SMask (ISO 32000-2, 8.9.5.1)
                 var alpha = mask is null && (dict.GetInteger(PdfName.Get("SMaskInData")) ?? 0) != 0 ? jpx.Alpha : null;
-                if (opaque && alpha is null && converter.IsGray) return new DecodedImage(width, height, ConvertGray(jpx.Samples, width, height, converter), ImagePixels.Gray);
-                rgba = Convert(jpx.Samples, width, height, converter, null);
+                if (opaque && alpha is null && converter.IsGray) return new DecodedImage(width, height, ConvertGray(jpxData, width, height, converter), ImagePixels.Gray);
+                rgba = Convert(jpxData, width, height, converter, null);
                 if (alpha is not null) ApplyAlpha(rgba, alpha, jpx.PremultipliedAlpha);
             }
             else if (stencil)
@@ -535,14 +542,20 @@ public static class PdfImageDecoder
         return new StreamFilters.DecodeResult(data, Truncated: truncated);
     }
 
+    /// <summary>/SMaskInData of a JPEG 2000 image: 1 (opacity) or 2 (premultiplied opacity) in the data, otherwise 0.</summary>
+    internal static int SMaskInData(PdfDictionary dict) => dict.GetInteger(PdfName.Get("SMaskInData")) switch { 1 => 1, 2 => 2, _ => 0 };
+
     /// <summary>Decodes JPEG 2000 (at most <paramref name="maxPixels"/>, otherwise reduced); null if broken.</summary>
     private static Filters.Jpx.JpxImage? Jpx(byte[] data, PdfDocument doc, bool applyPalette, Func<int, bool> ownColour, long maxPixels,
-        double[]? indexDecode = null)
+        double[]? indexDecode = null, int smaskInData = 0, int? declaredComponents = null)
     {
         try
         {
-            var image = Filters.Jpx.JpxDecoder.Decode(data, maxPixels, applyPalette, ownColour, indexDecode);
+            var image = Filters.Jpx.JpxDecoder.Decode(data, maxPixels, applyPalette, ownColour, indexDecode, smaskInData, declaredComponents);
             if (image.Truncated) doc.AddProblem(Tr.T("Mindestens ein Datenstrom ist beschädigt und nur teilweise lesbar."));
+            if (image.MissingFeatures.Length > 0)
+                doc.AddProblem(Tr.T("Ein JPEG-2000-Bild verlangt zum Anzeigen etwas, das PDF-Knead nicht kann ({0}); es wird gezeigt, so weit es sich lesen lässt.",
+                    Filters.Jpx.JpxRequirements.Describe(image.MissingFeatures)));
             return image;
         }
         catch (Exception e) when (e is IndexOutOfRangeException or ArgumentException or OverflowException or AggregateException or InvalidOperationException)
@@ -658,11 +671,15 @@ public static class PdfImageDecoder
         private readonly bool _row8;
         private readonly Rgb[]? _table;
         private readonly byte[][]? _remap;
+        private readonly bool _exact;
 
-        public RowConverter(ColorSpace space, int bpc, double[]? decodeArray)
+        /// <param name="exact">Every pixel through the colour space at its full depth, without the table to 8 bits that 16-bit images of a
+        /// colour-managed space otherwise take for speed (a JPEG 2000 image in the wide working space; docs/FEHLERGEDAECHTNIS.md, No. 1092).</param>
+        public RowConverter(ColorSpace space, int bpc, double[]? decodeArray, bool exact = false)
         {
             _space = space;
             _bpc = bpc;
+            _exact = exact;
             _n = Math.Max(space.Components, 1);
             _max = (1 << bpc) - 1;
             _decode = decodeArray is { } d && d.Length >= 2 * _n ? d : space.DefaultDecode(bpc);
@@ -681,7 +698,7 @@ public static class PdfImageDecoder
             // /Decode or 16 bits with colour spaces that have a fast path: one table raw value → 8 bits per component, then on like an
             // ordinary 8-bit image (going through ToRgb per pixel is 3–4 times slower). Grey 8-bit images already have _table for this
             var plain = ReferenceEquals(space, ColorSpace.DeviceRgb) || ReferenceEquals(space, ColorSpace.DeviceGray);
-            if (!_fast && !_row8 && bpc is 8 or 16 && !(_n == 1 && bpc == 8) && (plain || _n >= 3 && space.HasRow8)
+            if (!exact && !_fast && !_row8 && bpc is 8 or 16 && !(_n == 1 && bpc == 8) && (plain || _n >= 3 && space.HasRow8)
                 && IsUnit(space.DefaultDecode(8)))
             {
                 _remap = new byte[_n][];
@@ -817,7 +834,7 @@ public static class PdfImageDecoder
                         if (!raw.IsEmpty) raw[x * _n + c] = (ushort)v;
                         comps[c] = _decode[2 * c] + v * (_decode[2 * c + 1] - _decode[2 * c]) / _max;
                     }
-                    rgb = _space.ToRgb(comps);
+                    rgb = _exact ? _space.ToRgbExact(comps) : _space.ToRgb(comps);
                 }
                 rgba[dst] = rgb.R; rgba[dst + 1] = rgb.G; rgba[dst + 2] = rgb.B; rgba[dst + 3] = 255;
             }

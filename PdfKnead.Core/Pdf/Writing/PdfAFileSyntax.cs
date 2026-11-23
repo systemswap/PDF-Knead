@@ -277,7 +277,10 @@ internal static class PdfAFileSyntax
             var lastTrailer = last < 0 ? null : Trailer(Pdf.IO.PdfSource.FromBytes(tailBytes), last + 7);
             // linearized: the first object is the linearization dictionary, and its /L the length of the file (ISO 32000-1, F.2.2) — after an
             // incremental update the file is no longer read as linearized
-            var linearized = first.Success && new Pdf.Parsing.PdfParser(new Pdf.Parsing.PdfLexer(source)).ParseIndirectObject(first.Index)?.Value is PdfDictionary
+            // and it lies wholly within the first 1 024 bytes of the file (ISO 32000-1, F.2.2; ISO 32000-2, F.3.3) — before a dictionary
+            // further on still counted, and the comparison of both /ID applied to a file that is not linearized (M3, Annex F, 23.11.2026)
+            var end = first.Success ? text.IndexOf("endobj", first.Index, StringComparison.Ordinal) : -1;
+            var linearized = first.Success && end >= 0 && end + 6 <= 1024 && new Pdf.Parsing.PdfParser(new Pdf.Parsing.PdfLexer(source)).ParseIndirectObject(first.Index)?.Value is PdfDictionary
                 linearization && linearization.ContainsKey(PdfName.Get("Linearized")) && linearization.GetInteger(PdfName.Get("L")) == doc.FileSize;
             var firstAt = linearized ? text.IndexOf("trailer", first.Index, StringComparison.Ordinal) : -1;
             var firstPage = firstAt < 0 ? null : Trailer(source, firstAt + 7);

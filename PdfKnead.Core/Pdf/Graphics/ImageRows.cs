@@ -51,10 +51,9 @@ internal sealed class ImageRows : IRowSource, IDisposable
         var bpp = 1;
         if (predictor > 1)
         {
-            var colors = (int)(parms!.GetInteger(PdfName.Get("Colors")) ?? 1);
-            var bits = (int)(parms.GetInteger(PdfName.Get("BitsPerComponent")) ?? 8);
-            var columns = (int)(parms.GetInteger(PdfName.Get("Columns")) ?? 1);
-            if (colors is < 1 or > 32 || bits is not (1 or 2 or 4 or 8 or 16) || columns < 1) return null;
+            // the values of Table 8 by the same rule as the whole stream (No. 1007): out of range, the whole stream decodes them
+            if (Predictor.Parameters(parms) is not { Valid: true } p) return null;
+            var (colors, bits, columns) = (p.Colors, p.Bits, p.Columns);
             // the predictor must match the image row, TIFF only with 8 bits; otherwise decode the whole stream instead
             if ((long)colors * bits * columns + 7 >> 3 != rowBytes) return null;
             if (predictor == 2 && bits != 8) return null;
@@ -78,7 +77,7 @@ internal sealed class ImageRows : IRowSource, IDisposable
             var got = Fill(_filtered);
             if (got == 0) return false;
             _filtered.AsSpan(1, _rowBytes).CopyTo(row);
-            Predictor.PngRow(_filtered[0], row, _previous, _bpp);
+            if (!Predictor.PngRow(_filtered[0], row, _previous, _bpp)) Truncated = true;   // a tag Table 9 does not know (No. 1009)
             row.CopyTo(_previous);
             return true;
         }

@@ -66,6 +66,9 @@ public sealed class XRefTable
     {
         if (Entries.Count >= MaxEntries && !Entries.ContainsKey(number))
             throw new PdfLimitException(Tr.T("Mehr Querverweise als Objekte möglich ({0}).", MaxEntries));
+        // object 0 heads the free list and is never an object (ISO 32000-2, 7.3.10, 7.5.4) — also where a table or stream lists it as in use
+        // (docs/FEHLERGEDAECHTNIS.md, No. 1008)
+        if (number == 0 && entry.Type != XRefEntryType.Free) entry = new XRefEntry(XRefEntryType.Free, 0, 0);
         Entries.TryAdd(number, entry);
     }
 
@@ -302,6 +305,8 @@ public static class XRefReader
         var size = dict.GetInteger(PdfName.Size) ?? 0;
         var index = dict.GetArray(PdfName.Index);
         var ranges = new List<(long Start, long Count)>();
+        // the pairs in the order they stand, also where they do not ascend (7.5.8.2, Table 17 asks for ascending ones; read as common
+        // readers do, S-A A116); the writer always writes them ascending
         if (index is { Count: >= 2 })
         {
             for (var i = 0; i + 1 < index.Count; i += 2)
@@ -341,6 +346,9 @@ public static class XRefReader
                 }
                 table.AddIfMissing((int)number, entry);
             }
+            // the entries beyond Annex C are passed over without multiplying the count of the file: a count near 2^62 made the position
+            // negative and the next range read before the data (probe of M3, 23.11.2026, B11)
+            if (count > usable && count - usable >= (data.Length - pos) / entryLength) break;
             if (count > usable) pos += (count - usable) * entryLength;
             if (pos >= data.Length) break;
         }
@@ -390,7 +398,7 @@ public static class XRefRebuilder
             var lexer = new PdfLexer(source, start);
             var number = lexer.Next();
             var generation = lexer.Next();
-            if (number.Integer is < 0 or > int.MaxValue) continue;
+            if (number.Integer is <= 0 or > int.MaxValue) continue;   // object 0 is no object (No. 1008)
             table.Entries[(int)number.Integer] = new XRefEntry(XRefEntryType.InFile, start, (int)Math.Clamp(generation.Integer, 0, 65535));
 
             // Cross-reference streams carry trailer keys, object streams carry further objects

@@ -383,6 +383,237 @@ internal static class TestJpegWriter
         return [.. o];
     }
 
+    /// <summary>
+    /// A Huffman table with every symbol a scan may need, all codes of one length (Annex C, B.2.4.2): DC — the categories 0 to 11 at 4 bits;
+    /// AC — run/size for runs 0–15 and sizes 1–10, ZRL (X'F0') and the end-of-band runs EOB0–EOB14 (X'00' … X'E0', G.1.2.2) at 8 bits (176
+    /// codes; none of all ones). The typical tables of K.3 lack EOB1–EOB14, which progressive scans need.
+    /// </summary>
+    internal static (byte[] Counts, byte[] Symbols) Flat(bool ac)
+    {
+        byte[] symbols = ac
+            ? [.. Enumerable.Range(0, 15).Select(r => (byte)(r << 4)), (byte)0xF0, .. Enumerable.Range(0, 16).SelectMany(r => Enumerable.Range(1, 10).Select(s => (byte)(r << 4 | s)))]
+            : [.. Enumerable.Range(0, 12).Select(s => (byte)s)];
+        var counts = new byte[16];
+        counts[ac ? 7 : 3] = (byte)symbols.Length;
+        return (counts, symbols);
+    }
+
+    /// <summary>The codes of a Huffman table (Annex C): in order of length, counting up within a length and doubling to the next one.</summary>
+    private static Dictionary<int, (int Code, int Length)> Codes((byte[] Counts, byte[] Symbols) t)
+    {
+        var table = new Dictionary<int, (int Code, int Length)>();
+        int code = 0, k = 0;
+        for (var length = 1; length <= 16; length++, code <<= 1)
+            for (var i = 0; i < t.Counts[length - 1]; i++) table[t.Symbols[k++]] = (code++, length);
+        return table;
+    }
+
+    /// <summary>
+    /// A Huffman coded image with any scans (ITU-T T.81, F.1.2 sequential; G.1.2 progressive): SOI, DQT, the frame header
+    /// <paramref name="sof"/> (X'C0', X'C1' sequential, X'C2' progressive), the scans each with the DHT segments <paramref name="tables"/>
+    /// gives for it (null: none new; the first scan needs all it uses), before it what <paramref name="beforeScan"/> gives, EOI. Each component
+    /// takes its tables from its Td and Ta; a table given before a later scan replaces the one of that destination from then on (B.2.4.2).
+    /// With <paramref name="restartInterval"/> a DRI segment, and every scan in intervals of that many MCUs with RSTm between them: each
+    /// interval starts with the predictions, the end-of-band run and the buffered correction bits at zero and ends with all of them sent
+    /// (E.1.4; G.1.2.2: EOBRUN; G.1.2.3: BE, BR). <paramref name="overlongRuns"/> lengthens an end-of-band run sent at the end of an interval
+    /// by that many blocks — beyond the interval, which a decoder has to cut off at the restart marker (G.1.2.2: EOBRUN zero at its start).
+    /// </summary>
+    public static byte[] Huffman(int width, int height, Component[] comps, byte[][] quant, Scan[] scans, byte sof,
+        Func<int, Dictionary<(int Class, int Destination), (byte[] Counts, byte[] Symbols)>?> tables, Func<int, byte[]?>? beforeScan = null,
+        int restartInterval = 0, int overlongRuns = 0)
+    {
+        var o = new List<byte> { 0xFF, 0xD8 };
+        for (var q = 0; q < quant.Length; q++) Segment(o, 0xDB, [(byte)q, .. quant[q]]);
+        var frame = new List<byte> { 8, (byte)(height >> 8), (byte)height, (byte)(width >> 8), (byte)width, (byte)comps.Length };
+        foreach (var c in comps) frame.AddRange([(byte)c.Id, (byte)(c.H << 4 | c.V), (byte)c.Tq]);
+        Segment(o, sof, [.. frame]);
+        if (restartInterval > 0) Segment(o, 0xDD, [(byte)(restartInterval >> 8), (byte)restartInterval]);
+        var codes = new Dictionary<(int, int), Dictionary<int, (int Code, int Length)>>();
+        for (var index = 0; index < scans.Length; index++)
+        {
+            var scan = scans[index];
+            if (tables(index) is { } given)
+                foreach (var ((cls, dest), table) in given)
+                {
+                    Segment(o, 0xC4, [(byte)(cls << 4 | dest), .. table.Counts, .. table.Symbols]);
+                    codes[(cls, dest)] = Codes(table);
+                }
+            if (beforeScan?.Invoke(index) is { } extra) o.AddRange(extra);
+            var sos = new List<byte> { (byte)scan.Components.Length };
+            foreach (var i in scan.Components) sos.AddRange([(byte)comps[i].Id, (byte)(comps[i].Td << 4 | comps[i].Ta)]);
+            sos.AddRange([(byte)scan.Ss, (byte)scan.Se, (byte)(scan.Ah << 4 | scan.Al)]);
+            Segment(o, 0xDA, [.. sos]);
+            HuffmanScan Coder() => new(new BitWriter(), [.. scan.Components.Select(i => comps[i])], codes);
+            var coder = Coder();
+            var mcus = Mcus(width, height, comps, scan);
+            for (var m = 0; m < mcus.Count; m++)
+            {
+                if (restartInterval > 0 && m > 0 && m % restartInterval == 0)
+                {
+                    o.AddRange(coder.Finish(overlongRuns));
+                    o.AddRange([0xFF, (byte)(0xD0 + (m / restartInterval - 1) % 8)]);
+                    coder = Coder();
+                }
+                foreach (var (slot, block) in mcus[m]) coder.Block(scan, slot, block);
+            }
+            o.AddRange(coder.Finish());
+        }
+        o.AddRange([0xFF, 0xD9]);
+        return [.. o];
+    }
+
+    /// <summary>
+    /// One Huffman coded scan: sequential blocks as F.1.2.1, F.1.2.2; progressive as G.1.2 — DC first with the point transform, DC
+    /// refinement one bit per block, AC first with end-of-band runs (EOBRUN, G.1.2.2), AC refinement with the correction bits of the
+    /// coefficients already non-zero, sent after the next symbol or with the end-of-band run (G.1.2.3; the procedure of libjpeg's
+    /// encode_mcu_AC_refine, written anew).
+    /// </summary>
+    private sealed class HuffmanScan(BitWriter bits, Component[] comps, Dictionary<(int, int), Dictionary<int, (int Code, int Length)>> codes)
+    {
+        private readonly int[] _prediction = new int[4];
+        private int _eobRun;
+        private readonly List<int> _pendingCorrections = [];
+        private int _acTable = -1;
+
+        private (int, int) Symbol(int cls, int dest, int symbol) => codes[(cls, dest)][symbol];
+
+        public void Block(Scan scan, int slot, short[] zz)
+        {
+            var c = comps[slot];
+            if (scan.Ss == 0)
+            {
+                if (scan.Ah == 0)
+                {
+                    var v = zz[0] >> scan.Al;
+                    var diff = v - _prediction[slot];
+                    _prediction[slot] = v;
+                    var size = Size(diff);
+                    bits.Write(Symbol(0, c.Td, size));
+                    bits.Write(diff < 0 ? diff + (1 << size) - 1 : diff, size);
+                }
+                else bits.Write(zz[0] >> scan.Al & 1, 1);
+                if (scan.Se == 0) return;
+                if (scan.Ah == 0 && scan.Al == 0)
+                {
+                    Sequential(c.Ta, zz);
+                    return;
+                }
+            }
+            _acTable = c.Ta;
+            if (scan.Ah == 0) First(zz, Math.Max(1, scan.Ss), scan.Se, scan.Al);
+            else Refine(zz, Math.Max(1, scan.Ss), scan.Se, scan.Al);
+        }
+
+        private void Sequential(int ta, short[] zz)
+        {
+            var run = 0;
+            for (var k = 1; k < 64; k++)
+            {
+                if (zz[k] == 0)
+                {
+                    run++;
+                    continue;
+                }
+                for (; run > 15; run -= 16) bits.Write(Symbol(1, ta, 0xF0));
+                var size = Size(zz[k]);
+                bits.Write(Symbol(1, ta, run << 4 | size));
+                bits.Write(zz[k] < 0 ? zz[k] + (1 << size) - 1 : zz[k], size);
+                run = 0;
+            }
+            if (run > 0) bits.Write(Symbol(1, ta, 0x00));
+        }
+
+        /// <summary>The coefficient after the point transform of AC scans: divided by 2^Al toward zero (G.1.2.2).</summary>
+        private static int Transformed(int v, int al) => v < 0 ? -(-v >> al) : v >> al;
+
+        private void EmitEobRun()
+        {
+            if (_eobRun == 0) return;
+            var n = 31 - int.LeadingZeroCount(_eobRun);
+            bits.Write(Symbol(1, _acTable, n << 4));
+            bits.Write(_eobRun - (1 << n), n);
+            foreach (var bit in _pendingCorrections) bits.Write(bit, 1);
+            _pendingCorrections.Clear();
+            _eobRun = 0;
+        }
+
+        private void First(short[] zz, int ss, int se, int al)
+        {
+            var run = 0;
+            for (var k = ss; k <= se; k++)
+            {
+                var v = Transformed(zz[k], al);
+                if (v == 0)
+                {
+                    run++;
+                    continue;
+                }
+                EmitEobRun();
+                for (; run > 15; run -= 16) bits.Write(Symbol(1, _acTable, 0xF0));
+                var size = Size(v);
+                bits.Write(Symbol(1, _acTable, run << 4 | size));
+                bits.Write(v < 0 ? v + (1 << size) - 1 : v, size);
+                run = 0;
+            }
+            if (run > 0 && ++_eobRun == 0x7FFF) EmitEobRun();
+        }
+
+        private void Refine(short[] zz, int ss, int se, int al)
+        {
+            var absolute = new int[64];
+            var lastNew = 0;
+            for (var k = ss; k <= se; k++)
+            {
+                absolute[k] = Math.Abs((int)zz[k]) >> al;
+                if (absolute[k] == 1) lastNew = k;
+            }
+            var run = 0;
+            var corrections = new List<int>();
+            for (var k = ss; k <= se; k++)
+            {
+                var a = absolute[k];
+                if (a == 0)
+                {
+                    run++;
+                    continue;
+                }
+                // a run of sixteen zeros before a later newly non-zero coefficient: ZRL, its corrections with it
+                while (run > 15 && k <= lastNew)
+                {
+                    EmitEobRun();
+                    bits.Write(Symbol(1, _acTable, 0xF0));
+                    run -= 16;
+                    foreach (var bit in corrections) bits.Write(bit, 1);
+                    corrections.Clear();
+                }
+                if (a > 1)
+                {
+                    corrections.Add(a & 1);   // already non-zero before: its next bit
+                    continue;
+                }
+                EmitEobRun();
+                bits.Write(Symbol(1, _acTable, run << 4 | 1));
+                bits.Write(zz[k] < 0 ? 0 : 1, 1);
+                foreach (var bit in corrections) bits.Write(bit, 1);
+                corrections.Clear();
+                run = 0;
+            }
+            if (run > 0 || corrections.Count > 0)
+            {
+                _eobRun++;
+                _pendingCorrections.AddRange(corrections);
+                if (_eobRun == 0x7FFF || _pendingCorrections.Count > 900) EmitEobRun();
+            }
+        }
+
+        public List<byte> Finish(int overlong = 0)
+        {
+            if (_eobRun > 0) _eobRun = Math.Min(_eobRun + overlong, 0x7FFF);
+            EmitEobRun();
+            return bits.Finish();
+        }
+    }
+
     /// <summary>The magnitude category of a value (F.1.2.1.1): the number of bits of its magnitude.</summary>
     private static int Size(int v) => v == 0 ? 0 : 32 - int.LeadingZeroCount(Math.Abs(v));
 

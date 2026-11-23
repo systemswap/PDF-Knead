@@ -57,7 +57,7 @@ public static class ImageExport
     /// <summary>Everything about an image that decides how it is written.</summary>
     private sealed record Setup(Kind Kind, int Width, int Height, int Bpc, int Components, int RowBytes, PdfDictionary Dict, ColorSpace? Space,
         double[]? Decode, bool InvertGray, byte[]? Profile, (byte[] Rgb, bool Converted, byte[]? Profile)? Palette, double[]? ColorKey,
-        PdfStream? Mask, bool MaskInside, string Extension);
+        PdfStream? Mask, bool MaskInside, string Extension, double[]? Matte = null);
 
     /// <summary>What <see cref="Write"/> will write for the image, without decoding it.</summary>
     /// <param name="doc">The document.</param>
@@ -78,7 +78,9 @@ public static class ImageExport
     /// called at most once; null = not written.</param>
     /// <returns>What was written.</returns>
     /// <exception cref="PdfException">The image data cannot be read, or the image cannot be saved.</exception>
-    public static ImageExportPlan Write(PdfDocument doc, ImageSource source, Stream output, Func<Stream>? maskOutput)
+    /// <param name="drawn">The size of the image as drawn on its page in points (the lengths of its axes), or null: it gives the resolution of
+    /// a file that notes one (TIFF; FG 1019).</param>
+    public static ImageExportPlan Write(PdfDocument doc, ImageSource source, Stream output, Func<Stream>? maskOutput, (double Width, double Height)? drawn = null)
     {
         var s = Analyse(doc, source);
         var plan = PlanOf(s);
@@ -106,30 +108,49 @@ public static class ImageExport
                 {
                     // grey with alpha exists only with 8 or 16 bits: smaller depths are spread to 8 bits (every value stays distinct)
                     var depth = s.Bpc == 16 ? 16 : 8;
-                    PngEncoder.Encode(s.Width, s.Height, depth, PngColorType.GrayAlpha, Channels(s, rows, alpha, depth, s.InvertGray), output, iccProfile: s.Profile);
+                    PngEncoder.Encode(s.Width, s.Height, depth, PngColorType.GrayAlpha, Channels(s, rows, alpha, depth, s.InvertGray), output, iccProfile: s.Profile,
+                        significantBits: SignificantBits(s, alpha, depth, 1));
                 }
                 break;
             case Kind.Rgb:
             {
                 var depth = s.Bpc == 16 ? 16 : 8;
                 var withAlpha = alpha is not null || s.ColorKey is not null;
-                PngEncoder.Encode(s.Width, s.Height, depth, withAlpha ? PngColorType.Rgba : PngColorType.Rgb, Channels(s, rows, alpha, depth, false), output,
-                    iccProfile: s.Profile);
+                var bits = SignificantBits(s, alpha, depth, 3);
+                if (depth == 16)
+                {
+                    PngEncoder.Encode(s.Width, s.Height, 16, withAlpha ? PngColorType.Rgba : PngColorType.Rgb, Channels(s, rows, alpha, 16, false),
+                        output, iccProfile: s.Profile, significantBits: bits);
+                    break;
+                }
+                // at most 256 colours: a palette image (RFC 2083, 9.6)
+                using var again = new Reopener(doc, source, s, rows, alpha);
+                PngEncoder.EncodeColour(s.Width, s.Height, withAlpha, () =>
+                {
+                    var (r, a) = again.Next();
+                    return Channels(s, r, a, 8, false);
+                }, output, s.Profile, significantBits: bits);
                 break;
             }
             case Kind.Cmyk:
             {
                 var depth = s.Bpc == 16 ? 16 : 8;
                 TiffEncoder.EncodeCmyk(s.Width, s.Height, depth, alpha is not null || s.ColorKey is not null, Channels(s, rows, alpha, depth, false),
-                    s.Profile ?? CmykProfile(doc), output);
+                    s.Profile ?? CmykProfile(doc), output, Resolution(s, drawn));
                 break;
             }
             case Kind.Indexed:
-                WriteIndexed(s, rows, alpha, output);
+            {
+                using var again = new Reopener(doc, source, s, rows, alpha);
+                WriteIndexed(s, again, output);
                 break;
+            }
             default:
-                WriteConverted(s, rows, alpha, output);
+            {
+                using var again = new Reopener(doc, source, s, rows, alpha);
+                WriteConverted(s, again, output);
                 break;
+            }
         }
         return plan;
     }
@@ -139,13 +160,29 @@ public static class ImageExport
     /// <param name="source">The image.</param>
     /// <returns>The file.</returns>
     /// <exception cref="PdfException">The image data cannot be read, or the image cannot be saved.</exception>
-    public static ExportedImage Export(PdfDocument doc, ImageSource source)
+    public static ExportedImage Export(PdfDocument doc, ImageSource source, (double Width, double Height)? drawn = null)
     {
         using var output = new MemoryStream();
         MemoryStream? mask = null;
-        var plan = Write(doc, source, output, () => mask = new MemoryStream());
+        var plan = Write(doc, source, output, () => mask = new MemoryStream(), drawn);
         using (mask)
             return new ExportedImage(plan.Format, output.ToArray(), plan.Extension, mask?.ToArray(), plan.ColorsConverted, plan.Stencil);
+    }
+
+    /// <summary>
+    /// Whether a file of the JPEG 2000 family is a JP2 file or JP2-compatible: the File Type box right after the signature box has the brand
+    /// „jp2 “ or names it in its compatibility list (ISO/IEC 15444-1, I.5.2; ISO/IEC 15444-2, M.2.1). Without a readable File Type box: yes,
+    /// as before.
+    /// </summary>
+    internal static bool Jp2Compatible(ReadOnlySpan<byte> file)
+    {
+        if (file.Length < 32 || !file[16..20].SequenceEqual("ftyp"u8)) return true;
+        var length = System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(file[12..]);
+        if (length < 20 || 12 + length > (uint)file.Length) return true;
+        if (file[20..24].SequenceEqual("jp2 "u8)) return true;
+        for (var at = 28; at + 4 <= 12 + (int)length; at += 4)
+            if (file[at..(at + 4)].SequenceEqual("jp2 "u8)) return true;
+        return false;
     }
 
     /// <summary>An image inserted in PDF Knead (element): its pixels as PNG, RGB or RGBA.</summary>
@@ -157,7 +194,8 @@ public static class ImageExport
         for (var i = 3; i < image.Pixels.Length && opaque; i += 4) opaque = image.Pixels[i] == 255;
         int w = image.Width, h = image.Height;
         using var output = new MemoryStream();
-        PngEncoder.Encode(w, h, 8, opaque ? PngColorType.Rgb : PngColorType.Rgba, (y, row) =>
+        // at most 256 colours: a palette image (RFC 2083, 9.6)
+        PngEncoder.EncodeColour(w, h, !opaque, () => (y, row) =>
         {
             var src = image.Pixels.AsSpan(y * w * 4, w * 4);
             if (!opaque) src.CopyTo(row);
@@ -201,10 +239,12 @@ public static class ImageExport
         if (last is "DCTDecode") return new Setup(Kind.Jpeg, width, height, bpc, n, (int)rowBytes, dict, space, decode, false, null, null, null, mask, false, ".jpg");
         if (last is "JPXDecode")
         {
-            // JP2 file (signature box, ISO/IEC 15444-1, I.5.1) or a bare codestream
+            // a file of the JPEG 2000 family (signature box, ISO/IEC 15444-1, I.5.1) or a bare codestream (.j2k); a JPX file .jpf unless its
+            // compatibility list names „jp2 “ (ISO/IEC 15444-2, M.2.1; FG 988: before .jp2)
             var head = Decoded(doc, source, null).Data;
-            var jp2 = head.AsSpan().StartsWith((ReadOnlySpan<byte>)[0, 0, 0, 12, 0x6A, 0x50, 0x20, 0x20]);
-            return new Setup(Kind.Jpeg2000, width, height, bpc, n, (int)rowBytes, dict, space, decode, false, null, null, null, mask, false, jp2 ? ".jp2" : ".j2k");
+            var file = head.AsSpan().StartsWith((ReadOnlySpan<byte>)[0, 0, 0, 12, 0x6A, 0x50, 0x20, 0x20]);
+            return new Setup(Kind.Jpeg2000, width, height, bpc, n, (int)rowBytes, dict, space, decode, false, null, null, null, mask, false,
+                !file ? ".j2k" : Jp2Compatible(head) ? ".jp2" : ".jpf");
         }
         if (bpc is not (1 or 2 or 4 or 8 or 16)) throw new PdfException(Tr.T("Bilder mit {0} Bit je Farbe lassen sich nicht speichern.", bpc));
         // a mask of another size cannot become the alpha channel without resampling: it is saved beside the image
@@ -237,8 +277,11 @@ public static class ImageExport
                 break;
         }
         if (kind == Kind.Converted) profile = null;
+        // a soft mask of the same size with /Matte: the colours are premultiplied with it (ISO 32000-2, 11.6.5.3); PNG keeps them
+        // unpremultiplied (RFC 2083, 2.4, 9.4), so they are unblended on export (FG 1014)
+        var matte = maskSameSize && dict.Get(PdfName.Get("SMask")) is PdfStream && space is not null ? MatteOf(mask!.Dictionary, space) : null;
         return new Setup(kind, width, height, bpc, n, (int)rowBytes, dict, space ?? ColorSpace.DeviceGray, decode, invertedGray, profile, palette, colorKey,
-            mask, maskSameSize, kind == Kind.Cmyk ? ".tif" : ".png");
+            mask, maskSameSize, kind == Kind.Cmyk ? ".tif" : ".png", matte);
     }
 
     private static StreamFilters.DecodeResult Decoded(PdfDocument doc, ImageSource source, Setup? s)
@@ -327,27 +370,81 @@ public static class ImageExport
                 line.CopyTo(row);
                 return;
             }
-            var a = alpha is null ? default : alpha.Line(y);
+            // a 16-bit image keeps the opacity at 16 bits — a 16-bit mask with all its bits (before it went through 8 bits and lost its
+            // lower byte, docs/FEHLERGEDAECHTNIS.md, No. 983)
+            var a = alpha is null || depth == 16 ? default : alpha.Line(y);
+            var wide = alpha is not null && depth == 16 ? alpha.Line16(y) : default;
+            var outMax = (1 << depth) - 1;
             for (var x = 0; x < s.Width; x++)
             {
                 var keyed = s.ColorKey is not null;
+                // the opacity of the pixel, for unblending a /Matte (0 … 1)
+                var opacity = s.Matte is null || alpha is null ? 1.0 : depth == 16 ? wide[x] / 65535.0 : a[x] / 255.0;
                 for (var c = 0; c < n; c++)
                 {
                     var v = Sample(line, x * n + c, s.Bpc);
                     if (keyed) keyed = v >= s.ColorKey![2 * c] && v <= s.ColorKey[2 * c + 1];
                     if (invert) v = max - v;
-                    Put(row, x * channels + c, depth, s.Bpc == depth ? v : Spread(v, s.Bpc));
+                    var value = s.Bpc == depth ? v : Spread(v, s.Bpc);
+                    // the output value is the place of the component in its decode range times the maximum, and so is the matte (an
+                    // inverted grey writes the component itself: its range 1 … 0 counts from 0)
+                    if (opacity < 1) value = Unblend(value, MatteOut(s, c, outMax), opacity, outMax);
+                    Put(row, x * channels + c, depth, value);
                 }
                 if (!withAlpha) continue;
-                int opacity = s.ColorKey is not null ? keyed ? 0 : 255 : a[x];
-                Put(row, x * channels + n, depth, depth == 16 ? opacity * 257 : opacity);
+                if (depth == 16)
+                {
+                    Put(row, x * channels + n, 16, s.ColorKey is not null ? keyed ? 0 : 65535 : wide[x]);
+                    continue;
+                }
+                Put(row, x * channels + n, depth, s.ColorKey is not null ? keyed ? 0 : 255 : a[x]);
             }
         };
     }
 
-    private static void WriteIndexed(Setup s, Rows rows, AlphaRows? alpha, Stream output)
+    /// <summary>
+    /// The rows and opacity of an image for an encoder that reads them twice (<see cref="PngEncoder.EncodeColour"/>): the first time those
+    /// already open, later opened again (a streamed source is read once); what it opened is closed with it.
+    /// </summary>
+    private sealed class Reopener(PdfDocument doc, ImageSource source, Setup s, Rows rows, AlphaRows? alpha) : IDisposable
+    {
+        private readonly List<IDisposable> _opened = [];
+        private bool _used;
+
+        /// <summary>The rows already open.</summary>
+        public Rows First => rows;
+
+        /// <summary>The opacity already open, or null.</summary>
+        public AlphaRows? FirstAlpha => alpha;
+
+        public (Rows Rows, AlphaRows? Alpha) Next()
+        {
+            if (!_used)
+            {
+                _used = true;
+                return (rows, alpha);
+            }
+            var r = OpenRows(doc, source, s);
+            _opened.Add(r);
+            AlphaRows? a = null;
+            if (alpha is not null && OpenAlpha(doc, s) is { } fresh)
+            {
+                _opened.Add(fresh);
+                a = fresh;
+            }
+            return (r, a);
+        }
+
+        public void Dispose()
+        {
+            foreach (var d in _opened) d.Dispose();
+        }
+    }
+
+    private static void WriteIndexed(Setup s, Reopener again, Stream output)
     {
         var (palette, _, profile) = s.Palette!.Value;
+        var (rows, alpha) = (again.First, again.FirstAlpha);
         if (alpha is null)
         {
             // colour key on indices: those entries become transparent in the palette (tRNS)
@@ -360,44 +457,125 @@ public static class ImageExport
             PngEncoder.Encode(s.Width, s.Height, s.Bpc, PngColorType.Palette, Packed(rows, false), output, palette, paletteAlpha, profile);
             return;
         }
-        // a palette with an alpha channel per pixel: written as RGBA
-        PngEncoder.Encode(s.Width, s.Height, 8, PngColorType.Rgba, (y, row) =>
+        // a palette with an alpha channel per pixel: the colours with their opacity, as a palette image again if at most 256 of them
+        // (RFC 2083, 9.6), otherwise RGBA; a /Matte unblended in the colours of the palette
+        var matte = MatteRgb(s);
+        PngEncoder.EncodeColour(s.Width, s.Height, true, () =>
         {
-            var line = rows.Line(y);
-            var a = alpha.Line(y);
-            for (var x = 0; x < s.Width; x++)
+            var (r, opacity) = again.Next();
+            return (y, row) =>
             {
-                var i = Math.Min(Sample(line, x, s.Bpc), palette.Length / 3 - 1) * 3;
-                row[x * 4] = palette[i];
-                row[x * 4 + 1] = palette[i + 1];
-                row[x * 4 + 2] = palette[i + 2];
-                row[x * 4 + 3] = a[x];
-            }
-        }, output, iccProfile: profile);
+                var line = r.Line(y);
+                var a = opacity is null ? default : opacity.Line(y);
+                for (var x = 0; x < s.Width; x++)
+                {
+                    var alphaX = opacity is null ? (byte)255 : a[x];
+                    var i = Math.Min(Sample(line, x, s.Bpc), palette.Length / 3 - 1) * 3;
+                    for (var c = 0; c < 3; c++)
+                        row[x * 4 + c] = matte is null || alphaX == 255 ? palette[i + c] : (byte)Unblend(palette[i + c], matte[c], alphaX / 255.0, 255);
+                    row[x * 4 + 3] = alphaX;
+                }
+            };
+        }, output, profile, significantBits: alpha.Bits < 8 ? [8, 8, 8, (byte)alpha.Bits] : null);
     }
 
     /// <summary>Colours the file format cannot hold: converted row by row the way they are drawn, RGB with 8 bits.</summary>
-    private static void WriteConverted(Setup s, Rows rows, AlphaRows? alpha, Stream output)
+    private static void WriteConverted(Setup s, Reopener again, Stream output)
     {
         var convert = PdfImageDecoder.RowToRgba(s.Space!, s.Bpc, s.Decode);
+        var alpha = again.FirstAlpha;
         var withAlpha = alpha is not null || s.ColorKey is not null;
+        // a /Matte unblended after the conversion to RGB, as when drawing (exact for linear conversions, docs/FEHLERGEDAECHTNIS.md, No. 562)
+        var matte = alpha is null ? null : MatteRgb(s);
         var rgba = new byte[s.Width * 4];
         var raw = s.ColorKey is not null ? new ushort[s.Width * s.Components] : null;
-        PngEncoder.Encode(s.Width, s.Height, 8, withAlpha ? PngColorType.Rgba : PngColorType.Rgb, (y, row) =>
+        // at most 256 colours: a palette image (RFC 2083, 9.6)
+        PngEncoder.EncodeColour(s.Width, s.Height, withAlpha, () =>
         {
-            convert(rows.Line(y), s.Width, rgba, raw);
-            var a = alpha is null ? default : alpha.Line(y);
-            for (var x = 0; x < s.Width; x++)
+            var (rows, opacity) = again.Next();
+            return (y, row) =>
             {
-                if (withAlpha)
+                convert(rows.Line(y), s.Width, rgba, raw);
+                var a = opacity is null ? default : opacity.Line(y);
+                for (var x = 0; x < s.Width; x++)
                 {
-                    rgba.AsSpan(x * 4, 3).CopyTo(row[(x * 4)..]);
-                    row[x * 4 + 3] = alpha is not null ? a[x] : KeyTransparent(raw!, x, s) ? (byte)0 : (byte)255;
+                    if (withAlpha)
+                    {
+                        rgba.AsSpan(x * 4, 3).CopyTo(row[(x * 4)..]);
+                        row[x * 4 + 3] = opacity is not null ? a[x] : KeyTransparent(raw!, x, s) ? (byte)0 : (byte)255;
+                        if (matte is not null && opacity is not null && a[x] < 255)
+                            for (var c = 0; c < 3; c++) row[x * 4 + c] = (byte)Unblend(row[x * 4 + c], matte[c], a[x] / 255.0, 255);
+                    }
+                    else rgba.AsSpan(x * 4, 3).CopyTo(row[(x * 3)..]);
                 }
-                else rgba.AsSpan(x * 4, 3).CopyTo(row[(x * 3)..]);
-            }
-        }, output);
+            };
+        }, output, significantBits: alpha is { Bits: < 8 } ? [8, 8, 8, (byte)alpha.Bits] : null);
     }
+
+    /// <summary>
+    /// The components of /Matte (ISO 32000-2, 11.6.5.3): as many finite numbers as the colour space has components (an indexed space: its
+    /// base, whose palette colours are premultiplied), as the colour space has them (Lab and ICC ranges beyond 0 … 1 too, as when drawing);
+    /// null otherwise (then the colours are taken as they are).
+    /// </summary>
+    private static double[]? MatteOf(PdfDictionary mask, ColorSpace space)
+    {
+        if (mask.Get(PdfName.Get("Matte")) is not PdfArray values) return null;
+        var target = space.IndexedBase ?? space;
+        if (values.Count != target.Components || target.Components is < 1 or > 32) return null;
+        var components = new double[values.Count];
+        for (var i = 0; i < components.Length; i++)
+            if (values.GetNumber(i) is { } v && double.IsFinite(v)) components[i] = v;
+            else return null;
+        return components;
+    }
+
+    /// <summary>The matte of component <paramref name="c"/> as an output value 0 … <paramref name="max"/>: its place in the decode range.</summary>
+    private static double MatteOut(Setup s, int c, int max)
+    {
+        var range = s.Decode ?? s.Space!.DefaultDecode(s.Bpc);
+        double lo = Math.Min(range[2 * c], range[2 * c + 1]), hi = Math.Max(range[2 * c], range[2 * c + 1]);
+        return hi > lo ? Math.Clamp((s.Matte![c] - lo) / (hi - lo), 0, 1) * max : 0;
+    }
+
+    /// <summary>The matte in RGB with 8 bits (for palettes and converted colours), or null.</summary>
+    private static double[]? MatteRgb(Setup s)
+    {
+        if (s.Matte is null || s.Space is null) return null;
+        var rgb = (s.Space.IndexedBase ?? s.Space).ToRgb(s.Matte);
+        return [rgb.R, rgb.G, rgb.B];
+    }
+
+    /// <summary>
+    /// c = m + (c′ − m) / α (ISO 32000-2, 11.6.5.3), rounded and bounded to 0 … <paramref name="max"/>; at opacity 0 the colour is undefined
+    /// and written as 0 (RFC 2083, 9.4 Satz 13: black in a PNG; in a CMYK TIFF 0 is no ink).
+    /// </summary>
+    private static int Unblend(int premultiplied, double matte, double opacity, int max) =>
+        opacity <= 0 ? 0 : (int)Math.Clamp(Math.Round(matte + (premultiplied - matte) / opacity), 0, max);
+
+    /// <summary>
+    /// sBIT for a grey or RGB image written at <paramref name="depth"/> (RFC 2083, 4.2.6 Satz 6: recommended when the data were scaled up from
+    /// a smaller depth): the colour channels with the bits of the PDF image, unless a /Matte was unblended (then every bit counts); the alpha
+    /// channel with the bits of its mask (a colour key gives full depth). Null when nothing was scaled up.
+    /// </summary>
+    private static byte[]? SignificantBits(Setup s, AlphaRows? alpha, int depth, int colours)
+    {
+        var colourBits = s.Matte is not null && alpha is not null ? depth : Math.Min(s.Bpc, depth);
+        var withAlpha = alpha is not null || s.ColorKey is not null;
+        var alphaBits = alpha is not null ? Math.Min(alpha.Bits, depth) : depth;
+        if (colourBits == depth && alphaBits == depth) return null;
+        var bits = new byte[colours + (withAlpha ? 1 : 0)];
+        Array.Fill(bits, (byte)colourBits, 0, colours);
+        if (withAlpha) bits[colours] = (byte)alphaBits;
+        return bits;
+    }
+
+    /// <summary>The resolution of the image at its drawn size (pixels per inch on each axis), or null when the size is not known.</summary>
+    private static (double X, double Y)? Resolution(Setup s, (double Width, double Height)? drawn) =>
+        drawn is { Width: > 0, Height: > 0 } d ? (s.Width * 72 / d.Width, s.Height * 72 / d.Height) : null;
+
+    /// <summary>The drawn size of an image from the matrix that maps its unit square onto the page: the lengths of its two axes in points.</summary>
+    public static (double Width, double Height) DrawnSize(Matrix imageToPage) =>
+        (Math.Sqrt(imageToPage.A * imageToPage.A + imageToPage.B * imageToPage.B), Math.Sqrt(imageToPage.C * imageToPage.C + imageToPage.D * imageToPage.D));
 
     private static bool KeyTransparent(ushort[] raw, int x, Setup s)
     {
@@ -416,6 +594,9 @@ public static class ImageExport
     {
         private readonly byte[] _line = new byte[width];
 
+        /// <summary>The bits of the opacity as the mask has them: 1 for a stencil, 8 for a mask decoded as drawn.</summary>
+        public int Bits => whole is not null ? 8 : stencil ? 1 : bpc;
+
         public ReadOnlySpan<byte> Line(int y)
         {
             if (whole is not null) return whole.AsSpan(y * width, width);
@@ -431,6 +612,27 @@ public static class ImageExport
                     _line[x] = (byte)((inverted ? max - v : v) * 255 / max);
             }
             return _line;
+        }
+
+        private ushort[]? _wide;
+
+        /// <summary>The opacity of a row at 16 bits: a mask of 16 bits with all of them, smaller depths spread by repeating their bits.</summary>
+        public ReadOnlySpan<ushort> Line16(int y)
+        {
+            _wide ??= new ushort[width];
+            if (whole is not null)
+            {
+                for (var x = 0; x < width; x++) _wide[x] = (ushort)(whole[y * width + x] * 257);
+                return _wide;
+            }
+            var line = rows!.Line(y);
+            var max = (1 << bpc) - 1;
+            for (var x = 0; x < width; x++)
+            {
+                var v = Sample(line, x, bpc);
+                _wide[x] = stencil ? (v == 0) != inverted ? (ushort)65535 : (ushort)0 : (ushort)((long)(inverted ? max - v : v) * 65535 / max);
+            }
+            return _wide;
         }
 
         public void Dispose() => rows?.Dispose();

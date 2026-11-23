@@ -1,7 +1,9 @@
 # FunktionManager – Berechtigungen verwalten
 
 Schreibt die Funktionsdatei einer Organisation (`berechtigungen.json`): welche Funktionen von PDF-Knead ihre Nutzer verwenden dürfen,
-die Nutzungsart (gewerblich oder Behörde) und den Namen der Organisation. Getrennt von Lizenzschlüsseln; es wird nichts gesendet.
+die Nutzungsart (gewerblich oder Behörde) und den Namen der Organisation; es wird nichts gesendet. PDF-Knead ist seit dem 21.11.2026 für
+alle kostenlos und fragt nach keiner Nutzungsart — die Angabe in der Datei liest es und übergeht sie, sie ist für spätere Fassungen
+vorbereitet.
 Hintergrund und Regeln: `KONZEPT.md` § 5.27 („Funktionsdatei einer Organisation“), Modell `PdfKnead.Core/Policy/FeaturePolicy.cs`.
 
 Eigenes Programm. Es liegt in jedem Paket von PDF-Knead neben dem Programm (`PDF-Knead-FunktionManager.exe` unter Windows,
@@ -21,11 +23,12 @@ Ohne Argument werden beide gebaut: `published/windows-x64/PDF-Knead-FunktionMana
 
 ## Benutzen
 
-1. **Organisation** (wird in PDF-Knead angezeigt) und **Nutzungsart** eintragen.
+1. **Organisation** (wird in PDF-Knead angezeigt) und **Nutzungsart** eintragen (in PDF-Knead derzeit ohne Wirkung).
 2. **Funktionen:** je Reiter des Programms eine Karte, Häkchen = erlaubt. Das Häkchen am Reiter schaltet alle seine Funktionen
-   (ein Strich: nur einige erlaubt); dazu „Alle erlauben“ und „Alle sperren“. Formular ist ein einziger Schalter.
+   (ein Strich: nur einige erlaubt); dazu „Alle erlauben“ und „Alle sperren“. Formular ist ein einziger Schalter. Unter „Programm“ lässt
+   sich das „Spenden-Fenster“ abschalten, das PDF-Knead sonst gelegentlich nach dem Speichern zeigt (Kennung `program.donation-window`).
 3. **„Funktionsdatei speichern …“** schlägt `berechtigungen.json` vor — nur unter diesem Namen liest PDF-Knead sie.
-4. Die Datei **neben das Programm** bringen: in PDF-Knead unter Datei → Einstellungen → Nutzung und Lizenz → „Funktionsdatei
+4. Die Datei **neben das Programm** bringen: in PDF-Knead unter Datei → Einstellungen → Reiter „Nutzungsberechtigung“ → „Funktionsdatei
    einspielen …“ (prüft die Datei und legt sie neben die Programmdatei; braucht Schreibrechte im Programmordner, meist
    Administratorrechte) — oder selbst bzw. per Softwareverteilung ablegen: unter Windows in den Ordner mit `PDF-Knead.exe`, unter Linux
    neben die AppImage-Datei. Nutzer dürfen dort nicht schreiben können. Sie gilt ab dem nächsten Start von PDF-Knead; nach dem
@@ -36,8 +39,7 @@ Ohne Argument werden beide gebaut: `published/windows-x64/PDF-Knead-FunktionMana
 
 ## Was PDF-Knead daraus macht
 
-- Die Nutzungsart der Datei gilt; die Frage beim ersten Start entfällt, „Nutzungsart ändern“ ist aus. Datei weg = die gewählte gilt wieder.
 - Gesperrte Funktionen sind ausgegraut und sagen, warum; auch Tastenkürzel und Menüs lehnen ab. Öffnen, Ansehen und Prüfen gehen immer.
 - Eine beschädigte Datei sperrt alle einschränkbaren Funktionen, statt alles zu erlauben.
-- Jeder sieht unter Einstellungen → Nutzung und Lizenz → „Berechtigungen anzeigen“, was gilt.
+- Jeder sieht unter Einstellungen → Reiter „Nutzungsberechtigung“ → „Berechtigungen anzeigen“, was gilt.
 - Ältere Fassungen von PDF-Knead lesen neuere Dateien: unbekannte Funktionsnamen werden übergangen (bleiben erlaubt).

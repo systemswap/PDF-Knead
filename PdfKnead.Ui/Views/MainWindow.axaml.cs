@@ -105,7 +105,7 @@ public partial class MainWindow : Window
         _vm.PickSignature = async current => await new SignatureWindow(current)
         {
             CanCertify = _vm.SelectedDocument?.CanCertifyWith(current) ?? true,
-            DigitalRefusal = _vm.SelectedDocument?.DigitalSigningRefusal ?? _vm.SigningLicenseRefusal,
+            DigitalRefusal = _vm.SelectedDocument?.DigitalSigningRefusal ?? _vm.SigningPolicyRefusal,
             Certificates = _vm.SigningChoices(),
         }.ShowDialog<Core.Pdf.Editing.PageElement?>(this);
         _vm.ShowCertificate = async model => await new CertificateWindow(model).ShowDialog(this);
@@ -116,10 +116,8 @@ public partial class MainWindow : Window
         _vm.ShowSignatures = async model => await new SignaturesWindow(model).ShowDialog(this);
         _vm.AskCertificateName = async name => await new FirstCertificateWindow(name).ShowDialog<string?>(this);
         _vm.AskUpdates = async () => await new FirstUpdateWindow().ShowDialog<bool?>(this);
-        _vm.AskUsage = async current => await new UsageWindow(current).ShowDialog<ViewModels.UsageChoice?>(this);
-        _vm.ConfirmFreeUsage = async usage => await new SupportWindow(usage, _vm.DonateAsync).ShowDialog<bool?>(this) == true;
-        _vm.ShowLicense = async model => await new LicenseWindow(model).ShowDialog(this);
         _vm.ShowPermissions = async () => await new PolicyWindow().ShowDialog(this);
+        _vm.ShowSupportInvitation = async () => await new SupportWindow().ShowDialog<bool?>(this);
         _vm.PickPolicyFile = PickPolicyFileAsync;
         _vm.PickImageFile = PickImageFileAsync;
         _vm.ShowSignatureFonts = async model => await new SignatureFontsWindow(model).ShowDialog(this);

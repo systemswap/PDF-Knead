@@ -16,6 +16,7 @@ Programm; Ergebnis der Lizenzprüfung: `docs/LIZENZPRUEFUNG.md`.
 | Avalonia (UI, Fluent-Design, Skia-, X11-, Win32- und FreeDesktop-Anbindung) | 12.1.1 | MIT | https://github.com/AvaloniaUI/Avalonia |
 | Avalonia.Fonts.Inter | 12.1.1 | MIT | https://github.com/AvaloniaUI/Avalonia |
 | Schrift Inter (in Avalonia.Fonts.Inter) | | SIL Open Font License 1.1 – `licenses/inter-OFL.txt` | https://github.com/rsms/inter |
+| Schrift Pacifico (nur als Umrisse des Schriftzugs „PDF-Knead“ im Unterstützen-Fenster; die Schriftdatei liegt nicht bei) | 2018 | SIL Open Font License 1.1 – `licenses/Pacifico-OFL.txt` | https://github.com/googlefonts/Pacifico |
 | ANGLE (nur Windows, über Avalonia.Angle.Windows.Natives) | 2.1.27548 | BSD-3-Clause – `licenses/ANGLE-BSD-3.txt` | https://chromium.googlesource.com/angle/angle |
 | Abseil (in der ANGLE-Bibliothek `av_libglesv2.dll`, nur Windows) | | Apache License 2.0 – `licenses/Abseil-Apache-2.0.txt` | https://github.com/abseil/abseil-cpp |
 | SkiaSharp / Skia, darin u. a. libjpeg-turbo, libpng, zlib, FreeType, expat, ICU, libwebp, skcms, Adobe DNG SDK | 3.119.4 | MIT / BSD-3-Clause und die Lizenzen der enthaltenen Bibliotheken – `licenses/SkiaSharp-HarfBuzzSharp-THIRD-PARTY-NOTICES.txt` | https://github.com/mono/SkiaSharp |

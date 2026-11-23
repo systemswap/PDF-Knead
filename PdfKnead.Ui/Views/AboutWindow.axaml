@@ -11,6 +11,23 @@
         Width="920" Height="660" MinWidth="680" MinHeight="440"
         ShowInTaskbar="False"
         WindowStartupLocation="CenterOwner">
+    <Window.Styles>
+        <!-- the contact address as a quiet link in the accent colour -->
+        <Style Selector="Button.contact">
+            <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
+            <Setter Property="Padding" Value="0,2" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Cursor" Value="Hand" />
+        </Style>
+        <Style Selector="Button.contact:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Foreground" Value="{DynamicResource AccentHoverBrush}" />
+            <Setter Property="Background" Value="Transparent" />
+        </Style>
+        <Style Selector="Button.contact:pressed /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="Transparent" />
+        </Style>
+    </Window.Styles>
     <DockPanel Margin="24">
         <!-- Program and version -->
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="14">
@@ -18,7 +35,18 @@
             <StackPanel VerticalAlignment="Center" Spacing="2">
                 <SelectableTextBlock FontSize="18" FontWeight="SemiBold" Text="{Binding Title}" />
                 <TextBlock Classes="muted" Text="{l:T 'Läuft vollständig auf diesem Rechner und sendet keine Daten.'}" />
-                <TextBlock Classes="muted" FontSize="12" TextWrapping="Wrap" Text="{Binding LicenseStatus}" />
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                    <TextBlock Classes="muted" VerticalAlignment="Center" Text="{l:T 'Kontakt:'}" />
+                    <Button Name="ContactButton" Classes="contact" VerticalAlignment="Center" Click="OnContact"
+                            ToolTip.Tip="{l:T 'E-Mail schreiben'}" AutomationProperties.Name="{l:T 'Kontakt per E-Mail'}">
+                        <Button.ContextMenu>
+                            <ContextMenu>
+                                <MenuItem Name="CopyContactItem" Header="{l:T 'Adresse kopieren'}" Click="OnCopyContact" />
+                            </ContextMenu>
+                        </Button.ContextMenu>
+                        <TextBlock Name="ContactAddress" />
+                    </Button>
+                </StackPanel>
             </StackPanel>
         </StackPanel>
 

@@ -96,7 +96,34 @@ public static partial class Redactor
         // the final check counts them (nothing under a bar stays in the file): a character half under a bar (its middle outside) may stay
         // where it was — the bar grazed it before, in the same place — but nothing moves into a bar; half a step of the grid at the edge of a
         // piece is the rounding of a word start
-        bool GrazedBefore(Seen g, RectD r) => before.Any(b => b.Text == g.Text && Math.Abs(b.X - g.X) <= 0.6 && Math.Abs(b.Y - g.Y) <= 0.6 && Overlaps(r, b.Box));
+        // (the characters before by text and a cell of one point, built when first asked: going through all of them for every character
+        // a bar grazes grew with the square of the characters, docs/FEHLERGEDAECHTNIS.md, No. 999)
+        Dictionary<(string Text, long X, long Y), List<int>>? near = null;
+        bool GrazedBefore(Seen g, RectD r)
+        {
+            if (near is null)
+            {
+                near = [];
+                for (var i = 0; i < before.Count; i++)
+                {
+                    var key = (before[i].Text, CellOf(before[i].X), CellOf(before[i].Y));
+                    (near.TryGetValue(key, out var list) ? list : near[key] = []).Add(i);
+                }
+            }
+            for (var x = CellOf(g.X - 0.6); ; x++)
+            {
+                for (var y = CellOf(g.Y - 0.6); ; y++)
+                {
+                    if (near.TryGetValue((g.Text, x, y), out var list))
+                        foreach (var i in list)
+                            if (before[i] is var b && Math.Abs(b.X - g.X) <= 0.6 && Math.Abs(b.Y - g.Y) <= 0.6 && Overlaps(r, b.Box))
+                                return true;
+                    if (y == CellOf(g.Y + 0.6)) break;
+                }
+                if (x == CellOf(g.X + 0.6)) break;
+            }
+            return false;
+        }
         foreach (var g in after)
         {
             if (g.Blank) continue;
@@ -163,6 +190,9 @@ public static partial class Redactor
 
     private static bool Overlaps(RectD a, RectD b) => a.Intersect(b) is var i && i.Width > 0 && i.Height > 0;
 
+    /// <summary>A cell of one point for looking characters up by place, kept in order beyond the range of a long.</summary>
+    private static long CellOf(double v) => v >= 9e18 ? long.MaxValue : v <= -9e18 ? long.MinValue : (long)Math.Floor(v);
+
     /// <summary>The check below, with the characters of the page before taken here (for tests).</summary>
     internal static bool StaysChecked(PdfDocument doc, PdfPage page, PdfDictionary newPage, PdfDictionary resources, List<RectD> rects, bool moved = false) =>
         Snapshot(doc, page, MaxCheckSnapshot) is { } before && StaysChecked(doc, page, before, newPage, resources, rects, moved);
@@ -177,8 +207,9 @@ public static partial class Redactor
     /// No. 450, Analyse F 3b). Characters on hidden layers are not compared (their place is not shown).
     /// </summary>
     /// <param name="moved">Lengths were hidden in the last round: characters after a bar may have moved along their line by any amount.</param>
+    /// <param name="cancel">Abort.</param>
     /// <returns>False if a character is missing, moved or changed.</returns>
-    private static bool StaysChecked(PdfDocument doc, PdfPage page, List<Seen> before, PdfDictionary newPage, PdfDictionary resources, List<RectD> rects, bool moved)
+    private static bool StaysChecked(PdfDocument doc, PdfPage page, List<Seen> before, PdfDictionary newPage, PdfDictionary resources, List<RectD> rects, bool moved, CancellationToken cancel = default)
     {
         var check = new PdfPage(page.Index, newPage, null, resources, page.MediaBox, page.CropBox, page.Rotate);
         if (Snapshot(doc, check, int.MaxValue) is not { } after) return false;
@@ -256,62 +287,29 @@ public static partial class Redactor
                 }
             }
         }
-        // every other character: by text and place (a grid of one point, as in MovesChecked), and its shape where it was
-        // (the first of each key, the rest chained by index: a list per key took a hundred bytes per character on a page of a million)
-        var pool = new Dictionary<(string Text, long X, long Y), int>();
-        var chained = new int[present.Count];
-        for (var i = 0; i < present.Count; i++)
-        {
-            var g = after[present[i]];
-            var key = (g.Text, (long)Math.Floor(g.X), (long)Math.Floor(g.Y));
-            chained[i] = pool.TryGetValue(key, out var first) ? first : -1;
-            pool[key] = i;
-        }
-        // how many characters of each text there are after: a window of more cells than that is searched through them instead (No. 545)
-        var countByText = new Dictionary<string, int>();
-        foreach (var i in present) countByText[after[i].Text] = countByText.GetValueOrDefault(after[i].Text) + 1;
-        var taken = new bool[present.Count];
+        // every other character: by text and place, and its shape where it was. The characters after are looked up in an index (StayIndex)
+        // by text, direction and a cell of one point across the line, sorted along it: the nearest are tried first, and the search stops
+        // where none nearer can follow. Before, a grid of one-point cells was searched — or, where that window was wider than the characters
+        // of the text (huge characters, No. 545), every character of the page: with a font size of 4 294 967 295 (fuzzing) that went through
+        // all characters for each one, 50 s for 4 173 characters on one page, at the limit of two million a hang the abort did not reach
+        // (docs/FEHLERGEDAECHTNIS.md, No. 999). The conditions are the same as before; of equally near ones the first is taken.
+        // (one index for the page, the conditions in it: a closure per character took 150 MB more on a page of a million)
+        var index = new StayIndex(after, present, Framed, Family, SameShape, cancel);
+        var looked = 0;
         foreach (var g in before)
         {
             if (!g.Present || g.Blank || Touched(g)) continue;
+            if ((++looked & 1023) == 0) cancel.ThrowIfCancellationRequested();
             var movingLine = Moving(g);
             if (movingLine && moved) continue;
             // on a moving line a word start moves to the grid along the line: half a step either way, or up to two steps on to keep a
             // reader's space (No. 451) — one by one, not by order: lines a few thousandths of a point apart fell into one line by the key
             var along = movingLine ? 2 * PositionGrid + 0.006 * g.Size + 0.05 : 0.6;
             var (gu, gv) = Framed(g);
-            // the nearest one that fits: the first that fit took the character of a line 0.05 pt away, and the last one found none
-            var (cx, cy) = ((long)Math.Floor(g.X), (long)Math.Floor(g.Y));
-            // the window of grid cells follows the line: along it as far as allowed, across it 0.6 pt — a square of the allowed reach both
-            // ways took seconds per character on pages with huge characters (fuzzing, docs/FEHLERGEDAECHTNIS.md, No. 506)
-            var (sinA, cosA) = g.Angle == 0 ? (0.0, 1.0) : Math.SinCos(g.Angle);
-            var reachX = (long)Math.Ceiling(Math.Abs(cosA) * along + Math.Abs(sinA) * 0.6);
-            var reachY = (long)Math.Ceiling(Math.Abs(sinA) * along + Math.Abs(cosA) * 0.6);
-            int best = -1;
-            var nearest = double.MaxValue;
-            void Consider(int i)
-            {
-                var a = after[present[i]];
-                var (au, av) = Framed(a);
-                if (taken[i] || a.Text != g.Text || Family(a) != Family(g) || Math.Abs(au - gu) > along || Math.Abs(av - gv) > 0.6) return;
-                var distance = (a.X - g.X) * (a.X - g.X) + (a.Y - g.Y) * (a.Y - g.Y);
-                if (distance < nearest && SameShape(g, a)) (best, nearest) = (i, distance);
-            }
-            // a window wider than the characters of this text (huge characters reach far along their line: 0.006 em of a font of 10^11 pt
-            // were 600 million cells per character — a hang, found by fuzzing, docs/FEHLERGEDAECHTNIS.md, No. 545): those characters
-            // searched through, with the same conditions
-            if ((2.0 * reachX + 1) * (2.0 * reachY + 1) > countByText.GetValueOrDefault(g.Text))
-            {
-                for (var i = 0; i < present.Count; i++) Consider(i);
-            }
-            else
-            {
-                for (var dx = -reachX; dx <= reachX; dx++)
-                    for (var dy = -reachY; dy <= reachY; dy++)
-                        if (pool.TryGetValue((g.Text, cx + dx, cy + dy), out var head))
-                            for (var i = head; i >= 0; i = chained[i])
-                                Consider(i);
-            }
+            // the nearest one that fits (StayIndex.Consider): the first that fit took the character of a line 0.05 pt away, and the last one
+            // found none; the window follows the line — along it as far as allowed, across it 0.6 pt (a square of the allowed reach both ways
+            // took seconds per character on pages with huge characters, No. 506)
+            var best = index.Find(g, gu, gv, along);
             if (best < 0)
             {
                 if (DebugOn)
@@ -324,7 +322,7 @@ public static partial class Redactor
                 }
                 return false;
             }
-            taken[best] = true;
+            index.Take(best);
         }
         return true;
 
@@ -470,5 +468,196 @@ public static partial class Redactor
         public void BeginSoftMask(int op, PdfStream group, Matrix groupToPage) { }
 
         public void EndForm() { }
+    }
+
+    /// <summary>
+    /// The characters after redacting, for the last check of what stays (<see cref="StaysChecked(PdfDocument, PdfPage, List{Seen},
+    /// PdfDictionary, PdfDictionary, List{RectD}, bool, CancellationToken)"/>; docs/FEHLERGEDAECHTNIS.md, No. 999): grouped by text,
+    /// direction (in quarter degrees) and a cell of one point across the line, each group sorted along the line — every character in its own
+    /// frame, as the check compares them. A search goes out from the place of the character looked for, the nearer side first, and stops
+    /// where no character nearer than the best so far can follow: the distance along the line is never more than the distance on the page
+    /// (in the frame of the character looked for; one of a slightly different direction in the same quarter degree may differ by the turn
+    /// over the distance from the origin, which the bound allows for). Characters taken are linked past. Those whose place in their frame
+    /// overflows (coordinates near the largest number) are tried by every search of their text and direction, as are all of them by a
+    /// character whose own place overflows — what the conditions let through then.
+    /// </summary>
+    private sealed class StayIndex
+    {
+        private readonly List<Seen> _after;
+        private readonly List<int> _present;
+        private readonly Func<Seen, (double U, double V)> _framed;
+        private readonly Func<Seen, int> _family;
+        private readonly Func<Seen, Seen, bool> _sameShape;
+        private readonly CancellationToken _cancel;
+        private readonly bool[] _taken;
+        private readonly int[] _slotOf;       // position in the present characters → slot (−1: its place overflows)
+        private readonly int[] _bySlot;       // slot → position in the present characters
+        private readonly double[] _along;     // slot → its place along its line (U)
+        private readonly int[] _right;        // slot → the next slot not taken from it to the right (the last: the end)
+        private readonly int[] _left;         // slot + 1 → the next slot + 1 not taken from it to the left (0: before the start)
+        private readonly Dictionary<(string Text, int Family, long Cell), Group> _groups = [];
+        private readonly Dictionary<(string Text, int Family), List<int>> _overflowing = [];
+        private int _visits;
+        // the search under way: the character looked for, its place in its frame, how far along its line, the best so far
+        private Seen _g;
+        private int _gFamily, _best;
+        private double _gu, _gv, _reach, _nearest;
+
+        private sealed record Group(int Start, int End, float LeastAngle, float MostAngle);
+
+        internal StayIndex(List<Seen> after, List<int> present, Func<Seen, (double U, double V)> framed, Func<Seen, int> family,
+            Func<Seen, Seen, bool> sameShape, CancellationToken cancel)
+        {
+            (_after, _present, _framed, _family, _sameShape, _cancel) = (after, present, framed, family, sameShape, cancel);
+            _taken = new bool[present.Count];
+            _slotOf = new int[present.Count];
+            var ids = new Dictionary<(string, int, long), int>();
+            var keys = new List<(string Text, int Family, long Cell)>();
+            var angles = new List<(float Least, float Most)>();
+            var entries = new List<(int Group, double U, int Index)>(present.Count);
+            for (var i = 0; i < present.Count; i++)
+            {
+                var a = after[present[i]];
+                var (u, v) = framed(a);
+                if (!double.IsFinite(u) || !double.IsFinite(v))
+                {
+                    _slotOf[i] = -1;
+                    var loose = (a.Text, family(a));
+                    (_overflowing.TryGetValue(loose, out var list) ? list : _overflowing[loose] = []).Add(i);
+                    continue;
+                }
+                var key = (a.Text, family(a), CellOf(v));
+                if (!ids.TryGetValue(key, out var id))
+                {
+                    ids[key] = id = keys.Count;
+                    keys.Add(key);
+                    angles.Add((a.Angle, a.Angle));
+                }
+                else angles[id] = (Math.Min(angles[id].Least, a.Angle), Math.Max(angles[id].Most, a.Angle));
+                entries.Add((id, u, i));
+            }
+            var sorted = entries.ToArray();
+            Array.Sort(sorted, (x, y) => x.Group != y.Group ? x.Group.CompareTo(y.Group) : x.U != y.U ? x.U.CompareTo(y.U) : x.Index.CompareTo(y.Index));
+            _bySlot = new int[sorted.Length];
+            _along = new double[sorted.Length];
+            _right = new int[sorted.Length + 1];
+            _left = new int[sorted.Length + 1];
+            for (var s = 0; s <= sorted.Length; s++) (_right[s], _left[s]) = (s, s);
+            for (int s = 0, start = 0; s < sorted.Length; s++)
+            {
+                (_bySlot[s], _along[s]) = (sorted[s].Index, sorted[s].U);
+                _slotOf[sorted[s].Index] = s;
+                if (s + 1 == sorted.Length || sorted[s + 1].Group != sorted[s].Group)
+                {
+                    var id = sorted[s].Group;
+                    _groups[keys[id]] = new Group(start, s + 1, angles[id].Least, angles[id].Most);
+                    start = s + 1;
+                }
+            }
+        }
+
+        /// <summary>A character found: no search tries it again.</summary>
+        internal void Take(int index)
+        {
+            _taken[index] = true;
+            var s = _slotOf[index];
+            if (s < 0) return;
+            _right[s] = s + 1;
+            _left[s + 1] = s;
+        }
+
+        private int Right(int s)
+        {
+            while (_right[s] != s) s = _right[s] = _right[_right[s]];
+            return s;
+        }
+
+        private int Left(int s)
+        {
+            var k = s + 1;
+            while (_left[k] != k) k = _left[k] = _left[_left[k]];
+            return k - 1;
+        }
+
+        /// <summary>
+        /// One character after, as the check takes it (No. 450, 485, 506): not taken, the same text and direction, within the reach along
+        /// the line and 0.6 pt across it in its own frame, its shape where it was; the nearest on the page, of equally near ones the first.
+        /// </summary>
+        private void Consider(int i)
+        {
+            if ((++_visits & 4095) == 0) _cancel.ThrowIfCancellationRequested();
+            if (_taken[i]) return;
+            var a = _after[_present[i]];
+            var (au, av) = _framed(a);
+            if (a.Text != _g.Text || _family(a) != _gFamily || Math.Abs(au - _gu) > _reach || Math.Abs(av - _gv) > 0.6) return;
+            var distance = (a.X - _g.X) * (a.X - _g.X) + (a.Y - _g.Y) * (a.Y - _g.Y);
+            if ((distance < _nearest || distance == _nearest && i < _best) && _sameShape(_g, a)) (_best, _nearest) = (i, distance);
+        }
+
+        /// <summary>First slot in [start, end) whose place along the line is not below <paramref name="u"/> (with <paramref name="above"/>: above it).</summary>
+        private int Bound(int start, int end, double u, bool above)
+        {
+            while (start < end)
+            {
+                var mid = start + (end - start) / 2;
+                if (above ? _along[mid] <= u : _along[mid] < u) start = mid + 1;
+                else end = mid;
+            }
+            return start;
+        }
+
+        /// <summary>
+        /// The character after that <paramref name="g"/> is found again as (its position among the present characters), -1 if none: of
+        /// those of its text and direction within <paramref name="along"/> along its line and 0.6 pt across it, every one that could be
+        /// nearer than the best so far is considered.
+        /// </summary>
+        internal int Find(Seen g, double gu, double gv, double along)
+        {
+            var family = _family(g);
+            (_g, _gFamily, _gu, _gv, _reach, _best, _nearest) = (g, family, gu, gv, along, -1, double.MaxValue);
+            if (_overflowing.TryGetValue((g.Text, family), out var loose))
+                foreach (var i in loose) Consider(i);
+            if (!double.IsFinite(gu) || !double.IsFinite(gv))
+            {
+                // its own place overflows: the conditions decide for every character of its text and direction
+                foreach (var (key, group) in _groups)
+                    if (key.Text == g.Text && key.Family == family)
+                        for (var s = Right(group.Start); s < group.End; s = Right(s + 1)) Consider(_bySlot[s]);
+                return _best;
+            }
+            var distance = Math.Sqrt(g.X * g.X + g.Y * g.Y);
+            var margin = 1e-9 * (1 + Math.Abs(gu) + along);
+            var (first, last) = (CellOf(gv - 0.6), CellOf(gv + 0.6));
+            for (var cell = first; ; cell++)
+            {
+                if (_groups.TryGetValue((g.Text, family, cell), out var group))
+                {
+                    // the bound along the line: within the rounding, and the turn of a slightly different direction over the distance from the origin
+                    var turn = Math.Max(Math.Abs(g.Angle - group.LeastAngle), Math.Abs(g.Angle - group.MostAngle));
+                    var slack = 1e-9 * (1 + Math.Abs(gu) + distance) + (turn > 0 ? distance * turn : 0);
+                    var lo = Bound(group.Start, group.End, gu - along - margin, above: false);
+                    var hi = Bound(lo, group.End, gu + along + margin, above: true);
+                    if (lo < hi)
+                    {
+                        var mid = Bound(lo, hi, gu, above: false);
+                        var (r, l) = (Right(mid), Left(mid - 1));
+                        while (true)
+                        {
+                            var right = r < hi;
+                            var left = l >= lo;
+                            if (!right && !left) break;
+                            var toRight = right && (!left || _along[r] - gu <= gu - _along[l]);
+                            var away = toRight ? _along[r] - gu : gu - _along[l];
+                            if (away - slack > Math.Sqrt(_nearest)) break;
+                            Consider(_bySlot[toRight ? r : l]);
+                            if (toRight) r = Right(r + 1);
+                            else l = Left(l - 1);
+                        }
+                    }
+                }
+                if (cell == last) break;
+            }
+            return _best;
+        }
     }
 }

@@ -9,7 +9,7 @@ namespace PdfKnead.Tests.Pdf;
 /// </summary>
 [Collection(nameof(LimitCollection))]   // measures the allocations of all threads, so no tests may run in parallel
 [Trait(TestKind.Name, TestKind.Time)]
-public sealed class JpxRobustTests
+public sealed partial class JpxRobustTests
 {
     /// <summary>Builds the header of a JPEG 2000 codestream; components with equal subsampling, one tile-part with little data.</summary>
     internal static byte[] Codestream(uint x0, uint x1, uint tile, int components, byte dx, byte levels, ushort layers, byte order, int body = 1)
@@ -82,9 +82,11 @@ public sealed class JpxRobustTests
         // More colour channels than a colour space can have, and opacity only without colour: rejected cleanly instead of
         // allocating gigabytes in one array or throwing IndexOutOfRange when drawn as a stencil mask
         Assert.Throws<JpxException>(() => JpxDecoder.Decode(Codestream(0, 64, 64, 40, 1, 0, 1, 0), 16_000_000));
+        // with signature and file type box: since No. 970 a file without them fails before, and the case below was no longer reached
+        byte[] signature = [.. Box("jP  ", [0x0D, 0x0A, 0x87, 0x0A]), .. Box("ftyp", [.. "jp2 "u8, 0, 0, 0, 0, .. "jp2 "u8])];
         var onlyAlpha = Box("cdef", [0, 1, 0, 0, 0, 1, 0, 0]);
-        var jp2 = (byte[])[.. Box("jp2h", onlyAlpha), .. Box("jp2c", Codestream(0, 64, 64, 1, 1, 0, 1, 0))];
-        Assert.Throws<JpxException>(() => JpxDecoder.Decode(jp2, 16_000_000));
+        var jp2 = (byte[])[.. signature, .. Box("jp2h", onlyAlpha), .. Box("jp2c", Codestream(0, 64, 64, 1, 1, 0, 1, 0))];
+        Assert.Contains("Kanäle", Assert.Throws<JpxException>(() => JpxDecoder.Decode(jp2, 16_000_000)).Message);
         var image = JpxDecoder.Decode(Codestream(0, 64, 64, 4, 1, 0, 1, 0), 16_000_000);   // an ordinary channel count still works
         Assert.Equal(4, image.Channels);
     }
@@ -100,7 +102,8 @@ public sealed class JpxRobustTests
         var code = Codestream(0, 64, 64, 1, 1, 0, 1, 0);
         Assert.Equal(1, JpxDecoder.Decode(code, 16_000_000).Channels);
         Assert.Throws<JpxException>(() => JpxDecoder.Decode([.. new byte[16], .. code], 16_000_000));
-        var signature = Box("jP  ", [0x0D, 0x0A, 0x87, 0x0A]);
+        // signature and file type box: without them no image either (No. 970)
+        byte[] signature = [.. Box("jP  ", [0x0D, 0x0A, 0x87, 0x0A]), .. Box("ftyp", [.. "jp2 "u8, 0, 0, 0, 0, .. "jp2 "u8])];
         Assert.Equal(1, JpxDecoder.Decode([.. signature, .. Box("jp2c", code)], 16_000_000).Channels);
         Assert.Throws<JpxException>(() => JpxDecoder.Decode([.. signature, .. Box("jp2x", code)], 16_000_000));
     }

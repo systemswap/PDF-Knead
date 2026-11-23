@@ -110,6 +110,25 @@ public sealed class FlattenStructureTests
         StructureAssert.Clean(flat);
     }
 
+    /// <summary>
+    /// A check box whose type, flags and tooltip stand on the parent field, the widget a kid of it (the usual form of a field with several
+    /// widgets): PrintField with the role cb and /Desc from the parent's /TU. Before, the widget without these entries ended the search (a missing
+    /// entry reads as the null object) — role tv and no /Desc (docs/FEHLERGEDAECHTNIS.md, No. 1004).
+    /// </summary>
+    [Fact]
+    public void Field_EntriesOnTheParent_InheritedForPrintField()
+    {
+        using var flat = Flatten(Tagged(change: o =>
+        {
+            o[1] = ((string)o[1]).Replace("/Fields[20 0 R]", "/Fields[24 0 R]", StringComparison.Ordinal);
+            o[20] = "<</Type/Annot/Subtype/Widget/Parent 24 0 R/AS/Off/Rect[120 750 140 770]/F 4/StructParent 1/P 3 0 R/AP<</N<</Off 22 0 R/Ja 22 0 R>>>>>>";
+            o[24] = "<</FT/Btn/T(Zustimmung)/TU(Ich stimme zu)/V/Off/Kids[20 0 R]>>";
+        }));
+        var attributes = Element(flat, "Form").GetDictionary(PdfName.Get("A"))!;
+        Assert.Equal("cb", attributes.GetName(PdfName.Get("Role"))!.Value);
+        Assert.Equal("Ich stimme zu", attributes.GetString(PdfName.Get("Desc"))!.ToText());
+    }
+
     /// <summary>A note that shows only its icon: its /Contents becomes /Alt of its Annot element; a free text shows its text and gets none.</summary>
     [Fact]
     public void Comment_ContentsBecomesAlt_FreeTextNot()

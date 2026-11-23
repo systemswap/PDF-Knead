@@ -344,14 +344,68 @@ public static class TrustListStore
             var set = Assemble((_, address) => source.Fetch(address, cancel), (name, data) => File.WriteAllBytes(Path.Combine(fresh, name), data),
                 anchors ?? Anchors, progress, cancel, lotl ?? Lotl);
             cancel.ThrowIfCancellationRequested();
-            if (Directory.Exists(folder)) Directory.Delete(folder, recursive: true);
-            Directory.Move(fresh, folder);
+            Replace(fresh, folder);
             lock (Gate) Checked[folder] = set;
             return set;
         }
         finally
         {
             if (Directory.Exists(fresh)) Directory.Delete(fresh, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// The fresh folder in place of the kept one: the kept one is first moved aside and removed only once the fresh one is in place, and put
+    /// back if that fails; each move is tried a few times — a virus scanner still reading the freshly written files holds them for a moment
+    /// (access denied). Before, the kept lists were deleted first, and a failed move lost the fresh ones as well (docs/FEHLERGEDAECHTNIS.md,
+    /// No. 1093). A kept folder left aside by an interruption comes back first.
+    /// </summary>
+    internal static void Replace(string fresh, string folder)
+    {
+        var aside = folder + ".alt";
+        if (!Directory.Exists(folder) && Directory.Exists(aside)) Retried(() => Move(aside, folder));
+        if (Directory.Exists(aside)) Directory.Delete(aside, recursive: true);
+        var kept = Directory.Exists(folder);
+        if (kept) Retried(() => Move(folder, aside));
+        try
+        {
+            Retried(() => Move(fresh, folder));
+        }
+        catch
+        {
+            if (kept && !Directory.Exists(folder)) Retried(() => Move(aside, folder));
+            throw;
+        }
+        if (!kept) return;
+        try
+        {
+            Directory.Delete(aside, recursive: true);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            // removed before the next replacement
+        }
+    }
+
+    /// <summary>Moves a folder (tests set their own).</summary>
+    internal static Action<string, string> Move { get; set; } = Directory.Move;
+
+    /// <summary>The wait before the next try of a move (tests set their own).</summary>
+    internal static Action<int> RetryWait { get; set; } = n => Thread.Sleep(100 * (n + 1));
+
+    private static void Retried(Action move)
+    {
+        for (var n = 0; ; n++)
+        {
+            try
+            {
+                move();
+                return;
+            }
+            catch (Exception e) when (n < 5 && e is IOException or UnauthorizedAccessException)
+            {
+                RetryWait(n);
+            }
         }
     }
 

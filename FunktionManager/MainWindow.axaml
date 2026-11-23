@@ -34,8 +34,7 @@
             </Grid>
         </Border>
 
-        <ScrollViewer HorizontalScrollBarVisibility="Disabled">
-            <local:PolicyEditor Name="Editor" Margin="24,4,24,18" />
-        </ScrollViewer>
+        <!-- the editor scrolls its content itself and keeps its buttons in sight -->
+        <local:PolicyEditor Name="Editor" />
     </DockPanel>
 </Window>

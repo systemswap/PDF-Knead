@@ -31,8 +31,10 @@
         <!-- Ohne Passwort: ausdrücklich bestätigen -->
         <CheckBox Name="ConsentBox">
             <TextBlock TextWrapping="Wrap"
-                       Text="{l:T 'Ich bin berechtigt, die Einschränkungen zu entfernen (z. B. eigenes Dokument oder Erlaubnis des Rechteinhabers).'}" />
+                       Text="{l:T 'Es ist meine Datei, oder ich habe die Zustimmung des Eigentümers, die Einschränkungen ohne das Rechte-Passwort zu entfernen.'}" />
         </CheckBox>
+        <TextBlock Name="ConsentLocked" FontSize="12" TextWrapping="Wrap" Classes="muted" IsVisible="False" Margin="28,-8,0,0"
+                   Text="{l:T 'Ohne das Rechte-Passwort ist das Entfernen durch die Funktionsdatei Ihrer Organisation gesperrt.'}" />
 
         <CheckBox Name="RemoveOpenBox" Content="{l:T 'Auch das Passwort zum Öffnen entfernen'}" />
 

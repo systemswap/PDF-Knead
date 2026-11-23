@@ -59,6 +59,23 @@ public static class PdfLimits
     /// <summary>Makes <see cref="MaxDecodedStreamBytes"/> follow <see cref="Budget"/> again after a fixed value (tests).</summary>
     internal static void DynamicStreamLimit() => _maxDecodedStreamBytes = null;
 
+    private static long? _maxDecodedBytesHeld;
+
+    /// <summary>
+    /// The most decoded data the program holds in large buffers at once, across all documents and threads: half of what the runtime gives the
+    /// program, and at least twice <see cref="MaxDecodedStreamBytes"/> — a stream at its limit is decoded into a buffer that is doubled while
+    /// needed, and the parts of /Contents are put together into one more (docs/FEHLERGEDAECHTNIS.md, No. 1003). Setting it fixes the value
+    /// (tests). Exceeding it throws <see cref="PdfLimitException"/>, as a single stream above its limit does.
+    /// </summary>
+    public static long MaxDecodedBytesHeld
+    {
+        get => _maxDecodedBytesHeld ?? Math.Max(2 * MaxDecodedStreamBytes, Available() / 2);
+        set => _maxDecodedBytesHeld = value;
+    }
+
+    /// <summary>Makes <see cref="MaxDecodedBytesHeld"/> follow the memory again after a fixed value (tests).</summary>
+    internal static void DynamicHeldLimit() => _maxDecodedBytesHeld = null;
+
     /// <summary>
     /// The memory one large piece of work may take — an image at full size, a decoded stream, a stage of a transformation: a quarter of what the
     /// runtime gives the program (the memory of the machine, or a limit set for the process), between <paramref name="floor"/> and the fixed
@@ -73,15 +90,27 @@ public static class PdfLimits
 
     // what the runtime gives the program does not change while it runs (the machine's memory, or the limit the process was started with):
     // asked once — the budgets are read in loops, and asking each time made decoding a large stream several times slower. Before the first
-    // collection the runtime may not know it yet: then 8 GB for now, and asked again next time
+    // collection the runtime does not report it: one collection of the youngest generation makes it known (about a millisecond, once). Before,
+    // 8 GB were assumed until then — a file opened right after the start got the limits of a large machine, also on a small one or in a process
+    // limited to 3.5 GB, which then ran out of memory (docs/FEHLERGEDAECHTNIS.md, No. 1003). 8 GB stay only where the runtime never tells
     private static long _available;
 
     private static long Available()
     {
         if (Interlocked.Read(ref _available) is > 0 and var known) return known;
-        if (GC.GetGCMemoryInfo().TotalAvailableMemoryBytes is not (> 0 and var available)) return 8L << 30;
+        var available = Ask(() => GC.GetGCMemoryInfo().TotalAvailableMemoryBytes, () => GC.Collect(0, GCCollectionMode.Forced, blocking: true));
+        if (available <= 0) return 8L << 30;
         Interlocked.Exchange(ref _available, available);
         return available;
+    }
+
+    /// <summary>What the runtime reports; where it reports nothing yet, again after one collection.</summary>
+    internal static long Ask(Func<long> report, Action collect)
+    {
+        var available = report();
+        if (available > 0) return available;
+        collect();
+        return report();
     }
 
     /// <summary>Maximum length of a chain of /Prev references (incremental updates).</summary>
