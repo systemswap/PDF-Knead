@@ -35,5 +35,8 @@ public static class PageGeometry
     /// <param name="pixelsPerPoint">1 = 72 dpi.</param>
     /// <returns>Width and height in pixels.</returns>
     public static (int Width, int Height) DeviceSize(PdfPage page, double pixelsPerPoint) =>
-        ((int)Math.Ceiling(page.Width * pixelsPerPoint), (int)Math.Ceiling(page.Height * pixelsPerPoint));
+        (Pixels(page.Width * pixelsPerPoint), Pixels(page.Height * pixelsPerPoint));
+
+    // never beyond int: /UserUnit has no upper bound in the file, and a cast of a larger number has no defined result (No. 1122)
+    private static int Pixels(double size) => double.IsFinite(size) && size > 0 ? (int)Math.Min(Math.Ceiling(size), int.MaxValue) : 0;
 }

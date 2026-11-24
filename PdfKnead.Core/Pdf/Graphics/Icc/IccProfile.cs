@@ -23,6 +23,9 @@ internal sealed class IccProfile
     /// <summary>No table evaluated here has more inputs (2^n corners per value).</summary>
     private const int MaxInputs = 8;
 
+    /// <summary>Points of a tone curve kept (curveType tables are resampled onto it; lut16 curves allow at most 4 096 as well).</summary>
+    private const int MaxCurveEntries = 4096;
+
     private readonly IStage[] _stages;
 
     // the tables A2B0, A2B1, A2B2 as read (null where missing or unreadable), and the profiles built from them for another intent
@@ -65,8 +68,8 @@ internal sealed class IccProfile
     /// Entries of the colour tables read (all intents, as floats): what keeping the profile costs beyond its data — up to 4 bytes per byte of
     /// an 8-bit table (docs/FEHLERGEDAECHTNIS.md, No. 759).
     /// </summary>
-    internal long TableEntries => _stages.Concat(_byIntent.Where(s => s is not null && !ReferenceEquals(s, _stages)).SelectMany(s => s!))
-        .OfType<ClutStage>().Sum(c => (long)c.Entries);
+    internal long TableEntries => _stages.Concat(_byIntent.Where(s => s is not null).SelectMany(s => s!)).Distinct()
+        .Sum(s => s switch { ClutStage c => (long)c.Entries, CurveStage c => c.Entries, _ => 0L });
     public uint Space { get; }
     public int Channels { get; }
 
@@ -156,9 +159,17 @@ internal sealed class IccProfile
         // tables: relative colorimetric, otherwise perceptual by default; all three kept for the intents
         IStage[]?[] byIntent = [null, null, null];
         uint[] tableTags = [0x41324230, 0x41324231, 0x41324232];   // A2B0, A2B1, A2B2
+        // tags naming the same bytes (common, also in the bundled CMYK profile) share one reading — before, a table of 32 MB was built three
+        // times, before any budget was asked (docs/FEHLERGEDAECHTNIS.md, No. 1122)
+        var read = new Dictionary<(int, int), IStage[]?>();
         foreach (var i in (ReadOnlySpan<int>)[1, 0, 2])   // A2B1 first: as before, a broken A2B1 makes the profile unreadable
         {
             if (!tags.TryGetValue(tableTags[i], out var t)) continue;
+            if (read.TryGetValue(t, out var same))
+            {
+                byIntent[i] = same;
+                continue;
+            }
             var lut = d.Slice(t.Offset, t.Size);
             if (lut.Length < 12) continue;
             try
@@ -170,6 +181,7 @@ internal sealed class IccProfile
                     0x6D414220 => LutAToB(lut, channels, pcs),     // mAB
                     _ => null,
                 };
+                read[t] = byIntent[i];
             }
             catch (Exception e) when (i != 1 && e is IccFormatException or IndexOutOfRangeException or ArgumentException or OverflowException)
             {
@@ -194,7 +206,11 @@ internal sealed class IccProfile
             var curves = new IccCurve[3];
             var trcs = new uint[] { 0x72545243, 0x67545243, 0x62545243 };   // rTRC, gTRC, bTRC
             for (var c = 0; c < 3; c++)
-                curves[c] = tags.TryGetValue(trcs[c], out var tc) ? Curve(d.Slice(tc.Offset, tc.Size), out _) : throw new IccFormatException();
+            {
+                var tc = tags.TryGetValue(trcs[c], out var found) ? found : throw new IccFormatException();
+                // the same bytes once (No. 1122)
+                curves[c] = c > 0 && tags[trcs[c - 1]] == tc ? curves[c - 1] : c > 1 && tags[trcs[0]] == tc ? curves[0] : Curve(d.Slice(tc.Offset, tc.Size), out _);
+            }
             return new IccProfile(data, space, 3, [new CurveStage(curves), new MatrixStage(matrix, null)], matrixShaper: true)
             {
                 Matrix = matrix,
@@ -237,8 +253,19 @@ internal sealed class IccProfile
             length = 12 + 2 * count;
             if (count == 0) return IccCurve.Identity;
             if (count == 1) return IccCurve.Gamma(U16(d, 12) / 256f);
-            var table = new float[count];
-            for (var i = 0; i < count; i++) table[i] = U16(d, 12 + 2 * i) / 65535f;
+            // a table of up to 16.7 million entries fits into a profile of 32 MB, and several tags may name it: more than MaxCurveEntries
+            // points are resampled linearly onto MaxCurveEntries — finer than any 16-bit evaluation needs (docs/FEHLERGEDAECHTNIS.md, No. 1122)
+            var table = new float[Math.Min(count, MaxCurveEntries)];
+            if (table.Length == count)
+                for (var i = 0; i < count; i++) table[i] = U16(d, 12 + 2 * i) / 65535f;
+            else
+                for (var i = 0; i < table.Length; i++)
+                {
+                    var x = (double)i * (count - 1) / (table.Length - 1);
+                    var k = Math.Min((int)x, count - 2);
+                    var f = x - k;
+                    table[i] = (float)((U16(d, 12 + 2 * k) * (1 - f) + U16(d, 14 + 2 * k) * f) / 65535);
+                }
             return IccCurve.Table(table);
         }
         if (type == 0x70617261)   // para
@@ -387,6 +414,9 @@ internal sealed class IccProfile
 
     private sealed class CurveStage(IccCurve[] curves) : IStage
     {
+        /// <summary>Entries of the curves' tables, each table once.</summary>
+        public long Entries => curves.Distinct().Sum(c => (long)c.Entries);
+
         public void Apply(Span<float> v)
         {
             for (var i = 0; i < curves.Length; i++) v[i] = curves[i].Evaluate(v[i]);
@@ -538,6 +568,9 @@ internal sealed class IccCurve
     public static IccCurve Gamma(float gamma) => new(1, gamma);
 
     public static IccCurve Table(float[] table) => new(2, table: table);
+
+    /// <summary>Entries of its table (0 for identity, power and parametric curves).</summary>
+    public int Entries => _table?.Length ?? 0;
 
     public static IccCurve Parametric(int function, float[] p) => new(3, function: function, p: p);
 

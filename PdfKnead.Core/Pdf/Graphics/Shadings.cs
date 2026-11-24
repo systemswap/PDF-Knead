@@ -384,6 +384,9 @@ public static class Shadings
     /// </summary>
     private static void Triangle(MeshBuilder mesh, Colorizer colors, in MeshVertex a, in MeshVertex b, in MeshVertex c, int depth = 0)
     {
+        // a triangle whose coordinates add up to no finite number is dropped by the mesh — dropped here before it is split, else its parts
+        // cost up to 5 461 calls each and, never counted as triangles, the whole stream was read that way (docs/FEHLERGEDAECHTNIS.md, No. 1122)
+        if (depth == 0 && !float.IsFinite(a.P.X + a.P.Y + b.P.X + b.P.Y + c.P.X + c.P.Y)) return;
         if (colors.Linear || depth >= MaxSplitDepth || mesh.Count >= MaxTriangles)
         {
             mesh.Triangle(a.P, a.Argb, b.P, b.Argb, c.P, c.Argb);

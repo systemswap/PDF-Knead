@@ -435,7 +435,8 @@ public sealed class GraphicsNormTests
             $"<< /N 4 /Alternate /DeviceCMYK /Length {profiles[1].Length} >>\nstream\n{profiles[1]}\nendstream",
             $"<< /N 4 /Alternate /DeviceCMYK /Length {profiles[2].Length} >>\nstream\n{profiles[2]}\nendstream");
         using var doc = PdfDocument.Open(file);
-        doc.IccTableBudget = 2L * 9 * 9 * 9 * 9 * 3;
+        // room for two profiles: their colour tables and, since No. 1122, their curves
+        doc.IccTableBudget = 2 * Core.Pdf.Graphics.Icc.IccProfile.Parse(CmykProfile(9, 0))!.TableEntries;
         var page = doc.Pages[0];
         using var bitmap = SkiaRenderer.RenderPage(PageInterpreter.Build(doc, page), doc, page, 1, new ImageCache());
         bool Grey(int x) => bitmap.GetPixel(x, 15) is var c && Math.Abs(c.Red - c.Blue) < 8 && c.Red < 200;
@@ -527,5 +528,51 @@ public sealed class GraphicsNormTests
         using var plain = Rendered($"0 0 1 RG 20 w {line}");
         using var intent = Rendered($"0 0 1 RG 20 w /Saturation ri 1000000 i {line}");
         Assert.Equal(plain.Bytes, intent.Bytes);
+    }
+
+    /// <summary>
+    /// /AS with 1 000 usage dictionaries, each naming the same 10 000 layers with 100 categories: the work is bounded (at most a million steps),
+    /// the first dictionaries still apply — before, 10^9 steps (measured 18 s, now 0.04 s) at every page, mask and pattern cell (M6 draft k-811, security;
+    /// docs/FEHLERGEDAECHTNIS.md, No. 1122).
+    /// </summary>
+    [Trait(TestKind.Name, TestKind.Time)]
+    [Fact]
+    public void Layers_UsageApplications_WorkBounded()
+    {
+        var layers = string.Join(" ", Enumerable.Repeat("3 0 R", 10_000));
+        var categories = "/View " + string.Join(" ", Enumerable.Range(1, 99).Select(i => $"/C{i}"));
+        var usages = string.Join(" ", Enumerable.Repeat("5 0 R", 1000));
+        using var doc = PdfDocument.Open(DocumentStructureNormTests.FileOf([
+            "<< /Type /Catalog /Pages 2 0 R /OCProperties << /OCGs [3 0 R] /D << /AS 6 0 R >> >> >>",
+            "<< /Type /Pages /Kids [] /Count 0 >>",
+            "<< /Type /OCG /Name (A) /Usage << /View << /ViewState /OFF >> >> >>",
+            $"[{layers}]",
+            $"<< /Event /View /OCGs 4 0 R /Category [{categories}] >>",
+            $"[{usages}]"]));
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var optional = OptionalContent.For(doc, OptionalContentUse.View, "de-DE");
+        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(0.2 * TestKind.Factor), $"{watch.Elapsed}");
+        Assert.True(optional.IsHidden(doc.GetObject(3), null));
+    }
+
+    /// <summary>
+    /// A membership dictionary with 10 000 layers named 20 000 times: evaluated once — before, its list was run through at every marked section
+    /// (M6 draft k-811, security; docs/FEHLERGEDAECHTNIS.md, No. 1122).
+    /// </summary>
+    [Trait(TestKind.Name, TestKind.Time)]
+    [Fact]
+    public void Layers_MembershipNamedOftenWithManyLayers_EvaluatedOnce()
+    {
+        var layers = string.Join(" ", Enumerable.Repeat("3 0 R", 10_000));
+        using var doc = PdfDocument.Open(DocumentStructureNormTests.FileOf([
+            "<< /Type /Catalog /Pages 2 0 R /OCProperties << /OCGs [3 0 R] /D << /OFF [3 0 R] >> >> >>",
+            "<< /Type /Pages /Kids [] /Count 0 >>",
+            "<< /Type /OCG /Name (A) >>",
+            $"<< /Type /OCMD /OCGs [{layers}] /P /AllOff >>"]));
+        var optional = OptionalContent.For(doc);
+        var membership = doc.GetObject(4);
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        for (var i = 0; i < 20_000; i++) Assert.False(optional.IsHidden(membership, null));
+        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(2 * TestKind.Factor), $"{watch.Elapsed}");
     }
 }

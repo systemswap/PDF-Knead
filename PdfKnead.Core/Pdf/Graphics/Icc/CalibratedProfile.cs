@@ -213,7 +213,13 @@ internal static class CalibratedProfile
         var space = BinaryPrimitives.ReadUInt32BigEndian(data.AsSpan(16));
         var count = BinaryPrimitives.ReadUInt32BigEndian(data.AsSpan(128));
         if (count > 100 || 132 + count * 12 > data.Length) return null;
+        // only the tags written below, the same bytes copied once and never more than the profile holds — before, every one of up to 100
+        // entries was copied, also duplicates and overlapping ones: a crafted profile of 32 MB took about 3.2 GB (docs/FEHLERGEDAECHTNIS.md,
+        // No. 1122)
+        HashSet<string> used = ["desc", "cprt", "wtpt", "bkpt", "rXYZ", "gXYZ", "bXYZ", "kTRC", "rTRC", "gTRC", "bTRC", "chad"];
         var read = new Dictionary<string, byte[]>(StringComparer.Ordinal);
+        var copies = new Dictionary<(uint, uint), byte[]>();
+        long copied = 0;
         for (var i = 0; i < count; i++)
         {
             var entry = data.AsSpan(132 + i * 12, 12);
@@ -221,7 +227,13 @@ internal static class CalibratedProfile
             var offset = BinaryPrimitives.ReadUInt32BigEndian(entry[4..]);
             var size = BinaryPrimitives.ReadUInt32BigEndian(entry[8..]);
             if (offset + (long)size > data.Length || size < 8) return null;
-            read.TryAdd(signature, data.AsSpan((int)offset, (int)size).ToArray());
+            if (!used.Contains(signature) || read.ContainsKey(signature)) continue;
+            if (!copies.TryGetValue((offset, size), out var bytes))
+            {
+                if ((copied += size) > data.Length) return null;
+                copies[(offset, size)] = bytes = data.AsSpan((int)offset, (int)size).ToArray();
+            }
+            read[signature] = bytes;
         }
         string[] needed = space == IccProfile.GraySpace ? ["kTRC"] : space == IccProfile.RgbSpace ? ["rXYZ", "gXYZ", "bXYZ", "rTRC", "gTRC", "bTRC"] : [];
         if (needed.Length == 0 || needed.Any(n => !read.ContainsKey(n))) return null;
@@ -256,15 +268,17 @@ internal static class CalibratedProfile
         if (tag is null || tag.Length < 12) return null;
         switch (Encoding.ASCII.GetString(tag, 0, 4))
         {
-            case "mluc" when tag.Length >= 28:
-                var length = (int)BinaryPrimitives.ReadUInt32BigEndian(tag.AsSpan(20));
-                var offset = (int)BinaryPrimitives.ReadUInt32BigEndian(tag.AsSpan(24));
-                return offset + (long)length <= tag.Length ? Encoding.BigEndianUnicode.GetString(tag, offset, length) : null;
+            // length and offset unsigned: as int, a value from 2^31 on passed the check and the decoding threw — saving as PDF/A-1 failed
+            // (docs/FEHLERGEDAECHTNIS.md, No. 1122); no record at all: no text
+            case "mluc" when tag.Length >= 28 && BinaryPrimitives.ReadUInt32BigEndian(tag.AsSpan(8)) > 0:
+                var length = BinaryPrimitives.ReadUInt32BigEndian(tag.AsSpan(20));
+                var offset = BinaryPrimitives.ReadUInt32BigEndian(tag.AsSpan(24));
+                return offset + (long)length <= tag.Length ? Encoding.BigEndianUnicode.GetString(tag, (int)offset, (int)length).TrimEnd('\0') : null;
             case "text":
                 return Encoding.Latin1.GetString(tag, 8, tag.Length - 8).TrimEnd('\0');
             case "desc":
-                var count = (int)BinaryPrimitives.ReadUInt32BigEndian(tag.AsSpan(8));
-                return 12 + (long)count <= tag.Length ? Encoding.Latin1.GetString(tag, 12, count).TrimEnd('\0') : null;
+                var count = BinaryPrimitives.ReadUInt32BigEndian(tag.AsSpan(8));
+                return 12 + (long)count <= tag.Length ? Encoding.Latin1.GetString(tag, 12, (int)count).TrimEnd('\0') : null;
             default:
                 return null;
         }

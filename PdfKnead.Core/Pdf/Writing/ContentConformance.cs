@@ -669,7 +669,9 @@ internal static class ContentConformance
             return null;
         }
         var n = change.Inputs;
-        var row = (width * n * bits + 7) / 8;
+        // in long: 2^24 samples of 32 components at 16 bits overflowed int, the row became 0 (docs/FEHLERGEDAECHTNIS.md, No. 1122)
+        var row = ((long)width * n * bits + 7) / 8;
+        if (row > int.MaxValue) return null;
         if (samples.Length < (long)row * height) return null;
         var decode = Numbers(dict.Get(PdfName.Get("D")) is PdfArray d ? d : dict.Get(PdfName.Get("Decode")) as PdfArray);
         var max = (1 << bits) - 1;
@@ -682,7 +684,7 @@ internal static class ContentConformance
                 for (var c = 0; c < n; c++)
                 {
                     var bit = (long)(x * n + c) * bits;
-                    var at = y * row + (int)(bit / 8);
+                    var at = (int)(y * row + bit / 8);
                     var raw = bits switch
                     {
                         16 => samples[at] << 8 | samples[at + 1],

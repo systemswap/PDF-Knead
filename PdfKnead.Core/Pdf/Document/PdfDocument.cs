@@ -77,6 +77,12 @@ public sealed class PdfDocument : IPdfResolver, IDisposable
         // while DeviceCMYK belongs to a page with its own output intent, a space built now may contain it: not shared with other pages
         ColorSpace.PageScoped ? build() : (ColorSpace)(_colorSpaces.TryGetValue(key, out var s) ? s : _colorSpaces.GetOrAdd(key, _ => build()));
 
+    /// <summary>
+    /// Colour spaces of embedded ICC profiles that are not objects of their own (JPEG 2000 wrappers) or are named again and again (output
+    /// intents of every page), by the profile's content: read, and its tables reserved, once per document (docs/FEHLERGEDAECHTNIS.md, No. 1122).
+    /// </summary>
+    internal System.Collections.Concurrent.ConcurrentDictionary<string, ColorSpace?> ProfileSpaces { get; } = new();
+
     /// <summary>DeviceCMYK per page with its own /OutputIntents; see <see cref="ColorSpace.PageCmyk"/>.</summary>
     internal System.Runtime.CompilerServices.ConditionalWeakTable<PdfDictionary, ColorSpace.StrongBox> PageCmykSpaces { get; } = new();
 

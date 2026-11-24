@@ -614,7 +614,7 @@ public static class PdfImageDecoder
 
     internal static ColorSpace JpxSpace(ColorSpace? declared, int channels, byte[]? icc, PdfDocument doc, byte renderingIntent, byte blackPoint) =>
         declared is not null && declared.Components == channels ? declared
-            : (icc is not null && ColorSpace.FromProfile(icc, channels) is { } managed ? managed : ByCount(channels, doc)).WithRendering(renderingIntent, blackPoint);
+            : (icc is not null && ColorSpace.FromProfile(icc, channels, doc) is { } managed ? managed : ByCount(channels, doc)).WithRendering(renderingIntent, blackPoint);
 
     private static ColorSpace ByCount(int components, PdfDocument doc) => components switch
     {

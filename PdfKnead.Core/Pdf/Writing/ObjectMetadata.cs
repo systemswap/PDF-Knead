@@ -451,6 +451,11 @@ internal static class ObjectMetadata
         }
         if (!tags.Any(t => IccMetadataTags.Contains(t.Signature))) return null;
         var kept = tags.Where(t => !IccMetadataTags.Contains(t.Signature)).ToList();
+        // tags whose data overlap in part (ICC.1, 7.3.1 forbids it) would be copied once each: up to 1 000 times the profile (a crafted profile of
+        // 4 MB gave 4 GB). Where packing anew would make the profile larger than it is, it stays as it is — only the entries of the removed tags
+        // go and their bytes are cleared where no kept tag uses them (docs/FEHLERGEDAECHTNIS.md, No. 1122)
+        if (kept.DistinctBy(t => (t.Offset, t.Size)).Sum(t => (long)t.Size + 3) + 132 + 12L * kept.Count > profile.Length)
+            return IccWithoutTagsInPlace(profile, tags, kept);
         var output = new MemoryStream();
         output.Write(profile.AsSpan(0, 128));
         output.Write(new byte[4 + kept.Count * 12]);
@@ -492,6 +497,31 @@ internal static class ObjectMetadata
     private static readonly HashSet<string> IccNoticeTags = ["desc", "cprt", "dscm"];
 
     /// <summary>The profile with the texts of <see cref="IccNoticeTags"/> as spaces; null if there is no such text (or it is spaces already).</summary>
+    /// <summary>The profile as it is, without the entries of the removed tags; their bytes cleared where no kept tag lies on them.</summary>
+    private static byte[] IccWithoutTagsInPlace(byte[] profile, List<(string Signature, int Offset, int Size)> tags,
+        List<(string Signature, int Offset, int Size)> kept)
+    {
+        var result = (byte[])profile.Clone();
+        foreach (var (signature, offset, size) in tags)
+        {
+            if (!IccMetadataTags.Contains(signature)) continue;
+            for (var at = offset; at < offset + size; at++)
+                if (!kept.Any(k => at >= k.Offset && at < k.Offset + k.Size)) result[at] = 0;
+        }
+        result.AsSpan(84, 16).Clear();   // profile ID
+        var table = result.AsSpan(128, 4 + 12 * tags.Count);
+        table.Clear();
+        BinaryPrimitives.WriteUInt32BigEndian(result.AsSpan(128), (uint)kept.Count);
+        for (var i = 0; i < kept.Count; i++)
+        {
+            var entry = result.AsSpan(132 + i * 12);
+            System.Text.Encoding.ASCII.GetBytes(kept[i].Signature, entry[..4]);
+            BinaryPrimitives.WriteUInt32BigEndian(entry[4..], (uint)kept[i].Offset);
+            BinaryPrimitives.WriteUInt32BigEndian(entry[8..], (uint)kept[i].Size);
+        }
+        return result;
+    }
+
     internal static byte[]? IccNotices(byte[] profile)
     {
         if (profile.Length < 132 || !profile.AsSpan(36, 4).SequenceEqual("acsp"u8)) return null;
@@ -529,9 +559,10 @@ internal static class ObjectMetadata
                     var records = (int)Math.Min(BinaryPrimitives.ReadUInt32BigEndian(tag[8..]), 1000u);
                     var recordSize = (int)BinaryPrimitives.ReadUInt32BigEndian(tag[12..]);
                     if (recordSize < 12) break;
-                    for (var r = 0; r < records && 16 + r * recordSize + 12 <= tag.Length; r++)
+                    // in long: a record size near 2^31 overflowed, the exception dropped the cleaning of the whole profile (No. 1122)
+                    for (var r = 0; r < records && 16L + (long)r * recordSize + 12 <= tag.Length; r++)
                     {
-                        var record = tag[(16 + r * recordSize)..];
+                        var record = tag[(int)(16L + (long)r * recordSize)..];
                         var length = BinaryPrimitives.ReadUInt32BigEndian(record[4..]);
                         var at = BinaryPrimitives.ReadUInt32BigEndian(record[8..]);
                         if (at <= tag.Length && length <= tag.Length - at) changed |= BlankUtf16(tag.Slice((int)at, (int)length));

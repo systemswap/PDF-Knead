@@ -516,4 +516,33 @@ public sealed class ShadingTests
         Greenish(At(b, 150, 100));
         Bluish(At(b, 100, 196));
     }
+
+    /// <summary>
+    /// A type 4 mesh whose coordinates all lie between 1e38 and 3e38 (finite each, but the sum of any triangle's coordinates is no finite float)
+    /// with a steep function between its corners: every triangle and every part of it is dropped. Before, each was first split six levels
+    /// deep with four function evaluations per level and only then dropped — the triangle limit never counted them, so 1.5 million points
+    /// were read: measured 2.7 s per 10 000 triangles, over two minutes for this stream (M6 draft h-8745, security; docs/FEHLERGEDAECHTNIS.md,
+    /// No. 1122).
+    /// </summary>
+    [Trait(TestKind.Name, TestKind.Time)]
+    [Fact]
+    public void DroppedTriangles_NotSplitFirst()
+    {
+        var steep = TestPdf.Dict(("FunctionType", PdfInteger.Of(2)), ("Domain", TestPdf.Box(0, 1)),
+            ("C0", TestPdf.Box(1, 0, 0)), ("C1", TestPdf.Box(0, 0, 1)), ("N", PdfInteger.Of(50)));
+        var dict = TestPdf.Dict(("ShadingType", PdfInteger.Of(4)), ("ColorSpace", TestPdf.N("DeviceRGB")),
+            ("BitsPerCoordinate", PdfInteger.Of(8)), ("BitsPerComponent", PdfInteger.Of(8)), ("BitsPerFlag", PdfInteger.Of(8)),
+            ("Decode", TestPdf.Box(1e38, 3e38, 1e38, 3e38, 0, 1)), ("Function", steep));
+        // flag 0, x, y, t per vertex: corners far apart in t, so that a split would always go to the full depth
+        var data = new byte[4 * 1_500_000];
+        for (var v = 0; v < 1_500_000; v++)
+        {
+            data[4 * v + 1] = (byte)(v % 3 == 1 ? 255 : 0);
+            data[4 * v + 2] = (byte)(v % 3 == 2 ? 255 : 0);
+            data[4 * v + 3] = (byte)(v % 2 == 0 ? 0 : 255);
+        }
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        using var b = Render("/Sh sh", Stream(dict, data));
+        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(5 * TestKind.Factor), $"{watch.Elapsed}");
+    }
 }

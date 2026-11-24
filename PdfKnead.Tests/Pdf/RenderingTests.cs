@@ -399,4 +399,37 @@ public sealed class ThinLineTests
             Assert.True(Darkness(true) > Darkness(false) + 50, $"mit {Darkness(true)}, ohne {Darkness(false)}");
         }
     }
+
+    /// <summary>
+    /// A page with /UserUnit 1e6 (the file sets no upper bound): drawn at the resolution that fits the limits of the renderer, no exception —
+    /// before, a page of a billion pixels square went to the bitmap as it was (M6 draft a-81-83, security; docs/FEHLERGEDAECHTNIS.md, No. 1122).
+    /// </summary>
+    [Fact]
+    public void HugeUserUnit_DrawnWithinTheLimits()
+    {
+        using var doc = PdfDocument.Open(DocumentStructureNormTests.FileOf(
+            "<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 1000 1000] /UserUnit 1000000 >>"));
+        var page = doc.Pages[0];
+        Assert.Equal(1e9, page.Width);
+        var list = Core.Pdf.Content.PageInterpreter.Build(doc, page);
+        using var bitmap = SkiaRenderer.RenderPage(list, doc, page, 1, new ImageCache());
+        Assert.InRange(bitmap.Width, 1, SkiaRenderer.MaxRenderSide);
+        Assert.True((long)bitmap.Width * bitmap.Height <= SkiaRenderer.MaxRenderPixels);
+    }
+
+    /// <summary>
+    /// Line widths and miter limits beyond single precision (3e38, 1e39): drawn without an exception, also into the areas the redaction uses
+    /// (M6 draft b-84 asked whether float infinity reaches the stroke extent; it does not break anything).
+    /// </summary>
+    [Theory]
+    [InlineData("3e38")]
+    [InlineData("1e39")]
+    public void HugeLineWidth_DrawnWithoutException(string width)
+    {
+        var (doc, list) = InterpreterTests.Page($"{width} w {width} M 0 0 1 RG 10 10 m 100 100 l 150 20 l S");
+        using (doc)
+        using (var bitmap = SkiaRenderer.RenderPage(list, doc, doc.Pages[0], 1, new ImageCache()))
+            Assert.True(bitmap.Width > 0);
+    }
 }

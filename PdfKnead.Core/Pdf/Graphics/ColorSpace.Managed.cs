@@ -141,8 +141,9 @@ public abstract partial class ColorSpace
                 foreach (var stream in Profiles(intent))
                 {
                     if (stream.Dictionary.GetInteger(PdfName.N) is { } n && n != 4) continue;
-                    if (IccProfile.Parse(doc.GetStreamData(stream)) is { Channels: 4 } profile)
-                        return new IccSpace(Shared(profile), deviceCmyk: true, profile);
+                    // within the document's budget, once per profile (docs/FEHLERGEDAECHTNIS.md, No. 1122)
+                    if (ProfileSpace(doc.GetStreamData(stream), 4, doc, deviceCmyk: true) is { } space)
+                        return space;
                 }
             }
         }
@@ -208,18 +209,32 @@ public abstract partial class ColorSpace
             is { } custom and not PdfNull and not PdfName;
 
     /// <summary>Colour space from an embedded profile (JPEG 2000); null if it does not fit.</summary>
-    internal static ColorSpace? FromProfile(byte[] data, int components)
+    internal static ColorSpace? FromProfile(byte[] data, int components, PdfDocument doc) => ProfileSpace(data, components, doc, deviceCmyk: false);
+
+    /// <summary>
+    /// The colour space of a profile given as bytes, within the document's budget for colour tables and read once per document and content
+    /// (<see cref="PdfDocument.ProfileSpaces"/>): before, the profile of a JPEG 2000 image was read at every decoding and the output intent's
+    /// for every page, outside any budget (docs/FEHLERGEDAECHTNIS.md, No. 1122). Null if it is unreadable, does not fit or exceeds the budget.
+    /// </summary>
+    private static ColorSpace? ProfileSpace(byte[] data, int components, PdfDocument doc, bool deviceCmyk)
     {
-        if (IccProfile.Parse(data) is not { } profile || profile.Channels != components) return null;
-        return IsSrgb(profile) ? DeviceRgb : new IccSpace(Shared(profile), deviceCmyk: false, profile);
+        var key = System.Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(data)) + ":" + components + (deviceCmyk ? "k" : "");
+        return doc.ProfileSpaces.GetOrAdd(key, _ =>
+            IccProfile.Parse(data) is not { } profile || profile.Channels != components || !doc.ReserveIccTables(profile.TableEntries) ? null
+            : !deviceCmyk && IsSrgb(profile) ? DeviceRgb : new IccSpace(Shared(profile), deviceCmyk, profile));
     }
 
     // Some producers attach the same profile as a separate copy to every image: share the transform (tables up to 1 MB, caches) by
-    // content, also across documents — limited to 32 (then cleared); the profiles themselves are immutable
+    // content, also across documents — limited to 32 (then cleared); the profiles themselves are immutable. Only small profiles: the cache
+    // lies outside every document's budget, 32 large tables would stay after their documents are closed (docs/FEHLERGEDAECHTNIS.md, No. 1122)
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, IccTransform> SharedTransforms = new();
+
+    /// <summary>Most table entries of a profile whose transform is shared across documents (1 Mi entries, 4 MB).</summary>
+    private const long SharedTableEntries = 1L << 20;
 
     private static IccTransform Shared(IccProfile profile, int table = RelativeColorimetric, bool compensate = true)
     {
+        if (profile.TableEntries > SharedTableEntries) return new IccTransform(profile.ForIntent(table), compensate);
         var key = System.Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(profile.Data)) + ":" + table + (compensate ? "+" : "-");
         if (SharedTransforms.TryGetValue(key, out var shared)) return shared;
         if (SharedTransforms.Count >= 32) SharedTransforms.Clear();
@@ -245,7 +260,8 @@ public abstract partial class ColorSpace
             {
             }
             // the colour tables within the document's budget, else as an unreadable profile (No. 759)
-            if (IccProfile.Parse(data) is { } profile && profile.Channels == n && (profile.IsMatrixShaper || doc.ReserveIccTables(profile.TableEntries)))
+            // matrix and grey profiles too: their curves may hold tables (No. 1122)
+            if (IccProfile.Parse(data) is { } profile && profile.Channels == n && doc.ReserveIccTables(profile.TableEntries))
                 return IsSrgb(profile) ? DeviceRgb : new IccSpace(Shared(profile), deviceCmyk: false, profile);
         }
         // profile unreadable: alternate colour space

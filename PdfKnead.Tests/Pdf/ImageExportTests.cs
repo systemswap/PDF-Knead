@@ -435,7 +435,7 @@ public class ImageExportTests
         var profile = Inflate(png.Chunks["iCCP"].AsSpan(13));   // name "ICC Profile", terminator, method
         using var doc = PdfDocument.Open(ImageInfoTests.OnePage(""));
         var drawn = ColorSpace.Create(space, null, doc);
-        var described = ColorSpace.FromProfile(profile, n)!;
+        var described = ColorSpace.FromProfile(profile, n, doc)!;
         for (var i = 0; i < 64; i++)
         {
             var values = raw.AsSpan(i * n, n).ToArray().Select(v => v / 255.0).ToArray();

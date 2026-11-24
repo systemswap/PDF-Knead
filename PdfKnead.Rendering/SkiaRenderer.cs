@@ -11,6 +11,12 @@ namespace PdfKnead.Rendering;
 /// </summary>
 public static class SkiaRenderer
 {
+    /// <summary>Longest side of a rendered page in pixels.</summary>
+    public const int MaxRenderSide = 1 << 16;
+
+    /// <summary>Most pixels of a rendered page (2^28, 1 GB as RGBA).</summary>
+    public const long MaxRenderPixels = 1L << 28;
+
     /// <summary>Background of a page (paper).</summary>
     public static readonly SKColor Paper = SKColors.White;
 
@@ -32,6 +38,13 @@ public static class SkiaRenderer
         bool overprintPreview = false, double noZoomScale = 1)
     {
         var (w, h) = PageGeometry.DeviceSize(page, pixelsPerPoint);
+        // a page larger than MaxRenderSide or MaxRenderPixels (a crafted /UserUnit makes any page so) is drawn at the resolution that fits —
+        // before, the size went to the bitmap as it was (docs/FEHLERGEDAECHTNIS.md, No. 1122)
+        if (w > MaxRenderSide || h > MaxRenderSide || (long)w * h > MaxRenderPixels)
+        {
+            pixelsPerPoint *= Math.Min(Math.Min(MaxRenderSide / (double)w, MaxRenderSide / (double)h), Math.Sqrt(MaxRenderPixels / ((double)w * h)));
+            (w, h) = PageGeometry.DeviceSize(page, pixelsPerPoint);
+        }
         var bitmap = new SKBitmap(new SKImageInfo(Math.Max(1, w), Math.Max(1, h), SKColorType.Rgba8888, SKAlphaType.Premul));
         using var canvas = new SKCanvas(bitmap);
         canvas.Clear(Paper);

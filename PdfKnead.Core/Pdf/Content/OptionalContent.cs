@@ -65,7 +65,10 @@ public sealed class OptionalContent
     private void ApplyUsages(PdfArray usages, OptionalContentUse use, string language)
     {
         var eventName = use switch { OptionalContentUse.Print => "Print", OptionalContentUse.Export => "Export", _ => "View" };
-        for (var i = 0; i < usages.Count && i < 1000; i++)
+        // every layer and category of every dictionary counted together: 1 000 dictionaries × 10 000 layers × 100 categories were 10^9 steps,
+        // at every page, mask and pattern cell (docs/FEHLERGEDAECHTNIS.md, No. 1122)
+        var work = 0L;
+        for (var i = 0; i < usages.Count && i < 1000 && work < MaxUsageWork; i++)
         {
             if (usages.Get(i) is not PdfDictionary usage || usage.GetName(PdfName.Get("Event"))?.Value != eventName) continue;
             HashSet<string> categories = usage.Get(PdfName.Get("Category")) switch
@@ -83,6 +86,7 @@ public sealed class OptionalContent
             var byLanguage = categories.Contains("Language") ? LanguageRecommendations(groups, language) : null;
             foreach (var group in groups)
             {
+                if ((work += categories.Count) > MaxUsageWork) break;
                 bool? state = null;
                 foreach (var category in categories)
                 {
@@ -100,6 +104,9 @@ public sealed class OptionalContent
             }
         }
     }
+
+    /// <summary>Most steps (a layer in one category of one usage dictionary) of /AS; what lies beyond is not applied.</summary>
+    private const long MaxUsageWork = 1_000_000;
 
     /// <summary>The state an entry of the layer's /Usage names (ON or OFF); null if it names none.</summary>
     private static bool? UsageState(PdfDictionary group, string entry, string key) =>
@@ -236,6 +243,18 @@ public sealed class OptionalContent
     /// <summary>Whether content of a membership dictionary is visible; null if it has no effect (then it is visible).</summary>
     private bool? MembershipVisible(PdfDictionary ocmd)
     {
+        // the same for every marked section and object naming it: once per dictionary — before, its lists were run through again at every
+        // BDC, Do and annotation, with up to 16 million operators per page (docs/FEHLERGEDAECHTNIS.md, No. 1122)
+        if (_memberships.TryGetValue(ocmd, out var known)) return known;
+        var visible = MembershipVisibleCore(ocmd);
+        if (_memberships.Count < 100_000) _memberships[ocmd] = visible;
+        return visible;
+    }
+
+    private readonly Dictionary<PdfDictionary, bool?> _memberships = new(ReferenceEqualityComparer.Instance);
+
+    private bool? MembershipVisibleCore(PdfDictionary ocmd)
+    {
         // a visibility expression takes precedence over /OCGs and /P (Table 97); an invalid, cyclic or too deep one falls back to them
         // (docs/ABLAUFPLAN.md, 7.1; docs/FEHLERGEDAECHTNIS.md, No. 561)
         if (ocmd.Get(PdfName.Get("VE")) is PdfArray expression)
@@ -250,7 +269,7 @@ public sealed class OptionalContent
                 groups.Add(single);
                 break;
             case PdfArray array:
-                for (var i = 0; i < array.Count; i++)
+                for (var i = 0; i < array.Count && i < 10_000; i++)
                     if (array.Get(i) is PdfDictionary d) groups.Add(d);
                 break;
         }
@@ -288,6 +307,7 @@ public sealed class OptionalContent
             var values = new List<bool>(expression.Count - 1);
             for (var i = 1; i < expression.Count; i++)
             {
+                if (--budget < 0) return invalid;   // every operand counts, not only the nested expressions (No. 1122)
                 var operand = expression.Get(i) switch
                 {
                     PdfDictionary { } membership when membership.GetName(PdfName.Type)?.Value == "OCMD" => invalid,

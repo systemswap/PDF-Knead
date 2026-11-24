@@ -197,8 +197,9 @@ public sealed class IccTests
     public void MatrixProfiles_SrgbIsPassedThrough_AdobeRgbIsConverted()
     {
         // sRGB as a matrix profile (attached to many images): like DeviceRGB, without the detour via tables
-        Assert.Same(ColorSpace.DeviceRgb, ColorSpace.FromProfile(MatrixProfile(SrgbColumns, 0), 3));
-        var adobe = ColorSpace.FromProfile(MatrixProfile(AdobeColumns, 2.2f), 3)!;
+        using var doc = PdfDocument.Open(TestPdf.Simple().Build());
+        Assert.Same(ColorSpace.DeviceRgb, ColorSpace.FromProfile(MatrixProfile(SrgbColumns, 0), 3, doc));
+        var adobe = ColorSpace.FromProfile(MatrixProfile(AdobeColumns, 2.2f), 3, doc)!;
         Assert.NotSame(ColorSpace.DeviceRgb, adobe);
         // Grey stays grey; pure green from AdobeRGB lies outside sRGB and is clipped
         var gray = adobe.ToRgb([0.5, 0.5, 0.5]);
@@ -682,5 +683,123 @@ public sealed class IccTests
         using var o = PdfKnead.Rendering.SkiaRenderer.RenderPage(overlay, doc, doc.Pages[0], 1, cache);
         Assert.True(IsCyan(PixelAt(o, 150, 50)), $"Anmerkung, Fläche: {PixelAt(o, 150, 50)}");
         Assert.True(IsCyan(PixelAt(o, 250, 50)), $"Anmerkung, Bild: {PixelAt(o, 250, 50)}");
+    }
+
+    // ---- M6 security: colour tables of ICC profiles within the budget on every way (docs/FEHLERGEDAECHTNIS.md, No. 1122)
+
+    /// <summary>The baked CMYK profile with A2B1 and A2B2 naming the very bytes of its A2B0 (as many real profiles and the bundled one do).</summary>
+    private static byte[] ThreeTagsOneTable(byte[] baked)
+    {
+        var count = (int)BinaryPrimitives.ReadUInt32BigEndian(baked.AsSpan(128));
+        var d = new byte[baked.Length + 24];
+        baked.AsSpan(0, 132 + 12 * count).CopyTo(d);
+        baked.AsSpan(132 + 12 * count).CopyTo(d.AsSpan(132 + 12 * count + 24));
+        void U32(int at, uint v) => BinaryPrimitives.WriteUInt32BigEndian(d.AsSpan(at), v);
+        U32(0, (uint)d.Length);
+        U32(128, (uint)(count + 2));
+        (uint Offset, uint Size) lut = default;
+        for (var i = 0; i < count; i++)
+        {
+            var offset = BinaryPrimitives.ReadUInt32BigEndian(baked.AsSpan(136 + 12 * i)) + 24;
+            U32(136 + 12 * i, offset);
+            if (BinaryPrimitives.ReadUInt32BigEndian(baked.AsSpan(132 + 12 * i)) == 0x41324230)
+                lut = (offset, BinaryPrimitives.ReadUInt32BigEndian(baked.AsSpan(140 + 12 * i)));
+        }
+        U32(132 + 12 * count, 0x41324231); U32(136 + 12 * count, lut.Offset); U32(140 + 12 * count, lut.Size);   // A2B1
+        U32(144 + 12 * count, 0x41324232); U32(148 + 12 * count, lut.Offset); U32(152 + 12 * count, lut.Size);   // A2B2
+        return d;
+    }
+
+    /// <summary>
+    /// A2B0, A2B1 and A2B2 naming the same bytes (ICC.1, 7.3.1 allows it): the table is read once and counted once — before, it was built three
+    /// times and counted three times, a profile of 32 MB took about 384 MB before any budget was asked.
+    /// </summary>
+    [Fact]
+    public void SameTableForThreeIntents_ReadAndCountedOnce()
+    {
+        var one = IccProfile.Parse(NaiveCmyk.Value)!;
+        var three = IccProfile.Parse(ThreeTagsOneTable(NaiveCmyk.Value))!;
+        Assert.Equal(one.TableEntries, three.TableEntries);
+        var input = ThreeTagsOneTable(NaiveCmyk.Value);
+        IccProfile.Parse(NaiveCmyk.Value);   // warm
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        IccProfile.Parse(input);
+        var shared = GC.GetAllocatedBytesForCurrentThread() - before;
+        before = GC.GetAllocatedBytesForCurrentThread();
+        IccProfile.Parse(NaiveCmyk.Value);
+        Assert.True(shared < 1.5 * (GC.GetAllocatedBytesForCurrentThread() - before), "Tabelle mehrfach angelegt");
+    }
+
+    /// <summary>A matrix profile whose three tone curves are one curveType table of a million entries (all three tags name its bytes).</summary>
+    private static byte[] HugeCurveProfile(int entries)
+    {
+        var profile = MatrixProfile(SrgbColumns, 2.2f);
+        var curve = new byte[12 + 2 * entries];
+        BinaryPrimitives.WriteUInt32BigEndian(curve, 0x63757276);
+        BinaryPrimitives.WriteUInt32BigEndian(curve.AsSpan(8), (uint)entries);
+        for (var i = 0; i < entries; i++)
+            BinaryPrimitives.WriteUInt16BigEndian(curve.AsSpan(12 + 2 * i), (ushort)Math.Round(Math.Pow((double)i / (entries - 1), 2.2) * 65535));
+        var d = new byte[profile.Length + curve.Length];
+        profile.CopyTo(d, 0);
+        curve.CopyTo(d, profile.Length);
+        BinaryPrimitives.WriteUInt32BigEndian(d, (uint)d.Length);
+        for (var i = 0; i < 6; i++)
+            if (BinaryPrimitives.ReadUInt32BigEndian(d.AsSpan(132 + 12 * i)) is 0x72545243 or 0x67545243 or 0x62545243)   // rTRC, gTRC, bTRC
+            {
+                BinaryPrimitives.WriteUInt32BigEndian(d.AsSpan(136 + 12 * i), (uint)profile.Length);
+                BinaryPrimitives.WriteUInt32BigEndian(d.AsSpan(140 + 12 * i), (uint)curve.Length);
+            }
+        return d;
+    }
+
+    /// <summary>
+    /// A curveType table of a million entries named by rTRC, gTRC and bTRC: kept resampled onto 4 096 points and once — before, three tables of a
+    /// million floats each, outside every budget (matrix profiles were not reserved at all); the colours stay those of the curve.
+    /// </summary>
+    [Fact]
+    public void HugeToneCurve_ResampledOnce_ColoursKept()
+    {
+        var data = HugeCurveProfile(1_000_000);
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        var huge = IccProfile.Parse(data)!;
+        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.True(allocated < 1 << 20, $"{allocated} Byte beim Lesen");   // before: three tables of a million floats (12 MB)
+        Assert.InRange(huge.TableEntries, 1, 4096);   // counted (before: tone curves never were), and kept small
+        var gamma = IccProfile.Parse(MatrixProfile(SrgbColumns, 2.2f))!;
+        Span<float> a = stackalloc float[3], b = stackalloc float[3];
+        foreach (var v in new[] { 0.1f, 0.5f, 0.9f })
+        {
+            huge.ToXyz([v, v, v], a);
+            gamma.ToXyz([v, v, v], b);
+            for (var i = 0; i < 3; i++) Assert.True(Math.Abs(a[i] - b[i]) < 0.002, $"{v}: {a[i]} / {b[i]}");
+        }
+    }
+
+    /// <summary>
+    /// The profile of a JPEG 2000 image within the document's budget and once per content: over the budget it is not used (the image is drawn
+    /// by its channels), within it the same colour space comes back for every decoding, reserved once — before, every decoding read and kept
+    /// the profile outside any budget. An ICCBased matrix profile counts too.
+    /// </summary>
+    [Fact]
+    public void EmbeddedProfiles_WithinTheBudget_ReadOncePerDocument()
+    {
+        var huge = HugeCurveProfile(1_000_000);
+        var entries = IccProfile.Parse(huge)!.TableEntries;
+        using (var tight = PdfDocument.Open(TestPdf.Simple().Build()))
+        {
+            tight.IccTableBudget = entries - 1;
+            Assert.Null(ColorSpace.FromProfile(huge, 3, tight));
+        }
+        using var doc = PdfDocument.Open(TestPdf.Simple().Build());
+        doc.IccTableBudget = entries;
+        var first = ColorSpace.FromProfile(huge, 3, doc);
+        Assert.NotNull(first);
+        Assert.Same(first, ColorSpace.FromProfile(huge, 3, doc));
+        // the budget is spent: an ICCBased stream with another copy of a table profile falls back to its alternate
+        var pdf = TestPdf.Simple();
+        var other = pdf.Add(new PdfStream(TestPdf.Dict(("N", PdfInteger.Of(3)), ("Alternate", TestPdf.N("DeviceGray"))), HugeCurveProfile(999_999)));
+        using var file = PdfDocument.Open(pdf.Build());
+        file.IccTableBudget = 100;
+        Assert.Same(ColorSpace.DeviceGray, ColorSpace.Create(new PdfArray { TestPdf.N("ICCBased"), file.GetObject(other) }, null, file));
     }
 }
