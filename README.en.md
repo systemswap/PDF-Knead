@@ -456,7 +456,7 @@ valid.
 ## Verified, not claimed
 
 <p align="center">
-  <img src="docs/bilder/readme/zahlen.en.png" width="100%" alt="Over 7,800 automated tests, over 10,900 test files, over 26,000 pages in the test collection, over 8 million fuzzing samples, about 1,100 documented bugs">
+  <img src="docs/bilder/readme/zahlen.en.png" width="100%" alt="Over 7,800 automated tests, over 10,900 test files, over 26,000 pages in the test collection, over 8 million fuzzing samples, about 1,100 fixed bugs, each with a test">
 </p>
 
 In addition, we are comparing the code with the standards sentence by sentence, starting with ISO 32000-2: every obligation has a place in
