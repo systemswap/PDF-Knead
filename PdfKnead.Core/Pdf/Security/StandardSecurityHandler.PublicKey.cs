@@ -130,6 +130,8 @@ public sealed partial class StandardSecurityHandler
         var key = PublicKeyFileKey(content.AsSpan(0, 20), lists, encryptMetadata, aes256, keyBits);
         // 4 bytes of permissions, most significant first (absent only in the data of a stream's own crypt filter, 7.6.5.3)
         int? permissions = content.Length >= 24 ? BinaryPrimitives.ReadInt32BigEndian(content.AsSpan(20, 4)) : null;
+        // the seed is key material: cleared once the key is derived (docs/FEHLERGEDAECHTNIS.md, No. 1118)
+        CryptographicOperations.ZeroMemory(content);
         // bit 2: change of the encryption and every other permission (Table 24); only bits 2–6 and 9–12 count
         var full = permissions is null || (permissions.Value & 2) != 0;
         var granted = full ? PdfPermissions.All : (PdfPermissions)permissions!.Value & PdfPermissions.All;
@@ -160,7 +162,10 @@ public sealed partial class StandardSecurityHandler
             if (lists.Get(i) is PdfString cms) hash.AppendData(cms.Bytes);
         if (!encryptMetadata) hash.AppendData([0xFF, 0xFF, 0xFF, 0xFF]);
         var digest = hash.GetHashAndReset();
-        return aes256 ? digest : digest[..Math.Clamp(keyBits / 8, 5, 16)];
+        if (aes256) return digest;
+        var key = digest[..Math.Clamp(keyBits / 8, 5, 16)];
+        CryptographicOperations.ZeroMemory(digest);
+        return key;
     }
 
     /// <summary>/Recipients: an array of byte strings, or one byte string (Table 27).</summary>
@@ -208,8 +213,10 @@ public sealed partial class StandardSecurityHandler
             }
             envelope.Encrypt(recipients);
             lists.Add(new PdfString(envelope.Encode(), isHex: true));
+            CryptographicOperations.ZeroMemory(data);
         }
         var key = PublicKeyFileKey(seed, lists, encryptMetadata: true, aes256: true, 256);
+        CryptographicOperations.ZeroMemory(seed);
 
         var filter = new PdfDictionary();
         filter.Set(PdfName.Get("CFM"), PdfName.Get("AESV3"));

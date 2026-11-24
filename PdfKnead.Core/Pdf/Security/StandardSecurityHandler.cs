@@ -450,8 +450,24 @@ public sealed partial class StandardSecurityHandler
         if (r >= 4 && !encryptMetadata) md5.AppendData([0xFF, 0xFF, 0xFF, 0xFF]);
         var hash = md5.GetHashAndReset();
         if (r >= 3)
-            for (var i = 0; i < 50; i++) hash = MD5.HashData(hash.AsSpan(0, keyLength));
-        return hash[..keyLength];
+            for (var i = 0; i < 50; i++) hash = Rehashed(hash, keyLength);
+        return Taken(hash, keyLength);
+    }
+
+    /// <summary>MD5 of the first bytes of a digest; the digest before is cleared (intermediate key material, docs/FEHLERGEDAECHTNIS.md, No. 1118).</summary>
+    private static byte[] Rehashed(byte[] hash, int length)
+    {
+        var next = MD5.HashData(hash.AsSpan(0, length));
+        CryptographicOperations.ZeroMemory(hash);
+        return next;
+    }
+
+    /// <summary>The first bytes of a digest as a new array; the digest is cleared.</summary>
+    private static byte[] Taken(byte[] hash, int length)
+    {
+        var taken = hash[..length];
+        CryptographicOperations.ZeroMemory(hash);
+        return taken;
     }
 
     /// <summary>Algorithms 4/5: computes the expected /U value and compares it.</summary>
@@ -468,7 +484,9 @@ public sealed partial class StandardSecurityHandler
         if (r == 2) return Rc4.Apply(key, Padding);
         var hash = MD5.HashData([.. Padding, .. firstId]);
         var value = Rc4.Apply(key, hash);
-        for (var i = 1; i <= 19; i++) value = Rc4.Apply(XorKey(key, i), value);
+        var xored = new byte[key.Length];
+        for (var i = 1; i <= 19; i++) value = Rc4.Apply(XorKey(key, i, xored), value);
+        CryptographicOperations.ZeroMemory(xored);
         // Fill up to 32 bytes; the rest is arbitrary (zeros here)
         return [.. value, .. new byte[16]];
     }
@@ -478,24 +496,33 @@ public sealed partial class StandardSecurityHandler
     {
         var key = OwnerKey(paddedOwner, r, keyLength);
         var value = o[..32];
-        if (r == 2) return Rc4.Apply(key, value);
-        for (var i = 19; i >= 0; i--) value = Rc4.Apply(XorKey(key, i), value);
-        return value;
+        try
+        {
+            if (r == 2) return Rc4.Apply(key, value);
+            var xored = new byte[key.Length];
+            for (var i = 19; i >= 0; i--) value = Rc4.Apply(XorKey(key, i, xored), value);
+            CryptographicOperations.ZeroMemory(xored);
+            return value;
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(key);
+        }
     }
 
     internal static byte[] OwnerKey(byte[] paddedOwner, int r, int keyLength)
     {
         var hash = MD5.HashData(paddedOwner);
         if (r >= 3)
-            for (var i = 0; i < 50; i++) hash = MD5.HashData(hash);
-        return hash[..keyLength];
+            for (var i = 0; i < 50; i++) hash = Rehashed(hash, hash.Length);
+        return Taken(hash, keyLength);
     }
 
-    private static byte[] XorKey(byte[] key, int x)
+    /// <summary>The key with every byte XOR x, written into <paramref name="into"/> (one buffer for all rounds, cleared by the caller).</summary>
+    private static byte[] XorKey(byte[] key, int x, byte[] into)
     {
-        var result = new byte[key.Length];
-        for (var i = 0; i < key.Length; i++) result[i] = (byte)(key[i] ^ x);
-        return result;
+        for (var i = 0; i < key.Length; i++) into[i] = (byte)(key[i] ^ x);
+        return into;
     }
 
     // ------------------------------------------------------------ R5/R6 (AES-256)
@@ -679,9 +706,19 @@ public sealed partial class StandardSecurityHandler
         var udata = owner ? u[..48] : [];
         var validationSalt = hashOf.AsSpan(32, 8).ToArray();
         var keySalt = hashOf.AsSpan(40, 8).ToArray();
-        if (!CryptographicOperations.FixedTimeEquals(Hash(r, pwd, validationSalt, udata), hashOf.AsSpan(0, 32))) return null;
+        var check = Hash(r, pwd, validationSalt, udata);
+        var matches = CryptographicOperations.FixedTimeEquals(check, hashOf.AsSpan(0, 32));
+        CryptographicOperations.ZeroMemory(check);
+        if (!matches) return null;
         var intermediate = Hash(r, pwd, keySalt, udata);
-        return AesCbcNoPadding(intermediate, new byte[16], (owner ? oe : ue)[..32], encrypt: false);
+        try
+        {
+            return AesCbcNoPadding(intermediate, new byte[16], (owner ? oe : ue)[..32], encrypt: false);
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(intermediate);
+        }
     }
 
     /// <summary>R5: SHA-256; R6: algorithm 2.B (ISO 32000-2, 7.6.4.3.4).</summary>
@@ -692,25 +729,34 @@ public sealed partial class StandardSecurityHandler
         var k = SHA256.HashData([.. password, .. salt, .. udata]);
         if (r == 5) return k;
 
+        // every round's values hold the password or depend on it: cleared when the round is done (docs/FEHLERGEDAECHTNIS.md, No. 1118)
         for (var round = 0; ; round++)
         {
             var block = (byte[])[.. password, .. k, .. udata];
             var k1 = new byte[block.Length * 64];
             for (var i = 0; i < 64; i++) block.CopyTo(k1, i * block.Length);
-            var e = AesCbcNoPadding(k[..16], k[16..32], k1, encrypt: true);
+            byte[] aesKey = k[..16], iv = k[16..32];
+            var e = AesCbcNoPadding(aesKey, iv, k1, encrypt: true);
             var sum = 0;
             for (var i = 0; i < 16; i++) sum += e[i];
             var choice = sum % 3;
             observeRound?.Invoke(round, choice, e[^1]);
+            CryptographicOperations.ZeroMemory(k);
             k = choice switch
             {
                 0 => SHA256.HashData(e),
                 1 => SHA384.HashData(e),
                 _ => SHA512.HashData(e),
             };
-            if (round >= 63 && e[^1] <= round - 31) break;
+            var last = e[^1];
+            CryptographicOperations.ZeroMemory(block);
+            CryptographicOperations.ZeroMemory(k1);
+            CryptographicOperations.ZeroMemory(aesKey);
+            CryptographicOperations.ZeroMemory(iv);
+            CryptographicOperations.ZeroMemory(e);
+            if (round >= 63 && last <= round - 31) break;
         }
-        return k[..32];
+        return Taken(k, 32);
     }
 
     private static byte[] AesCbcNoPadding(byte[] key, byte[] iv, byte[] data, bool encrypt)
@@ -776,6 +822,19 @@ public sealed partial class StandardSecurityHandler
         return true;
     }
 
+    /// <summary>Uses a key derived for one object and clears it afterwards (docs/FEHLERGEDAECHTNIS.md, No. 1118).</summary>
+    private static byte[] WithObjectKey(byte[] key, Func<byte[], byte[]> use)
+    {
+        try
+        {
+            return use(key);
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(key);
+        }
+    }
+
     private byte[] Decrypt(PdfObjectId id, byte[] data, PdfCipher cipher)
     {
         switch (cipher)
@@ -783,7 +842,7 @@ public sealed partial class StandardSecurityHandler
             case PdfCipher.None:
                 return data;
             case PdfCipher.Rc4:
-                return Rc4.Apply(ObjectKey(id, aes: false, _readKey), data);
+                return WithObjectKey(ObjectKey(id, aes: false, _readKey), key => Rc4.Apply(key, data));
             case PdfCipher.Aes256Gcm:
                 if (GcmOpen(data) is { } opened) return opened;
                 // too short or the tag does not match: nothing rather than garbage, and that is said (ISO/TS 32003, 5.2; No. 555)
@@ -797,6 +856,7 @@ public sealed partial class StandardSecurityHandler
                 using (var aes = Aes.Create())
                 {
                     aes.Key = key;
+                    if (!ReferenceEquals(key, _key)) CryptographicOperations.ZeroMemory(key);
                     var plain = aes.DecryptCbc(body, data.AsSpan(0, 16), PaddingMode.None);
                     // Remove the PKCS#7 padding; leave damaged padding (it occurs) as it is
                     var pad = plain.Length > 0 ? plain[^1] : 0;
@@ -831,7 +891,7 @@ public sealed partial class StandardSecurityHandler
             case PdfCipher.None:
                 return data;
             case PdfCipher.Rc4:
-                return Rc4.Apply(ObjectKey(id, aes: false, _key), data);
+                return WithObjectKey(ObjectKey(id, aes: false, _key), key => Rc4.Apply(key, data));
             case PdfCipher.Aes256Gcm:
                 return GcmSeal(data);
             default:
@@ -842,6 +902,7 @@ public sealed partial class StandardSecurityHandler
                 using (var aes = Aes.Create())
                 {
                     aes.Key = key;
+                    if (!ReferenceEquals(key, _key)) CryptographicOperations.ZeroMemory(key);
                     var iv = RandomNumberGenerator.GetBytes(16);
                     return [.. iv, .. aes.EncryptCbc(data, iv, PaddingMode.PKCS7)];
                 }
@@ -905,7 +966,9 @@ public sealed partial class StandardSecurityHandler
         input[fileKey.Length + 4] = (byte)(id.Generation >> 8);
         if (aes) SaltAes.CopyTo(input, fileKey.Length + 5);
         // AES accepts only 16 bytes here: with a short file key (crafted file: AESV2 with /Length 40) the whole hash is used
-        return aes ? MD5.HashData(input) : MD5.HashData(input)[..Math.Min(fileKey.Length + 5, 16)];
+        var hash = MD5.HashData(input);
+        CryptographicOperations.ZeroMemory(input);
+        return aes ? hash : Taken(hash, Math.Min(fileKey.Length + 5, 16));
     }
 
     /// <summary>True if the data of the file is read with the file key padded to 16 bytes (<see cref="PaddedForReading"/>).</summary>
@@ -1009,7 +1072,12 @@ public sealed partial class StandardSecurityHandler
         // Algorithm 3: /O
         var ownerKey = OwnerKey(paddedOwner, r, keyLength);
         var oValue = Rc4.Apply(ownerKey, paddedUser);
-        for (var i = 1; i <= 19; i++) oValue = Rc4.Apply(XorKey(ownerKey, i), oValue);
+        var xored = new byte[ownerKey.Length];
+        for (var i = 1; i <= 19; i++) oValue = Rc4.Apply(XorKey(ownerKey, i, xored), oValue);
+        // intermediate key material (docs/FEHLERGEDAECHTNIS.md, No. 1118)
+        CryptographicOperations.ZeroMemory(xored);
+        CryptographicOperations.ZeroMemory(ownerKey);
+        CryptographicOperations.ZeroMemory(paddedOwner);
 
         var key = ComputeKey(paddedUser, oValue, p, firstId, r, keyLength, encryptMetadata);
         var uValue = ComputeU(key, firstId, r);
