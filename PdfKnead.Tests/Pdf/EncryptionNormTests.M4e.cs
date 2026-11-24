@@ -473,20 +473,49 @@ public sealed partial class EncryptionNormTests
     }
 
     /// <summary>
-    /// ISO/TS 32004, 5.2, Table 6: /MACLocation /AttachedToSig (here with a /SigObjRef) and a value PDF-Knead does not know: not checkable,
-    /// never „violated“.
+    /// ISO/TS 32004, 5.2, Table 6: a /MACLocation PDF-Knead does not know (a second-class name): not checkable, never „violated“ (B.2.1: the
+    /// result is implementation-dependent).
     /// </summary>
     [Theory]
-    [InlineData("AttachedToSig", "Der MAC hängt an einer Signatur; das prüft PDF-Knead noch nicht.")]
     [InlineData("PDFK_Woanders", "Unbekannte Lage des MAC („PDFK_Woanders“).")]
     public void Mac_OtherMacLocation_NotCheckable(string location, string detail)
     {
-        var check = M4eCheck(M4eMacFile(patchAuthCode: a =>
-        {
-            a.Set(PdfName.Get("MACLocation"), PdfName.Get(location));
-            if (location == "AttachedToSig") a.Set(PdfName.Get("SigObjRef"), Pdf.TestPdf.Ref(1));
-        }));
+        var check = M4eCheck(M4eMacFile(patchAuthCode: a => a.Set(PdfName.Get("MACLocation"), PdfName.Get(location))));
         Assert.Equal(MacState.NotCheckable, check.State);
+        Assert.Equal(detail, check.Detail);
+    }
+
+    /// <summary>
+    /// ISO/TS 32004, 5.2, Table 6: /AttachedToSig with /ByteRange and /MAC (shall not be present), or without an indirect /SigObjRef to a
+    /// signature dictionary; /Standalone with a /SigObjRef (shall not be present) — each violated with its reason (docs/FEHLERGEDAECHTNIS.md,
+    /// No. 1116; the attached token itself: MacRevisionTests).
+    /// </summary>
+    [Theory]
+    [InlineData("mit ByteRange und MAC", "Ein MAC an einer Signatur hat im Integritätsschutz weder /ByteRange noch /MAC.")]
+    [InlineData("ohne SigObjRef", "Der Integritätsschutz nennt nicht die Signatur, an der der MAC hängt (/SigObjRef).")]
+    [InlineData("SigObjRef direkt", "Der Integritätsschutz nennt nicht die Signatur, an der der MAC hängt (/SigObjRef).")]
+    [InlineData("Standalone mit SigObjRef", "Ein eigenständiger MAC nennt keine Signatur (/SigObjRef).")]
+    public void Mac_LocationEntriesThatDoNotFit_Invalid(string variant, string detail)
+    {
+        var file = variant switch
+        {
+            "Standalone mit SigObjRef" => M4eMacFile(patchAuthCode: a => a.Set(PdfName.Get("SigObjRef"), Pdf.TestPdf.Ref(1))),
+            "mit ByteRange und MAC" => M4eMacFile(patchAuthCode: a =>
+            {
+                a.Set(PdfName.Get("MACLocation"), PdfName.Get("AttachedToSig"));
+                a.Set(PdfName.Get("SigObjRef"), Pdf.TestPdf.Ref(1));
+            }),
+            // without the gap there is nothing to fill: the /AuthCode as written
+            _ => Pdf.TestPdf.Simple(1).Build(cipher: PdfCipher.Aes256, user: M4ePassword, owner: "chef", permissions: PdfPermissions.Print, version: "2.0",
+                macRequired: true, mac: TestMac.None, patchTrailer: t =>
+                {
+                    var authCode = Pdf.TestPdf.Dict(("MACLocation", Pdf.TestPdf.N("AttachedToSig")));
+                    if (variant == "SigObjRef direkt") authCode.Set(PdfName.Get("SigObjRef"), new PdfDictionary());
+                    t.Set(M4eAuthCodeKey, authCode);
+                }),
+        };
+        var check = M4eCheck(file);
+        Assert.Equal(MacState.Invalid, check.State);
         Assert.Equal(detail, check.Detail);
     }
 

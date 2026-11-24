@@ -168,4 +168,4 @@ seit 22.10.2026 nur die freien (OFL/Apache 2.0); die übrigen liegen im Ordner
 `Schriften-Unterschrift` neben dem Programm und lassen sich dort entfernen. Im
 Repository sind sie seit 16.11.2026 nicht mehr, auch nicht in der Versionsgeschichte
 (nur lokal beim Entwickler in `Schriften/Handschriften-lizenziert`); Pakete zum
-Weitergeben baut `tools/release.sh` ohne sie.
+Weitergeben baut der Workflow auf GitHub, wo der Ordner fehlt — ohne sie.

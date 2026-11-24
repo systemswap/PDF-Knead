@@ -457,7 +457,7 @@ seine Signatur stimmt.
 ## Geprüft, nicht behauptet
 
 <p align="center">
-  <img src="docs/bilder/readme/zahlen.png" width="100%" alt="Über 4 600 automatische Tests, über 10 900 Testdateien, über 26 000 Seiten im Testbestand, über 6 Millionen Fuzzing-Proben, rund 880 dokumentierte Fehler">
+  <img src="docs/bilder/readme/zahlen.png" width="100%" alt="Über 7 800 automatische Tests, über 10 900 Testdateien, über 26 000 Seiten im Testbestand, über 8 Millionen Fuzzing-Proben, rund 1 100 dokumentierte Fehler">
 </p>
 
 Dazu gleichen wir den Code Satz für Satz mit den Normen ab, zuerst ISO 32000-2: Zu jeder Pflicht gehören eine Stelle im Code und ein

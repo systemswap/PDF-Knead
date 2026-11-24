@@ -20,6 +20,8 @@ mono_crash.*
 [Dd]ebug/
 [Dd]ebugPublic/
 [Rr]elease/
+# the release scripts at the top (private, release/release.sh) — only this folder, the build folders deeper down stay ignored
+!/release/
 [Rr]eleases/
 x64/
 x86/

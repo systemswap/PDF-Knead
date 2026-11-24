@@ -37,7 +37,7 @@ public sealed record PdfSaveOptions
     /// (docs/ABLAUFPLAN.md, 5.5 b). Off until an outside check with a tool that checks TS 32004 has been passed (a wrong MAC is worse than
     /// none); on for the tests, and with PDFKNEAD_MAC_SCHREIBEN=1 for trying it by hand.
     /// </summary>
-    internal bool WriteMac { get; init; } = Environment.GetEnvironmentVariable("PDFKNEAD_MAC_SCHREIBEN") == "1";
+    internal bool WriteMac { get; init; } = PdfMac.WritingOn;
 
     /// <summary>From PDF 1.5, small objects in object streams and cross-references as a stream (smaller); off for very old programs.</summary>
     public bool ObjectStreams { get; init; } = true;
@@ -5322,16 +5322,6 @@ public static partial class PdfWriter
         /// <summary>The cross-references and trailer, held back while the MAC is computed.</summary>
         private MemoryStream? _tail;
 
-        /// <summary>The placeholders of /AuthCode in the trailer: a fixed-width /ByteRange and the /MAC gap of exactly the token's length.</summary>
-        private static PdfDictionary AuthCodePlaceholder()
-        {
-            var authCode = new PdfDictionary();
-            authCode.Set(PdfName.Get("MACLocation"), PdfName.Get("Standalone"));
-            authCode.Set(PdfName.Get("ByteRange"), new PdfArray([PdfInteger.Of(0), PdfInteger.Of(1_000_000_000_000), PdfInteger.Of(1_000_000_000_000), PdfInteger.Of(1_000_000_000_000)]));
-            authCode.Set(PdfName.Get("MAC"), new PdfString(new byte[PdfMac.TokenLength], isHex: true));
-            return authCode;
-        }
-
         /// <summary>
         /// Completes the MAC (ISO/TS 32004, 6.5.1 and 6.6.2): /ByteRange from 0 to the end of the file around the /MAC gap (padded with spaces,
         /// the same width), the digest of those bytes, the token as hexadecimal digits exactly in the gap; then the held-back part is written.
@@ -5340,25 +5330,10 @@ public static partial class PdfWriter
         {
             var tail = _tail!.ToArray();
             _tail = null;
-            var tailStart = _position - tail.Length;
-            var text = System.Text.Encoding.Latin1.GetString(tail);
-            var auth = text.LastIndexOf("/AuthCode", StringComparison.Ordinal);
-            var gapStart = text.IndexOf('<', text.IndexOf("/MAC", auth, StringComparison.Ordinal));
-            var gapEnd = text.IndexOf('>', gapStart) + 1;
-            var rangeStart = text.IndexOf('[', text.IndexOf("/ByteRange", auth, StringComparison.Ordinal));
-            var rangeEnd = text.IndexOf(']', rangeStart);
-            if (auth < 0 || gapStart < 0 || gapEnd - gapStart != 2 * PdfMac.TokenLength + 2 || rangeStart < 0 || rangeEnd < 0)
-                throw new InvalidOperationException("The placeholders of the MAC were not found.");
-            var range = $"[0 {tailStart + gapStart} {tailStart + gapEnd} {_position - (tailStart + gapEnd)}";
-            System.Text.Encoding.ASCII.GetBytes(range.PadRight(rangeEnd - rangeStart)).CopyTo(tail, rangeStart);
-            _macHash!.AppendData(tail, 0, gapStart);
-            _macHash.AppendData(tail, gapEnd, tail.Length - gapEnd);
             var salt = _encryptDict!.GetString(PdfName.Get("KDFSalt"))!.Bytes;
-            var token = PdfMac.Token(_security!.MacKek(salt), RandomNumberGenerator.GetBytes(32), _macHash.GetHashAndReset());
-            if (token.Length != PdfMac.TokenLength) throw new InvalidOperationException("The MAC token has not the length reserved for it.");
-            System.Text.Encoding.ASCII.GetBytes(Convert.ToHexString(token)).CopyTo(tail, gapStart + 1);
+            PdfMac.FillStandalone(tail, _position - tail.Length, _macHash!, _security!.MacKek(salt));
             _output.Write(tail);
-            _macHash.Dispose();
+            _macHash!.Dispose();
             _macHash = null;
         }
 
@@ -5830,7 +5805,7 @@ public static partial class PdfWriter
             if (_encryptNumber > 0) trailer.Set(PdfName.Encrypt, new OutputReference(_encryptNumber));
             else if (_encryptInline is not null) trailer.Set(PdfName.Encrypt, _encryptInline);   // its strings stay plain: the stream is not encrypted
             trailer.Set(PdfName.ID, FileId());
-            if (_writeMac) trailer.Set(PdfName.Get("AuthCode"), AuthCodePlaceholder());
+            if (_writeMac) trailer.Set(PdfName.Get("AuthCode"), PdfMac.StandalonePlaceholder());
         }
 
         private void WriteXRef()

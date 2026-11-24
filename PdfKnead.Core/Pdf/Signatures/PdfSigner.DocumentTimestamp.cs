@@ -19,13 +19,20 @@ public static partial class PdfSigner
     /// <returns>The bytes to append to the document's bytes.</returns>
     /// <exception cref="TimestampException">No token could be obtained; nothing is appended.</exception>
     /// <exception cref="NotAppendableException">The document does not qualify for an incremental update.</exception>
-    public static byte[] DocumentTimestampUpdate(PdfDocument doc, ITimestampAuthority authority, CancellationToken cancel = default)
+    public static byte[] DocumentTimestampUpdate(PdfDocument doc, ITimestampAuthority authority, CancellationToken cancel = default) =>
+        DocumentTimestampUpdate(doc, authority, Security.PdfMac.WritingOn, cancel);
+
+    /// <inheritdoc cref="DocumentTimestampUpdate(PdfDocument, ITimestampAuthority, CancellationToken)"/>
+    /// <param name="writeMac">Whether a MAC is written where the file asks for one (ISO/TS 32004, 6.5.2: attached to the time stamp token).</param>
+    internal static byte[] DocumentTimestampUpdate(PdfDocument doc, ITimestampAuthority authority, bool writeMac, CancellationToken cancel = default)
     {
         for (var reserve = SignatureTimestamps.ReservedBytes; ; reserve *= 4)
         {
             cancel.ThrowIfCancellationRequested();
-            var (bytes, gap) = PrepareDocumentTimestamp(doc, reserve);
+            var (bytes, gap, attach) = PrepareDocumentTimestamp(doc, reserve, writeMac);
             var token = SignatureTimestamps.TokenFor(Digest(doc, bytes, gap), authority, cancel);
+            // the MAC of the revision on the time stamp token's signer (6.5.2: „digital signature or document time stamp signature“)
+            if (attach) token = Security.PdfMac.AttachTo(token, Security.PdfMac.KekOf(doc), Digest(doc, bytes, gap));
             if (2 * token.Length > gap.End - gap.Start - 2)
             {
                 if (reserve > 1 << 20) throw new TimestampException(Tr.T("Der Zeitstempel ist zu groß."));
@@ -37,10 +44,10 @@ public static partial class PdfSigner
     }
 
     /// <summary>The update with the signature dictionary of type /DocTimeStamp, its placeholder and an invisible field on the first page.</summary>
-    private static (byte[] Bytes, (int Start, int End) Gap) PrepareDocumentTimestamp(PdfDocument doc, int reserve)
+    private static (byte[] Bytes, (int Start, int End) Gap, bool Mac) PrepareDocumentTimestamp(PdfDocument doc, int reserve, bool writeMac)
     {
         if (doc.PageCount == 0 || doc.Pages[0].Id is not { } pageId) throw new NotSupportedException(Tr.T("Die Seite ist kein eigenes Objekt."));
-        var update = new IncrementalUpdate(doc);
+        var update = new IncrementalUpdate(doc, writeMac);
         var sig = new PdfDictionary();
         sig.Set(PdfName.Type, PdfName.Get("DocTimeStamp"));
         sig.Set(PdfName.Filter, PdfName.Get("Adobe.PPKLite"));
@@ -48,6 +55,7 @@ public static partial class PdfSigner
         sig.Set(ByteRange, new PdfArray { PdfInteger.Of(0), PdfInteger.Of(9_999_999_999), PdfInteger.Of(9_999_999_999), PdfInteger.Of(9_999_999_999) });
         sig.Set(PdfName.Contents, new PdfString(new byte[reserve], isHex: true));
         var sigRef = update.Add(sig);
+        if (update.WritesMac) update.MacSignature = sigRef;
 
         // an invisible field (zero rectangle, printed and locked as signature fields are)
         var field = new PdfDictionary();
@@ -86,6 +94,6 @@ public static partial class PdfSigner
         var bytes = output.ToArray();
         var gap = Placeholder(bytes, update.Offsets[sigRef.Id.Number] - doc.FileSize);
         WriteRange(bytes, gap, doc.FileSize);
-        return (bytes, gap);
+        return (bytes, gap, update.WritesMac);
     }
 }

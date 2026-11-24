@@ -7,7 +7,7 @@
 # „push:“ einkommentieren.
 #
 # Mit „Release-Entwurf anlegen“ entsteht ein Entwurf v<Version> mit beiden Paketen. Die Versionsdatei für die Updates (version.json mit
-# Signatur) wird NICHT hier erzeugt: der geheime Schlüssel liegt nie bei GitHub. Danach lokal: tools/ci/release-signieren.sh
+# Signatur) wird NICHT hier erzeugt: der geheime Schlüssel liegt nie bei GitHub. Danach wird lokal signiert und veröffentlicht
 # (KONZEPT.md §5.26).
 name: Pakete bauen
 

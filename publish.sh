@@ -173,7 +173,7 @@ cjk_fonts() {
 
 # Lizenzierte Handschriften (nicht im Programm, Wunsch vom 22.10.2026) als Schriften-Unterschrift neben das Programm bzw. die AppImage.
 # Schriften/Handschriften-lizenziert liegt nur lokal (.gitignore, seit 16.11.2026 nicht im Repository); fehlt der Ordner, kommt nichts
-# mit. Zum Weitergeben baut tools/release.sh die Pakete ohne Schriften-Unterschrift. In denselben Ordner importiert das Programm eigene Schriften
+# mit. Die Pakete zum Weitergeben baut der Workflow auf GitHub, wo der Ordner fehlt. In denselben Ordner importiert das Programm eigene Schriften
 # (Datei -> Schrift importieren): die bleiben bei jedem Bau stehen (Fehlergedächtnis 96). Welche Dateien mitgeliefert sind, steht in
 # Schriften-Unterschrift/.mitgeliefert; nur davon entfernt ein Bau, was es im Repository nicht mehr gibt, und nur sie kommen ins Paket.
 SIGNATURE_SOURCE="$PROJECT_DIR/Schriften/Handschriften-lizenziert"

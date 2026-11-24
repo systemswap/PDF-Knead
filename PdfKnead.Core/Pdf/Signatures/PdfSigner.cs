@@ -59,9 +59,10 @@ public static partial class PdfSigner
     /// might write them (an expired or unsuitable certificate) to check how such signatures are judged (No. 526).
     /// </summary>
     /// <inheritdoc cref="Sign" path="/param"/>
+    /// <param name="writeMac">Whether a MAC is written where the file asks for one (ISO/TS 32004); null: as switched (<see cref="Security.PdfMac.WritingOn"/>).</param>
     internal static byte[] SignUnchecked(PdfDocument doc, int pageIndex, PageElement signature, SigningCertificate certificate, DateTimeOffset when,
-        ITimestampAuthority? timestamps = null) =>
-        Signed(doc, SignedUpdate(doc, pageIndex, signature, certificate, when, timestamps, checkCertificate: false));
+        ITimestampAuthority? timestamps = null, bool? writeMac = null) =>
+        Signed(doc, SignedUpdate(doc, pageIndex, signature, certificate, when, timestamps, checkCertificate: false, writeMac: writeMac));
 
     private static byte[] Signed(PdfDocument doc, byte[] update)
     {
@@ -81,8 +82,9 @@ public static partial class PdfSigner
     /// <param name="made">Receives the CMS block of the signature (for the validation data that follows it); null if not needed.</param>
     internal static byte[] SignedUpdate(PdfDocument doc, int pageIndex, PageElement signature, SigningCertificate certificate, DateTimeOffset when,
         ITimestampAuthority? timestamps = null, List<byte[]>? made = null, bool checkCertificate = true,
-        IReadOnlyList<System.Security.Cryptography.X509Certificates.X509Certificate2>? extraChain = null)
+        IReadOnlyList<System.Security.Cryptography.X509Certificates.X509Certificate2>? extraChain = null, bool? writeMac = null)
     {
+        var mac = writeMac ?? Security.PdfMac.WritingOn;
         // an expired, not yet valid or unsuitable certificate signs nothing — every checker would call the signature invalid; valid at the
         // moment the key signs, by the clock (the /M a caller passes is only claimed; No. 526)
         if (checkCertificate && Platform.SigningCertificates.Unusable(certificate.Certificate, DateTimeOffset.UtcNow) is { } unusable)
@@ -111,11 +113,12 @@ public static partial class PdfSigner
             IReadOnlyList<System.Security.Cryptography.X509Certificates.X509Certificate2> links =
                 extraChain is { Count: > 0 } ? [.. certificate.Chain, .. extraChain] : certificate.Chain;
             var once = certificate.Key is Platform.IRemoteKey;
-            var first = once ? CmsSignature.SizeFor(certificate.Certificate, links) + (timestamps is null ? 0 : SignatureTimestamps.ReservedBytes)
+            // a MAC for the signed revision (ISO/TS 32004, 6.5.2) has its room as well
+            var first = once ? CmsSignature.SizeFor(certificate.Certificate, links) + (timestamps is null ? 0 : SignatureTimestamps.ReservedBytes) + Security.PdfMac.AttachedLength
                 : Math.Min(ReservedBytes + (timestamps is null ? 0 : SignatureTimestamps.ReservedBytes), MaxFirstReserve);
             for (var reserve = first; ; reserve *= 4)
             {
-                var (bytes, gap) = Prepare(doc, pageIndex, signature, target, box, appearance, certificate, when, reserve);
+                var (bytes, gap, attach) = Prepare(doc, pageIndex, signature, target, box, appearance, certificate, when, reserve, mac);
                 // Signed: the document's bytes and the update, without the placeholder of the CMS block — the digest is streamed over
                 // them; only a key that is neither RSA nor ECDSA needs them as one array
                 // the issuers fetched beforehand (a card that carries only its own certificate) go into the block as well (No. 533; links)
@@ -123,6 +126,8 @@ public static partial class PdfSigner
                         links, certificate.Key)
                     ?? CmsSignature.Create(Content(doc, bytes, gap), certificate.Certificate, links, certificate.Key);
                 if (timestamps is not null) cms = SignatureTimestamps.AddTo(cms, timestamps);
+                // the MAC of the signed revision, attached to the signature last (6.5.2, 6.6.3): over the same bytes the signature covers
+                if (attach) cms = Security.PdfMac.AttachTo(cms, Security.PdfMac.KekOf(doc), Digest(doc, bytes, gap));
                 if (2 * cms.Length > gap.End - gap.Start - 2)
                 {
                     if (once)
@@ -158,13 +163,13 @@ public static partial class PdfSigner
         return build;
     }
 
-    private static (byte[] Bytes, (int Start, int End) Gap) Prepare(PdfDocument doc, int pageIndex, PageElement signature, EmptyField? target,
-        PdfRectangle box, PdfDocument appearance, SigningCertificate certificate, DateTimeOffset when, int reserve)
+    private static (byte[] Bytes, (int Start, int End) Gap, bool Mac) Prepare(PdfDocument doc, int pageIndex, PageElement signature, EmptyField? target,
+        PdfRectangle box, PdfDocument appearance, SigningCertificate certificate, DateTimeOffset when, int reserve, bool writeMac)
     {
         if (pageIndex < 0 || pageIndex >= doc.PageCount) throw new ArgumentOutOfRangeException(nameof(pageIndex));
         var page = doc.Pages[pageIndex];
         if (page.Id is not { } pageId) throw new NotSupportedException(Tr.T("Die Seite ist kein eigenes Objekt."));
-        var update = new IncrementalUpdate(doc);
+        var update = new IncrementalUpdate(doc, writeMac);
 
         var form = update.Add(AppearanceForm(appearance, update, box));
         var sig = new PdfDictionary();
@@ -210,6 +215,7 @@ public static partial class PdfSigner
         else if (locked is not null) references.Add(WithData(SignatureReference("FieldMDP", ("Action", PdfName.Get("Include")), ("Fields", locked)), rootRef));
         if (references.Count > 0) sig.Set(PdfName.Get("Reference"), references);
         var sigRef = update.Add(sig);
+        if (update.WritesMac) update.MacSignature = sigRef;
 
         var appearanceDict = new PdfDictionary();
         appearanceDict.Set(PdfName.N, form);
@@ -298,7 +304,7 @@ public static partial class PdfSigner
         var bytes = output.ToArray();
         var gap = Placeholder(bytes, update.Offsets[((PdfReference)sigRef).Id.Number] - doc.FileSize);
         WriteRange(bytes, gap, doc.FileSize);
-        return (bytes, gap);
+        return (bytes, gap, update.WritesMac);
     }
 
     private static readonly PdfName LockKey = PdfName.Get("Lock");

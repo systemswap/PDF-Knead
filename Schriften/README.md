@@ -16,7 +16,7 @@ Liste im Code gibt es nicht.
   fehlt er, und alles geht trotzdem — es gibt dann nur die freien Handschriften. Kommt
   **nicht** ins Programm: Die Publish-Skripte legen die Dateien als `Schriften-Unterschrift`
   neben das Programm (bzw. die AppImage), beim Entwickeln landen sie neben Programm,
-  Kommandozeile und Tests. Pakete zum Weitergeben baut `tools/release.sh` ohne diesen Ordner.
+  Kommandozeile und Tests. Die Pakete zum Weitergeben baut der Workflow auf GitHub, wo der Ordner fehlt.
 
 Eigene Schriften (gekauft oder die eigene Handschrift als Schrift) importiert man im
 Programm über **Datei → Schriften** (dort lassen sie sich auch wieder entfernen); die Kopie liegt ebenfalls in

@@ -16,8 +16,9 @@ namespace PdfKnead.Core.Pdf.Writing;
 /// <remarks>
 /// Objects keep their numbers: a replaced object is written under its old number and generation, references in the objects are
 /// written as they are (to existing objects of the file or to objects added here). Streams must carry their data in memory. The
-/// cross-reference section has the same form as the newest one of the file (table or stream). Encrypted files are not supported
-/// yet; <see cref="CanAppend"/> says whether a file qualifies.
+/// cross-reference section has the same form as the newest one of the file (table or stream). An encrypted file is updated with its own
+/// key; <see cref="CanAppend"/> says whether a file qualifies. A file that asks for a MAC (ISO/TS 32004) gets one for the new revision where
+/// MACs are written (<see cref="Security.PdfMac.WritingOn"/>): standalone in the trailer (6.5.1), or attached to the signature the update adds (6.5.2).
 /// </remarks>
 public sealed class IncrementalUpdate
 {
@@ -28,13 +29,24 @@ public sealed class IncrementalUpdate
     private readonly Dictionary<int, long> _offsets = [];
     private int _next;
 
+    /// <summary>The new revision gets a MAC (ISO/TS 32004, 6.5): the file asks for one and MACs are written.</summary>
+    private readonly bool _mac;
+
     /// <summary>Starts an update of a document.</summary>
     /// <param name="doc">The opened document; its file bytes are copied unchanged when writing.</param>
     /// <exception cref="NotAppendableException">The file does not qualify (see <see cref="CanAppend"/>).</exception>
-    public IncrementalUpdate(PdfDocument doc)
+    public IncrementalUpdate(PdfDocument doc) : this(doc, Security.PdfMac.WritingOn)
     {
-        if (!CanAppend(doc)) throw EncryptionRefusal(doc) is { } refusal ? new NotAppendableException(refusal) : NotAppendable();
+    }
+
+    /// <inheritdoc cref="IncrementalUpdate(PdfDocument)"/>
+    /// <param name="doc">The opened document; its file bytes are copied unchanged when writing.</param>
+    /// <param name="writeMac">Whether MACs are written (the tests switch it on per call).</param>
+    internal IncrementalUpdate(PdfDocument doc, bool writeMac)
+    {
+        if (!CanAppend(doc, writeMac)) throw EncryptionRefusal(doc, writeMac) is { } refusal ? new NotAppendableException(refusal) : NotAppendable();
         _doc = doc;
+        _mac = writeMac && MacAsked(doc.Security, doc.EncryptDictionary, doc.Trailer);
         // New numbers after the highest one the file uses: some files state a /Size below their own object numbers, and a new
         // object under such a number would hide an existing one
         var size = doc.Trailer.GetInteger(PdfName.Get("Size")) ?? 0;
@@ -47,33 +59,63 @@ public sealed class IncrementalUpdate
     /// </summary>
     /// <param name="doc">The document.</param>
     /// <returns><see langword="true"/> if the file qualifies.</returns>
-    public static bool CanAppend(PdfDocument doc) =>
-        doc.NewestXRefSection is not null && doc.Trailer.GetRaw(PdfName.Root) is PdfReference && EncryptionRefusal(doc) is null;
+    public static bool CanAppend(PdfDocument doc) => CanAppend(doc, Security.PdfMac.WritingOn);
+
+    /// <inheritdoc cref="CanAppend(PdfDocument)"/>
+    /// <param name="doc">The document.</param>
+    /// <param name="writeMac">Whether MACs are written.</param>
+    internal static bool CanAppend(PdfDocument doc, bool writeMac) =>
+        doc.NewestXRefSection is not null && doc.Trailer.GetRaw(PdfName.Root) is PdfReference && EncryptionRefusal(doc, writeMac) is null;
+
+    /// <summary>The new revision writes a MAC — standalone, or attached to the signature it adds (<see cref="MacSignature"/>).</summary>
+    internal bool WritesMac => _mac;
+
+    /// <summary>
+    /// The signature dictionary of the update whose CMS block will carry the MAC of the revision (6.5.2: /AuthCode then says /AttachedToSig
+    /// and names it); null: a standalone MAC in the trailer (6.5.1). Only where <see cref="WritesMac"/>.
+    /// </summary>
+    internal PdfReference? MacSignature { get; set; }
 
     /// <summary>
     /// Why an encrypted file takes no update, or null if it does (or is not encrypted): the update is encrypted with the file's own key
     /// (ISO 32000-2, 7.6; docs/FEHLERGEDAECHTNIS.md, No. 543) — not with RC4, which PAdES no longer recommends (EN 319 142-1, 5.5), and not
-    /// where ISO/TS 32004 asks for a MAC per revision (bit 13 of /P cleared from revision 6, /KDFSalt, /AuthCode), which PDF Knead cannot
-    /// make yet.
+    /// where ISO/TS 32004 asks for a MAC per revision (bit 13 of /P cleared from revision 6, /KDFSalt, /AuthCode) while MACs are not written,
+    /// or the file lacks what a new MAC needs (its /KDFSalt, the file key).
     /// </summary>
     /// <param name="doc">The document.</param>
     /// <returns>The reason (translated), or null.</returns>
-    public static string? EncryptionRefusal(PdfDocument doc) => EncryptionRefusal(doc.Security, doc.EncryptDictionary, doc.Trailer);
+    public static string? EncryptionRefusal(PdfDocument doc) => EncryptionRefusal(doc, Security.PdfMac.WritingOn);
+
+    /// <inheritdoc cref="EncryptionRefusal(PdfDocument)"/>
+    /// <param name="doc">The document.</param>
+    /// <param name="writeMac">Whether MACs are written.</param>
+    internal static string? EncryptionRefusal(PdfDocument doc, bool writeMac) =>
+        EncryptionRefusal(doc.Security, doc.EncryptDictionary, doc.Trailer, writeMac);
 
     /// <inheritdoc cref="EncryptionRefusal(PdfDocument)"/>
     /// <param name="security">The file's security handler; null if it is not encrypted.</param>
     /// <param name="encrypt">Its /Encrypt dictionary.</param>
     /// <param name="trailer">Its trailer.</param>
-    internal static string? EncryptionRefusal(Security.StandardSecurityHandler? security, PdfDictionary? encrypt, PdfDictionary trailer)
+    /// <param name="writeMac">Whether MACs are written.</param>
+    internal static string? EncryptionRefusal(Security.StandardSecurityHandler? security, PdfDictionary? encrypt, PdfDictionary trailer, bool writeMac = false)
     {
         if (security is null) return null;
         if (security.StringCipher == Security.PdfCipher.Rc4 || security.StreamCipher == Security.PdfCipher.Rc4)
             return Tr.T("Mit RC4 verschlüsselte Dateien lassen sich nicht signieren. Bitte zuerst mit neuem Schutz (AES) speichern.");
-        // bit 13 as sealed in /Perms where valid, else as in /P (No. 544): a /P edited afterwards does not hide the MAC requirement
-        var macRequired = security.Revision >= 6 && (security.RawPermissions & (1 << 12)) == 0
-                          || encrypt?.ContainsKey(PdfName.Get("KDFSalt")) == true || trailer.ContainsKey(PdfName.Get("AuthCode"));
-        return macRequired ? Tr.T("Diese Datei ist zusätzlich gegen Veränderung geschützt (ISO/TS 32004); PDF-Knead kann sie noch nicht signieren.") : null;
+        if (!MacAsked(security, encrypt, trailer)) return null;
+        if (!writeMac) return Tr.T("Diese Datei ist zusätzlich gegen Veränderung geschützt (ISO/TS 32004); PDF-Knead kann sie noch nicht signieren.");
+        // a new MAC needs the file key (not there while only the attachments are encrypted and locked) and the /KDFSalt of the file — /Encrypt
+        // is the same in every revision (ISO 32000-2, 7.6.1), an update cannot give it one
+        if (security.Revision < 6 || !security.HasFileKey || encrypt?.GetString(PdfName.Get("KDFSalt"))?.Bytes is not { Length: 32 })
+            return Tr.T("Diese Datei ist zusätzlich gegen Veränderung geschützt (ISO/TS 32004), ihr fehlt aber, was ein neuer MAC braucht (Dateischlüssel, /KDFSalt); PDF-Knead kann sie so nicht fortschreiben.");
+        return null;
     }
+
+    /// <summary>Whether the file asks for a MAC per revision: bit 13 cleared from revision 6, /KDFSalt, or a MAC in the newest trailer.</summary>
+    private static bool MacAsked(Security.StandardSecurityHandler? security, PdfDictionary? encrypt, PdfDictionary trailer) =>
+        // bit 13 as sealed in /Perms where valid, else as in /P (No. 544): a /P edited afterwards does not hide the MAC requirement
+        security is not null && (security.Revision >= 6 && (security.RawPermissions & (1 << 12)) == 0
+                                 || encrypt?.ContainsKey(PdfName.Get("KDFSalt")) == true || trailer.ContainsKey(PdfName.Get("AuthCode")));
 
     /// <summary>Adds a new object under the next free number.</summary>
     /// <param name="value">The object; a stream must carry its data in memory.</param>
@@ -121,6 +163,27 @@ public sealed class IncrementalUpdate
     public long WriteUpdateTo(Stream output) => Write(output, Trailer());
 
     private long Write(Stream output, PdfDictionary trailer)
+    {
+        if (!_mac) return WriteCore(output, trailer);
+        if (MacSignature is { } signature)
+        {
+            // the token goes into the signature's CMS block, which the signer completes (6.5.2)
+            trailer.Set(PdfName.Get("AuthCode"), Security.PdfMac.AttachedAuthCode(signature));
+            return WriteCore(output, trailer);
+        }
+        // standalone (6.5.1): the update held back until its MAC, over the whole file, stands in the gap
+        trailer.Set(PdfName.Get("AuthCode"), Security.PdfMac.StandalonePlaceholder());
+        using var held = new MemoryStream();
+        var length = WriteCore(held, trailer);
+        var update = held.ToArray();
+        using var prefix = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        for (long at = 0; at < _doc.FileSize; at += CopyChunk) prefix.AppendData(_doc.FileBytes(at, (int)Math.Min(CopyChunk, _doc.FileSize - at)));
+        Security.PdfMac.FillStandalone(update, _doc.FileSize, prefix, Security.PdfMac.KekOf(_doc));
+        output.Write(update);
+        return length;
+    }
+
+    private long WriteCore(Stream output, PdfDictionary trailer)
     {
         _offsets.Clear();
         var counter = new CountingStream(output, _doc.FileSize);
