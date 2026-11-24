@@ -196,7 +196,7 @@ public sealed partial class DocumentViewModel
     /// <returns>The note; null if the document allows no changes.</returns>
     public NoteElement? AddNote(int page, double x, double y)
     {
-        if (!CanEditElements || (uint)page >= (uint)History.Count) return null;
+        if (!CanAnnotate || (uint)page >= (uint)History.Count) return null;
         var s = NoteElement.Size;
         var note = new NoteElement { Rect = new PdfRectangle(x, y, x + s, y + s), Rotation = DisplayRotation(page), Author = LastNoteAuthor };
         History.AddElement(page, note, Tr.T("Notiz einfügen"));
@@ -229,7 +229,7 @@ public sealed partial class DocumentViewModel
 
     private void ChangeOwnNote(Func<NoteElement, NoteElement> change, string description)
     {
-        if (SelectedNoteRow?.Note is not { Own: { } own } note || !CanEditElements) return;
+        if (SelectedNoteRow?.Note is not { Own: { } own } note || !CanAnnotate) return;
         var updated = change(own);
         if (ReferenceEquals(updated, own)) return;
         _chosenOwn = updated;
@@ -240,7 +240,7 @@ public sealed partial class DocumentViewModel
     [RelayCommand]
     private void DeleteNote()
     {
-        if (SelectedNoteRow?.Note is not { Own: { } own } note || !CanEditElements) return;
+        if (SelectedNoteRow?.Note is not { Own: { } own } note || !CanAnnotate) return;
         History.RemoveElements(note.Page, [own], Tr.T("Notiz löschen"));
     }
 }

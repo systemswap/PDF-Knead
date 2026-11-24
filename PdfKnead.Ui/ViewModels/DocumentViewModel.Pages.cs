@@ -27,11 +27,10 @@ public sealed partial class DocumentViewModel
     public bool CanRedo => History.CanRedo && !IsWorking;
 
     /// <summary>
-    /// Whether the page sequence may be changed. Protected files can forbid this (permissions
-    /// „Seiten zusammenstellen“ / „Ändern“); with the owner password everything is allowed.
+    /// Whether the page sequence may be changed — inserting, rotating, deleting pages, bookmarks, thumbnails (ISO 32000-2, 7.6.4.2, Table 22):
+    /// bit 4 („Ändern“), from revision 3 also bit 11 („Seiten zusammenstellen“) alone; with the owner password everything is allowed.
     /// </summary>
-    public bool CanEditPages =>
-        HasAllRights || Document.Security!.Permissions.HasFlag(PdfPermissions.Assemble) || Document.Security.Permissions.HasFlag(PdfPermissions.Modify);
+    public bool CanEditPages => CanModifyContent || Granted(PdfPermissions.Assemble);
 
     /// <summary>Raised when the page list has changed (the view re-arranges).</summary>
     public event Action? PagesChanged;

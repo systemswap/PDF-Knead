@@ -420,6 +420,9 @@ public static class SignatureVerifier
                     // signed attributes without a message digest: a form error of the block, not a change of the document (No. 483)
                     if (check == CmsSignature.DigestCheck.NoMessageDigest)
                         return result with { Problem = Tr.T("Der Signaturblock ist nicht normgerecht (die Prüfsumme der unterschriebenen Daten fehlt).") };
+                    // CMSAlgorithmProtection naming other algorithms than the signer info (RFC 6211): an algorithm substituted — broken (No. 1113)
+                    if (check == CmsSignature.DigestCheck.AlgorithmMismatch)
+                        return result with { Problem = Tr.T("Die geschützte Angabe der Verfahren im Signaturblock passt nicht zu den verwendeten: der Signaturblock ist verändert oder fehlerhaft."), Cause = SubIndication.SigCryptoFailure };
                     // the bytes are those signed, the value is not the signer's: no change of the document, a forged or broken block
                     if (check == CmsSignature.DigestCheck.ValueMismatch)
                         return result with { Problem = Tr.T("Der Signaturwert passt nicht zum Zertifikat des Unterzeichners: der Signaturblock ist gefälscht oder beschädigt."), Cause = SubIndication.SigCryptoFailure };

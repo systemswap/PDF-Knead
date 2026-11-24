@@ -2196,6 +2196,84 @@ public sealed class ElementUiTests
         });
     }
 
+    /// <summary>
+    /// RC4 and AES-128 cut a password to 32 characters (ISO 32000-2, 7.6.4.3.2, algorithm 2, step a; docs/FEHLERGEDAECHTNIS.md, No. 1112): the
+    /// window says so as soon as a password in use is longer — not for one of exactly 32 characters, not for a box that is not ticked, not with
+    /// AES-256, and not for a password outside PDFDocEncoding (that copy is written with AES-256 anyway).
+    /// </summary>
+    [Theory]
+    [InlineData("1.4")]
+    [InlineData("1.6")]
+    public void ProtectionWindow_PasswordOver32Characters_HintWithRc4AndAes128(string version)
+    {
+        UiSession.Run(() =>
+        {
+            var window = new ProtectionWindow(false, Core.Pdf.Security.PdfPermissions.All, version);
+            window.Show();
+            try
+            {
+                UiSession.Capture(window);
+                TextBox Box(string name) => window.GetVisualDescendants().OfType<TextBox>().Single(t => t.Name == name);
+                CheckBox Check(string name) => window.GetVisualDescendants().OfType<CheckBox>().Single(c => c.Name == name);
+                var hint = window.GetVisualDescendants().OfType<Border>().Single(b => b.Name == "LengthHint");
+                bool Shown()
+                {
+                    UiSession.Capture(window);
+                    return hint.IsEffectivelyVisible;
+                }
+                Assert.False(Shown());
+
+                var exactly32 = new string('a', 32);
+                Check("OpenBox").IsChecked = true;
+                Box("OpenPassword").Text = exactly32;
+                Assert.False(Shown());
+                Box("OpenPassword").Text = exactly32 + "b";
+                Assert.True(Shown());
+                Shoot(window, "45b-passwort-ueber-32-zeichen-" + version);
+                Check("OpenBox").IsChecked = false;   // the password is not used
+                Assert.False(Shown());
+
+                Check("RightsBox").IsChecked = true;
+                Box("OwnerPassword").Text = "Besitzer-" + exactly32;
+                Assert.True(Shown());
+                // a character outside PDFDocEncoding: the writer takes AES-256, nothing is cut
+                Box("OwnerPassword").Text = "Пароль-" + exactly32;
+                Assert.False(Shown());
+                Box("OwnerPassword").Text = "kurz";
+                Assert.False(Shown());
+            }
+            finally
+            {
+                window.Close();
+            }
+        });
+    }
+
+    /// <summary>With AES-256 (PDF 1.7 and 2.0) the whole password counts: no hint, however long it is (No. 1112).</summary>
+    [Theory]
+    [InlineData("1.7")]
+    [InlineData("2.0")]
+    public void ProtectionWindow_PasswordOver32Characters_NoHintWithAes256(string version)
+    {
+        UiSession.Run(() =>
+        {
+            var window = new ProtectionWindow(false, Core.Pdf.Security.PdfPermissions.All, version);
+            window.Show();
+            try
+            {
+                UiSession.Capture(window);
+                window.GetVisualDescendants().OfType<CheckBox>().Single(c => c.Name == "OpenBox").IsChecked = true;
+                window.GetVisualDescendants().OfType<TextBox>().Single(t => t.Name == "OpenPassword").Text = new string('a', 60);
+                UiSession.Capture(window);
+                Assert.False(window.GetVisualDescendants().OfType<Border>().Single(b => b.Name == "LengthHint").IsEffectivelyVisible);
+            }
+            finally
+            {
+                window.Close();
+            }
+        });
+    }
+
     [Fact]
     public void FixSignaturesWindow_ShowsNotice()
     {

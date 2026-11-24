@@ -1357,7 +1357,7 @@
                                 Background="{DynamicResource SurfaceAltBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1"
                                 CornerRadius="{DynamicResource RadiusControl}" BoxShadow="{DynamicResource ShadowCard}" ClipToBounds="True"
                                 IsVisible="{Binding ShowTextProperties}">
-                            <views:TextPropertiesPanel IsEnabled="{Binding SelectedDocument.CanEditElements, FallbackValue=False}" />
+                            <views:TextPropertiesPanel IsEnabled="{Binding SelectedDocument.CanEditTextFormat, FallbackValue=False}" />
                         </Border>
                         <!-- Formatierung von bearbeitetem Text (KONZEPT §5.14, T2): an derselben Stelle -->
                         <Border Name="RichTextPropertiesHost" HorizontalAlignment="Right" Width="320" Margin="0,8,22,8" VerticalAlignment="Top"

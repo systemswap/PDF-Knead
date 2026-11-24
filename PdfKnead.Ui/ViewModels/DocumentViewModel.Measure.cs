@@ -763,7 +763,7 @@ public sealed partial class DocumentViewModel
     private void SetScale(IReadOnlyList<(int Page, double UnitsPerPoint)> pages, string ratio)
     {
         if (pages.Count == 0 || pages.Any(p => (uint)p.Page >= (uint)History.Count)) return;
-        if (!CanEditElements)
+        if (!CanModifyContent)   // the scale goes into the page (/VP), not into an annotation
         {
             Notify(Tr.T("Dieses Dokument erlaubt keine Änderungen (Rechte der Datei) — aufheben mit Sicher → Einschränkungen entfernen."));
             return;
@@ -1076,7 +1076,7 @@ public sealed partial class DocumentViewModel
     private void InsertDimensions(IReadOnlyList<MeasureRow> rows)
     {
         if (rows.Count == 0) return;
-        if (!CanEditElements)
+        if (!CanAnnotate)   // dimensions are annotations
         {
             Notify(Tr.T("Dieses Dokument erlaubt keine Änderungen (Rechte der Datei) — aufheben mit Sicher → Einschränkungen entfernen."));
             return;

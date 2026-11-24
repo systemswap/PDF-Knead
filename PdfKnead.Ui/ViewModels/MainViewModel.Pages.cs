@@ -453,7 +453,7 @@ public sealed partial class MainViewModel
             Tool = ViewTool.SelectText;
             return;
         }
-        if (!CheckCanEdit(doc)) return;
+        if (!CheckRight(doc.CanRedact)) return;
         doc.RedactSelection();
         Tool = ViewTool.RedactText;
     }
@@ -472,7 +472,7 @@ public sealed partial class MainViewModel
             Tool = ViewTool.SelectText;
             return;
         }
-        if (!CheckCanEdit(doc)) return;
+        if (!CheckRight(doc.CanRedact)) return;
         Tool = ViewTool.RedactHidden;
     }
 
@@ -484,7 +484,7 @@ public sealed partial class MainViewModel
     private async Task SearchRedact()
     {
         if (!EnsureAllowed("secure.search-redact")) return;
-        if (SelectedDocument is not { } doc || PickRedactionHits is null || !CheckCanEdit(doc)) return;
+        if (SelectedDocument is not { } doc || PickRedactionHits is null || !CheckRight(doc.CanRedact)) return;
         if (await PickRedactionHits((words, patterns, matchCase) => doc.FindForRedactionAsync(words, patterns, matchCase)) is not { Hits.Count: > 0 } pick) return;
         // a hit under a mark already is not marked again (report of 4.11.2026)
         var count = await doc.RedactHitsAsync(pick.Hits.Where(h => !h.Marked), reasonOf: pick.For);
@@ -503,9 +503,10 @@ public sealed partial class MainViewModel
             Auto?.For(hit.Kind) is { } code ? Core.Pdf.Editing.ReasonChoice.Of(code, Reason?.InBar ?? true) : Reason;
     }
 
-    private bool CheckCanEdit(DocumentViewModel doc)
+    /// <summary>Checks a right of the document (<see cref="DocumentViewModel.CanRedact"/>, <see cref="DocumentViewModel.CanDesignForms"/> …); says why nothing happens if it is missing.</summary>
+    private bool CheckRight(bool allowed)
     {
-        if (doc.CanEditElements) return true;
+        if (allowed) return true;
         Message = Tr.T("Dieses Dokument erlaubt keine Änderungen (Rechte der Datei) — aufheben mit Sicher → Einschränkungen entfernen.");
         return false;
     }
@@ -527,7 +528,8 @@ public sealed partial class MainViewModel
             doc.RasterOnSave = null;
             ShowNotice(Tr.T("Die Seiten bleiben beim Speichern, wie sie sind."));
         }
-        else if (PickRaster is not null && await PickRaster() is { } settings)
+        // the pages become images: bit 4 (Table 22; No. 1111)
+        else if (CheckRight(doc.CanModifyContent) && PickRaster is not null && await PickRaster() is { } settings)
         {
             doc.RasterOnSave = settings;
             ShowNotice(Tr.T("Alle Seiten werden beim nächsten Speichern als Bild gesichert."));
@@ -732,7 +734,7 @@ public sealed partial class MainViewModel
             Tr.T("Die digitale Signatur deckt auch ab, was niemand sieht:\n{0}\n\nAm sichersten erst bereinigen, dann signieren.", list),
             Tr.T("Erst bereinigen"), Tr.T("Trotzdem signieren"));
         if (answer == 2) return true;
-        if (answer != 1 || PickCleanup is null || !Documents.Contains(doc)) return false;
+        if (answer != 1 || PickCleanup is null || !Documents.Contains(doc) || !CheckRight(doc.CanModifyContent)) return false;
         if (await PickCleanup(found, CleanupItems.None) is not { } chosen || chosen == CleanupItems.None || !Documents.Contains(doc)) return false;
         Busy = Tr.T("Bereinige {0} …", doc.FileName);
         try
@@ -768,6 +770,7 @@ public sealed partial class MainViewModel
             doc.CloseCleanup();
             return;
         }
+        if (!CheckRight(doc.CanModifyContent)) return;   // removing parts of the document: bit 4 (Table 22; No. 1111)
         // one area at a time on the right: tools with an area of their own end
         if (Tool is not ViewTool.SelectText and not ViewTool.Pan) Tool = ViewTool.SelectText;
         if (doc.IsNotesOpen) doc.CloseNotes();
@@ -785,7 +788,7 @@ public sealed partial class MainViewModel
     [RelayCommand]
     private async Task ApplyCleanup()
     {
-        if (SelectedDocument is not { IsCleanupOpen: true } doc) return;
+        if (SelectedDocument is not { IsCleanupOpen: true } doc || !CheckRight(doc.CanModifyContent)) return;
         // the rows of modules (an e-invoice): which embedded files stay (decision (4) of 15.11.2026)
         var (chosen, keptFiles, metadataStays) = doc.CleanupChoice;
         if (chosen == CleanupItems.None)
@@ -873,6 +876,8 @@ public sealed partial class MainViewModel
     {
         CommitInputs(doc);
         if (doc.RedactionCount == 0) return true;
+        // applying removes content and the marks: bits 4 and 6 (Table 22; No. 1111) — without them nothing goes on unredacted either
+        if (!CheckRight(doc.CanRedact)) return false;
         List<RedactionHit> unredacted;
         List<RedactionElsewhere> elsewhere;
         List<RedactionCode> codes;
@@ -1007,7 +1012,7 @@ public sealed partial class MainViewModel
     private async Task ApplyRedactions()
     {
         if (!EnsureAllowed("secure.apply-redactions")) return;
-        if (SelectedDocument is not { } doc) return;
+        if (SelectedDocument is not { } doc || !CheckRight(doc.CanRedact)) return;
         CommitInputs(doc);
         if (doc.RedactionCount == 0)
         {
@@ -1144,7 +1149,8 @@ public sealed partial class MainViewModel
         var imageChosen = false;
         if (FixingNotice(doc) is { } notice && ConfirmFixing is { } confirm)
         {
-            switch (await confirm(FixingTitle(doc), notice, doc.RasterOnSave is null && !signing))
+            // saving as images rewrites the pages: offered only with bit 4 (No. 1111)
+            switch (await confirm(FixingTitle(doc), notice, doc.RasterOnSave is null && !signing && doc.CanModifyContent))
             {
                 case FixingReply.Cancel:
                     return false;

@@ -1399,6 +1399,12 @@ public static class English
         ["Das Passwort enthält ein Nichtzeichen."] = "The password contains a noncharacter.",
         ["Das Passwort enthält ein Zeichen, das in Passwörtern nicht erlaubt ist (Steuerung der Darstellung oder Schreibrichtung)."] = "The password contains a character not allowed in passwords (controlling display or writing direction).",
         ["Das Passwort enthält ein nicht zugewiesenes Zeichen."] = "The password contains an unassigned character.",
+        ["Verschlüsseltes Dokument in einer Hülle"] = "Encrypted document in a wrapper",
+        ["„{0}“ ist eine Hülle: das eigentliche Dokument „{1}“ steckt verschlüsselt darin (Verfahren „{2}“). Soll es geöffnet werden?"] =
+            "“{0}” is a wrapper: the actual document “{1}” is inside it, encrypted (method “{2}”). Open it?",
+        ["Dokument öffnen"] = "Open document",
+        ["Die geschützte Angabe der Verfahren im Signaturblock passt nicht zu den verwendeten: der Signaturblock ist verändert oder fehlerhaft."] =
+            "The protected statement of the algorithms in the signature block does not match those used: the block was changed or is faulty.",
         ["Im Integritätsschutz fehlt der MAC-Wert (/MAC)."] = "The integrity protection lacks the MAC value (/MAC).",
         ["Der MAC-Wert (/MAC) steht nicht in der ausgesparten Lücke."] = "The MAC value (/MAC) does not stand in the gap left for it.",
         ["Die Verschlüsselung nennt Version 6 (AES-GCM) mit Revision {0} statt 7."] = "The encryption names version 6 (AES-GCM) with revision {0} instead of 7.",
@@ -2812,6 +2818,8 @@ public static class English
         ["Kommentieren"] = "Comment",
         ["Nicht erlaubt"] = "Not allowed",
         ["Niedrige Auflösung"] = "Low resolution",
+        ["Bei diesem Verfahren zählen nur die ersten 32 Zeichen des Passworts. Für längere Passwörter PDF 2.0 (AES-256) wählen."] =
+            "With this method only the first 32 characters of the password count. For longer passwords, choose PDF 2.0 (AES-256).",
         ["Ohne Passwort zum Öffnen sind Rechte nur eine Bitte an das Anzeigeprogramm — nicht jedes hält sich daran. Wirklich nicht mehr kopierbar ist nur „Flachlegen als Bild“."] =
             "Without an open password, permissions are only a request to the viewer — not every viewer honours it. Only “Flatten as image” makes text truly impossible to copy.",
         ["Passwort und Rechte gelten ab dem nächsten Speichern."] = "Password and permissions apply from the next save.",

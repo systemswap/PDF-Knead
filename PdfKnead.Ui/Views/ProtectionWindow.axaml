@@ -51,6 +51,13 @@
             </StackPanel>
         </StackPanel>
 
+        <!-- RC4 and AES-128 count only the first 32 characters of a password (ISO 32000-2, 7.6.4.3.2, algorithm 2) -->
+        <Border Name="LengthHint" IsVisible="False" Background="{DynamicResource WarnSoftBrush}" BorderBrush="{DynamicResource WarnBrush}" BorderThickness="1"
+                CornerRadius="{DynamicResource RadiusControl}" Padding="12,8">
+            <TextBlock TextWrapping="Wrap" FontSize="12"
+                       Text="{l:T 'Bei diesem Verfahren zählen nur die ersten 32 Zeichen des Passworts. Für längere Passwörter PDF 2.0 (AES-256) wählen.'}" />
+        </Border>
+
         <Border Background="{DynamicResource AccentSoftBrush}" CornerRadius="{DynamicResource RadiusControl}" Padding="12,8">
             <TextBlock TextWrapping="Wrap" FontSize="12"
                        Text="{l:T 'Ohne Passwort zum Öffnen sind Rechte nur eine Bitte an das Anzeigeprogramm — nicht jedes hält sich daran. Wirklich nicht mehr kopierbar ist nur „Flachlegen als Bild“.'}" />

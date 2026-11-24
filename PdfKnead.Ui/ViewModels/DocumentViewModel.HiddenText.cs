@@ -181,7 +181,7 @@ public sealed partial class DocumentViewModel
     /// <summary>Marks the spots, or takes their marks back, in one undo step for all pages.</summary>
     private void SetHiddenMarks(IEnumerable<HiddenSpotRow> rows, bool mark, string description)
     {
-        if (!CanEditElements)
+        if (!CanRedact)
         {
             Notify(Tr.T("Dieses Dokument erlaubt keine Änderungen (Rechte der Datei) — aufheben mit Sicher → Einschränkungen entfernen."));
             NotifyHiddenMarks();   // the box springs back
@@ -481,7 +481,7 @@ public sealed partial class DocumentViewModel
     public void ToggleHiddenMark(int page, HiddenTextSpot spot)
     {
         if ((uint)page >= (uint)Pages.Count) return;
-        if (!CanEditElements)
+        if (!CanRedact)
         {
             Notify(Tr.T("Dieses Dokument erlaubt keine Änderungen (Rechte der Datei) — aufheben mit Sicher → Einschränkungen entfernen."));
             return;

@@ -100,8 +100,8 @@ public sealed partial class RichTextPropertiesViewModel : ObservableObject
     /// <summary>Whether the panel is visible: a block is being edited or is selected.</summary>
     public bool IsVisible => Element is not null;
 
-    /// <summary>Whether changes are allowed; protected files without the „Ändern“/„Kommentieren“ permission can only be viewed.</summary>
-    public bool CanEdit => _doc?.CanEditElements == true;
+    /// <summary>Whether changes are allowed: edited text is page content (bit 4, „Ändern“); otherwise it can only be viewed.</summary>
+    public bool CanEdit => _doc?.CanModifyContent == true;
 
     /// <summary>Formatting at the caret or at the start of the selection; when not editing, that of the block's start.</summary>
     private RichStyle Style => _editor?.Style ?? Element?.Content.StyleAt(0) ?? new RichStyle();

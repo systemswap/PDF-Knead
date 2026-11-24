@@ -70,8 +70,8 @@ public sealed partial class ElementPropertiesViewModel : ObservableObject
     /// <summary>Whether the panel is visible: a shape or an inserted image is selected.</summary>
     public bool IsVisible => _selected is not null;
 
-    /// <summary>Whether changes are allowed; protected files without the „Ändern“/„Kommentieren“ permission can only be viewed.</summary>
-    public bool CanEdit => _doc?.CanEditElements == true;
+    /// <summary>Whether changes are allowed: the right of what the selected element is written as (<see cref="DocumentViewModel.CanChange"/>).</summary>
+    public bool CanEdit => _doc is { } doc && _selected is { } selected && doc.CanChange(selected.Element);
 
     public bool IsShape => Shape is not null;
 

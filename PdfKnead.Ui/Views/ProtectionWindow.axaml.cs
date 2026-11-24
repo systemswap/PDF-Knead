@@ -40,8 +40,32 @@ public partial class ProtectionWindow : Window
         FormsBox.IsChecked = permissions.HasFlag(PdfPermissions.FillForms);
         AssembleBox.IsChecked = permissions.HasFlag(PdfPermissions.Assemble);
         RightsBox.IsChecked = ((permissions | PdfPermissions.Accessibility) & PdfPermissions.All) != PdfPermissions.All;
+        OpenPassword.TextChanged += (_, _) => UpdateLengthHint();
+        OwnerPassword.TextChanged += (_, _) => UpdateLengthHint();
+        OpenBox.IsCheckedChanged += (_, _) => UpdateLengthHint();
+        RightsBox.IsCheckedChanged += (_, _) => UpdateLengthHint();
+        UpdateLengthHint();
         Opened += (_, _) => OpenBox.Focus();
     }
+
+    /// <summary>
+    /// Whether a password in use is cut to 32 characters on saving: RC4 and AES-128 pad or truncate it to 32 bytes (ISO 32000-2, 7.6.4.3.2,
+    /// algorithm 2, step a). Not with AES-256, and not where a password does not fit PDFDocEncoding — then the copy is written with AES-256
+    /// anyway (see the writer's choice of version).
+    /// </summary>
+    internal bool PasswordTruncated
+    {
+        get
+        {
+            if (_aes256) return false;
+            var passwords = new[] { OpenBox.IsChecked == true ? OpenPassword.Text ?? "" : "", RightsBox.IsChecked == true ? OwnerPassword.Text ?? "" : "" };
+            if (!passwords.All(StandardSecurityHandler.FitsLegacyPassword)) return false;
+            return passwords.Any(p => p.Length > 32);
+        }
+    }
+
+    /// <summary>Shows or hides the hint that only the first 32 characters count.</summary>
+    private void UpdateLengthHint() => LengthHint.IsVisible = PasswordTruncated;
 
     /// <summary>Permissions from the check boxes.</summary>
     private PdfPermissions Permissions()

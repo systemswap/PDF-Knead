@@ -147,7 +147,7 @@ public sealed partial class DocumentView
             InvalidateVisual();
             return true;
         }
-        if (!doc.CanEditElements)
+        if (!doc.CanModifyContent)
         {
             doc.Notify(Tr.T("Dieses Dokument erlaubt keine Änderungen (Rechte der Datei) — aufheben mit Sicher → Einschränkungen entfernen."));
             return true;
@@ -222,7 +222,7 @@ public sealed partial class DocumentView
             doc.Notify(locked.Locked!);
             return true;
         }
-        if (!doc.CanEditElements)
+        if (!doc.CanModifyContent)
         {
             doc.Notify(Tr.T("Dieses Dokument erlaubt keine Änderungen (Rechte der Datei) — aufheben mit Sicher → Einschränkungen entfernen."));
             return true;

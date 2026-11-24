@@ -230,7 +230,7 @@ public sealed partial class DocumentViewModel
     /// <returns>The number of fields created.</returns>
     public async Task<int> AcceptFieldProposalsAsync()
     {
-        if (!CanEditElements) return 0;
+        if (!CanDesignForms) return 0;
         var chosen = FieldProposals.Where(r => r.IsChecked && (uint)r.Proposal.Page < (uint)History.Count).ToList();
         if (chosen.Count == 0) return 0;
         if (StoreRecognizedText && _proposalTextLayers.Count > 0)

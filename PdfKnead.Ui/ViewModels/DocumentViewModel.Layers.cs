@@ -40,7 +40,11 @@ public sealed partial class DocumentViewModel
     private IReadOnlyList<ElementRef> LayerSelection =>
         IsFieldDesign && FieldSelection.Count > 0 ? FieldSelection : SelectedElement is { } selected && (FieldsMovable || !IsFormField(selected.Element)) ? [selected] : [];
 
-    public bool CanMoveLayer => (LayerSelection.Count > 0 || ContentLayerSelection) && CanEditElements;
+    /// <summary>
+    /// Whether the layer commands apply: objects of the page content need <see cref="CanModifyContent"/>; elements the right of each of them
+    /// (<see cref="CanChange"/>), as their order is written.
+    /// </summary>
+    public bool CanMoveLayer => ContentLayerSelection ? CanModifyContent : LayerSelection is { Count: > 0 } selection && selection.All(r => CanChange(r.Element));
 
     /// <summary>Whether the layer buttons move chosen objects of the page content („Bearbeiten“, KONZEPT.md, section 5.22 „Ebenen“).</summary>
     private bool ContentLayerSelection => Tool == ViewTool.Edit && SelectedImages is not null && SelectedElement is null;
@@ -54,7 +58,7 @@ public sealed partial class DocumentViewModel
     public async Task<bool> RestackSelectedImagesAsync(LayerMove move)
     {
         if (SelectedImages is not { } s || (uint)s.Page >= (uint)History.Count) return false;
-        if (!CanEditElements)
+        if (!CanModifyContent)
         {
             Notify(Tr.T("Dieses Dokument erlaubt keine Änderungen (Rechte der Datei) — aufheben mit Sicher → Einschränkungen entfernen."));
             return false;
@@ -168,7 +172,7 @@ public sealed partial class DocumentViewModel
             return true;
         }
         var selection = LayerSelection;
-        if (selection.Count == 0 || !CanEditElements) return false;
+        if (selection.Count == 0 || !selection.All(r => CanChange(r.Element))) return false;
         var pages = History.Pages.ToArray();
         var changed = false;
         var fieldMoved = false;

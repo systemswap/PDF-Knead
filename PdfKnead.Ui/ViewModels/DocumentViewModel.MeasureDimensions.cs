@@ -201,7 +201,7 @@ public sealed partial class DocumentViewModel
     private void SaveDimensions(IReadOnlyList<MeasureRow> rows, string description)
     {
         if (rows.Count == 0) return;
-        if (!CanEditElements)
+        if (!CanAnnotate)
         {
             Notify(Tr.T("Dieses Dokument erlaubt keine Änderungen (Rechte der Datei) — aufheben mit Sicher → Einschränkungen entfernen."));
             SyncDimensions();
@@ -238,7 +238,7 @@ public sealed partial class DocumentViewModel
     private void DeleteDimension(MeasureRow row)
     {
         if (row.Element is not { } element) return;
-        if (!CanEditElements)
+        if (!CanAnnotate)
         {
             Notify(Tr.T("Dieses Dokument erlaubt keine Änderungen (Rechte der Datei) — aufheben mit Sicher → Einschränkungen entfernen."));
             return;

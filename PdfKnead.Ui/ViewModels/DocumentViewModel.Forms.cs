@@ -16,10 +16,11 @@ public sealed partial class DocumentViewModel
     private bool _scriptHintShown;
 
     /// <summary>
-    /// Whether fields may be filled in: also without „Ändern“ and „Kommentieren“ if the file permits filling in (bit 9,
-    /// Table 22); protected forms often permit only that. Moving and deleting remain tied to <see cref="CanEditElements"/>.
+    /// Whether fields may be filled in, signature fields signed included (ISO 32000-2, 7.6.4.2, Table 22): bit 6 („Kommentieren“), from
+    /// revision 3 also bit 9 alone — protected forms often permit only that; bit 4 („Ändern“) alone does not. Moving, deleting and changing
+    /// fields need <see cref="CanDesignForms"/>.
     /// </summary>
-    public bool CanFillForms => CanEditElements || Document.Security is { } s && s.Permissions.HasFlag(Core.Pdf.Security.PdfPermissions.FillForms);
+    public bool CanFillForms => CanAnnotate || Granted(Core.Pdf.Security.PdfPermissions.FillForms);
 
     /// <summary>
     /// Whether the element can be filled in (a field, not read-only, not a push button or signature). For foreign fields, changed

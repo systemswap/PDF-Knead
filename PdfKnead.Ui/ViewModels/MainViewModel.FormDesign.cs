@@ -222,7 +222,7 @@ public sealed partial class MainViewModel
     [RelayCommand(CanExecute = nameof(HasSelection))]
     private async Task RecognizeFields()
     {
-        if (SelectedDocument is not { } doc || !CheckCanEdit(doc)) return;
+        if (SelectedDocument is not { } doc || !CheckRight(doc.CanDesignForms)) return;
         if (doc.IsFieldProposalsOpen)
         {
             doc.CloseFieldProposals();

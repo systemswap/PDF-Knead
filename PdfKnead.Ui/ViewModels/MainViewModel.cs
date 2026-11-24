@@ -217,6 +217,7 @@ public sealed partial class MainViewModel : ObservableObject
     public async Task OpenAsync(IEnumerable<string> paths)
     {
         var problems = new List<string>();
+        var opened = new List<DocumentViewModel>();
         foreach (var path in paths)
         {
             var full = Path.GetFullPath(path);
@@ -234,6 +235,7 @@ public sealed partial class MainViewModel : ObservableObject
                     var doc = new DocumentViewModel(full, document, usedPassword) { Tool = Tool };
                     Documents.Add(doc);
                     SelectedDocument = doc;
+                    opened.Add(doc);
                     UserSettings.Update(s => s.WithRecent(full));
                 }
             }
@@ -250,6 +252,8 @@ public sealed partial class MainViewModel : ObservableObject
         LoadRecent();
         Message = string.Join("  ·  ", problems);
         if (problems.Count == 0) BackstageOpen = false;
+        // an unencrypted wrapper (ISO 32000-2, 7.6.7): asked after the message bar is set, so a payload that cannot be opened is said there
+        foreach (var doc in opened) await OfferEncryptedPayloadAsync(doc);
     }
 
     /// <summary>Reads a file; if it is password-protected, asks until the password fits or the user cancels (then null).</summary>

@@ -303,6 +303,11 @@ public sealed partial class DocumentViewModel
                 SetDescription(shown with { DisplayTitle = true });
                 break;
             case AccessibilityRepair.RemoveXfa:
+                if (!CanModifyContent)   // removing parts of the document like „Dokument bereinigen“: bit 4 (Table 22; No. 1111)
+                {
+                    Notify(Tr.T("Dieses Dokument erlaubt keine Änderungen (Rechte der Datei) — aufheben mit Sicher → Einschränkungen entfernen."));
+                    break;
+                }
                 await CleanAsync(CleanupItems.Scripts);
                 break;
             case AccessibilityRepair.RemoveClaim:

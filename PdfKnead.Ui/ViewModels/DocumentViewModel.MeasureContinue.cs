@@ -35,7 +35,7 @@ public sealed partial class DocumentViewModel
     public bool ContinueMeasurement(MeasureRow row)
     {
         if (!IsMeasuring || row.Measurement.Kind != MeasureKind.Polyline || (uint)row.Page >= (uint)Pages.Count) return false;
-        if (!CanEditElements && row.IsSaved)
+        if (!CanAnnotate && row.IsSaved)
         {
             Notify(Tr.T("Dieses Dokument erlaubt keine Änderungen (Rechte der Datei) — aufheben mit Sicher → Einschränkungen entfernen."));
             return false;

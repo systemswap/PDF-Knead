@@ -571,7 +571,8 @@ public sealed partial class DocumentViewModel
     public async Task<ElementRef?> ReplaceInspectedCodeAsync()
     {
         if (InspectedBarcode is not { } inspected || (uint)inspected.Page >= (uint)History.Count) return null;
-        if (!CanEditElements)
+        // an own code is an annotation (bit 6); a code of the page is cut out of the content (bit 4) and a code element put in its place (bit 6)
+        if (!CanAnnotate)
         {
             Notify(Tr.T("Dieses Dokument erlaubt keine Änderungen (Rechte der Datei) — aufheben mit Sicher → Einschränkungen entfernen."));
             return null;
@@ -582,6 +583,11 @@ public sealed partial class DocumentViewModel
         double cx = inspected.Code.Corners.Average(c => c.X), cy = inspected.Code.Corners.Average(c => c.Y);
         if (item.Elements.OfType<CodeElement>().LastOrDefault(e => cx >= e.Rect.Left && cx <= e.Rect.Right && cy >= e.Rect.Bottom && cy <= e.Rect.Top) is { } own)
             return new ElementRef(page, own);
+        if (!CanModifyContent)
+        {
+            Notify(Tr.T("Dieses Dokument erlaubt keine Änderungen (Rechte der Datei) — aufheben mit Sicher → Einschränkungen entfernen."));
+            return null;
+        }
         CodeReplacementPlan? plan;
         Core.Pdf.Editing.RedactionResult? emptied = null;
         string? refusal;

@@ -370,7 +370,9 @@ public sealed class HiddenTextUiTests
         var restrictedPdf = TestPdf.Simple(1);
         restrictedPdf.Replace(4, new Core.Pdf.Objects.PdfStream(new Core.Pdf.Objects.PdfDictionary(), System.Text.Encoding.ASCII.GetBytes(HiddenTextTests.LongInvisible())));
         var restricted = TestFiles.Write(restrictedPdf.Build(cipher: Core.Pdf.Security.PdfCipher.Aes256,
-            permissions: Core.Pdf.Security.PdfPermissions.Print | Core.Pdf.Security.PdfPermissions.Modify), "verborgen-lang-gesperrt.pdf");
+            // redaction marks are annotations and remove content when applied: bits 6 and 4 (Table 22; docs/FEHLERGEDAECHTNIS.md, No. 1111)
+            permissions: Core.Pdf.Security.PdfPermissions.Print | Core.Pdf.Security.PdfPermissions.Modify | Core.Pdf.Security.PdfPermissions.Annotate),
+            "verborgen-lang-gesperrt.pdf");
         UiSession.Run(async () =>
         {
             var vm = new MainViewModel();

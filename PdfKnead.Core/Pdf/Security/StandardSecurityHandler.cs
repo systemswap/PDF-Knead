@@ -192,7 +192,7 @@ public sealed class StandardSecurityHandler
         {
             handler = OpenWithPassword(encrypt, id, password, r, o, u, p, encryptMetadata, permissions, stringCipher, streamCipher);
         }
-        catch (PdfPasswordException) when (stringCipher == PdfCipher.None && streamCipher == PdfCipher.None)
+        catch (PdfPasswordException) when (stringCipher == PdfCipher.None && streamCipher == PdfCipher.None && AuthorisedWhenAttachmentOpens(encrypt))
         {
             // Only embedded files are encrypted (/EFF, AuthEvent EFOpen): the document itself is readable;
             // the password is needed only to open an attachment.
@@ -209,6 +209,16 @@ public sealed class StandardSecurityHandler
         handler.Notes = notes.Distinct().ToList();
         return handler;
     }
+
+    /// <summary>
+    /// Whether a file encrypting only its attachments may open without the password, the attachments locked: unless the crypt filter of the
+    /// embedded files says /AuthEvent /DocOpen explicitly (ISO 32000-2, 7.6.6, Table 25: authorisation when the document opens). Without the
+    /// entry its default would be DocOpen too, but files written without it are common and most reference readers open them without the
+    /// password — so does PDF-Knead (S-A A170; design decision, 24.11.2026; docs/FEHLERGEDAECHTNIS.md, No. 1114).
+    /// </summary>
+    private static bool AuthorisedWhenAttachmentOpens(PdfDictionary encrypt) =>
+        !(encrypt.GetName(PdfName.Get("EFF")) is { } eff && eff.Value != "Identity"
+          && encrypt.GetDictionary(PdfName.Get("CF"))?.GetDictionary(eff)?.GetName(PdfName.Get("AuthEvent"))?.Value == "DocOpen");
 
     /// <summary>
     /// What was noticed about the encryption data while opening (localised): an incomplete crypt filter whose method was assumed, a filter

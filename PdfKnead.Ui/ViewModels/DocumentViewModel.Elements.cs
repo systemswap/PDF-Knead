@@ -30,12 +30,84 @@ public sealed partial class DocumentViewModel
     /// <summary>Whether the edited element is new (not yet on the page).</summary>
     public bool EditingIsNew { get; private set; }
 
+    // ------------------------------------------------------------ Permissions (ISO 32000-2, 7.6.4.2, Table 22)
+    // Each action asks for the right of what it writes into the file; with the owner password, without encryption or after
+    // „Einschränkungen entfernen“ everything is allowed (HasAllRights). docs/FEHLERGEDAECHTNIS.md, No. 1111.
+
     /// <summary>
-    /// Whether elements may be placed on the pages. Protected files can forbid this (permissions „Ändern“ and
-    /// „Kommentieren“); with the owner password everything is allowed.
+    /// Whether a bit of /P is granted. Bits 9 to 12 have a meaning only from revision 3 (Table 22): with revision 2 they never count, whatever
+    /// the file sets.
     /// </summary>
-    public bool CanEditElements =>
-        HasAllRights || Document.Security!.Permissions.HasFlag(PdfPermissions.Modify) || Document.Security.Permissions.HasFlag(PdfPermissions.Annotate);
+    private bool Granted(PdfPermissions bit) =>
+        Document.Security is { } s && s.Permissions.HasFlag(bit) && (s.Revision >= 3 || (bit & FromRevision3) == 0);
+
+    /// <summary>Bits 9 to 12 of /P, which revision 2 does not know.</summary>
+    private const PdfPermissions FromRevision3 = PdfPermissions.FillForms | PdfPermissions.Accessibility | PdfPermissions.Assemble | PdfPermissions.PrintHighQuality;
+
+    /// <summary>
+    /// Bit 4 („Ändern“): changing the document other than by annotations, form fields and the page sequence — edited text and pictures of the
+    /// page content, layers of the content, the scale of a page, signatures fixed in the page.
+    /// </summary>
+    public bool CanModifyContent => HasAllRights || Granted(PdfPermissions.Modify);
+
+    /// <summary>
+    /// Bit 6 („Kommentieren“): adding and changing annotations — notes, own texts, shapes, images and codes (saved as annotations, KONZEPT.md,
+    /// section 5.13), dimensions, annotations of other programs.
+    /// </summary>
+    public bool CanAnnotate => HasAllRights || Granted(PdfPermissions.Annotate);
+
+    /// <summary>Bits 6 and 4 together: creating and changing form fields, signature fields included (Table 22, bit 6).</summary>
+    public bool CanDesignForms => CanAnnotate && CanModifyContent;
+
+    /// <summary>
+    /// Redaction marks: saved as annotations (bit 6), and applying them — also implicitly when saving as a new file — removes page content
+    /// (bit 4); so both are needed.
+    /// </summary>
+    public bool CanRedact => CanAnnotate && CanModifyContent;
+
+    /// <summary>
+    /// Collective name: whether any element may be placed at all (annotations or page content). Every action asks for its own right —
+    /// <see cref="CanChange"/>, <see cref="CanModifyContent"/>, <see cref="CanAnnotate"/>, <see cref="CanDesignForms"/> — never for this one.
+    /// </summary>
+    public bool CanEditElements => CanModifyContent || CanAnnotate;
+
+    /// <summary>
+    /// Whether this element may be added, changed, moved or deleted, by what it is written as: a digital signature into a signature field the
+    /// file has fills that field (<see cref="CanFillForms"/>), elsewhere it creates a new signature field (<see cref="CanDesignForms"/>); a
+    /// redaction mark needs <see cref="CanRedact"/>; form fields <see cref="CanDesignForms"/>; elements saved as annotations
+    /// <see cref="CanAnnotate"/>; everything fixed in the page content (edited text, signatures, freehand drawings, sealed elements)
+    /// <see cref="CanModifyContent"/>.
+    /// </summary>
+    /// <param name="element">The element (for a replacement: ask for the old one and the new one).</param>
+    public bool CanChange(PageElement element) => element switch
+    {
+        { Digital.FieldName.Length: > 0 } => CanFillForms,
+        { Digital: not null } => CanDesignForms,
+        RedactionElement => CanRedact,
+        _ when IsFormField(element) => CanDesignForms,
+        _ when ElementStore.StaysEditable(element) => CanAnnotate,
+        _ => CanModifyContent,
+    };
+
+    /// <summary>
+    /// Whether a placing tool may start, by what it places: fields <see cref="CanDesignForms"/>, redaction marks <see cref="CanRedact"/>,
+    /// texts, images, shapes, codes and notes <see cref="CanAnnotate"/>. A signature is fixed in the page or fills a signature field, so
+    /// either right lets the tool start; where it goes decides (<see cref="CanChange"/>).
+    /// </summary>
+    /// <param name="tool">The tool.</param>
+    public bool CanPlace(ViewTool tool) => tool switch
+    {
+        ViewTool.InsertField or ViewTool.InsertSignatureField or ViewTool.InsertFormField or ViewTool.DesignForm => CanDesignForms,
+        ViewTool.InsertRedaction or ViewTool.RedactText or ViewTool.RedactHidden => CanRedact,
+        ViewTool.InsertSignature => CanModifyContent || CanFillForms,
+        _ => CanAnnotate,
+    };
+
+    /// <summary>
+    /// Whether the „Text“ panel may change something: the selected text element by what it is (<see cref="CanChange"/>), otherwise the
+    /// next text of the „Text“ tool (an annotation).
+    /// </summary>
+    public bool CanEditTextFormat => SelectedElement is { } selected ? CanChange(selected.Element) : CanAnnotate;
 
     /// <summary>A message for the bar below the ribbon (the main window shows it).</summary>
     public event Action<string>? MessageRequested;

@@ -139,7 +139,15 @@ public sealed partial class MainViewModel
     partial void OnTextIsFieldChanged(bool value)
     {
         if (_syncingFormat || SelectedDocument is not { SelectedElement: { Element: TextElement t } selected } doc) return;
-        doc.ReplaceElement(selected, t with { IsField = value }, value ? Tr.T("In Textfeld umwandeln") : Tr.T("In festen Text umwandeln"));
+        var changed = t with { IsField = value };
+        // a text becomes a form field or a field a text: the rights of both (a field needs bits 4 and 6, Table 22)
+        if (!doc.CanChange(t) || !doc.CanChange(changed))
+        {
+            Message = Tr.T("Dieses Dokument erlaubt keine Änderungen (Rechte der Datei) — aufheben mit Sicher → Einschränkungen entfernen.");
+            SyncFormatFromSelection();
+            return;
+        }
+        doc.ReplaceElement(selected, changed, value ? Tr.T("In Textfeld umwandeln") : Tr.T("In festen Text umwandeln"));
     }
 
     [RelayCommand]
@@ -183,7 +191,8 @@ public sealed partial class MainViewModel
     }
 
     /// <summary>Whether the selection can be deleted; form fields only in „Formular bearbeiten“ mode, so that nothing is deleted by accident while filling in.</summary>
-    public bool CanDeleteElement => SelectedDocument?.SelectedElement is { } selected && (SelectedDocument.FieldsMovable || !DocumentViewModel.IsFormField(selected.Element));
+    public bool CanDeleteElement => SelectedDocument?.SelectedElement is { } selected && (SelectedDocument.FieldsMovable || !DocumentViewModel.IsFormField(selected.Element))
+        && SelectedDocument.CanChange(selected.Element);
 
     [RelayCommand(CanExecute = nameof(CanDeleteElement))]
     private void DeleteElement()
@@ -751,7 +760,7 @@ public sealed partial class MainViewModel
     {
         if (!EnsureAllowed("signature.sign")) return;
         if (SelectedDocument is not { } doc || PickSignature is null) return;
-        if (!doc.CanEditElements)
+        if (!doc.CanPlace(ViewTool.InsertSignature))
         {
             Message = Tr.T("Dieses Dokument erlaubt keine Änderungen (Rechte der Datei) — aufheben mit Sicher → Einschränkungen entfernen.");
             return;
@@ -770,6 +779,12 @@ public sealed partial class MainViewModel
         Remember(chosen);
         // New kind or new content at the same spot: height and centre stay, the width follows the content
         var updated = chosen with { Rect = target.Element.Rect, Rotation = target.Element.Rotation };
+        // the old element goes, the new one comes: the rights of both (an image is an annotation, a signature fixed in the page)
+        if (!doc.CanChange(target.Element) || !doc.CanChange(updated))
+        {
+            Message = Tr.T("Dieses Dokument erlaubt keine Änderungen (Rechte der Datei) — aufheben mit Sicher → Einschränkungen entfernen.");
+            return;
+        }
         doc.ReplaceElement(target, ElementAppearance.FitToAspect(updated), Tr.T("Unterschrift ändern"));
     }
 
@@ -779,7 +794,7 @@ public sealed partial class MainViewModel
     {
         if (!EnsureAllowed("insert.images")) return;
         if (SelectedDocument is not { } doc || PickImageFile is null) return;
-        if (!doc.CanEditElements)
+        if (!doc.CanPlace(ViewTool.InsertImage))
         {
             Message = Tr.T("Dieses Dokument erlaubt keine Änderungen (Rechte der Datei) — aufheben mit Sicher → Einschränkungen entfernen.");
             return;
@@ -817,7 +832,7 @@ public sealed partial class MainViewModel
     {
         if (!EnsureAllowed("insert.shapes")) return;
         if (SelectedDocument is not { } doc) return;
-        if (!doc.CanEditElements)
+        if (!doc.CanPlace(ViewTool.InsertShape))
         {
             Message = Tr.T("Dieses Dokument erlaubt keine Änderungen (Rechte der Datei) — aufheben mit Sicher → Einschränkungen entfernen.");
             return;
@@ -843,7 +858,7 @@ public sealed partial class MainViewModel
     {
         if (!EnsureAllowed("insert.codes")) return;
         if (SelectedDocument is not { } doc) return;
-        if (!doc.CanEditElements)
+        if (!doc.CanPlace(ViewTool.InsertCode))
         {
             Message = Tr.T("Dieses Dokument erlaubt keine Änderungen (Rechte der Datei) — aufheben mit Sicher → Einschränkungen entfernen.");
             return;
@@ -857,7 +872,7 @@ public sealed partial class MainViewModel
     {
         if (!EnsureAllowed("insert.notes")) return;
         if (SelectedDocument is not { } doc) return;
-        if (!doc.CanEditElements)
+        if (!doc.CanPlace(ViewTool.InsertNote))
         {
             Message = Tr.T("Dieses Dokument erlaubt keine Änderungen (Rechte der Datei) — aufheben mit Sicher → Einschränkungen entfernen.");
             return;
@@ -903,6 +918,12 @@ public sealed partial class MainViewModel
         {
             // „Flachlegen“ can be switched off by the function file of the organization
             if (value && !EnsureAllowed("secure.flatten"))
+            {
+                OnPropertyChanged();
+                return;
+            }
+            // fields, comments and stamps go into the page content: bit 4 (ISO 32000-2, Table 22; docs/FEHLERGEDAECHTNIS.md, No. 1111)
+            if (value && SelectedDocument is { } restricted && !CheckRight(restricted.CanModifyContent))
             {
                 OnPropertyChanged();
                 return;

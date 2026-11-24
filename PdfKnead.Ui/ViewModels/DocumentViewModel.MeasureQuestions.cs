@@ -51,7 +51,7 @@ public sealed partial class DocumentViewModel
         try
         {
             // a dimension being continued is in the PDF already
-            var insert = CanEditElements && _continuing is not { IsSaved: true };
+            var insert = CanAnnotate && _continuing is not { IsSaved: true };
             var answers = insert
                 ? new[] { Tr.T("Abschließen"), Tr.T("Abschließen und in die PDF einfügen"), Tr.T("Verwerfen") }
                 : new[] { Tr.T("Abschließen"), Tr.T("Verwerfen") };
@@ -89,7 +89,7 @@ public sealed partial class DocumentViewModel
     {
         _askingMeasure = true;
         ChoiceAnswer? answer;
-        var insert = CanEditElements;
+        var insert = CanAnnotate;
         try
         {
             var one = parked.Count == 1;

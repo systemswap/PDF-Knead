@@ -339,7 +339,7 @@ public sealed partial class DocumentView
         if (doc.Tool is ViewTool.InsertText or ViewTool.InsertField or ViewTool.InsertSignature or ViewTool.InsertImage or ViewTool.InsertShape or ViewTool.InsertCode or ViewTool.InsertNote or ViewTool.InsertSignatureField or ViewTool.InsertFormField)
         {
             if (PageAt(position) is not { } page) return true;
-            if (!doc.CanEditElements)
+            if (!doc.CanPlace(doc.Tool))   // what the tool places decides the right (Table 22)
             {
                 doc.Notify(Tr.T("Dieses Dokument erlaubt keine Änderungen (Rechte der Datei) — aufheben mit Sicher → Einschränkungen entfernen."));
                 return true;
@@ -355,7 +355,7 @@ public sealed partial class DocumentView
         var justPlaced = _justPlaced && e.ClickCount >= 2;
         _justPlaced = false;
 
-        if (HandleAt(position) is { } handle && doc.SelectedElement is { } selected && doc.CanEditElements)
+        if (HandleAt(position) is { } handle && doc.SelectedElement is { } selected && doc.CanChange(selected.Element))
         {
             BeginDrag(DragMode.Resize, selected, position, handle);
             e.Pointer.Capture(this);
@@ -373,19 +373,19 @@ public sealed partial class DocumentView
                 return true;
             }
             // Edited text (see KONZEPT.md, section 5.14): a double-click places the caret at that spot.
-            if (e.ClickCount >= 2 && !justPlaced && hit.Element is RichTextElement && doc.CanEditElements)
+            if (e.ClickCount >= 2 && !justPlaced && hit.Element is RichTextElement && doc.CanChange(hit.Element))
             {
                 _elementDrag = null;
                 PlaceCaret(doc.BeginRichEdit(hit, 0), position);
                 return true;
             }
-            if (e.ClickCount >= 2 && !justPlaced && hit.Element is TextElement && doc.CanEditElements)
+            if (e.ClickCount >= 2 && !justPlaced && hit.Element is TextElement && doc.CanChange(hit.Element))
             {
                 _elementDrag = null;
                 doc.BeginEdit(hit, isNew: false);
                 return true;
             }
-            if (e.ClickCount == 2 && !justPlaced && hit.Element is SignatureElement or InkElement or ImageElement && doc.CanEditElements)
+            if (e.ClickCount == 2 && !justPlaced && hit.Element is SignatureElement or InkElement or ImageElement && doc.CanChange(hit.Element))
             {
                 _elementDrag = null;
                 doc.SelectedElement = hit;
@@ -409,7 +409,7 @@ public sealed partial class DocumentView
                 }
                 return true;
             }
-            if (doc.CanEditElements && !FieldLocked(hit.Element))
+            if (doc.CanChange(hit.Element) && !FieldLocked(hit.Element))
             {
                 BeginDrag(DragMode.Move, hit, position, 0);
                 e.Pointer.Capture(this);
@@ -438,7 +438,7 @@ public sealed partial class DocumentView
     private bool RedactionPressed(PointerPressedEventArgs e, Point position, DocumentViewModel doc)
     {
         if (PageAt(position) is not { } page) return true;
-        if (!doc.CanEditElements)
+        if (!doc.CanRedact)
         {
             doc.Notify(Tr.T("Dieses Dokument erlaubt keine Änderungen (Rechte der Datei) — aufheben mit Sicher → Einschränkungen entfernen."));
             return true;
@@ -457,7 +457,7 @@ public sealed partial class DocumentView
     /// </summary>
     private bool RedactionGrabbed(PointerPressedEventArgs e, Point position, DocumentViewModel doc)
     {
-        if (doc.CanEditElements)
+        if (doc.CanRedact)
         {
             if (HandleAt(position) is { } handle && doc.SelectedElement is { Element: RedactionElement } selected)
             {
@@ -786,6 +786,16 @@ public sealed partial class DocumentView
                     Rect = field.Rect, Rotation = rotation,
                     Digital = template.Digital is { } digital ? digital with { FieldName = field.FieldName } : null,
                 };
+                // what it writes decides the right (Table 22): filling a field of the file, a new signature field, or a signature fixed in
+                // the page — replacing an own field, that field goes as well
+                var allowed = field.Own is { FieldName.Length: > 0 } saved && signed.Digital is { } digitalSigning
+                    ? doc.CanChange(signed with { Digital = digitalSigning with { FieldName = saved.FieldName } })
+                    : doc.CanChange(signed) && (field.Own is not { } replacedField || doc.CanChange(replacedField));
+                if (!allowed)
+                {
+                    doc.Notify(Tr.T("Dieses Dokument erlaubt keine Änderungen (Rechte der Datei) — aufheben mit Sicher → Einschränkungen entfernen."));
+                    return;
+                }
                 // A digital signature into an own field that the file already has under a name: the field stays and is filled when
                 // signing (in a signed document that is appended); otherwise the own field becomes the signature
                 if (field.Own is { FieldName.Length: > 0 } named && signed.Digital is { } own)
@@ -820,6 +830,11 @@ public sealed partial class DocumentView
             box = new Rect(box.Center.X - fw / 2, box.Center.Y - fh / 2, fw, fh);
         }
         var element = template with { Rect = PageRect(drag.Page, ToViewRect(box)), Rotation = rotation };
+        if (!doc.CanChange(element))   // a signature fixed in the page needs bit 4, a new digital one a new field, an image bit 6
+        {
+            doc.Notify(Tr.T("Dieses Dokument erlaubt keine Änderungen (Rechte der Datei) — aufheben mit Sicher → Einschränkungen entfernen."));
+            return;
+        }
         doc.AddElement(drag.Page, element, isImage ? Tr.T("Bild einfügen") : Tr.T("Unterschrift einfügen"));
     }
 
@@ -977,7 +992,7 @@ public sealed partial class DocumentView
             Item(Tr.T("Eine Ebene nach hinten"), LayerMove.Backward, Tr.T("Strg+Bild↓"), "Icon.PositionBackward"),
             Item(Tr.T("In den Hintergrund"), LayerMove.ToBack, Tr.T("Strg+Umschalt+Bild↓"), "Icon.PositionToBack"),
         };
-        if (doc.CanEditElements && (design || !FieldLocked(hit.Element)))
+        if ((design ? doc.CanDesignForms : doc.CanChange(hit.Element)) && (design || !FieldLocked(hit.Element)))
         {
             var delete = new MenuItem { Header = Header(Tr.T("Löschen"), Tr.T("Entf")) };
             delete.Click += (_, _) =>
@@ -1011,16 +1026,16 @@ public sealed partial class DocumentView
         var step = e.KeyModifiers.HasFlag(KeyModifiers.Shift) ? 10 : Math.Clamp(1 / Scale, 0.05, 1);
         switch (e.Key)
         {
-            case Key.Delete or Key.Back when doc.CanEditElements && !FieldLocked(selected.Element):
+            case Key.Delete or Key.Back when doc.CanChange(selected.Element) && !FieldLocked(selected.Element):
                 doc.DeleteSelectedElement();
                 return true;
-            case Key.Enter or Key.F2 when selected.Element is TextElement && doc.CanEditElements:
+            case Key.Enter or Key.F2 when selected.Element is TextElement && doc.CanChange(selected.Element):
                 doc.BeginEdit(selected, isNew: false);
                 return true;
             case Key.Escape:
                 doc.SelectedElement = null;
                 return true;
-            case Key.Left or Key.Right or Key.Up or Key.Down when doc.CanEditElements && !FieldLocked(selected.Element):
+            case Key.Left or Key.Right or Key.Up or Key.Down when doc.CanChange(selected.Element) && !FieldLocked(selected.Element):
                 // In points on screen (whether the view is rotated or not).
                 var (dx, dy) = e.Key switch { Key.Left => (-step, 0.0), Key.Right => (step, 0.0), Key.Up => (0.0, -step), _ => (0.0, step) };
                 var view = ViewRect(selected.Page, selected.Element.Rect).Translate(new Vector(dx * Scale, dy * Scale));

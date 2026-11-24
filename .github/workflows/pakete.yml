@@ -87,7 +87,7 @@ jobs:
           name: windows-x64
           path: published/PDF-Knead-*-windows-x64.zip
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 1
 
   linux:
     name: Linux x64 (AOT)
@@ -117,7 +117,7 @@ jobs:
           name: linux-x64
           path: published/PDF-Knead-*-linux-x64.*
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 1
 
   entwurf:
     name: Release-Entwurf

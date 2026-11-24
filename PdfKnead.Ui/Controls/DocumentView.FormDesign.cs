@@ -125,7 +125,7 @@ public sealed partial class DocumentView
     private bool DesignPressed(PointerPressedEventArgs e, Point position, DocumentViewModel doc)
     {
         var add = e.KeyModifiers.HasFlag(KeyModifiers.Control) || e.KeyModifiers.HasFlag(KeyModifiers.Shift);
-        if (!add && doc.FieldSelection.Count == 1 && HandleAt(position) is { } handle && doc.SelectedElement is { } selected && doc.CanEditElements)
+        if (!add && doc.FieldSelection.Count == 1 && HandleAt(position) is { } handle && doc.SelectedElement is { } selected && doc.CanDesignForms)
         {
             BeginDrag(DragMode.Resize, selected, position, handle);
             e.Pointer.Capture(this);
@@ -134,7 +134,7 @@ public sealed partial class DocumentView
         if (FieldAt(position) is { } hit)
         {
             // Double-click on a label: edit its text.
-            if (e.ClickCount >= 2 && DocumentViewModel.IsFieldLabel(hit.Element) && doc.CanEditElements)
+            if (e.ClickCount >= 2 && DocumentViewModel.IsFieldLabel(hit.Element) && doc.CanDesignForms)
             {
                 _elementDrag = null;
                 doc.BeginEdit(hit, isNew: false);
@@ -154,7 +154,7 @@ public sealed partial class DocumentView
             // On a field that is already selected: the selection stays (all of them move along), and it becomes the primary field.
             if (selection.Any(r => Same(r, hit))) doc.SelectFields([.. selection.Where(r => !Same(r, hit)), hit]);
             else doc.SelectedElement = hit;
-            if (doc.CanEditElements)
+            if (doc.CanDesignForms)
             {
                 BeginDrag(DragMode.Move, hit, position, 0);
                 e.Pointer.Capture(this);
@@ -198,10 +198,10 @@ public sealed partial class DocumentView
             case Key.D when e.KeyModifiers.HasFlag(KeyModifiers.Control) && selection.Count > 0:
                 doc.DuplicateSelectedFields();
                 return true;
-            case Key.Delete or Key.Back when selection.Count > 0 && doc.CanEditElements:
+            case Key.Delete or Key.Back when selection.Count > 0 && doc.CanDesignForms:
                 doc.DeleteSelectedFields();
                 return true;
-            case Key.Left or Key.Right or Key.Up or Key.Down when selection.Count > 0 && doc.CanEditElements:
+            case Key.Left or Key.Right or Key.Up or Key.Down when selection.Count > 0 && doc.CanDesignForms:
                 var step = e.KeyModifiers.HasFlag(KeyModifiers.Shift) ? 10 : Math.Clamp(1 / Scale, 0.05, 1);
                 var (sx, sy) = e.Key switch { Key.Left => (-step, 0.0), Key.Right => (step, 0.0), Key.Up => (0.0, -step), _ => (0.0, step) };
                 // Screen direction converted into page space (whether the page is rotated or not), using the primary field.

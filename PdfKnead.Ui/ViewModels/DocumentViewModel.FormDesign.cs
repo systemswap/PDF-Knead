@@ -84,6 +84,7 @@ public sealed partial class DocumentViewModel
 
     partial void OnSelectedElementChanged(ElementRef? value)
     {
+        OnPropertyChanged(nameof(CanEditTextFormat));   // the „Text“ panel asks for the right of the selected element
         OnPropertyChanged(nameof(IsEditPanelVisible));   // an element's own panel takes the place of the „Bearbeiten“ panel
         OnPropertyChanged(nameof(IsReadingImageInfo));
         OnPropertyChanged(nameof(IsFieldDesign));
@@ -337,7 +338,7 @@ public sealed partial class DocumentViewModel
     /// <returns>false if the field is not linked or editing is not allowed.</returns>
     public bool SeparateSelectedField(bool all)
     {
-        if (!CanEditElements || FieldsOfSelection is not { Count: > 0 } fields || LinkNameOf(fields[^1].Element) is not { } name) return false;
+        if (!CanDesignForms || FieldsOfSelection is not { Count: > 0 } fields || LinkNameOf(fields[^1].Element) is not { } name) return false;
         var selected = fields[^1];
         var group = SameField(selected).ToList();
         if (group.Count < 2) return false;
@@ -370,7 +371,7 @@ public sealed partial class DocumentViewModel
     public bool ChangeFieldSpecs(Func<FieldSpec, FieldSpec> change, bool fieldLevel, string description,
         Func<PageElement, FieldSpec, PageElement>? adjust = null)
     {
-        if (!CanEditElements) return false;
+        if (!CanDesignForms) return false;
         var targets = new List<ElementRef>();
         var seen = new HashSet<PageElement>(ReferenceEqualityComparer.Instance);
         foreach (var selected in FieldsOfSelection)
@@ -438,7 +439,7 @@ public sealed partial class DocumentViewModel
     /// <returns>The new field, or null if editing is not allowed.</returns>
     public PageElement? CreateField(int page, PdfRectangle rect, int rotation)
     {
-        if (!CanEditElements) return null;
+        if (!CanDesignForms) return null;
         PageElement element;
         string description;
         if (FieldPreset == FieldPreset.Signature)
@@ -569,7 +570,7 @@ public sealed partial class DocumentViewModel
     public bool DeleteSelectedFields()
     {
         var selection = FieldSelection;
-        if (selection.Count == 0 || !CanEditElements) return false;
+        if (selection.Count == 0 || !CanDesignForms) return false;
         // Together with their labels
         var remove = new List<PageElement>(selection.Select(r => r.Element));
         foreach (var selected in selection)
@@ -583,7 +584,7 @@ public sealed partial class DocumentViewModel
     /// <returns>false if nothing was duplicated.</returns>
     public bool DuplicateSelectedFields()
     {
-        if (!CanEditElements || FieldSelection is not { Count: > 0 } selection) return false;
+        if (!CanDesignForms || FieldSelection is not { Count: > 0 } selection) return false;
         var page = selection[0].Page;
         var copies = new List<PageElement>();
         var labels = new List<PageElement>();
@@ -680,7 +681,7 @@ public sealed partial class DocumentViewModel
     /// <returns>false if nothing changed.</returns>
     public bool ArrangeFields(FieldArrange arrange, double? gap = null)
     {
-        if (!CanEditElements || FieldsOfSelection is not { Count: > 1 } selection) return false;
+        if (!CanDesignForms || FieldsOfSelection is not { Count: > 1 } selection) return false;
         var page = selection[0].Page;
         var rotation = DisplayRotation(page);
         var changes = new List<(int, PageElement, PageElement)>();
@@ -892,7 +893,7 @@ public sealed partial class DocumentViewModel
     /// <returns>false if nothing changed.</returns>
     public bool SetLabelText(string text)
     {
-        if (!CanEditElements) return false;
+        if (!CanDesignForms) return false;
         text = text.ReplaceLineEndings(" ").Trim();
         var adds = new List<PageElement>();
         var changes = new List<(int, PageElement, PageElement)>();
@@ -973,7 +974,7 @@ public sealed partial class DocumentViewModel
     /// <returns>false if nothing changed.</returns>
     public bool ShowLabels(bool on)
     {
-        if (!CanEditElements || FieldsOfSelection is not { Count: > 0 } fields) return false;
+        if (!CanDesignForms || FieldsOfSelection is not { Count: > 0 } fields) return false;
         var page = fields[0].Page;
         var elements = ElementsOn(page).ToList();
         var changed = false;
@@ -1013,7 +1014,7 @@ public sealed partial class DocumentViewModel
     /// <returns>false if nothing changed.</returns>
     public bool SetLabelStyle(Func<TextElement, TextElement> change, string description)
     {
-        if (!CanEditElements) return false;
+        if (!CanDesignForms) return false;
         var changes = new List<(int, PageElement, PageElement)>();
         foreach (var field in FieldsOfSelection)
             foreach (var label in LabelsOf(field))
@@ -1157,7 +1158,7 @@ public sealed partial class DocumentViewModel
     /// <returns>false if nothing changed.</returns>
     public bool RenameSelectedField(string name)
     {
-        if (!CanEditElements || FieldsOfSelection is not { Count: > 0 } fields || fields[^1] is var selected && SpecOf(selected.Element) is not { } spec || name == spec.Name) return false;
+        if (!CanDesignForms || FieldsOfSelection is not { Count: > 0 } fields || fields[^1] is var selected && SpecOf(selected.Element) is not { } spec || name == spec.Name) return false;
         var oldFull = FieldNameOf(selected.Element);
         var newFull = FullNameFor(selected.Element, spec, name);
         // linked to fields of that name: it takes over their value (they are one field, with one value)
@@ -1238,7 +1239,7 @@ public sealed partial class DocumentViewModel
     /// undoing).</returns>
     public bool PlaceInTabOrder(ElementRef field)
     {
-        if (!CanEditElements || !IsFormField(field.Element)) return false;
+        if (!CanDesignForms || !IsFormField(field.Element)) return false;
         var elements = ElementsOn(field.Page).ToList();
         var slots = Enumerable.Range(0, elements.Count).Where(i => IsFormField(elements[i])).ToList();
         var fields = slots.Select(i => elements[i]).ToList();
@@ -1354,7 +1355,7 @@ public sealed partial class DocumentViewModel
     /// <returns>false if nothing changed.</returns>
     public bool MoveSelectedFields(double dx, double dy, string description, bool continueLast = false)
     {
-        if (!CanEditElements || FieldSelection is not { Count: > 0 } selection) return false;
+        if (!CanDesignForms || FieldSelection is not { Count: > 0 } selection) return false;
         // Labels only: they stay level with their check box and can only be moved in reading direction
         if (selection.All(r => IsFieldLabel(r.Element)))
         {
@@ -1380,7 +1381,7 @@ public sealed partial class DocumentViewModel
     /// <returns>false if nothing changed.</returns>
     public bool ResizeField(ElementRef field, PdfRectangle rect)
     {
-        if (!CanEditElements) return false;
+        if (!CanDesignForms) return false;
         return ApplyFieldChanges([(field.Page, field.Element, Resized(field.Element, rect))], Tr.T("Feldgröße ändern"));
     }
 }

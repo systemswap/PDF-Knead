@@ -271,7 +271,7 @@ public sealed partial class DocumentViewModel
     public bool TransformSelectedImages(Matrix transform, string description, bool continueLast = false) => WhenFree(null, () =>
     {
         if (SelectedImages is not { } selection || (uint)selection.Page >= (uint)History.Count) return false;
-        if (!CanEditElements)
+        if (!CanModifyContent)
         {
             Notify(Tr.T("Dieses Dokument erlaubt keine Änderungen (Rechte der Datei) — aufheben mit Sicher → Einschränkungen entfernen."));
             return false;
@@ -284,7 +284,7 @@ public sealed partial class DocumentViewModel
     public bool DeleteSelectedImages() => WhenFree(null, () =>
     {
         if (SelectedImages is not { } selection || (uint)selection.Page >= (uint)History.Count) return false;
-        if (!CanEditElements)
+        if (!CanModifyContent)
         {
             Notify(Tr.T("Dieses Dokument erlaubt keine Änderungen (Rechte der Datei) — aufheben mit Sicher → Einschränkungen entfernen."));
             return false;
@@ -417,7 +417,7 @@ public sealed partial class DocumentViewModel
     public async Task<bool> ReplaceSelectedImagesAsync(Core.Imaging.RgbaImage image)
     {
         if (SelectedImages is not { } selection || SelectedImagesBox is not { } box || (uint)selection.Page >= (uint)History.Count) return false;
-        if (!CanEditElements)
+        if (!CanModifyContent)
         {
             Notify(Tr.T("Dieses Dokument erlaubt keine Änderungen (Rechte der Datei) — aufheben mit Sicher → Einschränkungen entfernen."));
             return false;
@@ -497,7 +497,7 @@ public sealed partial class DocumentViewModel
     public async Task<bool> CropSelectedImagesAsync(RectD keep)
     {
         if (SelectedImages is not { } selection || SelectedImagesBox is not { } box || (uint)selection.Page >= (uint)History.Count) return false;
-        if (!CanEditElements)
+        if (!CanModifyContent)
         {
             Notify(Tr.T("Dieses Dokument erlaubt keine Änderungen (Rechte der Datei) — aufheben mit Sicher → Einschränkungen entfernen."));
             return false;
@@ -728,7 +728,7 @@ public sealed partial class DocumentViewModel
     {
         var page = SelectedImages?.Page ?? (CurrentPage is { } current ? current.Number - 1 : 0);
         if ((uint)page >= (uint)History.Count) return false;
-        if (!CanEditElements)
+        if (!CanModifyContent)
         {
             Notify(Tr.T("Dieses Dokument erlaubt keine Änderungen (Rechte der Datei) — aufheben mit Sicher → Einschränkungen entfernen."));
             return false;

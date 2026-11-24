@@ -57,7 +57,7 @@ public sealed class CmsSignatureTests
         var cms = new SignedCms(new ContentInfo(Content), detached: true);
         cms.Decode(der);
         cms.CheckSignature(verifySignatureOnly: true);
-        Assert.Equal(3, cms.SignerInfos[0].SignedAttributes.Count);
+        Assert.Equal(4, cms.SignerInfos[0].SignedAttributes.Count);   // with CMSAlgorithmProtection (RFC 6211; No. 1113)
 
         var other = (byte[])Content.Clone();
         other[500] ^= 1;
@@ -111,8 +111,9 @@ public sealed class CmsSignatureTests
     }
 
     /// <summary>
-    /// The fallback path (a key that is neither RSA nor ECDSA signs through the platform) writes exactly the three signed attributes PAdES
-    /// allows — content-type, message-digest, signing-certificate-v2 — and no signing-time beside /M (EN 319 142-1, Table 1 and 6.3;
+    /// The fallback path (a key that is neither RSA nor ECDSA signs through the platform) writes exactly the signed attributes PAdES allows
+    /// — content-type, message-digest, signing-certificate-v2, and CMSAlgorithmProtection (RFC 6211, EN 319 122-1, 5.2.13; No. 1113) — and
+    /// no signing-time beside /M (EN 319 142-1, Table 1 and 6.3;
     /// docs/ABLAUFPLAN.md, 4.2, H8). A safeguard: a change of the platform that added one would be noticed here.
     /// </summary>
     [Fact]
@@ -122,13 +123,14 @@ public sealed class CmsSignatureTests
         var cms = new SignedCms(new ContentInfo(Content), detached: true);
         cms.Decode(CmsSignature.Create(Content, certificate));
         var oids = cms.SignerInfos[0].SignedAttributes.Cast<CryptographicAttributeObject>().Select(a => a.Oid.Value).Order().ToList();
-        Assert.Equal(["1.2.840.113549.1.9.16.2.47", "1.2.840.113549.1.9.3", "1.2.840.113549.1.9.4"], oids);
+        Assert.Equal(["1.2.840.113549.1.9.16.2.47", "1.2.840.113549.1.9.3", "1.2.840.113549.1.9.4", "1.2.840.113549.1.9.52"], oids);
     }
 
     /// <summary>The salt length in the PSS parameters of a block made here (32 bytes for SHA-256) changed to another.</summary>
     internal static byte[] WithPssSalt(byte[] der, byte salt)
     {
-        var at = der.AsSpan().IndexOf((ReadOnlySpan<byte>)[0xA2, 0x03, 0x02, 0x01, 0x20]);
+        // the last: the signature algorithm of the SignerInfo, behind the signed attributes, whose CMSAlgorithmProtection names it too (No. 1113)
+        var at = der.AsSpan().LastIndexOf((ReadOnlySpan<byte>)[0xA2, 0x03, 0x02, 0x01, 0x20]);
         Assert.True(at > 0);
         var changed = (byte[])der.Clone();
         changed[at + 4] = salt;

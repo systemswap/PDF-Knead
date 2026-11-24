@@ -65,8 +65,8 @@ public sealed partial class CodePropertiesViewModel : ObservableObject
     /// <summary>Whether the panel is visible: a code is selected.</summary>
     public bool IsVisible => _selected is not null;
 
-    /// <summary>Whether changes are allowed (protected files without the permission to change can only be viewed).</summary>
-    public bool CanEdit => _doc?.CanEditElements == true;
+    /// <summary>Whether changes are allowed: a code is saved as an annotation (bit 6, „Kommentieren“; <see cref="DocumentViewModel.CanChange"/>).</summary>
+    public bool CanEdit => _doc is { } doc && _selected is { } selected && doc.CanChange(selected.Element);
 
     public string Title => Code is { } c ? CodeSymbol.Name(c.Format) : "";
 

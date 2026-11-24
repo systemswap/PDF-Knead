@@ -21,6 +21,7 @@ public static class CmsSignature
 {
     private const string Sha256 = "2.16.840.1.101.3.4.2.1";
     private const string SigningCertificateV2 = "1.2.840.113549.1.9.16.2.47";
+    private const string AlgorithmProtectionOid = "1.2.840.113549.1.9.52";   // CMSAlgorithmProtection (RFC 6211)
     private const string SignedDataOid = "1.2.840.113549.1.7.2", DataOid = "1.2.840.113549.1.7.1";
     private const string ContentTypeOid = "1.2.840.113549.1.9.3", MessageDigestOid = "1.2.840.113549.1.9.4";
     private const string RsaOid = "1.2.840.113549.1.1.1", EcPublicKeyOid = "1.2.840.10045.2.1", EcdsaSha256Oid = "1.2.840.10045.4.3.2";
@@ -85,6 +86,8 @@ public static class CmsSignature
         {
             foreach (var link in links) signer.Certificates.Add(link);
             signer.SignedAttributes.Add(new AsnEncodedData(SigningCertificateV2, SigningCertificateV2Value(certificate)));
+            // CMSAlgorithmProtection where the signature algorithm SignedCms writes is known (RSA PKCS #1, ECDSA; No. 1113)
+            if (AlgorithmProtectionFor(certificate) is { } protection) signer.SignedAttributes.Add(new AsnEncodedData(AlgorithmProtectionOid, protection));
             cms.ComputeSignature(signer, silent: true);
             return cms.Encode();
         }
@@ -144,13 +147,20 @@ public static class CmsSignature
         if (digest.Length != HashLength(hash))
             throw new ArgumentException(Tr.T("Die Prüfsumme passt nicht zum Verfahren des Schlüssels."), nameof(digest));
 
-        // signedAttrs as a SET OF for the signature (RFC 5652, 5.4), sorted as DER requires
+        // signedAttrs as a SET OF for the signature (RFC 5652, 5.4), sorted as DER requires; with CMSAlgorithmProtection (RFC 6211, 2: the
+        // digest and the signature algorithm of the SignerInfo, protected by the signature — ETSI EN 319 122-1, 5.2.13; decision of the
+        // user, 24.11.2026; docs/FEHLERGEDAECHTNIS.md, No. 1113)
+        var signatureAlgorithm = new AsnWriter(AsnEncodingRules.DER);
+        if (rsa is not null && pss) PssAlgorithm(signatureAlgorithm, hash);
+        else AlgorithmIdentifier(signatureAlgorithm, rsa is not null ? RsaOid : EcdsaOid(hash));
+        var signatureAlgorithmDer = signatureAlgorithm.Encode();
         var attributes = new AsnWriter(AsnEncodingRules.DER);
         using (attributes.PushSetOf())
         {
             Attribute(attributes, ContentTypeOid, w => w.WriteObjectIdentifier(DataOid));
             Attribute(attributes, MessageDigestOid, w => w.WriteOctetString(digest));
             Attribute(attributes, SigningCertificateV2, w => w.WriteEncodedValue(SigningCertificateV2Value(certificate)));
+            Attribute(attributes, AlgorithmProtectionOid, w => w.WriteEncodedValue(AlgorithmProtectionValue(hashOid, signatureAlgorithmDer)));
         }
         var signed = attributes.Encode();
         byte[] signature;
@@ -163,9 +173,9 @@ public static class CmsSignature
             }
             catch (Platform.Pkcs11.MechanismUnavailableException) when (!pss)
             {
-                // a card that offers RSA only with PSS (ISO 32000-2, Table 260; docs/FEHLERGEDAECHTNIS.md, No. 537)
-                pss = true;
-                signature = rsa.SignData(signed, hash, RSASignaturePadding.Pss);
+                // a card that offers RSA only with PSS (ISO 32000-2, Table 260; docs/FEHLERGEDAECHTNIS.md, No. 537), found out only now: the
+                // attributes named PKCS #1 — built anew with PSS
+                return CreateFromDigestCore(digest, certificate, chain, key, pss: true);
             }
         }
 
@@ -200,8 +210,7 @@ public static class CmsSignature
                         var implicitAttributes = signed.ToArray();
                         implicitAttributes[0] = 0xA0;   // [0] IMPLICIT in the SignerInfo
                         writer.WriteEncodedValue(implicitAttributes);
-                        if (rsa is not null && pss) PssAlgorithm(writer, hash);
-                        else AlgorithmIdentifier(writer, rsa is not null ? RsaOid : EcdsaOid(hash));   // without parameters, as SignedCms writes it
+                        writer.WriteEncodedValue(signatureAlgorithmDer);   // without parameters for PKCS #1 and ECDSA, as SignedCms writes it
                         writer.WriteOctetString(signature);
                     }
                 }
@@ -318,6 +327,35 @@ public static class CmsSignature
         using (writer.PushSequence()) writer.WriteObjectIdentifier(oid);
     }
 
+    /// <summary>The CMSAlgorithmProtection value for the signature SignedCms makes with this certificate (RSA PKCS #1, ECDSA); null for other keys.</summary>
+    private static byte[]? AlgorithmProtectionFor(X509Certificate2 certificate)
+    {
+        var hash = HashFor(certificate);
+        using var rsa = certificate.GetRSAPublicKey();
+        using var ecdsa = rsa is null ? certificate.GetECDsaPublicKey() : null;
+        if (rsa is null && ecdsa is null) return null;   // EdDSA and others: SignedCms decides the identifier, not named here
+        var writer = new AsnWriter(AsnEncodingRules.DER);
+        AlgorithmIdentifier(writer, rsa is not null ? RsaOid : EcdsaOid(hash));
+        return AlgorithmProtectionValue(DigestOid(hash), writer.Encode());
+    }
+
+    /// <summary>
+    /// The value of CMSAlgorithmProtection (RFC 6211, 2): SEQUENCE { digestAlgorithm, signatureAlgorithm [1] IMPLICIT } — the identifiers as
+    /// the SignerInfo carries them.
+    /// </summary>
+    private static byte[] AlgorithmProtectionValue(string digestOid, byte[] signatureAlgorithmDer)
+    {
+        var writer = new AsnWriter(AsnEncodingRules.DER);
+        using (writer.PushSequence())
+        {
+            AlgorithmIdentifier(writer, digestOid);
+            var implicitSignature = signatureAlgorithmDer.ToArray();
+            implicitSignature[0] = 0xA1;   // [1] IMPLICIT AlgorithmIdentifier
+            writer.WriteEncodedValue(implicitSignature);
+        }
+        return writer.Encode();
+    }
+
     /// <summary>Result of <see cref="CheckDigest"/>.</summary>
     internal enum DigestCheck
     {
@@ -334,6 +372,9 @@ public static class CmsSignature
 
         /// <summary>RSASSA-PSS with parameters not checked here (another salt length or mask hash): not checked, no proof of a change.</summary>
         UnsupportedParameters,
+
+        /// <summary>CMSAlgorithmProtection (RFC 6211) missing in form, repeated or naming other algorithms than the SignerInfo: broken.</summary>
+        AlgorithmMismatch,
     }
 
     /// <summary>
@@ -363,7 +404,9 @@ public static class CmsSignature
             if (signers.HasData) return DigestCheck.Unsupported;
             signerInfo.ReadInteger();
             signerInfo.ReadEncodedValue();   // sid: the caller found the certificate through it
-            if (HashOf(signerInfo.ReadSequence().ReadObjectIdentifier()) is not { } digestHash) return DigestCheck.Unsupported;
+            var signerInfoDigestSequence = signerInfo.ReadEncodedValue();
+            var signerInfoDigest = new AsnReader(signerInfoDigestSequence, AsnEncodingRules.BER).ReadSequence();
+            if (HashOf(signerInfoDigest.ReadObjectIdentifier()) is not { } digestHash) return DigestCheck.Unsupported;
             var attributes = signerInfo.PeekTag().HasSameClassAndValue(Context0) ? signerInfo.ReadEncodedValue() : (ReadOnlyMemory<byte>?)null;
             var algorithmSequence = signerInfo.ReadSequence();
             var algorithm = algorithmSequence.ReadObjectIdentifier();
@@ -378,6 +421,10 @@ public static class CmsSignature
                 return pss is { } h ? VerifyPss(signer, h, digest, signature, isDigest: true) : Verify(signer, algorithm, digestHash, digest, signature, isDigest: true);
             if (MessageDigest(signedAttributes) is not { } stated) return DigestCheck.NoMessageDigest;
             if (!stated.AsSpan().SequenceEqual(digest)) return DigestCheck.Invalid;
+            // CMSAlgorithmProtection (RFC 6211): where present, exactly one with one value, naming the digest and the signature algorithm of
+            // the SignerInfo — a substituted algorithm is a broken signature (docs/FEHLERGEDAECHTNIS.md, No. 1113)
+            if (!AlgorithmProtectionFits(signedAttributes, new AsnReader(signerInfoDigestSequence, AsnEncodingRules.BER).ReadSequence(), algorithm, algorithmParameters))
+                return DigestCheck.AlgorithmMismatch;
             var covered = signedAttributes.ToArray();
             covered[0] = 0x31;   // the signature covers the attributes as a SET OF (RFC 5652, 5.4)
             var verified = pss is { } ph ? VerifyPss(signer, ph, covered, signature, isDigest: false)
@@ -388,6 +435,46 @@ public static class CmsSignature
         {
             return DigestCheck.Unsupported;
         }
+    }
+
+    /// <summary>
+    /// Whether the CMSAlgorithmProtection attribute fits the SignerInfo (RFC 6211, 2 and 3): absent, or exactly one attribute with exactly one
+    /// value; its digest algorithm the SignerInfo's (parameters absent and NULL alike, 3), its signature algorithm [1] the SignerInfo's, no MAC
+    /// algorithm [2] in a signature.
+    /// </summary>
+    private static bool AlgorithmProtectionFits(ReadOnlyMemory<byte> attributes, AsnReader signerInfoDigest, string signatureOid, ReadOnlyMemory<byte>? signatureParameters)
+    {
+        var digestOid = signerInfoDigest.ReadObjectIdentifier();
+        var digestParameters = signerInfoDigest.HasData ? signerInfoDigest.ReadEncodedValue() : (ReadOnlyMemory<byte>?)null;
+        var set = new AsnReader(attributes, AsnEncodingRules.BER).ReadSetOf(Context0);
+        var found = 0;
+        while (set.HasData)
+        {
+            var attribute = set.ReadSequence();
+            if (attribute.ReadObjectIdentifier() != AlgorithmProtectionOid) continue;
+            if (++found > 1) return false;
+            var values = attribute.ReadSetOf();
+            if (!values.HasData) return false;
+            var protection = values.ReadSequence();
+            if (values.HasData) return false;
+            var digest = protection.ReadSequence();
+            if (digest.ReadObjectIdentifier() != digestOid || !SameParameters(digest.HasData ? digest.ReadEncodedValue() : (ReadOnlyMemory<byte>?)null, digestParameters)) return false;
+            if (!protection.HasData || !protection.PeekTag().HasSameClassAndValue(new Asn1Tag(TagClass.ContextSpecific, 1, isConstructed: true))) return false;
+            var signature = protection.ReadSequence(new Asn1Tag(TagClass.ContextSpecific, 1, isConstructed: true));
+            if (signature.ReadObjectIdentifier() != signatureOid) return false;
+            var parameters = signature.HasData ? signature.ReadEncodedValue() : (ReadOnlyMemory<byte>?)null;
+            if (signature.HasData || !SameParameters(parameters, signatureParameters)) return false;
+            if (protection.HasData) return false;   // a MAC algorithm [2] does not belong to a signature
+        }
+        return true;
+    }
+
+    /// <summary>Two algorithm parameters alike: the same bytes, or one absent and the other NULL (RFC 6211, 3).</summary>
+    private static bool SameParameters(ReadOnlyMemory<byte>? a, ReadOnlyMemory<byte>? b)
+    {
+        static bool AbsentOrNull(ReadOnlyMemory<byte>? p) => p is null || p.Value.IsEmpty || p.Value.Span.SequenceEqual(new byte[] { 0x05, 0x00 });
+        if (AbsentOrNull(a) && AbsentOrNull(b)) return true;
+        return a is { } x && b is { } y && x.Span.SequenceEqual(y.Span);
     }
 
     /// <summary>The one value of the message-digest attribute; null if it is missing, repeated or has several values.</summary>

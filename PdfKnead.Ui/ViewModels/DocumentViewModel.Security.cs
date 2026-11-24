@@ -40,10 +40,10 @@ public sealed partial class DocumentViewModel
             if (PendingProtection is { } change)
                 return change.Protection is not null && PdfProtection.CipherFor(SaveVersion) == PdfCipher.Rc4
                     ? Tr.T("Mit RC4 verschlüsselte Dateien lassen sich nicht signieren. Bitte zuerst mit neuem Schutz (AES) speichern.") : null;
-            if (Document.Security is not { } security) return null;
+            if (Document.Security is null) return null;
             if (Core.Pdf.Writing.IncrementalUpdate.EncryptionRefusal(Document) is { } refusal) return refusal;
-            return !security.IsOwner && !RestrictionsLifted && (security.Permissions & (PdfPermissions.Annotate | PdfPermissions.FillForms)) == 0
-                ? Tr.T("Die Rechte dieser Datei erlauben kein Unterschreiben.") : null;
+            // signing fills a signature field: bit 6, from revision 3 also bit 9 (Table 22; No. 1111)
+            return !HasAllRights && !CanFillForms ? Tr.T("Die Rechte dieser Datei erlauben kein Unterschreiben.") : null;
         }
     }
 
@@ -143,7 +143,8 @@ public sealed partial class DocumentViewModel
                  {
                      nameof(HasAllRights), nameof(RestrictionsLifted), nameof(HasRestrictions), nameof(HasPermissionPassword),
                      nameof(CanLiftRestrictions), nameof(CanChangeProtection),
-                     nameof(CanEditPages), nameof(CanEditElements), nameof(CanFillForms), nameof(CopyAllowed), nameof(Properties),
+                     nameof(CanEditPages), nameof(CanEditElements), nameof(CanFillForms), nameof(CanModifyContent), nameof(CanAnnotate),
+                     nameof(CanDesignForms), nameof(CanRedact), nameof(CanEditTextFormat), nameof(CanMoveLayer), nameof(CopyAllowed), nameof(Properties),
                      nameof(Rights), nameof(RightsNote),
                  })
             OnPropertyChanged(name);

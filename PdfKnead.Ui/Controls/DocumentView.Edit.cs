@@ -256,7 +256,7 @@ public sealed partial class DocumentView
                     doc.Notify(reason);
                     break;
                 }
-                if (!doc.CanEditElements)
+                if (!doc.CanModifyContent)   // text of the page content: bit 4
                 {
                     doc.Notify(Tr.T("Dieses Dokument erlaubt keine Änderungen (Rechte der Datei) — aufheben mit Sicher → Einschränkungen entfernen."));
                     break;
@@ -339,7 +339,7 @@ public sealed partial class DocumentView
     /// </summary>
     private bool EditMenu(Point position)
     {
-        if (_doc is not { Tool: ViewTool.SelectText or ViewTool.Pan } doc || PageAt(position) is not { } page || !doc.CanEditElements) return false;
+        if (_doc is not { Tool: ViewTool.SelectText or ViewTool.Pan } doc || PageAt(position) is not { } page || !doc.CanModifyContent) return false;
         var (x, y) = ToPage(page, position);
         var onContent = TextAt(position) is not null || doc.ContentObjectsOn(page) is { } objects && objects.At(x, y, HitTolerance) is not null;
         if (!onContent) return false;

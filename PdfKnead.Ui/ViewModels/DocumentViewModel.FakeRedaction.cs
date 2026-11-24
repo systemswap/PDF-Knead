@@ -118,7 +118,7 @@ public partial class DocumentViewModel
     [RelayCommand]
     private void MarkFakeRedactions()
     {
-        if (!CanEditElements)
+        if (!CanRedact)
         {
             Notify(Tr.T("Dieses Dokument erlaubt keine Änderungen (Rechte der Datei) — aufheben mit Sicher → Einschränkungen entfernen."));
             return;
