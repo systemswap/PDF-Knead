@@ -64,7 +64,17 @@ public sealed partial class PageInterpreter
             || group.GetName(PdfName.Get("S"))?.Value != "Transparency") return -1;
         var isolated = group.GetBoolean(PdfName.Get("I")) ?? false;
         var knockout = group.GetBoolean(PdfName.Get("K")) ?? false;
-        if (_gs.FillAlpha >= 1 && _gs.BlendMode == 0 && !isolated && !knockout && _gs.SoftMask < 0) return -1;
+        if (_gs.FillAlpha >= 1 && _gs.BlendMode == 0 && !isolated && !knockout && _gs.SoftMask < 0)
+        {
+            // no group needed for the fill, but inside a group the stroking alpha starts at 1 as well (8.4.1, Table 51; before, the outer CA
+            // stayed — docs/FEHLERGEDAECHTNIS.md, No. 1123); the state is the form's own and restored after it
+            if (_gs.StrokeAlpha < 1)
+            {
+                _gs.StrokeAlpha = 1;
+                _gs.PaintIndex = -1;
+            }
+            return -1;
+        }
         EnsureMask();   // the group lies in the run under the current mask
         _groupFrames.Push((_group, _maskRun, _maskRunMask, _maskRunBlend));
         _group = _builder.BeginGroup(_group, _gs.FillAlpha, _gs.BlendMode, isolated, knockout, -1);

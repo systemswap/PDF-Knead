@@ -575,6 +575,7 @@ public static class Shadings
             try
             {
                 row.Add(colors.Vertex(reader.Point(), reader.Components()));
+                reader.Align();   // every vertex at a whole byte, as with types 4, 6 and 7 (8.7.4.5.5; docs/FEHLERGEDAECHTNIS.md, No. 1123)
             }
             catch (InvalidDataException)
             {

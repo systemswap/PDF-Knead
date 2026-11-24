@@ -496,7 +496,7 @@ public sealed partial class PageInterpreter
                 if (m.IsFinite && m * _gs.Ctm is { IsFinite: true } ctm) _gs.Ctm = ctm;
                 break;
             case "w" when o.Count >= 1:
-                _gs.LineWidth = Math.Abs(o[0].Number);
+                _gs.LineWidth = Math.Max(0, o[0].Number);   // out of range forced into it: a negative width is the thinnest line (8.4.1; No. 1123)
                 break;
             case "J" when o.Count >= 1:
                 _gs.LineCap = (byte)Math.Clamp((int)o[0].Number, 0, 2);
@@ -559,13 +559,21 @@ public sealed partial class PageInterpreter
             case "W*": _pendingClipEvenOdd = true; break;
 
             // ---------------------------------------------- Colours
+            // the initial colour of the Pattern space is a pattern that paints nothing (8.6.8, Table 73): the pattern chosen before is
+            // forgotten, until scn names one nothing is painted (before, the grey of a broken pattern or the old pattern; No. 1123)
             case "CS" when o.Count >= 1 && o[0].Object is { } csStroke:
                 _gs.StrokeSpace = Space(csStroke, resources);
                 _gs.StrokeColor = _gs.StrokeSpace.InitialColor;
+                _gs.StrokePattern = null;
+                _gs.StrokePatternUnset = _gs.StrokeSpace.IsPattern;
+                _gs.PaintIndex = -1;
                 break;
             case "cs" when o.Count >= 1 && o[0].Object is { } csFill:
                 _gs.FillSpace = Space(csFill, resources);
                 _gs.FillColor = _gs.FillSpace.InitialColor;
+                _gs.FillPattern = null;
+                _gs.FillPatternUnset = _gs.FillSpace.IsPattern;
+                _gs.PaintIndex = -1;
                 break;
             // Pattern name without a preceding "/Pattern cs" (files written by a browser, issue18466): use the pattern as the other readers
             // do; otherwise the initial colour black applies and a page-sized rectangle covers the text
@@ -574,12 +582,14 @@ public sealed partial class PageInterpreter
                 if (!_gs.StrokeSpace.IsPattern && op == "SCN" && o.Count >= 1 && o[^1].Name is { } implicitStroke && PatternNamed(implicitStroke, resources) is not null)
                     _gs.StrokeSpace = Space(PdfName.Get("Pattern"), resources);
                 _gs.StrokePattern = _gs.StrokeSpace.IsPattern && o.Count >= 1 && o[^1].Name is { } strokePattern ? PatternNamed(strokePattern, resources) : null;
+                _gs.StrokePatternUnset = false;
                 break;
             case "sc" or "scn":
                 _gs.FillColor = Numbers(o);
                 if (!_gs.FillSpace.IsPattern && op == "scn" && o.Count >= 1 && o[^1].Name is { } implicitFill && PatternNamed(implicitFill, resources) is not null)
                     _gs.FillSpace = Space(PdfName.Get("Pattern"), resources);
                 _gs.FillPattern = _gs.FillSpace.IsPattern && o.Count >= 1 && o[^1].Name is { } fillPattern ? PatternNamed(fillPattern, resources) : null;
+                _gs.FillPatternUnset = false;
                 break;
             case "G" when o.Count >= 1:
                 _gs.StrokeSpace = DeviceSpace(1, resources);
@@ -740,7 +750,7 @@ public sealed partial class PageInterpreter
     private void ExtGState(PdfDictionary? d, PdfDictionary? resources)
     {
         if (d is null) return;
-        if (d.GetNumber(PdfName.Get("LW")) is { } lw) _gs.LineWidth = Math.Abs(lw);
+        if (d.GetNumber(PdfName.Get("LW")) is { } lw) _gs.LineWidth = Math.Max(0, lw);
         if (d.GetInteger(PdfName.Get("LC")) is { } lc) _gs.LineCap = (byte)Math.Clamp(lc, 0, 2);
         if (d.GetInteger(PdfName.Get("LJ")) is { } lj) _gs.LineJoin = (byte)Math.Clamp(lj, 0, 2);
         if (d.GetNumber(PdfName.Get("ML")) is { } ml) _gs.MiterLimit = Math.Max(1, ml);
@@ -1106,8 +1116,9 @@ public sealed partial class PageInterpreter
     private int CurrentPaint()
     {
         if (_gs.PaintIndex >= 0) return _gs.PaintIndex;
-        var fillPattern = _gs.FillSpace.IsPattern ? PatternIndex(_gs.FillPattern, _gs.FillSpace, _gs.FillColor, _gs.FillAlpha) : -1;
-        var strokePattern = _gs.StrokeSpace.IsPattern ? PatternIndex(_gs.StrokePattern, _gs.StrokeSpace, _gs.StrokeColor, _gs.StrokeAlpha) : -1;
+        var fillPattern = !_gs.FillSpace.IsPattern ? -1 : _gs.FillPatternUnset ? NoPattern : PatternIndex(_gs.FillPattern, _gs.FillSpace, _gs.FillColor, _gs.FillAlpha);
+        var strokePattern = !_gs.StrokeSpace.IsPattern ? -1 : _gs.StrokePatternUnset ? NoPattern
+            : PatternIndex(_gs.StrokePattern, _gs.StrokeSpace, _gs.StrokeColor, _gs.StrokeAlpha);
         // invalid tiling pattern: paint nothing (transparent) instead of the fallback colour
         return _gs.PaintIndex = _builder.AddPaint(new Paint(
             fillPattern == NoPattern ? 0u : Rendered(_gs.FillSpace).ToRgb(_gs.FillColor).ToArgb(_gs.FillAlpha),
@@ -1173,6 +1184,7 @@ public sealed partial class PageInterpreter
         if (pattern?.AsDictionary() is not { } dict || dict.GetInteger(PdfName.Get("PatternType")) != 2) return -1;
         var toPage = (Matrix.FromArray(dict.GetArray(PdfName.Get("Matrix"))) ?? Matrix.Identity) * _patternBase;
         if (dict.Get(PdfName.Get("Shading")) is not { } shading || shading is PdfNull) return -1;
+        if (shading.AsDictionary() is { } shadingDict && ShadingMarksNothing(shadingDict, null)) return NoPattern;
         // the pattern's /ExtGState: only what acts on painting the shading — rendering intent and black point compensation (ISO 32000-2,
         // 11.6.7, Table 75); line style, opacity, blend mode, soft mask and font do not apply (docs/FEHLERGEDAECHTNIS.md, No. 574)
         var (intent, bpc) = (_gs.Intent, _gs.Bpc);
@@ -1190,6 +1202,10 @@ public sealed partial class PageInterpreter
             (_gs.Intent, _gs.Bpc) = (intent, bpc);
         }
     }
+
+    /// <summary>A shading in the colorant /None (or DeviceN of /None only): it never marks, with „sh“ or as a pattern (8.6.6.4; No. 1123).</summary>
+    private bool ShadingMarksNothing(PdfDictionary shading, PdfDictionary? resources) =>
+        shading.Get(PdfName.Get("ColorSpace")) is { } space and not PdfNull && ColorSpace.Create(space, resources, _doc).PaintsNothing;
 
     /// <summary>/Background of a shading (ISO 32000-2, Table 77), which applies only when it fills as a pattern (not with "sh"): it fills
     /// the area the shading does not cover.</summary>
@@ -1484,6 +1500,9 @@ public sealed partial class PageInterpreter
         }
         else
         {
+            // an image in the colorant /None (or DeviceN of /None only) never marks (8.6.6.4; docs/FEHLERGEDAECHTNIS.md, No. 1123)
+            if ((image.Dictionary.Get(PdfName.Get("ColorSpace")) is { } declared and not PdfNull ? declared : image.Dictionary.Get(PdfName.Get("CS"))) is
+                { } named and not PdfNull && ColorSpace.Create(named, image.Resources, _doc).PaintsNothing) return;
             // /Intent of the image before that of the graphics state; /UseBlackPtComp only from the state (ISO 32000-2, 8.9.5, 8.6.5.9)
             var intent = image.Dictionary.Get(PdfName.Get("Intent")) is PdfName imageIntent ? ColorSpace.IntentFrom(imageIntent) : _gs.Intent;
             if (intent != image.Intent || _gs.Bpc != image.Bpc) image = image with { Intent = intent, Bpc = _gs.Bpc };
@@ -1589,6 +1608,7 @@ public sealed partial class PageInterpreter
     private void Shading(PdfObject? shading, PdfDictionary? resources)
     {
         if (Hidden || shading?.AsDictionary() is not { } dict) return;
+        if (ShadingMarksNothing(dict, resources)) return;
         var area = _builder.ClipBounds(_gs.Clip).Intersect(_currentPageBox);
         if (area.IsEmpty) return;
         var index = ShadingIndex(shading, _gs.Ctm, _gs.FillAlpha, resources);
@@ -1606,30 +1626,8 @@ public sealed partial class PageInterpreter
             _builder.Add(DisplayItemKind.Fill, false, rect, _builder.AddMatrix(Matrix.Identity), shaded, _gs.Clip, -1, area);
             return;
         }
-        if (Shadings.Invalid(shading, _doc, resources)) return;   // invalid: no reader draws it
-        if (!_shadingColors.TryGetValue((dict, _gs.Intent, _gs.Bpc), out var rgb))
-        {
-            var space = ColorSpace.Create(dict.Get(PdfName.Get("ColorSpace")), null, _doc);
-            var color = new double[Math.Max(space.Components, 1)];
-            if (dict.Get(PdfName.Get("Function")) is { } fn and not PdfNull && PdfFunction.CreateArray(fn, _doc) is { } f)
-            {
-                Span<double> output = stackalloc double[Math.Clamp(f.Outputs, 8, PdfLimits.MaxComponents)];
-                var domain = PdfFunction.Numbers(dict.GetArray(PdfName.Get("Domain"))) ?? [0, 1];
-                f.Evaluate([(domain[0] + domain[^1]) / 2], output);
-                for (var i = 0; i < color.Length && i < f.Outputs; i++) color[i] = output[i];
-            }
-            else if (PdfFunction.Numbers(dict.GetArray(PdfName.Get("Background"))) is { } background)
-            {
-                color = background;
-            }
-            rgb = Rendered(space).ToRgb(color);
-            _shadingColors[(dict, _gs.Intent, _gs.Bpc)] = rgb;
-        }
-
-        var paint = _builder.AddPaint(new Paint(rgb.ToArgb(_gs.FillAlpha), 0, 0, 0, 0, 10, -1, _gs.BlendMode));
-        EnsureMask();
-        HideBeneath(area);
-        _builder.Add(DisplayItemKind.Fill, false, rect, _builder.AddMatrix(Matrix.Identity), paint, _gs.Clip, -1, area);
+        // a shading that cannot be read paints nothing, like an invalid one — before, the clip was filled with the colour of the middle
+        // (black from zeros, or /Background, which never applies to "sh", 8.7.4.3): a broken shading could black out a page (No. 1123)
     }
 
     /// <summary>
@@ -1664,19 +1662,6 @@ public sealed partial class PageInterpreter
         if (!_builder.ClipIsRectangular(_gs.Clip)) return;
         if (_group < 0) _builder.HideEarlier();
         else _builder.HideEarlierInGroup(_group);
-    }
-
-    // middle colour per shading (a shading is often used thousands of times)
-    private readonly Dictionary<(PdfDictionary Shading, byte Intent, byte Bpc), Rgb> _shadingColors = new(new ShadingColorKey());
-
-    /// <summary>The shading by reference, intent and black point compensation by value.</summary>
-    private sealed class ShadingColorKey : IEqualityComparer<(PdfDictionary Shading, byte Intent, byte Bpc)>
-    {
-        public bool Equals((PdfDictionary Shading, byte Intent, byte Bpc) a, (PdfDictionary Shading, byte Intent, byte Bpc) b) =>
-            ReferenceEquals(a.Shading, b.Shading) && a.Intent == b.Intent && a.Bpc == b.Bpc;
-
-        public int GetHashCode((PdfDictionary Shading, byte Intent, byte Bpc) k) =>
-            HashCode.Combine(System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(k.Shading), k.Intent, k.Bpc);
     }
 
     // "sh" without a clip fills the page; without a page box, limited to a generous area
@@ -1808,6 +1793,10 @@ internal struct GraphicsState
     // patterns for fill and stroke colour when the colour space is Pattern
     public PdfObject? FillPattern;
     public PdfObject? StrokePattern;
+
+    // the Pattern space chosen, but no pattern yet: its initial colour, a pattern that paints nothing (8.6.8; No. 1123)
+    public bool FillPatternUnset;
+    public bool StrokePatternUnset;
 
     // text state (ISO 32000-2, 9.3)
     public double CharSpacing;

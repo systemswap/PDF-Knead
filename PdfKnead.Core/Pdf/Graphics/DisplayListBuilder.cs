@@ -290,19 +290,21 @@ public sealed class DisplayListBuilder
             if (verb != PathVerb.Close) points++;
         }
         if (points is not (4 or 5)) return false;
-        // every edge horizontal or vertical, and exactly two distinct x and y values
-        float x0 = _points[pointStart], y0 = _points[pointStart + 1];
-        float? x1 = null, y1 = null;
-        for (var i = 0; i < points; i++)
+        // a fifth point closes the rectangle only where it is the first again (before, it was compared with the second: a diagonal back to a
+        // corner went unnoticed); the four edges alternate horizontal and vertical, each with a length — back and forth along one edge has no
+        // area and is no rectangle (8.5.4; docs/FEHLERGEDAECHTNIS.md, No. 1123)
+        (float X, float Y) Point(int i) => (_points[pointStart + 2 * i], _points[pointStart + 2 * i + 1]);
+        if (points == 5 && Point(4) != Point(0)) return false;
+        bool? previous = null;
+        for (var i = 0; i < 4; i++)
         {
-            float x = _points[pointStart + 2 * i], y = _points[pointStart + 2 * i + 1];
-            if (x != x0) { if (x1 is { } ox && ox != x) return false; x1 = x; }
-            if (y != y0) { if (y1 is { } oy && oy != y) return false; y1 = y; }
-            var next = (i + 1) % 4;
-            float nx = _points[pointStart + 2 * next], ny = _points[pointStart + 2 * next + 1];
-            if (x != nx && y != ny) return false;
+            var (a, b) = (Point(i), Point((i + 1) % 4));
+            var horizontal = a.Y == b.Y && a.X != b.X;
+            if (!horizontal && !(a.X == b.X && a.Y != b.Y)) return false;
+            if (previous == horizontal) return false;
+            previous = horizontal;
         }
-        return x1 is not null && y1 is not null;
+        return true;
     }
 
     /// <summary>Returns the bounds of a clip chain in page space.</summary>

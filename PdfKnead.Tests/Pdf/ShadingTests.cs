@@ -545,4 +545,41 @@ public sealed class ShadingTests
         using var b = Render("/Sh sh", Stream(dict, data));
         Assert.True(watch.Elapsed < TimeSpan.FromSeconds(5 * TestKind.Factor), $"{watch.Elapsed}");
     }
+
+    /// <summary>
+    /// 8.7.4.5.6 with 8.7.4.5.5: every vertex of a lattice-form mesh begins at a whole byte — with 4-bit coordinates and a 4-bit grey (12 bits per
+    /// vertex) the four corners of a black square read right. Before, type 5 read on bit by bit (types 4, 6 and 7 aligned already): the corners
+    /// came out shifted (M6 draft h-8745; docs/FEHLERGEDAECHTNIS.md, No. 1123).
+    /// </summary>
+    [Fact]
+    public void LatticeMesh_EachVertexAtAWholeByte()
+    {
+        var dict = TestPdf.Dict(("ShadingType", PdfInteger.Of(5)), ("ColorSpace", TestPdf.N("DeviceGray")), ("VerticesPerRow", PdfInteger.Of(2)),
+            ("BitsPerCoordinate", PdfInteger.Of(4)), ("BitsPerComponent", PdfInteger.Of(4)), ("Decode", TestPdf.Box(0, 150, 0, 150, 0, 1)));
+        // x and y in the first byte, grey 0 in the high nibble of the second
+        byte[] data = [0x00, 0x00, 0xF0, 0x00, 0x0F, 0x00, 0xFF, 0x00];
+        using var b = Render("/Sh sh", Stream(dict, data));
+        foreach (var (x, y) in new[] { (20, 20), (130, 20), (20, 130), (130, 130), (75, 75) })
+            Assert.True(At(b, x, y) is var c && c.Red < 40, $"({x}, {y}): {At(b, x, y)}");
+        Assert.True(At(b, 180, 180).Red > 200);
+    }
+
+    /// <summary>
+    /// A shading that cannot be read — a mesh of type 4 as a plain dictionary without data, a type 5 with one vertex per row, an unknown
+    /// /ShadingType — paints nothing with „sh“, and its /Background never applies to „sh“ (8.7.4.3, Table 77). Before, the whole clip was
+    /// filled with the colour of the middle: black from zeros, or the /Background colour — a broken shading could black out a page (M6 drafts
+    /// g-871-874-4, h-8745; docs/FEHLERGEDAECHTNIS.md, No. 1123).
+    /// </summary>
+    [Theory]
+    [InlineData(4, 0)]
+    [InlineData(5, 1)]
+    [InlineData(9, 0)]
+    public void UnreadableShading_ShPaintsNothing(int type, int perRow)
+    {
+        var dict = TestPdf.Dict(("ShadingType", PdfInteger.Of(type)), ("ColorSpace", TestPdf.N("DeviceRGB")), ("Background", TestPdf.Box(0, 0, 0)),
+            ("BitsPerCoordinate", PdfInteger.Of(8)), ("BitsPerComponent", PdfInteger.Of(8)), ("BitsPerFlag", PdfInteger.Of(8)),
+            ("VerticesPerRow", PdfInteger.Of(perRow)), ("Decode", TestPdf.Box(0, 200, 0, 200, 0, 1, 0, 1, 0, 1)));
+        using var b = Render("/Sh sh", Shading(dict));
+        Assert.True(At(b, 100, 100).Red > 240, $"{At(b, 100, 100)}");
+    }
 }

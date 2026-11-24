@@ -859,6 +859,23 @@ public sealed partial class PdfARepairTests
     }
 
     /// <summary>
+    /// 8.9.7 (/L, the length of the data): an inline image whose data the copy writes anew — here as hexadecimal digits, because „EI“ stands in
+    /// them — does not keep the old /L: it would no longer fit, and a reader of 2.0 that uses it cuts the data (M6 draft i-89;
+    /// docs/FEHLERGEDAECHTNIS.md, No. 1123).
+    /// </summary>
+    [Fact]
+    public void InlineImageWrittenAnew_OldLengthNotKept()
+    {
+        var (pdf, _) = PdfACheckTests.Page("q 100 0 0 100 72 600 cm BI /W 4 /H 1 /CS /G /BPC 8 /L 6 /Filter /RunLengthDecode ID EI x EI Q",
+            new PdfDictionary());
+        var original = pdf.Build();
+        using var written = Same(original, Write(original));
+        var content = Encoding.Latin1.GetString(written.GetStreamData((PdfStream)written.Pages[0].Dictionary.Get(PdfName.Contents)!));
+        Assert.Contains("/AHx", content);
+        Assert.DoesNotContain("/L 6", content);
+    }
+
+    /// <summary>
     /// A Type 3 font with the resources of its page, itself among their fonts: strict readers follow that circle without end. The copy leaves the
     /// fonts no procedure chooses out of the font's resources and looks the same (docs/FEHLERGEDAECHTNIS.md, No. 340).
     /// </summary>

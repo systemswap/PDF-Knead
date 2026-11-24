@@ -877,7 +877,9 @@ internal static class ContentConformance
             // smoothing is not allowed (6.2.8): left out, as for image objects; the full names the parser adds are not written twice
             if (key.Value is "I" or "Interpolate" || InlineImage.ExpandedKey(dict, key)) continue;
             // the length is written below, as the data now are (repacked, as hexadecimal digits)
-            if (withLength && key.Value is "L" or "Length") continue;
+            // and a length the data written no longer have is never kept (repacked, recoloured, as hexadecimal digits: a reader of 2.0 that
+            // uses it would cut the data; docs/FEHLERGEDAECHTNIS.md, No. 1123)
+            if (key.Value is "L" or "Length" && (withLength || value is not PdfInteger declared || declared.Value != data.Length)) continue;
             // a rendering intent none of the four (6.2.6): left out — the display does not use it (No. 500)
             if (key.Value == "Intent" && value is PdfName intent && !PdfACheck.RenderingIntent(intent.Value)) continue;
             PdfSerializer.Write(key, output);

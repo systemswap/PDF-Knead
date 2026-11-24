@@ -111,6 +111,8 @@ public abstract partial class ColorSpace
                         case "DeviceCMYK" or "CMYK": return Device(4, resources, doc);
                         case "CalGray": return DeviceGray;
                         case "CalRGB": return DeviceRgb;
+                        // CalCMYK is treated as DeviceCMYK (8.6.5.1); before, it fell to DeviceGray (docs/FEHLERGEDAECHTNIS.md, No. 1123)
+                        case "CalCMYK": return Device(4, resources, doc);
                         case "Pattern": return new PatternSpace(null);
                         case "I" or "Indexed": return DeviceGray;
                     }
@@ -126,6 +128,7 @@ public abstract partial class ColorSpace
                         "DeviceCMYK" or "CMYK" => DeviceCmykOf(doc),
                         "CalGray" => new CalGraySpace(array.Count > 1 ? array.Get(1).AsDictionary() : null),
                         "CalRGB" => new CalRgbSpace(array.Count > 1 ? array.Get(1).AsDictionary() : null),
+                        "CalCMYK" => DeviceCmykOf(doc),
                         "Lab" => new LabSpace(array.Get(1).AsDictionary()),
                         "ICCBased" => IccBased(array.Get(1), resources, doc, depth),
                         "Indexed" or "I" => IndexedSpace.Create(array, resources, doc, depth),
@@ -288,7 +291,8 @@ public abstract partial class ColorSpace
 
         public override Rgb ToRgb(ReadOnlySpan<double> c)
         {
-            var i = c.Length > 0 ? (int)Math.Round(c[0]) : 0;
+            // to the nearest entry, a half upwards (8.6.6.3, PDF 2.0; before, to even: 2.5 gave 2 — docs/FEHLERGEDAECHTNIS.md, No. 1123)
+            var i = c.Length > 0 && double.IsFinite(c[0]) ? (int)Math.Clamp(Math.Floor(c[0] + 0.5), int.MinValue, int.MaxValue) : 0;
             return _palette[Math.Clamp(i, 0, _palette.Length - 1)];
         }
     }

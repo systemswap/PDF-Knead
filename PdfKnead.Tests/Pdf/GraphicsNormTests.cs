@@ -575,4 +575,161 @@ public sealed class GraphicsNormTests
         for (var i = 0; i < 20_000; i++) Assert.False(optional.IsHidden(membership, null));
         Assert.True(watch.Elapsed < TimeSpan.FromSeconds(2 * TestKind.Factor), $"{watch.Elapsed}");
     }
+
+    /// <summary>
+    /// 8.5.4: a clipping path of four or five points that only looks like a rectangle — back and forth along one edge (no area), or a fifth point
+    /// on a corner but not the first (a diagonal back) — clips as the path it is: nothing, or only the triangle it encloses. Before, the rectangle test took both
+    /// for the full rectangle (the fifth point was compared with the second, not the first) and showed what readers keeping to the standard hide (M6 draft c-85; docs/FEHLERGEDAECHTNIS.md, No. 1123).
+    /// </summary>
+    [Theory]
+    [InlineData("20 20 m 180 20 l 180 180 l 180 20 l h W n", 100, 100)]
+    [InlineData("20 20 m 180 20 l 180 180 l 20 180 l 180 20 l h W n", 40, 40)]
+    public void ClipThatOnlyLooksLikeARectangle_ClipsAsItsPath(string clip, int x, int y)
+    {
+        var (doc, list) = InterpreterTests.Page($"q {clip} 1 0 0 rg 0 0 200 200 re f Q");
+        using (doc)
+        using (var bitmap = SkiaRenderer.RenderPage(list, doc, doc.Pages[0], 1, new ImageCache()))
+        {
+            var c = bitmap.GetPixel(x, bitmap.Height - 1 - y);
+            Assert.True(c.Red > 240 && c.Green > 240, $"rot sichtbar: {c}");
+        }
+    }
+
+    /// <summary>
+    /// 8.6.5.1: CalCMYK is treated as DeviceCMYK — as a name and as an array. Before, it fell to DeviceGray: a fill „0 0 1 0“ came out black
+    /// instead of yellow (M6 draft d-861-865; docs/FEHLERGEDAECHTNIS.md, No. 1123).
+    /// </summary>
+    [Theory]
+    [InlineData("/CalCMYK")]
+    [InlineData("[/CalCMYK << /WhitePoint [0.9505 1 1.089] >>]")]
+    public void CalCmyk_AsDeviceCmyk(string space)
+    {
+        using var doc = PdfDocument.Open(TestPdf.Simple().Build());
+        var cs = Core.Pdf.Graphics.ColorSpace.Create(space.StartsWith('[')
+            ? (PdfObject)new PdfArray { PdfName.Get("CalCMYK"), TestPdf.Dict(("WhitePoint", TestPdf.Box(0.9505, 1, 1.089))) }
+            : PdfName.Get("CalCMYK"), null, doc);
+        Assert.Equal(4, cs.Components);
+        var yellow = cs.ToRgb([0, 0, 1, 0]);
+        Assert.True(yellow.R > 200 && yellow.G > 180 && yellow.B < 80, $"{yellow.R} {yellow.G} {yellow.B}");
+    }
+
+    /// <summary>
+    /// 8.6.6.3 (PDF 2.0): an index between two entries is rounded to the nearest one, a half upwards — 2.5 gives entry 3 (before 2: rounding to
+    /// even); 1.4 gives 1, values beyond the table its ends (M6 draft e-866; docs/FEHLERGEDAECHTNIS.md, No. 1123).
+    /// </summary>
+    [Theory]
+    [InlineData(1.4, 1)]
+    [InlineData(1.5, 2)]
+    [InlineData(2.5, 3)]
+    [InlineData(-2, 0)]
+    [InlineData(9, 3)]
+    public void Indexed_HalfRoundsUp(double value, int entry)
+    {
+        using var doc = PdfDocument.Open(TestPdf.Simple().Build());
+        // entries 0 … 3: grey 0, 85, 170, 255
+        var cs = Core.Pdf.Graphics.ColorSpace.Create(new PdfArray { PdfName.Get("Indexed"), PdfName.Get("DeviceGray"), PdfInteger.Of(3),
+            new PdfString([0, 85, 170, 255]) }, null, doc);
+        Assert.Equal(entry * 85, cs.ToRgb([value]).R);
+    }
+
+    /// <summary>
+    /// 8.4.1 (Table 51, CA): at the start of a transparency group the stroking alpha is 1 again — also for a group that otherwise changes nothing
+    /// (opaque fill alpha, Normal, no mask, not isolated): a line in it under an outer „/CA 0.5“ is opaque. Before, the outer stroking alpha stayed
+    /// (M6 draft b-84; docs/FEHLERGEDAECHTNIS.md, No. 1123).
+    /// </summary>
+    [Fact]
+    public void TransparencyGroup_StrokingAlphaStartsAtOne()
+    {
+        var (doc, list) = InterpreterTests.Page("/Half gs /Fm Do", pdf =>
+        {
+            var form = pdf.Add(new PdfStream(TestPdf.Dict(("Type", TestPdf.N("XObject")), ("Subtype", TestPdf.N("Form")),
+                ("BBox", TestPdf.Box(0, 0, 200, 200)), ("Group", TestPdf.Dict(("S", TestPdf.N("Transparency"))))),
+                "0 0 1 RG 20 w 20 100 m 180 100 l S"u8.ToArray()));
+            return TestPdf.Dict(("ExtGState", TestPdf.Dict(("Half", TestPdf.Dict(("CA", new PdfReal(0.5)))))),
+                ("XObject", TestPdf.Dict(("Fm", TestPdf.Ref(form)))));
+        });
+        using (doc)
+        using (var bitmap = SkiaRenderer.RenderPage(list, doc, doc.Pages[0], 1, new ImageCache()))
+        {
+            var c = bitmap.GetPixel(100, bitmap.Height - 1 - 100);
+            Assert.True(c.Blue > 240 && c.Red < 20, $"nicht deckend blau: {c}");
+        }
+    }
+
+    /// <summary>
+    /// 8.4.1 (values out of range are forced into it) and 8.4.3.2: a negative line width is taken as 0 — the thinnest line —, not as its amount:
+    /// „-20 w“ draws a hairline, not a line 20 wide; the same for /LW (M6 draft b-84; docs/FEHLERGEDAECHTNIS.md, No. 1123).
+    /// </summary>
+    [Theory]
+    [InlineData("-20 w")]
+    [InlineData("/Neg gs")]
+    public void NegativeLineWidth_IsTheThinnestLine(string width)
+    {
+        var (doc, list) = InterpreterTests.Page($"{width} 0 0 1 RG 20 100 m 180 100 l S",
+            _ => TestPdf.Dict(("ExtGState", TestPdf.Dict(("Neg", TestPdf.Dict(("LW", PdfInteger.Of(-20))))))));
+        using (doc)
+        using (var bitmap = SkiaRenderer.RenderPage(list, doc, doc.Pages[0], 1, new ImageCache()))
+        {
+            var away = bitmap.GetPixel(100, bitmap.Height - 1 - 106);
+            Assert.True(away.Red > 240 && away.Green > 240, $"breite Linie: {away}");
+        }
+    }
+
+    /// <summary>
+    /// 8.6.6.4: the colorant /None never marks — also not for an image, a shading painted with „sh“ or a shading pattern in that space. Before,
+    /// only paths, text and stencil masks kept to it; an image, „sh“ and the pattern were drawn through the tint transformation (red here)
+    /// (M6 draft e-866; docs/FEHLERGEDAECHTNIS.md, No. 1123).
+    /// </summary>
+    [Theory]
+    [InlineData("q 200 0 0 200 0 0 cm /Im Do Q")]
+    [InlineData("/Sh sh")]
+    [InlineData("/Pattern cs /P scn 0 0 200 200 re f")]
+    public void SeparationNone_ImagesAndShadingsMarkNothing(string content)
+    {
+        var (doc, list) = InterpreterTests.Page(content, pdf =>
+        {
+            PdfArray None() => [TestPdf.N("Separation"), TestPdf.N("None"), TestPdf.N("DeviceRGB"),
+                TestPdf.Dict(("FunctionType", PdfInteger.Of(2)), ("Domain", TestPdf.Box(0, 1)), ("C0", TestPdf.Box(1, 1, 1)), ("C1", TestPdf.Box(1, 0, 0)), ("N", PdfInteger.Of(1)))];
+            var image = pdf.Add(new PdfStream(TestPdf.Dict(("Type", TestPdf.N("XObject")), ("Subtype", TestPdf.N("Image")), ("Width", PdfInteger.Of(1)),
+                ("Height", PdfInteger.Of(1)), ("BitsPerComponent", PdfInteger.Of(8)), ("ColorSpace", None())), [255]));
+            var shading = TestPdf.Dict(("ShadingType", PdfInteger.Of(2)), ("ColorSpace", None()), ("Coords", TestPdf.Box(0, 0, 200, 0)),
+                ("Function", TestPdf.Dict(("FunctionType", PdfInteger.Of(2)), ("Domain", TestPdf.Box(0, 1)), ("C0", TestPdf.Box(1)), ("C1", TestPdf.Box(1)), ("N", PdfInteger.Of(1)))),
+                ("Extend", new PdfArray { PdfBoolean.Of(true), PdfBoolean.Of(true) }));
+            return TestPdf.Dict(("XObject", TestPdf.Dict(("Im", TestPdf.Ref(image)))), ("Shading", TestPdf.Dict(("Sh", shading))),
+                ("Pattern", TestPdf.Dict(("P", TestPdf.Dict(("PatternType", PdfInteger.Of(2)), ("Shading", shading))))));
+        });
+        using (doc)
+        using (var bitmap = SkiaRenderer.RenderPage(list, doc, doc.Pages[0], 1, new ImageCache()))
+        {
+            var c = bitmap.GetPixel(100, 100);
+            Assert.True(c.Green > 240 && c.Blue > 240, $"gemalt: {c}");
+        }
+    }
+
+    /// <summary>
+    /// 8.6.8 (cs, CS; Table 73): selecting the Pattern space sets the initial colour, a pattern that paints nothing — a fill before any scn shows
+    /// nothing, and „cs“ again forgets the pattern chosen before. Before, the first came out as the light grey of a broken pattern and the second
+    /// painted the old pattern on; a pattern name the resources lack keeps the light grey (M6 draft f-867-868-88; docs/FEHLERGEDAECHTNIS.md,
+    /// No. 1123).
+    /// </summary>
+    [Theory]
+    [InlineData("/Pattern cs 0 0 200 200 re f", true)]
+    [InlineData("/Pattern cs /Red scn 0 0 10 10 re f /Pattern cs 0 0 200 200 re f", true)]
+    [InlineData("/Pattern cs /Missing scn 0 0 200 200 re f", false)]
+    public void PatternSpace_InitialColourPaintsNothing(string content, bool white)
+    {
+        var (doc, list) = InterpreterTests.Page(content, _ =>
+        {
+            var red = TestPdf.Dict(("ShadingType", PdfInteger.Of(2)), ("ColorSpace", TestPdf.N("DeviceRGB")), ("Coords", TestPdf.Box(0, 0, 200, 0)),
+                ("Function", TestPdf.Dict(("FunctionType", PdfInteger.Of(2)), ("Domain", TestPdf.Box(0, 1)), ("C0", TestPdf.Box(1, 0, 0)), ("C1", TestPdf.Box(1, 0, 0)), ("N", PdfInteger.Of(1)))),
+                ("Extend", new PdfArray { PdfBoolean.Of(true), PdfBoolean.Of(true) }));
+            return TestPdf.Dict(("Pattern", TestPdf.Dict(("Red", TestPdf.Dict(("PatternType", PdfInteger.Of(2)), ("Shading", red))))));
+        });
+        using (doc)
+        using (var bitmap = SkiaRenderer.RenderPage(list, doc, doc.Pages[0], 1, new ImageCache()))
+        {
+            var c = bitmap.GetPixel(100, 100);
+            Assert.Equal(white, c.Red > 250 && c.Green > 250 && c.Blue > 250);
+        }
+    }
 }
