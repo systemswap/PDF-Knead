@@ -57,7 +57,7 @@ public enum PdfCipher
 /// encrypts strings and streams. Own implementation following the standard; MD5, SHA-2 and AES come from .NET.
 /// </summary>
 /// <remarks>Immutable after creation; decryption and encryption may be called from several threads.</remarks>
-public sealed class StandardSecurityHandler
+public sealed partial class StandardSecurityHandler
 {
     internal static readonly byte[] Padding =
     [
@@ -162,13 +162,19 @@ public sealed class StandardSecurityHandler
     /// <param name="password">The password (user or owner); null or empty for none.</param>
     /// <returns>The handler. If only embedded files are encrypted and the password does not match, a handler with
     /// <see cref="AttachmentsLocked"/> set and no encryption.</returns>
+    /// <param name="certificates">For a document encrypted for recipients (7.6.5): certificates with private keys to try besides the user's
+    /// certificate store; null for none.</param>
     /// <exception cref="PdfPasswordException">A password is required or the given one is wrong.</exception>
+    /// <exception cref="PdfRecipientException">Encrypted for recipients, and no certificate at hand opens it.</exception>
     /// <exception cref="PdfException">Unsupported method or incomplete encryption data.</exception>
-    public static StandardSecurityHandler Open(PdfDictionary encrypt, PdfArray? id, string? password)
+    public static StandardSecurityHandler Open(PdfDictionary encrypt, PdfArray? id, string? password,
+        IReadOnlyList<System.Security.Cryptography.X509Certificates.X509Certificate2>? certificates = null)
     {
         var filter = encrypt.GetName(PdfName.Filter)?.Value;
+        // a public-key handler (7.6.5): the key from a recipient list a certificate at hand opens (docs/FEHLERGEDAECHTNIS.md, No. 1117)
+        if (filter != "Standard" && IsPublicKeyEncryption(encrypt)) return OpenPublicKey(encrypt, id, certificates);
         if (filter != "Standard")
-            throw new PdfException(Tr.T("Verschlüsselung „{0}“ wird nicht unterstützt (nur Passwortschutz).", filter ?? "?"));
+            throw new PdfException(Tr.T("Verschlüsselung „{0}“ wird nicht unterstützt (nur Passwortschutz und Verschlüsselung für Empfänger).", filter ?? "?"));
 
         var v = (int)(encrypt.GetInteger(PdfName.Get("V")) ?? 0);
         var r = (int)(encrypt.GetInteger(PdfName.Get("R")) ?? 0);
@@ -1057,7 +1063,7 @@ public sealed class StandardSecurityHandler
     }
 
     /// <summary>True if all permissions can be granted without knowing the passwords; false while only attachments are encrypted and locked.</summary>
-    public bool CanGrantAllPermissions => !AttachmentsLocked && (Revision >= 5 ? _key.Length == 32 : PaddedUser is not null);
+    public bool CanGrantAllPermissions => !AttachmentsLocked && !IsPublicKey && (Revision >= 5 ? _key.Length == 32 : PaddedUser is not null);
 
     /// <summary>
     /// Same passwords, but all permissions (removing restrictions). Up to revision 4, /P is part of the file key: it is

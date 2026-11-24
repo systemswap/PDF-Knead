@@ -111,16 +111,17 @@ public partial class MainViewModel
         if (index < 0) return;
         PdfKnead.Core.Pdf.Document.PdfDocument? document = null;
         string? password = doc.OpenPassword;
+        var certificates = doc.OpenCertificates;
         try
         {
-            document = await Task.Run(() => PdfKnead.Core.Pdf.Document.PdfDocument.Open(doc.Path, password));
+            document = await Task.Run(() => PdfKnead.Core.Pdf.Document.PdfDocument.Open(doc.Path, password, certificates));
         }
-        catch (PdfKnead.Core.Pdf.PdfPasswordException)
+        catch (Exception e) when (e is PdfKnead.Core.Pdf.PdfPasswordException or PdfKnead.Core.Pdf.PdfRecipientException)
         {
-            (document, password) = await LoadAsync(doc.Path);
+            (document, password, certificates) = await LoadAsync(doc.Path);
         }
         if (document is null) return;
-        var fresh = new DocumentViewModel(doc.Path, document, password) { Tool = Tool };
+        var fresh = new DocumentViewModel(doc.Path, document, password) { Tool = Tool, OpenCertificates = certificates };
         var selected = ReferenceEquals(SelectedDocument, doc);
         Documents[index] = fresh;
         if (selected || SelectedDocument is null) SelectedDocument = fresh;

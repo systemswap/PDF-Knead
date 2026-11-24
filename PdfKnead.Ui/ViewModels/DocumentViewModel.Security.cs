@@ -6,9 +6,10 @@ namespace PdfKnead.ViewModels;
 
 /// <summary>
 /// A pending change of protection: new passwords and permissions, or (Protection null) removal of the protection; with
-/// <paramref name="AllRights"/> the passwords stay and only the restrictions are dropped (Protection is then null).
+/// <paramref name="AllRights"/> the passwords stay and only the restrictions are dropped (Protection is then null); with
+/// <paramref name="Recipients"/> an encryption for recipients instead of passwords (ISO 32000-2, 7.6.5; docs/FEHLERGEDAECHTNIS.md, No. 1117).
 /// </summary>
-public sealed record ProtectionChange(PdfProtection? Protection, bool AllRights = false);
+public sealed record ProtectionChange(PdfProtection? Protection, bool AllRights = false, IReadOnlyList<PdfRecipientGroup>? Recipients = null);
 
 /// <summary>A permission of the file and whether it is allowed (shown with a tick or a cross).</summary>
 public sealed record RightRow(string Label, bool Allowed);
@@ -25,7 +26,9 @@ public sealed partial class DocumentViewModel
     public partial ProtectionChange? PendingProtection { get; set; }
 
     /// <summary>Whether the file is encrypted (after the next save).</summary>
-    public bool IsProtected => PendingProtection is { } change ? change.Protection is not null || change.AllRights : Document.Security is not null;
+    public bool IsProtected => PendingProtection is { } change
+        ? change.Protection is not null || change.Recipients is { Count: > 0 } || change.AllRights
+        : Document.Security is not null;
 
     /// <summary>
     /// Why „Digital signieren“ is not possible for this document, or null if it is: encrypted files are signed (an encrypted update with the
@@ -158,6 +161,7 @@ public sealed partial class DocumentViewModel
         Version = version,
         Flatten = FlattenOnSave,
         Protection = PendingProtection?.Protection,
+        Recipients = PendingProtection?.Recipients,
         KeepEncryption = PendingProtection is null or { AllRights: true },
         GrantAllPermissions = PendingProtection is { AllRights: true },
         Cleanup = Cleaned,   // what was cleaned up in the document stays cleaned up when saving

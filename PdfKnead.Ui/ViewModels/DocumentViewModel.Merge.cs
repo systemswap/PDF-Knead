@@ -28,6 +28,9 @@ public sealed partial class DocumentViewModel
     /// <summary>Password the document was opened with; a copy (<see cref="CopyCurrentPages"/>) keeps its encryption and opens with it too.</summary>
     internal string? OpenPassword => _password;
 
+    /// <summary>The certificates a document encrypted for recipients was opened with (for reopening); null if none were needed.</summary>
+    internal IReadOnlyList<System.Security.Cryptography.X509Certificates.X509Certificate2>? OpenCertificates { get; init; }
+
     /// <summary>
     /// A copy of the current state for a new document: all pages written to memory as they are now (with filled-in fields and moved
     /// annotations; the program's own elements attached again), independent of this document and of its file.

@@ -18,8 +18,23 @@
             </StackPanel>
         </StackPanel>
 
+        <!-- passwords or recipients (ISO 32000-2, 7.6.5; docs/FEHLERGEDAECHTNIS.md, No. 1117) -->
+        <StackPanel Orientation="Horizontal" Spacing="16">
+            <RadioButton Name="PasswordMode" GroupName="Mode" IsChecked="True" Content="{l:T 'Mit Passwort'}" />
+            <RadioButton Name="RecipientMode" GroupName="Mode" Content="{l:T 'Für Empfänger (Zertifikate)'}" />
+        </StackPanel>
+
+        <!-- Empfänger -->
+        <StackPanel Name="RecipientSection" Spacing="6" IsVisible="{Binding #RecipientMode.IsChecked}">
+            <TextBlock TextWrapping="Wrap" FontSize="12" Classes="muted"
+                       Text="{l:T 'Öffnen kann die Datei nur, wer eines dieser Zertifikate mit seinem privaten Schlüssel hat — ganz ohne Passwort. Wer die Rechte später ändern will, braucht „Alle Rechte“.'}" />
+            <StackPanel Name="RecipientRows" Spacing="4" />
+            <TextBlock Name="NoRecipients" Classes="muted" FontSize="12" Text="{l:T 'Noch kein Empfänger.'}" />
+            <Button Content="{l:T 'Zertifikat hinzufügen …'}" Click="OnAddRecipient" HorizontalAlignment="Left" />
+        </StackPanel>
+
         <!-- Öffnen-Passwort -->
-        <StackPanel Spacing="6">
+        <StackPanel Spacing="6" IsVisible="{Binding #PasswordMode.IsChecked}">
             <CheckBox Name="OpenBox" Content="{l:T 'Zum Öffnen ein Passwort verlangen'}" />
             <Grid ColumnDefinitions="*,8,*" IsEnabled="{Binding #OpenBox.IsChecked}" Margin="28,0,0,0">
                 <TextBox Name="OpenPassword" PasswordChar="•" Classes="revealPasswordButton"
@@ -33,7 +48,7 @@
         <StackPanel Spacing="6">
             <CheckBox Name="RightsBox" Content="{l:T 'Rechte einschränken'}" />
             <StackPanel Spacing="6" Margin="28,0,0,0" IsEnabled="{Binding #RightsBox.IsChecked}">
-                <Grid ColumnDefinitions="*,8,*">
+                <Grid ColumnDefinitions="*,8,*" IsVisible="{Binding #PasswordMode.IsChecked}">
                     <TextBox Name="OwnerPassword" PasswordChar="•" Classes="revealPasswordButton"
                              PlaceholderText="{l:T 'Rechte-Passwort'}" AutomationProperties.Name="{l:T 'Rechte-Passwort'}" />
                     <TextBox Grid.Column="2" Name="OwnerRepeat" PasswordChar="•" Classes="revealPasswordButton"
@@ -58,7 +73,8 @@
                        Text="{l:T 'Bei diesem Verfahren zählen nur die ersten 32 Zeichen des Passworts. Für längere Passwörter PDF 2.0 (AES-256) wählen.'}" />
         </Border>
 
-        <Border Background="{DynamicResource AccentSoftBrush}" CornerRadius="{DynamicResource RadiusControl}" Padding="12,8">
+        <Border Background="{DynamicResource AccentSoftBrush}" CornerRadius="{DynamicResource RadiusControl}" Padding="12,8"
+                IsVisible="{Binding #PasswordMode.IsChecked}">
             <TextBlock TextWrapping="Wrap" FontSize="12"
                        Text="{l:T 'Ohne Passwort zum Öffnen sind Rechte nur eine Bitte an das Anzeigeprogramm — nicht jedes hält sich daran. Wirklich nicht mehr kopierbar ist nur „Flachlegen als Bild“.'}" />
         </Border>

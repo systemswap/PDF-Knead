@@ -218,8 +218,8 @@ public sealed partial class DocumentViewModel
             var report = await WorkAsync(() => Task.Run(() =>
             {
                 using var output = new MemoryStream();
-                PdfWriter.Write(main, pages, output, options, cancel);
-                using var copy = PdfDocument.Open(output.ToArray(), password);
+                var saved = PdfWriter.Write(main, pages, output, options, cancel);
+                using var copy = saved.Security is { IsPublicKey: true } ? PdfDocument.OpenSaved(output.ToArray(), saved) : PdfDocument.Open(output.ToArray(), password);
                 return AccessibilityCheck.Check(copy, profile, cancel);
             }, cancel));
             if (cancel.IsCancellationRequested) return;

@@ -63,6 +63,13 @@ public sealed record PdfSaveOptions
     /// </summary>
     public PdfProtection? Protection { get; init; }
 
+    /// <summary>
+    /// New encryption for recipients (a public-key handler, ISO 32000-2, 7.6.5: adbe.pkcs7.s5 with 256-bit AES) instead of passwords; takes the
+    /// place of <see cref="Protection"/> and of a kept encryption. Null or empty: <see cref="Protection"/> and <see cref="KeepEncryption"/>
+    /// decide (docs/FEHLERGEDAECHTNIS.md, No. 1117).
+    /// </summary>
+    public IReadOnlyList<PdfRecipientGroup>? Recipients { get; init; }
+
     /// <summary>Hidden data that is dropped when saving (see <see cref="DocumentCleanup"/>).</summary>
     public CleanupItems Cleanup { get; init; }
 
@@ -672,7 +679,12 @@ public static partial class PdfWriter
         {
             var version = PdfWriter.Versions.Contains(_options.Version) ? _options.Version : "1.7";
             var encryptionSource = _options.EncryptionFrom ?? _main;
-            if (_options.Protection is { } protection)
+            // for recipients: 256-bit AES, from PDF 1.7 (with the extension declared, as for the standard handler)
+            if (_options.Recipients is { Count: > 0 })
+            {
+                if (CompareVersions(version, "1.7") < 0) version = "1.7";
+            }
+            else if (_options.Protection is { } protection)
             {
                 if (PdfProtection.CipherFor(version) != PdfCipher.Aes256 &&
                     !(StandardSecurityHandler.FitsLegacyPassword(protection.UserPassword) && StandardSecurityHandler.FitsLegacyPassword(protection.OwnerPassword)))
@@ -707,7 +719,8 @@ public static partial class PdfWriter
             // docs/FEHLERGEDAECHTNIS.md, No. 59); only a kept encryption up to revision 4 needs the old one, as it is part of its key
             var renewId = _options.NewFileId || _options.Cleanup != CleanupItems.None || _options.ScopedCleanup is { Items: not CleanupItems.None } ||
                           _options.ApplyRedactions && _pages.Any(p => p.Elements.Any(e => e is RedactionElement));
-            var keepsOldKey = _options.Protection is null && _options.KeepEncryption && encryptionSource.Security is { Revision: <= 4 };
+            var keepsOldKey = _options.Protection is null && _options.Recipients is not { Count: > 0 } && _options.KeepEncryption
+                              && encryptionSource.Security is { Revision: <= 4 };
             // Kept key: exactly the identifier it was derived with (after a repair, the trailer can have a different one) — also an empty
             // one, where the file had none (docs/FEHLERGEDAECHTNIS.md, No. 89 and 345)
             _firstId = keepsOldKey && encryptionSource.Security is { } kept
@@ -716,7 +729,12 @@ public static partial class PdfWriter
                 : !(renewId && !keepsOldKey) && encryptionSource.Trailer.Get(PdfName.ID) is PdfArray { Count: > 0 } fileId && fileId.Get(0) is PdfString s && s.Bytes.Length >= 16
                     ? s.Bytes
                     : RandomNumberGenerator.GetBytes(16);
-            if (_options.Protection is { } protection)
+            if (_options.Recipients is { Count: > 0 } recipients)
+            {
+                if (_options.Protection is not null) throw new PdfException(Tr.T("Passwortschutz und Verschlüsselung für Empfänger schließen sich aus."));
+                (_encryptDict, _security) = StandardSecurityHandler.CreateForRecipients(recipients, _firstId);
+            }
+            else if (_options.Protection is { } protection)
             {
                 // (passwords with characters outside PDFDocEncoding, Cyrillic, …, have already raised the version to 1.7 for AES-256)
                 // AES-256: SASLprep with its prohibitions (algorithm 2.A) — for the command line and other callers as well (No. 558)
@@ -757,7 +775,9 @@ public static partial class PdfWriter
                     (_encryptDict, _security) = _security.WithoutMacRequirement(_encryptDict);
                 // a crypt filter of the standard handler with its /Length in bits (128, 256 — so No. 753 wrote it in 2.0) is written in
                 // bytes, as Table 25 with the resolution of pdf-issues 184 asks; the key does not depend on it (No. 1096)
-                _encryptDict = CryptFilterLengthInBytes(_encryptDict);
+                // (not for a public-key handler: its crypt filters count bits, and its dictionary stays exactly — the key depends on the
+                // recipient objects, not on /ID; docs/FEHLERGEDAECHTNIS.md, No. 1117)
+                if (!security.IsPublicKey) _encryptDict = CryptFilterLengthInBytes(_encryptDict);
                 _keepsFilters = true;
                 // (the version this encryption needs, and 1.7 instead of 2.0 for revisions 2 to 4: WrittenVersion; No. 371)
             }

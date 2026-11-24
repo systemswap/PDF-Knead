@@ -926,12 +926,15 @@ public sealed partial class JpxColourTests
         Assert.Equal(32, file.AsSpan().IndexOf("xxxx"u8) - 4);
         void Within(Action action)
         {
-            var run = Task.Run(() =>
+            // a thread of its own, not one of the pool: under the full load of the whole test run the pool gave none within the limit, and
+            // the waiting was measured instead of the reader (the reader alone takes milliseconds)
+            var run = new Thread(() =>
             {
                 try { action(); }
                 catch (JpxException) { }
-            });
-            Assert.True(run.Wait(TimeSpan.FromSeconds(10)), "the box reader did not finish");
+            }) { IsBackground = true };
+            run.Start();
+            Assert.True(run.Join(TimeSpan.FromSeconds(30)), "the box reader did not finish");
         }
         Within(() => JpxDecoder.Decode(file, long.MaxValue));
         Within(() => PdfKnead.Core.Pdf.Writing.PdfAJpeg2000.Fault(file));

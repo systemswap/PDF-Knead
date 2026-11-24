@@ -30,12 +30,13 @@ public partial class MainViewModel
     internal async Task OpenEncryptedPayloadAsync(EncryptedPayload payload)
     {
         string? password = null;
+        List<System.Security.Cryptography.X509Certificates.X509Certificate2>? certificates = null;
         while (true)
         {
             try
             {
-                var document = await Task.Run(() => PdfDocument.Open(payload.Data, password));
-                var opened = new DocumentViewModel(payload.Name, document, password, untitled: true) { Tool = Tool };
+                var document = await Task.Run(() => PdfDocument.Open(payload.Data, password, certificates));
+                var opened = new DocumentViewModel(payload.Name, document, password, untitled: true) { Tool = Tool, OpenCertificates = certificates };
                 Documents.Add(opened);
                 SelectedDocument = opened;
                 return;
@@ -45,6 +46,11 @@ public partial class MainViewModel
                 if (AskPassword is null) return;
                 password = await AskPassword(payload.Name, ex.WrongPassword);
                 if (password is null) return;
+            }
+            catch (PdfRecipientException ex) when (AskChoice is not null && PickCertificateFile is not null)
+            {
+                if (await AskRecipientCertificateAsync(payload.Name, ex, again: certificates is not null) is not { } certificate) return;
+                (certificates ??= []).Add(certificate);
             }
             catch (Exception ex) when (Failure.Handled(ex))
             {

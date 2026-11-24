@@ -372,7 +372,8 @@ public sealed partial class DocumentViewModel
                 : PdfFileSaver.Save(main, pages, full, options));
             try
             {
-                return (written, await Task.Run(() => PdfDocument.Open(full, password)));
+                // encrypted for recipients: with the key it was written with (the one saving need not be a recipient; No. 1117)
+                return (written, await Task.Run(() => written.Security is { IsPublicKey: true } ? PdfDocument.OpenSaved(full, written) : PdfDocument.Open(full, password)));
             }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException or PdfException)
             {

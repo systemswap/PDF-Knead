@@ -120,6 +120,7 @@ public partial class MainWindow : Window
         _vm.ShowSupportInvitation = async () => await new SupportWindow().ShowDialog<bool?>(this);
         _vm.PickPolicyFile = PickPolicyFileAsync;
         _vm.PickImageFile = PickImageFileAsync;
+        _vm.PickCertificateFile = PickCertificateFileAsync;
         _vm.ShowSignatureFonts = async model => await new SignatureFontsWindow(model).ShowDialog(this);
         _vm.ShowRecognizeText = async model => await new RecognizeTextWindow(model).ShowDialog<bool>(this);
         _vm.ShowOcrText = async (title, text, copy) => await new OcrTextWindow(title, text, copy, _vm.SetClipboardText).ShowDialog(this);
@@ -444,6 +445,16 @@ public partial class MainWindow : Window
                 new FilePickerFileType(Tr.T("Bilder")) { Patterns = ["*.png", "*.jpg", "*.jpeg", "*.webp", "*.bmp", "*.gif", "*.PNG", "*.JPG", "*.JPEG"] },
                 FilePickerFileTypes.All,
             ],
+        });
+        return files.FirstOrDefault()?.TryGetLocalPath();
+    }
+
+    private async Task<string?> PickCertificateFileAsync(string documentName)
+    {
+        var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = Tr.T("Zertifikatsdatei für „{0}“ wählen", documentName),
+            FileTypeFilter = [new FilePickerFileType(Tr.T("Zertifikat mit privatem Schlüssel")) { Patterns = ["*.p12", "*.pfx", "*.P12", "*.PFX"] }, FilePickerFileTypes.All],
         });
         return files.FirstOrDefault()?.TryGetLocalPath();
     }

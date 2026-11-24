@@ -94,10 +94,12 @@ public sealed class PdfDocument : IPdfResolver, IDisposable
 
     [ThreadStatic] private static HashSet<int>? _resolving;
 
-    private PdfDocument(PdfSource source, string? password, string? filePath, StandardSecurityHandler? known = null)
+    private PdfDocument(PdfSource source, string? password, string? filePath, StandardSecurityHandler? known = null,
+        IReadOnlyList<System.Security.Cryptography.X509Certificates.X509Certificate2>? certificates = null)
     {
         _source = source;
         _knownSecurity = known;
+        _certificates = certificates;
         FilePath = filePath;
         try
         {
@@ -151,6 +153,34 @@ public sealed class PdfDocument : IPdfResolver, IDisposable
     /// <exception cref="PdfException">The data is not a PDF or cannot be repaired.</exception>
     public static PdfDocument Open(byte[] data, string? password = null) => new(PdfSource.FromBytes(data), password, null);
 
+    /// <summary>
+    /// Opens a file that may be encrypted for recipients (a public-key handler, ISO 32000-2, 7.6.5): besides the user's certificate store the
+    /// given certificates with their private keys are tried (docs/FEHLERGEDAECHTNIS.md, No. 1117).
+    /// </summary>
+    /// <param name="path">Path of the file.</param>
+    /// <param name="password">The open password for a password-protected file; null if there is none.</param>
+    /// <param name="certificates">Certificates with private keys (e.g. from a .p12 file); null or empty for only the store.</param>
+    /// <exception cref="PdfRecipientException">Encrypted for recipients, and no certificate at hand opens it.</exception>
+    public static PdfDocument Open(string path, string? password, IReadOnlyList<System.Security.Cryptography.X509Certificates.X509Certificate2>? certificates) =>
+        new(PdfSource.FromFile(path), password, path, null, certificates);
+
+    /// <inheritdoc cref="Open(string, string?, IReadOnlyList{System.Security.Cryptography.X509Certificates.X509Certificate2}?)"/>
+    /// <param name="data">The file contents; the document keeps using this array.</param>
+    public static PdfDocument Open(byte[] data, string? password, IReadOnlyList<System.Security.Cryptography.X509Certificates.X509Certificate2>? certificates) =>
+        new(PdfSource.FromBytes(data), password, null, null, certificates);
+
+    /// <summary>
+    /// Opens a file just saved with the key it was encrypted with — no password and no certificate needed: a file encrypted for recipients
+    /// may not be meant for the one who saved it (docs/FEHLERGEDAECHTNIS.md, No. 1117).
+    /// </summary>
+    /// <param name="path">The saved file.</param>
+    /// <param name="saved">The result of saving it (its <see cref="Writing.PdfSaveResult.Security"/>; null: not encrypted).</param>
+    public static PdfDocument OpenSaved(string path, Writing.PdfSaveResult saved) => new(PdfSource.FromFile(path), null, path, saved.Security);
+
+    /// <inheritdoc cref="OpenSaved(string, Writing.PdfSaveResult)"/>
+    /// <param name="data">The saved file.</param>
+    public static PdfDocument OpenSaved(byte[] data, Writing.PdfSaveResult saved) => new(PdfSource.FromBytes(data), null, null, saved.Security);
+
     /// <summary>Opens a file just written with the key it was written with (no password needed), for checking it (No. 461).</summary>
     /// <param name="data">The written file.</param>
     /// <param name="security">The handler the writer encrypted with; null if not encrypted.</param>
@@ -175,13 +205,16 @@ public sealed class PdfDocument : IPdfResolver, IDisposable
     /// <param name="length">End of the revision in bytes.</param>
     /// <param name="password">Password of an encrypted file; null if none.</param>
     /// <returns>The revision; the caller disposes it before this document.</returns>
-    public PdfDocument OpenRevision(long length, string? password = null) => new(_source.Prefix(length), password, null);
+    public PdfDocument OpenRevision(long length, string? password = null) => new(_source.Prefix(length), password, null, null, _certificates);
 
     /// <summary>Opens the program's own output (trial run) with the key it was encrypted with, without a password.</summary>
     internal static PdfDocument Open(PdfSource source, StandardSecurityHandler security) => new(source, null, null, security);
 
     /// <summary>Predefined key (<see cref="Open(PdfSource, StandardSecurityHandler)"/>) used instead of a password.</summary>
     private readonly StandardSecurityHandler? _knownSecurity;
+
+    /// <summary>Certificates given for a document encrypted for recipients (also for its earlier revisions); null for none.</summary>
+    private readonly IReadOnlyList<System.Security.Cryptography.X509Certificates.X509Certificate2>? _certificates;
 
     /// <summary>Path of the opened file; null if the document was opened from memory.</summary>
     public string? FilePath { get; }
@@ -436,7 +469,7 @@ public sealed class PdfDocument : IPdfResolver, IDisposable
         if (Trailer.Get(PdfName.Encrypt) is not PdfDictionary encrypt) return;
 
         var id = Trailer.Get(PdfName.ID) as PdfArray;
-        Security = _knownSecurity ?? StandardSecurityHandler.Open(encrypt, id, password);
+        Security = _knownSecurity ?? StandardSecurityHandler.Open(encrypt, id, password, _certificates);
         // revision 4 with a short RC4 key whose data only decode with the key padded to 16 bytes (a read tolerance, No. 894)
         if (_knownSecurity is null && Security.PaddedForReading() is { } padded && DecodesOnlyWith(Security, padded))
         {

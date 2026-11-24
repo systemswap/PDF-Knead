@@ -33,6 +33,19 @@ public sealed class PdfPasswordException(string message, bool wrongPassword) : P
 /// <param name="message">The localised message.</param>
 public sealed class PdfAttachmentsLockedException(string message) : PdfException(message);
 
+/// <summary>
+/// Thrown when a document is encrypted for recipients (a public-key handler, ISO 32000-2, 7.6.5) and no certificate at hand — in the user's
+/// certificate store or given — opens it: the caller may ask for a certificate file with its private key and try again
+/// (docs/FEHLERGEDAECHTNIS.md, No. 1117).
+/// </summary>
+/// <param name="filter">The name of the handler (/Filter).</param>
+public sealed class PdfRecipientException(string filter)
+    : PdfException(Localization.Tr.T("Diese Datei ist für bestimmte Empfänger verschlüsselt ({0}); ein passendes Zertifikat mit privatem Schlüssel wurde nicht gefunden.", filter))
+{
+    /// <summary>The name of the handler (/Filter).</summary>
+    public string Filter { get; } = filter;
+}
+
 /// <summary>Thrown when a protective limit is exceeded (nesting depth, decoded size, …).</summary>
 /// <param name="message">The localised message.</param>
 public sealed class PdfLimitException(string message) : PdfException(message);

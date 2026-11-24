@@ -1,5 +1,8 @@
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
+using Avalonia.Platform.Storage;
 using PdfKnead.Core.Pdf.Security;
 using PdfKnead.Core.Pdf.Writing;
 using PdfKnead.ViewModels;
@@ -8,7 +11,9 @@ namespace PdfKnead.Views;
 
 /// <summary>
 /// Password to open and permissions (printing, copying, modifying …) for the next save. Passwords are never
-/// prefilled. Result: new protection, remove protection (Protection null), or null (cancelled, change nothing).
+/// prefilled. Result: new protection, remove protection (Protection null), or null (cancelled, change nothing). Instead of passwords the
+/// document can be encrypted for recipients — their certificates, each with all rights or the rights chosen below (ISO 32000-2, 7.6.5;
+/// docs/FEHLERGEDAECHTNIS.md, No. 1117).
 /// </summary>
 public partial class ProtectionWindow : Window
 {
@@ -45,7 +50,76 @@ public partial class ProtectionWindow : Window
         OpenBox.IsCheckedChanged += (_, _) => UpdateLengthHint();
         RightsBox.IsCheckedChanged += (_, _) => UpdateLengthHint();
         UpdateLengthHint();
+        RecipientMode.IsCheckedChanged += (_, _) =>
+        {
+            CipherText.Text = RecipientMode.IsChecked == true ? Tr.T("Verschlüsselung: AES-256 für Empfänger (ab PDF 1.7)") : _passwordCipherText;
+            UpdateLengthHint();
+        };
+        _passwordCipherText = CipherText.Text;
         Opened += (_, _) => OpenBox.Focus();
+    }
+
+    private readonly string? _passwordCipherText;
+
+    /// <summary>The recipients added: certificate and its „Alle Rechte“ box.</summary>
+    internal readonly List<(X509Certificate2 Certificate, CheckBox FullAccess)> Recipients = [];
+
+    /// <summary>Adds a recipient (also for the tests): a certificate with an RSA key, each only once; returns an error text or null.</summary>
+    internal string? AddRecipient(X509Certificate2 certificate)
+    {
+        if (certificate.GetRSAPublicKey() is null)
+            return Tr.T("Das Zertifikat „{0}“ hat keinen RSA-Schlüssel; für Empfänger wird nur mit RSA verschlüsselt.", NameOf(certificate));
+        if (Recipients.Any(r => r.Certificate.Thumbprint == certificate.Thumbprint)) return Tr.T("„{0}“ ist schon Empfänger.", NameOf(certificate));
+        var full = new CheckBox { Content = Tr.T("Alle Rechte"), VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center };
+        var remove = new Button { Content = "×", Padding = new Avalonia.Thickness(8, 0) };
+        Avalonia.Automation.AutomationProperties.SetName(remove, Tr.T("„{0}“ entfernen", NameOf(certificate)));
+        var row = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto,8,Auto") };
+        var name = new TextBlock { Text = NameOf(certificate), VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center, TextTrimming = Avalonia.Media.TextTrimming.CharacterEllipsis };
+        ToolTip.SetTip(name, certificate.Subject);
+        row.Children.Add(name);
+        Grid.SetColumn(full, 1);
+        row.Children.Add(full);
+        Grid.SetColumn(remove, 3);
+        row.Children.Add(remove);
+        var entry = (certificate, full);
+        remove.Click += (_, _) =>
+        {
+            Recipients.Remove(entry);
+            RecipientRows.Children.Remove(row);
+            NoRecipients.IsVisible = Recipients.Count == 0;
+        };
+        Recipients.Add(entry);
+        RecipientRows.Children.Add(row);
+        NoRecipients.IsVisible = false;
+        return null;
+    }
+
+    private static string NameOf(X509Certificate2 certificate) =>
+        certificate.GetNameInfo(X509NameType.SimpleName, false) is { Length: > 0 } name ? name : certificate.Subject;
+
+    private async void OnAddRecipient(object? sender, RoutedEventArgs e)
+    {
+        var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = Tr.T("Zertifikat eines Empfängers wählen"),
+            AllowMultiple = true,
+            FileTypeFilter = [new FilePickerFileType(Tr.T("Zertifikat")) { Patterns = ["*.cer", "*.crt", "*.pem", "*.der", "*.CER", "*.CRT", "*.PEM", "*.DER"] }, FilePickerFileTypes.All],
+        });
+        var problems = new List<string>();
+        foreach (var file in files)
+        {
+            if (file.TryGetLocalPath() is not { } path) continue;
+            try
+            {
+                if (AddRecipient(X509CertificateLoader.LoadCertificateFromFile(path)) is { } problem) problems.Add(problem);
+            }
+            catch (CryptographicException)
+            {
+                problems.Add(Tr.T("{0} ist kein lesbares Zertifikat.", Path.GetFileName(path)));
+            }
+        }
+        ErrorText.Text = string.Join(" ", problems);
+        ErrorText.IsVisible = problems.Count > 0;
     }
 
     /// <summary>
@@ -57,7 +131,7 @@ public partial class ProtectionWindow : Window
     {
         get
         {
-            if (_aes256) return false;
+            if (_aes256 || RecipientMode.IsChecked == true) return false;
             var passwords = new[] { OpenBox.IsChecked == true ? OpenPassword.Text ?? "" : "", RightsBox.IsChecked == true ? OwnerPassword.Text ?? "" : "" };
             if (!passwords.All(StandardSecurityHandler.FitsLegacyPassword)) return false;
             return passwords.Any(p => p.Length > 32);
@@ -88,6 +162,7 @@ public partial class ProtectionWindow : Window
     /// <summary>Validates the input; returns an error text, or null if the input is valid.</summary>
     internal string? Validate()
     {
+        if (RecipientMode.IsChecked == true) return Recipients.Count == 0 ? Tr.T("Bitte mindestens ein Zertifikat eines Empfängers hinzufügen.") : null;
         var open = OpenBox.IsChecked == true;
         var rights = RightsBox.IsChecked == true;
         if (open && string.IsNullOrEmpty(OpenPassword.Text)) return Tr.T("Bitte ein Passwort zum Öffnen eingeben.");
@@ -107,6 +182,16 @@ public partial class ProtectionWindow : Window
     /// <summary>Result according to the input (without validation).</summary>
     internal ProtectionChange? Result()
     {
+        if (RecipientMode.IsChecked == true)
+        {
+            // those with „Alle Rechte“ in one group (bit 2: also the change of the encryption), the others with the rights below
+            var groups = new List<PdfRecipientGroup>();
+            var full = Recipients.Where(r => r.FullAccess.IsChecked == true).Select(r => r.Certificate).ToList();
+            var limited = Recipients.Where(r => r.FullAccess.IsChecked != true).Select(r => r.Certificate).ToList();
+            if (full.Count > 0) groups.Add(new PdfRecipientGroup(full, PdfPermissions.All, FullAccess: true));
+            if (limited.Count > 0) groups.Add(new PdfRecipientGroup(limited, RightsBox.IsChecked == true ? Permissions() : PdfPermissions.All));
+            return new ProtectionChange(null, Recipients: groups);
+        }
         var open = OpenBox.IsChecked == true;
         var rights = RightsBox.IsChecked == true;
         if (!open && !rights) return _isProtected ? new ProtectionChange(null) : null;   // nothing selected: no protection

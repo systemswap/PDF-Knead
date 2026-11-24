@@ -206,7 +206,7 @@ public sealed partial class MainViewModel
             Busy = Tr.T("Öffne {0} …", name);
             try
             {
-                (source, sourcePassword) = await LoadAsync(full);
+                (source, sourcePassword, _) = await LoadAsync(full);
             }
             catch (Exception ex) when (Failure.Handled(ex))
             {
@@ -237,6 +237,9 @@ public sealed partial class MainViewModel
             // Source protected with an open password but this document not: say clearly that the protection does not apply here
             if (sourcePassword is { Length: > 0 } && !doc.IsProtected)
                 problems.Add(Tr.T("{0} war mit einem Passwort geschützt — dieses Dokument nicht. Bei Bedarf unter „Sicher“ → „Passwort und Rechte“ einen Schutz vergeben.", name));
+            // the same for a source encrypted for recipients (docs/FEHLERGEDAECHTNIS.md, No. 1117)
+            else if (source.Security is { IsPublicKey: true } && !doc.IsProtected)
+                problems.Add(Tr.T("{0} war für bestimmte Empfänger verschlüsselt — dieses Dokument nicht. Bei Bedarf unter „Sicher“ → „Passwort und Rechte“ einen Schutz vergeben.", name));
         }
         if (problems.Count > 0) Message = string.Join("  ·  ", problems);
     }
@@ -388,8 +391,9 @@ public sealed partial class MainViewModel
         }
         if (await PickProtection(doc.IsProtected, doc.CurrentPermissions, doc.SaveVersion) is not { } change) return;
         // Removal for a file without protection: nothing to schedule
-        doc.PendingProtection = change.Protection is null && doc.Document.Security is null ? null : change;
-        ShowNotice(change.Protection is null
+        doc.PendingProtection = change.Protection is null && change.Recipients is not { Count: > 0 } && doc.Document.Security is null ? null : change;
+        ShowNotice(change.Recipients is { Count: > 0 } ? Tr.T("Die Verschlüsselung für Empfänger gilt ab dem nächsten Speichern.")
+            : change.Protection is null
             ? Tr.T("Der Schutz wird beim nächsten Speichern entfernt.")
             : Tr.T("Passwort und Rechte gelten ab dem nächsten Speichern."));
     }

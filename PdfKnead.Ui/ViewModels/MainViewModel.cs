@@ -230,9 +230,9 @@ public sealed partial class MainViewModel : ObservableObject
             Busy = Tr.T("Öffne {0} …", Path.GetFileName(full));
             try
             {
-                if (await LoadAsync(full) is ({ } document, var usedPassword))
+                if (await LoadAsync(full) is ({ } document, var usedPassword, var certificates))
                 {
-                    var doc = new DocumentViewModel(full, document, usedPassword) { Tool = Tool };
+                    var doc = new DocumentViewModel(full, document, usedPassword) { Tool = Tool, OpenCertificates = certificates };
                     Documents.Add(doc);
                     SelectedDocument = doc;
                     opened.Add(doc);
@@ -256,23 +256,33 @@ public sealed partial class MainViewModel : ObservableObject
         foreach (var doc in opened) await OfferEncryptedPayloadAsync(doc);
     }
 
-    /// <summary>Reads a file; if it is password-protected, asks until the password fits or the user cancels (then null).</summary>
-    private async Task<(PdfDocument? Document, string? Password)> LoadAsync(string path)
+    /// <summary>
+    /// Reads a file; if it is password-protected, asks until the password fits or the user cancels (then null); if it is encrypted for
+    /// recipients and no certificate of the store opens it, asks for a certificate file (docs/FEHLERGEDAECHTNIS.md, No. 1117).
+    /// </summary>
+    private async Task<(PdfDocument? Document, string? Password, IReadOnlyList<System.Security.Cryptography.X509Certificates.X509Certificate2>? Certificates)> LoadAsync(string path)
     {
         string? password = null;
         var wrong = false;
+        List<System.Security.Cryptography.X509Certificates.X509Certificate2>? certificates = null;
         while (true)
         {
             try
             {
-                return (await Task.Run(() => PdfDocument.Open(path, password)), password);
+                return (await Task.Run(() => PdfDocument.Open(path, password, certificates)), password, certificates);
             }
             catch (PdfPasswordException ex)
             {
                 if (AskPassword is null) throw;
                 wrong = ex.WrongPassword;
                 password = await AskPassword(Path.GetFileName(path), wrong);
-                if (password is null) return (null, null);
+                if (password is null) return (null, null, null);
+            }
+            catch (PdfRecipientException ex)
+            {
+                if (await AskRecipientCertificateAsync(Path.GetFileName(path), ex, again: certificates is not null) is not { } certificate)
+                    return (null, null, null);
+                (certificates ??= []).Add(certificate);
             }
         }
     }

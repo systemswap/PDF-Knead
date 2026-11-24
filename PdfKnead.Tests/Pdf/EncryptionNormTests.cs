@@ -275,8 +275,9 @@ public sealed partial class EncryptionNormTests
     // ---- Nachweise added in the Nacharbeit (12.11.2026) for rows that stood without one
 
     /// <summary>
-    /// 7.6.5: a public-key security handler (certificates instead of a password) is not built — only the standard handler is required (7.6.2).
-    /// Such a file is refused with a message that names the method, instead of being read as something else (M4 row 22).
+    /// 7.6.5: a file encrypted for recipients (Adobe.PubSec, adbe.pkcs7.s5) whose recipient object no certificate at hand opens (here not even
+    /// CMS; the recipients stand in the dictionary instead of the crypt filter, read with a note): refused with the handler's name — the
+    /// caller may ask for a certificate (docs/FEHLERGEDAECHTNIS.md, No. 1117; reading and writing: PublicKeyEncryptionTests).
     /// </summary>
     [Fact]
     public void PublicKeyHandler_RefusedWithItsName()
