@@ -1399,6 +1399,8 @@ public static class English
         ["Das Passwort enthält ein Nichtzeichen."] = "The password contains a noncharacter.",
         ["Das Passwort enthält ein Zeichen, das in Passwörtern nicht erlaubt ist (Steuerung der Darstellung oder Schreibrichtung)."] = "The password contains a character not allowed in passwords (controlling display or writing direction).",
         ["Das Passwort enthält ein nicht zugewiesenes Zeichen."] = "The password contains an unassigned character.",
+        ["Im Integritätsschutz fehlt der MAC-Wert (/MAC)."] = "The integrity protection lacks the MAC value (/MAC).",
+        ["Der MAC-Wert (/MAC) steht nicht in der ausgesparten Lücke."] = "The MAC value (/MAC) does not stand in the gap left for it.",
         ["Die Verschlüsselung nennt Version 6 (AES-GCM) mit Revision {0} statt 7."] = "The encryption names version 6 (AES-GCM) with revision {0} instead of 7.",
         ["Der Kryptfilter der Anhänge (/EFF „{0}“) fehlt in der Verschlüsselung — die Anhänge werden wie die übrigen Datenströme gelesen."] =
             "The crypt filter of the attachments (/EFF “{0}”) is missing from the encryption — the attachments are read like the other streams.",

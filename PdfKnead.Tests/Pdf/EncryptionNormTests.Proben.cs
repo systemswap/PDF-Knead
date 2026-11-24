@@ -64,6 +64,101 @@ public sealed partial class EncryptionNormTests
         Probe("V6-R6", "V 6 (AES-GCM) mit Revision 6 statt 7", Build(PdfCipher.Aes256Gcm, e => e.Set(PdfName.Get("R"), PdfInteger.Of(6)), "2.0"));
         Probe("V4-ohne-Length", "V 4 ohne /Length (Schlüssellänge aus dem Kryptfilter)", Build(PdfCipher.Aes128, e => e.Remove(PdfName.Length)));
         Probe("R5", "Revision 5 (nicht in ISO 32000-2), gelesen", Revision5File(userPassword: ""));
+        Probe("AESV2-unter-V5", "Revision 6 (V 5) mit einem Kryptfilter AESV2, Daten mit AES-128 je Objekt (S-A A163)", ProbeFile(PdfCipher.Aes256, "AESV2", damagedPadding: false));
+        Probe("Auffuellung-beschaedigt", "AES-128, die Auffüllung des Seiteninhalts beschädigt (S-A A162)", ProbeFile(PdfCipher.Aes128, null, damagedPadding: true));
         File.WriteAllLines(Path.Combine(folder, "liste.tsv"), list);
+    }
+    /// <summary>
+    /// The files of the reader check of the writer (PLAN §6 point 8 b, „Leser-Verträglichkeit“): a new protection as PDF-Knead writes it in
+    /// 1.4 (RC4), 1.6 (AES-128, no /Length since No. 1108), 1.7 (AES-256 with the ADBE declaration) and 2.0 (AES-256, the crypt filter's
+    /// /Length in bytes since No. 1096), and a revision-6 encryption sealed anew without the MAC requirement (No. 1105) — each with an empty
+    /// user password, so the reference readers open it. Written only with PDFKNEAD_M4_SCHREIBER (the folder), with liste.tsv.
+    /// </summary>
+    [Fact]
+    public void ReaderCheck_WrittenFiles()
+    {
+        if (Environment.GetEnvironmentVariable("PDFKNEAD_M4_SCHREIBER") is not { Length: > 0 } folder) return;
+        Directory.CreateDirectory(folder);
+        var list = new List<string>();
+        using var source = Core.Pdf.Document.PdfDocument.Open(Pdf.TestPdf.Simple(2).Build());
+        foreach (var version in new[] { "1.4", "1.6", "1.7", "2.0" })
+        {
+            using var output = new MemoryStream();
+            Core.Pdf.Writing.PdfWriter.Write(source, Core.Pdf.Editing.PageItem.From(source), output, new Core.Pdf.Writing.PdfSaveOptions
+            {
+                Version = version, Protection = new Core.Pdf.Writing.PdfProtection("", "Besitzer", PdfPermissions.All),
+            });
+            var name = $"neu-{version}";
+            File.WriteAllBytes(Path.Combine(folder, name + ".pdf"), output.ToArray());
+            list.Add($"{name}\t{name}.pdf\t1\tneuer Schutz in {version}");
+        }
+        var macFile = Pdf.TestPdf.Simple(2).Build(cipher: PdfCipher.Aes256, user: "", owner: "Besitzer", version: "2.0", macRequired: true);
+        using (var mac = Core.Pdf.Document.PdfDocument.Open(macFile))
+        {
+            using var output = new MemoryStream();
+            Core.Pdf.Writing.PdfWriter.Write(mac, Core.Pdf.Editing.PageItem.From(mac), output,
+                new Core.Pdf.Writing.PdfSaveOptions { Version = "2.0", KeepEncryption = true });
+            File.WriteAllBytes(Path.Combine(folder, "neuversiegelt-2.0.pdf"), output.ToArray());
+            list.Add("neuversiegelt\tneuversiegelt-2.0.pdf\t1\tRevision 6 ohne MAC-Pflicht neu versiegelt");
+        }
+        File.WriteAllLines(Path.Combine(folder, "liste.tsv"), list);
+    }
+    /// <summary>
+    /// A one-page probe built here: the encryption dictionary of a new protection (empty user password), its crypt filter set to
+    /// <paramref name="method"/> where given, and the page content encrypted by the test with AES-128 and the key per object of algorithm 1
+    /// (MD5 of the file key, object and generation number low byte first, „sAlT“) — with the padding of RFC 8018 or, with
+    /// <paramref name="damagedPadding"/>, a last block whose padding bytes disagree.
+    /// </summary>
+    private static byte[] ProbeFile(PdfCipher cipher, string? method, bool damagedPadding)
+    {
+        byte[] firstId = [.. Enumerable.Range(1, 16).Select(i => (byte)(i * 5))];
+        var (encrypt, handler) = StandardSecurityHandler.Create(cipher, "", "Besitzer", PdfPermissions.All, firstId);
+        var fileKey = (byte[])typeof(StandardSecurityHandler).GetField("_key", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(handler)!;
+        if (method is not null) encrypt.GetDictionary(PdfName.Get("CF"))!.GetDictionary(PdfName.Get("StdCF"))!.Set(PdfName.Get("CFM"), PdfName.Get(method));
+        if (method == "AESV2") encrypt.GetDictionary(PdfName.Get("CF"))!.GetDictionary(PdfName.Get("StdCF"))!.Set(PdfName.Length, PdfInteger.Of(16));
+        var plain = System.Text.Encoding.ASCII.GetBytes("BT /F1 24 Tf 72 700 Td (Probe der Verschluesselung) Tj ET");
+        var objectKey = System.Security.Cryptography.MD5.HashData([.. fileKey, 4, 0, 0, 0, 0, .. "sAlT"u8]);
+        byte[] padded;
+        if (damagedPadding)
+        {
+            var pad = 16 - plain.Length % 16;
+            padded = [.. plain, .. Enumerable.Repeat((byte)pad, pad)];
+            padded[^2] = (byte)(pad + 1);   // the padding bytes disagree
+        }
+        else padded = [];
+        byte[] content;
+        using (var aes = System.Security.Cryptography.Aes.Create())
+        {
+            aes.Key = objectKey;
+            var iv = Enumerable.Range(0, 16).Select(i => (byte)(30 + i)).ToArray();
+            content = damagedPadding ? [.. iv, .. aes.EncryptCbc(padded, iv, System.Security.Cryptography.PaddingMode.None)]
+                : [.. iv, .. aes.EncryptCbc(plain, iv, System.Security.Cryptography.PaddingMode.PKCS7)];
+        }
+        var output = new MemoryStream();
+        void Write(string s) => output.Write(System.Text.Encoding.Latin1.GetBytes(s));
+        var offsets = new List<long>();
+        Write("%PDF-1.7\n");
+        void Object(string body)
+        {
+            offsets.Add(output.Position);
+            Write($"{offsets.Count} 0 obj\n{body}\nendobj\n");
+        }
+        Object("<< /Type /Catalog /Pages 2 0 R >>");
+        Object("<< /Type /Pages /Kids [3 0 R] /Count 1 >>");
+        Object("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> >> >> >>");
+        offsets.Add(output.Position);
+        Write($"4 0 obj\n<< /Length {content.Length} >>\nstream\n");
+        output.Write(content);
+        Write("\nendstream\nendobj\n");
+        offsets.Add(output.Position);
+        Write("5 0 obj\n");
+        Core.Pdf.Writing.PdfSerializer.Write(encrypt, output);
+        Write("\nendobj\n");
+        var xref = output.Position;
+        Write($"xref\n0 {offsets.Count + 1}\n0000000000 65535 f \n");
+        foreach (var off in offsets) Write($"{off:D10} 00000 n \n");
+        var id = Convert.ToHexString(firstId);
+        Write($"trailer\n<< /Size {offsets.Count + 1} /Root 1 0 R /Encrypt 5 0 R /ID [<{id}> <{id}>] >>\nstartxref\n{xref}\n%%EOF\n");
+        return output.ToArray();
     }
 }

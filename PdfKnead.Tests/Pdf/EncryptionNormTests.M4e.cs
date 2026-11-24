@@ -261,7 +261,7 @@ public sealed partial class EncryptionNormTests
     /// </summary>
     /// <param name="oddDigits">The gap ends one digit early: an odd number of hexadecimal digits, /ByteRange fitting the shorter gap.</param>
     private static byte[] M4eMacFile(M4eSpec? spec = null, Func<long, long, long, string>? range = null, Action<PdfDictionary>? patchEncrypt = null,
-        Action<PdfDictionary>? patchAuthCode = null, bool oddDigits = false, Pdf.TestPdf? pdf = null)
+        Action<PdfDictionary>? patchAuthCode = null, bool oddDigits = false, Pdf.TestPdf? pdf = null, string gapKey = "MAC")
     {
         spec ??= new M4eSpec();
         var length = M4eToken(spec, new byte[32], new byte[32], M4eHash(spec.Digest, [])).Length;
@@ -277,13 +277,13 @@ public sealed partial class EncryptionNormTests
             {
                 var authCode = Pdf.TestPdf.Dict(("MACLocation", Pdf.TestPdf.N("Standalone")),
                     ("ByteRange", new PdfArray([PdfInteger.Of(0), PdfInteger.Of(1_000_000_000), PdfInteger.Of(1_000_000_000), PdfInteger.Of(1_000_000_000)])),
-                    ("MAC", new PdfString(new byte[length], true)));
+                    (gapKey, new PdfString(new byte[length], true)));
                 patchAuthCode?.Invoke(authCode);
                 t.Set(M4eAuthCodeKey, authCode);
             });
 
         var text = Encoding.Latin1.GetString(file);
-        var macAt = Regex.Matches(text, @"/MAC\s*<").Last();
+        var macAt = Regex.Matches(text, "/" + gapKey + @"\s*<").Last();
         var gapStart = macAt.Index + macAt.Length - 1;
         var gapEnd = text.IndexOf('>', gapStart) + 1;
         if (oddDigits)
@@ -801,4 +801,21 @@ public sealed partial class EncryptionNormTests
     [InlineData(M4eSha256, M4eHmacSha384)]
     public void AlgorithmProtection_OtherAlgorithms_Invalid(string digestOid, string macOid) =>
         M4eInvalid(M4eWithProtection(M4eAttr(M4eAlgorithmProtection, M4eProtection(M4eAlg(digestOid), M4eAlg(macOid, tag: 2)))), M4eMismatch);
+    /// <summary>
+    /// ISO/TS 32004, 5.2, Table 6: with Standalone /MAC is required and its value is what stands in the gap of /ByteRange. A token in the gap
+    /// under another key and no /MAC, or a /MAC beside it with another value, is violated — before, only the gap was read and either was valid
+    /// (docs/FEHLERGEDAECHTNIS.md, No. 1110). The token itself is valid in both files.
+    /// </summary>
+    [Theory]
+    [InlineData(false, "Im Integritätsschutz fehlt der MAC-Wert (/MAC).")]
+    [InlineData(true, "Der MAC-Wert (/MAC) steht nicht in der ausgesparten Lücke.")]
+    public void Mac_ValueOfMacNotTheGap_Invalid(bool otherMac, string detail)
+    {
+        var length = M4eToken(new M4eSpec(), new byte[32], new byte[32], M4eHash(HashAlgorithmName.SHA256, [])).Length;
+        var file = M4eMacFile(gapKey: "MAX", patchAuthCode: a =>
+        {
+            if (otherMac) a.Set(PdfName.Get("MAC"), new PdfString(new byte[length], true));
+        });
+        M4eInvalid(file, detail);
+    }
 }

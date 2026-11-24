@@ -265,6 +265,12 @@ public static class PdfMac
             || gap.AsSpan(1, gap.Length - 2).ContainsAnyExcept("0123456789abcdefABCDEF"u8))
             return new MacCheck(MacState.Invalid, Tr.T("Der MAC-Wert steht nicht genau in der ausgesparten Lücke."));
         var token = Convert.FromHexString(System.Text.Encoding.ASCII.GetString(gap, 1, gap.Length - 2));
+        // the gap is the value of /MAC (5.2, Table 6: required with Standalone, the token stands between L1 and S) — a /AuthCode without
+        // /MAC, or one whose /MAC is not what the gap holds, was taken (docs/FEHLERGEDAECHTNIS.md, No. 1110)
+        if (authCode.GetString(PdfName.Get("MAC"))?.Bytes is not { } macValue)
+            return new MacCheck(MacState.Invalid, Tr.T("Im Integritätsschutz fehlt der MAC-Wert (/MAC)."));
+        if (!macValue.AsSpan().SequenceEqual(token))
+            return new MacCheck(MacState.Invalid, Tr.T("Der MAC-Wert (/MAC) steht nicht in der ausgesparten Lücke."));
 
         if (Read(token) is { } problem) return problem.Check;
         var parsed = Parse(token);
