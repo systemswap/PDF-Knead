@@ -96,6 +96,7 @@ public sealed partial class MainViewModel : ObservableObject
         Core.Pdf.Document.PdfDocument.MissingCjkFontsFound += OnMissingCjk;
         Settings.ShowPermissions = () => ShowPermissions?.Invoke() ?? Task.CompletedTask;
         Settings.ImportPolicy = ImportPolicyAsync;
+        Settings.OpenFunctionManager = OpenFunctionManager;
     }
 
     /// <summary>Message shown when a PDF needs a Chinese, Japanese or Korean font but the „Schriften-CJK“ folder is missing.</summary>

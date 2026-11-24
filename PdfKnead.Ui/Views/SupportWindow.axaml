@@ -152,8 +152,6 @@
                                Text="{l:T 'Hinter PDF-Knead steht kein Konzern und auch kein großer Sponsor. Es gibt keine Werbung, es werden keine Nutzungsdaten erhoben und schon gar nicht verkauft, um dieses Projekt zu finanzieren.'}" />
                     <TextBlock FontSize="15" LineHeight="24" Foreground="#C9D6E8" TextWrapping="Wrap"
                                Text="{l:T 'Mit Ihrer Unterstützung tragen Sie dazu bei, dass dies auch in Zukunft so sein wird, und zeigen gleichzeitig Ihre Wertschätzung für PDF-Knead. Dafür danke ich Ihnen herzlich.'}" />
-                    <TextBlock FontSize="13.5" LineHeight="21" Foreground="#9FB3CC" TextWrapping="Wrap"
-                               Text="{l:T 'Wenn Sie als Firma das Projekt sponsern möchten, stelle ich Ihnen gern eine Rechnung aus.'}" />
                 </StackPanel>
 
                 <!-- documents folded into paper planes, rising into a warm evening sky (the shapes of the preview, 250 × 300) -->

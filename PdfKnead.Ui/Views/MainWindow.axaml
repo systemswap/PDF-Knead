@@ -2176,6 +2176,9 @@
                                             <Button Margin="0,0,8,0" Content="{l:T 'Funktionsdatei einspielen …'}" Command="{Binding ImportPolicyNowCommand}">
                                                 <ToolTip.Tip><l:T Text="Eine Funktionsdatei des FunktionManagers neben das Programm legen (braucht Schreibrechte im Programmordner, meist Administratorrechte). PDF-Knead startet danach neu und öffnet die offenen Dateien wieder." /></ToolTip.Tip>
                                             </Button>
+                                            <Button Margin="0,0,8,0" Name="OpenFunctionManagerButton" Content="{l:T 'FunktionManager öffnen'}" Command="{Binding OpenFunctionManagerNowCommand}">
+                                                <ToolTip.Tip><l:T Text="Das Programm für die IT, mit dem die Funktionsdatei erstellt wird. Es liegt neben PDF-Knead und liest eine vorhandene Funktionsdatei beim Start ein." /></ToolTip.Tip>
+                                            </Button>
                                         </WrapPanel>
                                     </StackPanel>
                                 </Border>

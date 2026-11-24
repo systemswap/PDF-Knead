@@ -50,6 +50,37 @@ public partial class MainViewModel
     /// <summary>The folder the function file is laid into: the one of the program (set by the tests).</summary>
     internal Func<string> PolicyFolder { get; set; } = () => Core.Updates.UpdateStart.ProgramLocation().Folder;
 
+    /// <summary>The name of the FunktionManager's program file: beside PDF-Knead in every package.</summary>
+    internal static string FunctionManagerFile => OperatingSystem.IsWindows() ? "PDF-Knead-FunktionManager.exe" : "PDF-Knead-FunktionManager";
+
+    /// <summary>Starts a program (set by the tests); true when it started.</summary>
+    internal Func<System.Diagnostics.ProcessStartInfo, bool> StartProgram { get; set; } =
+        info => System.Diagnostics.Process.Start(info) is not null;
+
+    /// <summary>
+    /// „FunktionManager öffnen“: starts the FunktionManager beside the program — the tool with which the IT writes the function file; it
+    /// reads a file already there at its start. Where it is missing (not every installation keeps it), that is said.
+    /// </summary>
+    public void OpenFunctionManager()
+    {
+        var folder = PolicyFolder();
+        var path = Path.Combine(folder, FunctionManagerFile);
+        if (!File.Exists(path))
+        {
+            ShowNotice(Tr.T("Der FunktionManager ({0}) liegt nicht neben PDF-Knead. Er gehört zu jedem Paket von PDF-Knead.", FunctionManagerFile));
+            return;
+        }
+        try
+        {
+            if (!StartProgram(new System.Diagnostics.ProcessStartInfo(path) { UseShellExecute = false, WorkingDirectory = folder }))
+                ShowNotice(Tr.T("Der FunktionManager ließ sich nicht starten."));
+        }
+        catch (Exception e) when (e is System.ComponentModel.Win32Exception or IOException or InvalidOperationException)
+        {
+            ShowNotice(Tr.T("Der FunktionManager ließ sich nicht starten: {0}", e.Message));
+        }
+    }
+
     /// <summary>Starts the program anew with the files to open (set by the tests); true when it started.</summary>
     internal Func<IReadOnlyList<string>, bool> RestartProgram { get; set; } = files => Core.Updates.ProgramRestart.Start(files);
 

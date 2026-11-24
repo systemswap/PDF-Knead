@@ -239,41 +239,42 @@ public sealed partial class MainViewModel
         if (service != TimestampServiceOf(settings)) ForgetTimestampLogin();
     }
 
-    /// <summary>Asks at the first start for the name of the own certificate (set by the view): takes a known name, returns the name or null.</summary>
-    public Func<string?, Task<string?>>? AskCertificateName { get; set; }
+    /// <summary>Shows the window of the first start (set by the view): true for „Los geht’s“, false if it was closed otherwise.</summary>
+    public Func<WelcomeViewModel, Task<bool>>? ShowWelcome { get; set; }
 
     /// <summary>
-    /// At the first start: offers once to create the own certificate for digital signatures with the user's name, which then also
-    /// stands under the signatures (many sign without ever opening „Zertifikat“). Nothing is asked if one exists already.
+    /// The first start in one window (decided on 24.11.2026): the language first — preselected as the system's where a translation exists,
+    /// otherwise English, switched at once —, then the name for the own certificate for digital signatures (which then also stands under the
+    /// signatures; not asked if one exists) and whether PDF-Knead should check for updates (off at first, KONZEPT §5.26; not asked when the
+    /// IT switched updates off). Shown while the certificate or the updates have not been offered yet; the choices go into the settings —
+    /// closing the window counts as an answer too: the language stays as chosen, nothing is created, updates stay off.
     /// </summary>
     /// <param name="ownFile">File of the own certificate; null = the default (tests supply their own).</param>
-    /// <returns>A task that completes when the offer is done.</returns>
-    public async Task OfferOwnCertificateAsync(string? ownFile = null)
+    /// <returns>A task that completes when the first start is done.</returns>
+    public async Task OfferWelcomeAsync(string? ownFile = null)
     {
-        if (Services.UserSettings.Current.CertificateOffered || AskCertificateName is not { } ask) return;
+        var settings = Services.UserSettings.Current;
+        if ((settings.CertificateOffered && settings.UpdatesAsked) || ShowWelcome is not { } show) return;
         var exists = await Task.Run(() => SigningCertificates.OwnState(ownFile) != OwnCertificateState.Missing);
-        if (!exists && await ask(Services.UserSettings.Current.SignatureName) is { } name)
+        var askName = !settings.CertificateOffered && !exists;
+        var askUpdates = !settings.UpdatesAsked && !Services.Updates.OffByPolicy;
+        var model = new WelcomeViewModel(Core.Localization.Languages.All(out _), settings.SignatureName, askName, askUpdates);
+        var started = await show(model);
+        Services.UserSettings.Update(s => s with { Language = Core.Localization.Tr.Current.Code });
+        if (started && askName && model.Name.Trim() is { Length: > 0 } name)
         {
             // RSA key generation takes a moment: in the background
             using var created = await Task.Run(() => SigningCertificates.CreateOwn(name, ownFile));
-            Services.UserSettings.Update(s => s with { SignatureName = name.Trim(), SigningCertificate = new SigningCertificateChoice(SigningCertificateSource.Own) });
+            Services.UserSettings.Update(s => s with { SignatureName = name, SigningCertificate = new SigningCertificateChoice(SigningCertificateSource.Own) });
             ShowNotice(Tr.T("Eigenes Zertifikat für „{0}“ angelegt.", created.Name));
         }
-        Services.UserSettings.Update(s => s with { CertificateOffered = true });   // asked once, whatever the answer
-    }
-
-    /// <summary>Asks once whether to check for updates (set by the view): true „Updates einschalten“, false or null „Nicht suchen“.</summary>
-    public Func<Task<bool?>>? AskUpdates { get; set; }
-
-    /// <summary>
-    /// At the first start, after the offer of the own certificate: asks once whether PDF-Knead should check for updates (KONZEPT §5.26; off at
-    /// first, decided on 18.11.2026). Not when the IT switched updates off. The answer goes into the settings.
-    /// </summary>
-    public async Task OfferUpdatesAsync()
-    {
-        if (Services.UserSettings.Current.UpdatesAsked || Services.Updates.OffByPolicy || AskUpdates is not { } ask) return;
-        var on = await ask() == true;
-        Services.UserSettings.Update(s => s with { UpdateCheck = on, UpdatesAsked = true });   // asked once, whatever the answer
+        // offered once each, whatever the answer
+        Services.UserSettings.Update(s => s with
+        {
+            CertificateOffered = true,
+            UpdatesAsked = s.UpdatesAsked || askUpdates,
+            UpdateCheck = askUpdates ? started && model.UpdatesOn : s.UpdateCheck,
+        });
     }
 
     /// <summary>Shows the „Signaturen“ window (set by the view); returns when it is closed.</summary>

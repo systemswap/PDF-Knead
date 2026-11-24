@@ -59,6 +59,9 @@ public sealed partial class SettingsViewModel : ObservableObject
     /// <summary>„Funktionsdatei einspielen …“ (set by the main view model).</summary>
     public Func<Task>? ImportPolicy { get; set; }
 
+    /// <summary>„FunktionManager öffnen“ (set by the main view model).</summary>
+    public Action? OpenFunctionManager { get; set; }
+
     /// <summary>One line about the function file of the organization (or that there is none).</summary>
     public string PolicySummary => MainViewModel.PolicySummary();
 
@@ -67,6 +70,9 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     [RelayCommand]
     private Task ImportPolicyNow() => ImportPolicy?.Invoke() ?? Task.CompletedTask;
+
+    [RelayCommand]
+    private void OpenFunctionManagerNow() => OpenFunctionManager?.Invoke();
 
     public static readonly IReadOnlyList<ThemeOption> ThemeOptions =
     [

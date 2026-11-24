@@ -33,15 +33,13 @@ public partial class App : Application
     }
 
     /// <summary>
-    /// After the main window opened: the offers of the first start one after the other (the own certificate, then the question about updates —
-    /// once each), then the automatic check for updates if switched on (at most once a day, in the background). Only here, in the
+    /// After the main window opened: the window of the first start (language, own certificate, updates — once), then the automatic check for updates if switched on (at most once a day, in the background). Only here, in the
     /// real program — never from the tests.
     /// </summary>
     private static async Task FirstStartAsync(MainViewModel vm)
     {
         Services.SupportPrompt.NoteStart(DateOnly.FromDateTime(DateTime.Now));
-        await vm.OfferOwnCertificateAsync();
-        await vm.OfferUpdatesAsync();
+        await vm.OfferWelcomeAsync();
         await Services.Updates.Instance.CheckAtStartAsync();
     }
 

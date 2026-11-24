@@ -50,6 +50,30 @@ public sealed partial class PolicyEditor : UserControl
         Denied = _boxes.Where(b => b.Value.IsChecked != true).Select(b => b.Key).Concat(_unknown).ToHashSet(StringComparer.Ordinal),
     };
 
+    /// <summary>The folder the FunktionManager lies in — beside PDF-Knead in every package, where the function file belongs.</summary>
+    internal static string ProgramFolder => Path.GetDirectoryName(Environment.ProcessPath) is { Length: > 0 } folder ? folder : AppContext.BaseDirectory;
+
+    /// <summary>
+    /// At the start: the function file beside the FunktionManager (berechtigungen.json — it lies beside PDF-Knead, the same folder) is read
+    /// and shown, so that an admin changes the file in force instead of starting from nothing; a damaged one is said, the ticks then show
+    /// the default (everything allowed).
+    /// </summary>
+    /// <param name="folder">The folder to look in.</param>
+    public void LoadBeside(string folder)
+    {
+        var load = FeaturePolicy.Load(folder);
+        switch (load.State)
+        {
+            case PolicyLoadState.Loaded:
+                Show(load.Policy!);
+                Said?.Invoke($"Gelesen: {FeaturePolicy.FileName} neben dem FunktionManager — {load.Policy!.Denied.Count} Funktionen gesperrt.", false);
+                break;
+            case PolicyLoadState.Unreadable:
+                Said?.Invoke($"{FeaturePolicy.FileName} neben dem FunktionManager ist nicht lesbar — die Häkchen zeigen die Vorgabe (alles erlaubt).", true);
+                break;
+        }
+    }
+
     /// <summary>Shows a function file.</summary>
     public void Show(FeaturePolicy policy)
     {
@@ -175,6 +199,8 @@ public sealed partial class PolicyEditor : UserControl
         var file = await storage.SaveFilePickerAsync(new FilePickerSaveOptions
         {
             Title = "Funktionsdatei speichern",
+            // where it belongs: beside PDF-Knead, the folder of the FunktionManager
+            SuggestedStartLocation = await storage.TryGetFolderFromPathAsync(ProgramFolder),
             SuggestedFileName = FeaturePolicy.FileName,
             DefaultExtension = "json",
             FileTypeChoices = [JsonFile],

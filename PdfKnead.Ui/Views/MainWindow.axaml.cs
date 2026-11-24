@@ -114,8 +114,7 @@ public partial class MainWindow : Window
         _vm.AskSessionPassword = async (heading, detail, button, wrong) => await new PasswordWindow(heading, detail, button, wrong).ShowDialog<string?>(this);
         _vm.ShowTrustList = async model => await new TrustListWindow(model).ShowDialog(OwnedWindows.LastOrDefault(w => w.IsVisible) ?? this);
         _vm.ShowSignatures = async model => await new SignaturesWindow(model).ShowDialog(this);
-        _vm.AskCertificateName = async name => await new FirstCertificateWindow(name).ShowDialog<string?>(this);
-        _vm.AskUpdates = async () => await new FirstUpdateWindow().ShowDialog<bool?>(this);
+        _vm.ShowWelcome = async model => await new WelcomeWindow(model).ShowDialog<bool?>(this) == true;
         _vm.ShowPermissions = async () => await new PolicyWindow().ShowDialog(this);
         _vm.ShowSupportInvitation = async () => await new SupportWindow().ShowDialog<bool?>(this);
         _vm.PickPolicyFile = PickPolicyFileAsync;

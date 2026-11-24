@@ -1,0 +1,65 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:l="using:PdfKnead.Localization"
+        xmlns:c="using:PdfKnead.Controls"
+        xmlns:loc="using:PdfKnead.Core.Localization"
+        xmlns:vm="using:PdfKnead.ViewModels"
+        x:Class="PdfKnead.Views.WelcomeWindow"
+        x:DataType="vm:WelcomeViewModel"
+        Title="{l:T 'Willkommen bei PDF-Knead'}"
+        Icon="/Assets/app.ico"
+        Width="540" SizeToContent="Height"
+        CanResize="False" ShowInTaskbar="False"
+        WindowStartupLocation="CenterOwner">
+    <!-- the first start in one window: language first (preselected as the system's, English where it is not German), then the name for
+         signatures and the question about updates (decided on 24.11.2026; KONZEPT §5.17, §5.26) -->
+    <StackPanel Margin="24" Spacing="16">
+        <Grid ColumnDefinitions="Auto,12,*">
+            <Border Width="40" Height="40" CornerRadius="20" Background="{DynamicResource AccentSoftBrush}" VerticalAlignment="Top">
+                <PathIcon Data="{StaticResource Icon.Sparkle}" Width="20" Height="20" Foreground="{DynamicResource AccentBrush}" />
+            </Border>
+            <StackPanel Grid.Column="2" VerticalAlignment="Center" Spacing="2">
+                <TextBlock FontWeight="SemiBold" FontSize="15" Text="{l:T 'Willkommen bei PDF-Knead'}" />
+                <TextBlock Classes="muted" FontSize="12" TextWrapping="Wrap"
+                           Text="{l:T 'Ein paar Einstellungen für den Anfang — alles lässt sich später unter Datei → Einstellungen ändern.'}" />
+            </StackPanel>
+        </Grid>
+
+        <!-- language: the heading in both languages, readable whatever is preselected -->
+        <StackPanel Spacing="6">
+            <TextBlock FontWeight="SemiBold" Text="Sprache · Language" />
+            <ComboBox Name="LanguageChoice" ItemsSource="{Binding Languages}" SelectedItem="{Binding SelectedLanguage}" MinWidth="260"
+                      AutomationProperties.Name="Sprache · Language">
+                <ComboBox.ItemTemplate>
+                    <DataTemplate x:DataType="loc:Language">
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <c:FlagView Language="{Binding}" />
+                            <TextBlock Text="{Binding Name}" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </DataTemplate>
+                </ComboBox.ItemTemplate>
+            </ComboBox>
+        </StackPanel>
+
+        <Border Height="1" Background="{DynamicResource LineBrush}" IsVisible="{Binding AskName}" />
+        <StackPanel Spacing="6" IsVisible="{Binding AskName}">
+            <TextBlock FontWeight="SemiBold" Text="{l:T 'Ihr Name für Unterschriften'}" />
+            <TextBlock TextWrapping="Wrap" FontSize="12"
+                       Text="{l:T 'Mit Ihrem Namen legt PDF-Knead Ihr eigenes Zertifikat an. Damit können Sie Unterschriften digital signieren: PDF-Leser zeigen dann, wer unterschrieben hat und ob das Dokument danach geändert wurde. Der Name steht im Zertifikat und unter Ihren Unterschriften.'}" />
+            <TextBox Name="NameBox" Text="{Binding Name}" PlaceholderText="{l:T 'Vor- und Nachname'}" AutomationProperties.Name="{l:T 'Ihr Name'}" />
+            <TextBlock Classes="muted" FontSize="12" TextWrapping="Wrap"
+                       Text="{l:T 'Leer lassen: das Zertifikat wird beim ersten digitalen Signieren angelegt. Ein Firmenzertifikat können Sie später im Reiter Unterschrift unter „Zertifikat“ wählen.'}" />
+        </StackPanel>
+
+        <Border Height="1" Background="{DynamicResource LineBrush}" IsVisible="{Binding AskUpdates}" />
+        <StackPanel Spacing="6" IsVisible="{Binding AskUpdates}">
+            <CheckBox Name="UpdatesBox" IsChecked="{Binding UpdatesOn}" Content="{l:T 'Nach Updates suchen'}" FontWeight="SemiBold" />
+            <TextBlock TextWrapping="Wrap" FontSize="12" Margin="28,0,0,0"
+                       Text="{l:T 'PDF-Knead kann beim Start höchstens einmal am Tag nachsehen, ob es eine neue Fassung gibt. Gefragt wird nur nach einer Versionsdatei auf GitHub — nichts über Sie oder Ihre Dokumente. Ein Update wird erst nach Ihrem Klick geladen und nur installiert, wenn seine Signatur stimmt.'}" />
+        </StackPanel>
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,4,0,0">
+            <Button Name="StartButton" Classes="primary" Content="{l:T 'Los geht’s'}" Click="OnStart" IsDefault="True" />
+        </StackPanel>
+    </StackPanel>
+</Window>

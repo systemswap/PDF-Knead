@@ -131,7 +131,8 @@ public sealed class SupportUiTests
                 var texts = window.GetVisualDescendants().OfType<TextBlock>().Select(t => t.Text).ToList();
                 Assert.Contains(Tr.T("Vielen Dank, dass Sie PDF-Knead nutzen."), texts);
                 Assert.Contains(Tr.T("Ich hoffe, es erleichtert Ihnen die Arbeit mit Ihren Dokumenten."), texts);
-                Assert.Contains(Tr.T("Wenn Sie als Firma das Projekt sponsern möchten, stelle ich Ihnen gern eine Rechnung aus."), texts);
+                // no offer of an invoice for firms any more (24.11.2026)
+                Assert.DoesNotContain(texts, t => t is not null && t.Contains("Rechnung", StringComparison.Ordinal));
                 var buttons = window.GetVisualDescendants().OfType<Button>().ToList();
                 Assert.Equal(["SupportButton", "LaterButton", "ContactButton"], buttons.Select(b => b.Name));
                 Assert.DoesNotContain(texts, t => t is not null && t.Contains("Nicht mehr", StringComparison.Ordinal));

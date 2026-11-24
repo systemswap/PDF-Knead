@@ -14,56 +14,6 @@ namespace PdfKnead.Tests.Ui;
 [Collection(nameof(UiCollection))]
 public sealed class UpdateUiTests
 {
-    /// <summary>
-    /// Off at first; at the first start PDF-Knead asks once (decided on 18.11.2026) — the answer goes into the settings, and the
-    /// question does not come again, whatever the answer.
-    /// </summary>
-    [Fact]
-    public void FirstStart_AsksOnce_AnswerSaved()
-    {
-        Assert.False(new Core.Platform.AppSettings().UpdateCheck);
-        UiSession.Run(async () =>
-        {
-            var before = UserSettings.Current;
-            try
-            {
-                UserSettings.Update(s => s with { UpdatesAsked = false, UpdateCheck = false });
-                var vm = new MainViewModel();
-                var asked = 0;
-                vm.AskUpdates = () =>
-                {
-                    asked++;
-                    return Task.FromResult<bool?>(true);
-                };
-                await vm.OfferUpdatesAsync();
-                Assert.True(UserSettings.Current.UpdateCheck);
-                Assert.True(UserSettings.Current.UpdatesAsked);
-                await vm.OfferUpdatesAsync();
-                Assert.Equal(1, asked);
-                // „Nicht suchen“ (or the window closed) is an answer too
-                UserSettings.Update(s => s with { UpdatesAsked = false, UpdateCheck = true });
-                vm.AskUpdates = () => Task.FromResult<bool?>(null);
-                await vm.OfferUpdatesAsync();
-                Assert.False(UserSettings.Current.UpdateCheck);
-                Assert.True(UserSettings.Current.UpdatesAsked);
-                // the window: „Updates einschalten“ answers true
-                var owner = new Window();
-                owner.Show();
-                var window = new FirstUpdateWindow();
-                var answer = window.ShowDialog<bool?>(owner);
-                UiSession.Capture(window);
-                window.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "YesButton")
-                    .RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
-                Assert.True(await answer);
-                owner.Close();
-            }
-            finally
-            {
-                UserSettings.Update(_ => before);
-            }
-        });
-    }
-
     [Fact]
     public void UpdateHint_FollowsTheState_LaterHidesIt()
     {

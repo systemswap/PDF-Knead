@@ -16,6 +16,8 @@ public sealed partial class MainWindow : Window
         Editor.Said += Say;
         Opened += (_, _) => FitToScreen();
         Say("Häkchen setzen, „Funktionsdatei speichern …“, die Datei neben PDF-Knead legen.");
+        // a function file beside the FunktionManager (and so beside PDF-Knead) is read at once
+        Editor.LoadBeside(PolicyEditor.ProgramFolder);
     }
 
     private void Say(string message, bool warn = false)
