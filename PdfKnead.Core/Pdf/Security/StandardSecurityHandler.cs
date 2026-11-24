@@ -193,6 +193,9 @@ public sealed class StandardSecurityHandler
             handler = new StandardSecurityHandler([], r, PdfCipher.None, PdfCipher.None, encryptMetadata, permissions, false)
             {
                 AttachmentsLocked = true,
+                // the bits of the file (bit 13: MAC required, ISO/TS 32004) — the constructor's own value had bit 13 set, and a file that asks
+                // for a MAC and has none was not reported (docs/FEHLERGEDAECHTNIS.md, No. 1099)
+                RawPermissions = p,
             };
         }
         handler._named = named;
@@ -302,7 +305,10 @@ public sealed class StandardSecurityHandler
         if (r > 7) throw new PdfException(Tr.T("Verschlüsselung Revision {0} wird nicht unterstützt.", r));
 
         if (r is < 2 or > 4) throw new PdfException(Tr.T("Verschlüsselung Revision {0} wird nicht unterstützt.", r));
-        var lengthBits = (int)(encrypt.GetInteger(PdfName.Length) ?? 40);
+        // /Length belongs to V 2 and 3 (default 40, Table 20); with crypt filters (V 4) the key length comes from the filter of the streams
+        // (Table 25: in bytes for the standard handler, default 128 bits) — V 4 without /Length was read with 40 bits and did not open
+        // (docs/FEHLERGEDAECHTNIS.md, No. 1097)
+        var lengthBits = (int)(encrypt.GetInteger(PdfName.Length) ?? (encrypt.GetInteger(PdfName.Get("V")) >= 4 ? FilterKeyBits(encrypt) : 40));
         var keyLength = r == 2 ? 5 : Math.Clamp(lengthBits / 8, 5, 16);
         var firstId = id is { Count: > 0 } && id.Get(0) is PdfString s ? s.Bytes : [];
         if (o.Length < 32 || u.Length < 32) throw new PdfException(Tr.T("Verschlüsselungsdaten unvollständig."));
@@ -353,6 +359,20 @@ public sealed class StandardSecurityHandler
             default:
                 throw new PdfException(Tr.T("Verschlüsselung Version {0} wird nicht unterstützt.", v));
         }
+    }
+
+    /// <summary>
+    /// The key length of a file with crypt filters (V 4) and no /Length: the /Length of the filter of the streams, else of the strings, else
+    /// of /StdCF — in bytes as the standard handler counts it (ISO 32000-2, 7.6.6, Table 25; a value of 40 or more is taken as bits) —
+    /// and 128 bits where none gives one (docs/FEHLERGEDAECHTNIS.md, No. 1097).
+    /// </summary>
+    private static long FilterKeyBits(PdfDictionary encrypt)
+    {
+        var cf = encrypt.GetDictionary(PdfName.Get("CF"));
+        foreach (var name in new[] { encrypt.GetName(PdfName.Get("StmF")), encrypt.GetName(PdfName.Get("StrF")), PdfName.Get("StdCF") })
+            if (name is not null && cf?.GetDictionary(name)?.GetInteger(PdfName.Length) is { } length and > 0)
+                return length < 40 ? length * 8 : length;
+        return 128;
     }
 
     // ------------------------------------------------------------ R2–R4 (RC4/AES-128)
@@ -496,6 +516,14 @@ public sealed class StandardSecurityHandler
         for (var i = 0; i < mapped.Length; i++)
             if (char.IsSurrogate(mapped[i]) && !(char.IsHighSurrogate(mapped[i]) && i + 1 < mapped.Length && char.IsLowSurrogate(mapped[++i])))
                 return Tr.T("Das Passwort enthält ein ungültiges Zeichen.");
+        // unassigned in Unicode 3.2 (RFC 3454, A.1), checked on the input as RFC 3454, 7 asks — on the normalised form alone a character
+        // unassigned in 3.2 with a compatibility decomposition today (U+1D2C becomes „A“) passed, and a reader of 3.2 that leaves it as it is
+        // would form other bytes (docs/FEHLERGEDAECHTNIS.md, No. 1095)
+        foreach (var rune in mapped.EnumerateRunes())
+            if (Rune.GetUnicodeCategory(rune) == UnicodeCategory.OtherNotAssigned || SaslPrepTables.Unassigned(rune.Value))
+                return Tr.T("Das Passwort enthält ein nicht zugewiesenes Zeichen.");
+        if (NormalisedOtherwiseThanIn32(mapped))
+            return Tr.T("Das Passwort enthält eine Zeichenfolge, die nach älteren und neueren Unicode-Regeln verschieden normalisiert wird.");
         var normalized = mapped.Normalize(NormalizationForm.FormKC);
         bool randAl = false, left = false;
         Rune? first = null, last = null;
@@ -526,6 +554,36 @@ public sealed class StandardSecurityHandler
         if (randAl && (left || !SaslPrepTables.RandAL(first!.Value.Value) || !SaslPrepTables.RandAL(last!.Value.Value)))
             return Tr.T("Das Passwort mischt Schreibrichtungen (zum Beispiel hebräische oder arabische mit lateinischen Buchstaben) — das ist in Passwörtern nicht erlaubt.");
         return null;
+    }
+
+    /// <summary>
+    /// CJK compatibility ideographs whose decomposition Unicode corrected after version 3.2 (Corrigendum #4): NFKC of the runtime and of
+    /// Unicode 3.2, the version RFC 3454, 4 names, give different characters.
+    /// </summary>
+    private static readonly int[] DecompositionCorrected = [0x2F868, 0x2F874, 0x2F91F, 0x2F95F, 0x2F9BF];
+
+    /// <summary>
+    /// Whether NFKC of the runtime may differ from NFKC of Unicode 3.2 for this input (RFC 3454, 4; docs/FEHLERGEDAECHTNIS.md, No. 1095):
+    /// one of <see cref="DecompositionCorrected"/>, or a character that composes with an earlier one across a combining mark (Corrigendum #5:
+    /// U+0B47 U+0300 U+0B3E, or Hangul L, a mark, V — composed by the text of 3.2, not since). Such a password is not set; another program
+    /// would form other bytes.
+    /// </summary>
+    private static bool NormalisedOtherwiseThanIn32(string mapped)
+    {
+        foreach (var rune in mapped.EnumerateRunes())
+            if (Array.IndexOf(DecompositionCorrected, rune.Value) >= 0) return true;
+        var runes = mapped.Normalize(NormalizationForm.FormKD).EnumerateRunes().ToArray();
+        static bool Mark(Rune r) => Rune.GetUnicodeCategory(r) is UnicodeCategory.NonSpacingMark or UnicodeCategory.EnclosingMark;
+        for (var j = 1; j < runes.Length; j++)
+        {
+            if (Mark(runes[j]) || !Mark(runes[j - 1])) continue;
+            var s = j - 1;
+            while (s >= 0 && Mark(runes[s])) s--;
+            if (s < 0) continue;
+            var pair = (runes[s].ToString() + runes[j].ToString()).Normalize(NormalizationForm.FormC);
+            if (pair.EnumerateRunes().Count() == 1) return true;
+        }
+        return false;
     }
 
     /// <summary>

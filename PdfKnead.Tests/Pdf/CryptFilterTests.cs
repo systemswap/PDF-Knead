@@ -176,4 +176,42 @@ public sealed class CryptFilterTests
         Assert.Equal(PdfDocument.AttachmentUnlock.Opened, copy.UnlockAttachments("Anhang"));
         Assert.Equal(plain, copy.DecodeStream(content).Data);
     }
+    /// <summary>
+    /// A related file of an attachment (/RF of its file specification, a stream without /Type /EmbeddedFile) in a file that encrypts only its
+    /// attachments: read with the method of the attachments after unlocking them, and saved with it — before, the writer took only /EF for
+    /// an embedded file, wrote the related file with the default filter of the streams (Identity) and so in the clear, and the reader of
+    /// the copy, decrypting it with /EFF, got garbage (ISO 32000-2, 7.6.6: /RF uses the filter of /EF; docs/FEHLERGEDAECHTNIS.md, No. 1100).
+    /// </summary>
+    [Fact]
+    public void RelatedFileOfAnAttachment_EncryptedLikeTheAttachment_WhenSaved()
+    {
+        var plain = Encoding.ASCII.GetBytes("Zugehörige Datei: Gehaltsliste 2026");
+        byte[] firstId = [.. Enumerable.Range(1, 16).Select(i => (byte)(i * 7))];
+        var (_, handler) = StandardSecurityHandler.Create(PdfCipher.Aes128, "Anhang", "Anhang", PdfPermissions.Print, firstId, true);
+        var pdf = TestPdf.Simple(1);
+        var file = pdf.Add(new PdfStream(TestPdf.Dict(("Type", TestPdf.N("EmbeddedFile"))), "Anlage"u8.ToArray()));
+        var related = pdf.Add(new PdfStream(new PdfDictionary(), []));
+        pdf.Replace(related, new PdfStream(new PdfDictionary(), handler.EncryptStream(new PdfObjectId(related, 0), plain, PdfCipher.Aes128)));
+        var spec = pdf.Add(TestPdf.Dict(("Type", TestPdf.N("Filespec")), ("F", new PdfString("anlage.txt"u8.ToArray())),
+            ("EF", TestPdf.Dict(("F", TestPdf.Ref(file)))),
+            ("RF", TestPdf.Dict(("F", new PdfArray([new PdfString("liste.txt"u8.ToArray()), TestPdf.Ref(related)]))))));
+        ((PdfDictionary)pdf.Get(pdf.RootNumber)).Set(PdfName.Get("Names"),
+            TestPdf.Dict(("EmbeddedFiles", TestPdf.Dict(("Names", new PdfArray([new PdfString("anlage.txt"u8.ToArray()), TestPdf.Ref(spec)]))))));
+        using var doc = PdfDocument.Open(pdf.Build(cipher: PdfCipher.Aes128, user: "Anhang", owner: "Anhang", attachmentsOnly: true));
+        Assert.Equal(PdfDocument.AttachmentUnlock.Opened, doc.UnlockAttachments("Anhang"));
+        Assert.Equal(plain, doc.DecodeStream((PdfStream)doc.GetObject(related)).Data);
+
+        using var copy = PdfDocument.Open(Save(doc, new PdfSaveOptions()));
+        var rf = FindRelated(copy);
+        Assert.False(copy.StoredStreamData(rf).IndexOf(plain) >= 0, "die zugehörige Datei steht unverschlüsselt in der Kopie");
+        Assert.Equal(PdfDocument.AttachmentUnlock.Opened, copy.UnlockAttachments("Anhang"));
+        Assert.Equal(plain, copy.DecodeStream(rf).Data);
+
+        static PdfStream FindRelated(PdfDocument d)
+        {
+            var names = d.Catalog!.GetDictionary(PdfName.Get("Names"))!.GetDictionary(PdfName.Get("EmbeddedFiles"))!.GetArray(PdfName.Get("Names"))!;
+            var specification = (PdfDictionary)names.Get(1);
+            return (PdfStream)specification.GetDictionary(PdfName.Get("RF"))!.GetArray(PdfName.Get("F"))!.Get(1);
+        }
+    }
 }

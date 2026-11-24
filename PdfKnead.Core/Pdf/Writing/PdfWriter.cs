@@ -632,6 +632,42 @@ public static partial class PdfWriter
         /// deprecated in PDF 2.0 (ISO 32000-2, 7.6.4.2, Table 20) while a new one would need the passwords: then 1.7 (No. 371).</item>
         /// </list>
         /// </summary>
+        /// <summary>
+        /// The encryption dictionary with the /Length of the standard handler's AES crypt filters in bytes (16 for AESV2, 32 for AESV3 and
+        /// AESV4) where it stood in bits (ISO 32000-2, 7.6.6, Table 25 with pdf-issues 184; ISO/TS 32003, 5: AESV4 as AESV3); a copy, the
+        /// source's dictionary unchanged (docs/FEHLERGEDAECHTNIS.md, No. 1096).
+        /// </summary>
+        internal static PdfDictionary CryptFilterLengthInBytes(PdfDictionary encrypt)
+        {
+            if (encrypt.GetName(PdfName.Get("Filter"))?.Value != "Standard" || encrypt.GetDictionary(PdfName.Get("CF")) is not { } cf) return encrypt;
+            PdfDictionary? newCf = null;
+            foreach (var (name, _) in cf.Entries)
+            {
+                if (cf.GetDictionary(name) is not { } filter) continue;
+                var bytes = (filter.GetName(PdfName.Get("CFM"))?.Value, filter.GetInteger(PdfName.Length)) switch
+                {
+                    ("AESV2", 128) => 16,
+                    ("AESV3" or "AESV4", 256) => 32,
+                    _ => 0,
+                };
+                if (bytes == 0) continue;
+                var copy = new PdfDictionary();
+                foreach (var (key, value) in filter.Entries) copy.Set(key, value);
+                copy.Set(PdfName.Length, PdfInteger.Of(bytes));
+                if (newCf is null)
+                {
+                    newCf = new PdfDictionary();
+                    foreach (var (key, value) in cf.Entries) newCf.Set(key, value);
+                }
+                newCf.Set(name, copy);
+            }
+            if (newCf is null) return encrypt;
+            var result = new PdfDictionary();
+            foreach (var (key, value) in encrypt.Entries) result.Set(key, value);
+            result.Set(PdfName.Get("CF"), newCf);
+            return result;
+        }
+
         private string WrittenVersion()
         {
             var version = PdfWriter.Versions.Contains(_options.Version) ? _options.Version : "1.7";
@@ -646,7 +682,9 @@ public static partial class PdfWriter
             {
                 var required = RequiredVersion(security);
                 if (CompareVersions(required, version) > 0) version = required;
-                if (security.Revision <= 4 && CompareVersions(version, "2.0") >= 0) version = "1.7";
+                // revisions 2 to 4 are deprecated in 2.0 (No. 371), and revision 5 never belonged to it (ISO 32000-2, 7.6.4.2, Table 21: it shall
+                // not be used) — a kept revision 5 went into a 2.0 file (docs/FEHLERGEDAECHTNIS.md, No. 1098)
+                if (security.Revision <= 5 && CompareVersions(version, "2.0") >= 0) version = "1.7";
             }
             return version;
         }
@@ -690,11 +728,9 @@ public static partial class PdfWriter
                     protection.OwnerPassword, protection.Permissions, _firstId);
                 // /Length belongs to V 2 and 3; in 2.0 it is deprecated for V 5 (ISO 32000-2, Table 20; No. 551)
                 if (Pdf20) dict.Remove(PdfName.Length);
-                // the crypt filter's /Length counts bits in 2.0 (Table 25: 128 for AESV2, 256 for AESV3), bytes in ISO 32000-1 (16, 32) —
-                // as the version written (docs/FEHLERGEDAECHTNIS.md, No. 753)
-                if (Pdf20 && dict.GetDictionary(PdfName.Get("CF"))?.GetDictionary(PdfName.Get("StdCF")) is { } stdCf
-                    && stdCf.GetInteger(PdfName.Length) is 16 or 32 && stdCf.GetInteger(PdfName.Length) is { } bytes)
-                    stdCf.Set(PdfName.Length, PdfInteger.Of(bytes * 8));
+                // the crypt filter's /Length stays in bytes in every version: the standard security handler counts it so (ISO 32000-2, 7.6.6,
+                // Table 25, with the resolution of pdf-issues 184 approved by ISO: 16 for AESV2, 32 for AESV3; bits only for public-key
+                // handlers) — No. 753 had written bits in 2.0 (docs/FEHLERGEDAECHTNIS.md, No. 1096)
                 _security = handler;
                 _encryptDict = dict;
             }
@@ -719,6 +755,9 @@ public static partial class PdfWriter
                 // without the file key (only the attachments encrypted, locked) nothing can be sealed anew: /Encrypt stays as it is (No. 560)
                 if (!_options.GrantAllPermissions && SourceHadMac(encryptionSource) && !_writeMac && _security.HasFileKey)
                     (_encryptDict, _security) = _security.WithoutMacRequirement(_encryptDict);
+                // a crypt filter of the standard handler with its /Length in bits (128, 256 — so No. 753 wrote it in 2.0) is written in
+                // bytes, as Table 25 with the resolution of pdf-issues 184 asks; the key does not depend on it (No. 1096)
+                _encryptDict = CryptFilterLengthInBytes(_encryptDict);
                 _keepsFilters = true;
                 // (the version this encryption needs, and 1.7 instead of 2.0 for revisions 2 to 4: WrittenVersion; No. 371)
             }
@@ -5666,7 +5705,7 @@ public static partial class PdfWriter
 
         /// <summary>Whether a stream of a source is an embedded file (/Type /EmbeddedFile, or named by an /EF of a file specification).</summary>
         private bool IsEmbeddedFileStream(PdfStream stream, Source source) =>
-            stream.Dictionary.IsType(PdfName.Get("EmbeddedFile")) || EmbeddedFiles(source).Contains(stream);
+            stream.Dictionary.IsType(PdfName.Get("EmbeddedFile")) || EmbeddedFiles(source).Contains(stream) || RelatedFiles(source).Contains(stream);
 
         private static void RemoveFirstFilter(PdfDictionary dict)
         {

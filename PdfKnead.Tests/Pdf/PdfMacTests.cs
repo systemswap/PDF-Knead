@@ -248,4 +248,21 @@ public sealed class PdfMacTests
         // without an open password: a start file for the fuzzer, which opens files without one
         File.WriteAllBytes(Path.Combine(folder, "mac-ohne-passwort.pdf"), MacFile(user: ""));
     }
+    /// <summary>
+    /// Only the attachments encrypted (AES-256, /EFF with EFOpen), opened without their password: the file key is not there, so the MAC is
+    /// „not checkable“ — before, an empty key was derived and the MAC reported as violated. A file asking for a MAC (bit 13 cleared) and
+    /// carrying none is reported as such — before, the locked handler had bit 13 set (docs/FEHLERGEDAECHTNIS.md, No. 1099).
+    /// </summary>
+    [Theory]
+    [InlineData(TestMac.Real, MacState.NotCheckable)]
+    [InlineData(TestMac.None, MacState.MissingButRequired)]
+    public void Mac_AttachmentsLocked_NotCheckableOrMissing(TestMac mac, MacState expected)
+    {
+        var file = TestPdf.Simple().Build(cipher: PdfCipher.Aes256, user: "geheim", owner: "chef", version: "2.0", macRequired: true, mac: mac,
+            attachmentsOnly: true, patchEncrypt: e => e.Set(PdfName.Get("CF"), TestPdf.Dict(("StdCF", TestPdf.Dict(("AuthEvent", TestPdf.N("EFOpen")),
+                ("CFM", TestPdf.N("AESV3")), ("Length", PdfInteger.Of(32)))))));
+        using var doc = PdfDocument.Open(file);
+        Assert.True(doc.Security!.AttachmentsLocked);
+        Assert.Equal(expected, doc.Integrity.State);
+    }
 }

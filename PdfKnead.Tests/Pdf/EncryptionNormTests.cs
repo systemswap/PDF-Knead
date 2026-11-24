@@ -10,7 +10,7 @@ namespace PdfKnead.Tests.Pdf;
 /// <summary>
 /// Encryption (ISO 32000-2, 7.6; Konformitätsabgleich M4, docs/normabgleich/M4-verschluesselung.md). Nachweise „EN.“ in the report.
 /// </summary>
-public sealed class EncryptionNormTests
+public sealed partial class EncryptionNormTests
 {
     /// <summary>A file with one page whose catalogue also names object 4 (<paramref name="extra"/>, a stream).</summary>
     private static byte[] FileWith(string extra)
@@ -69,16 +69,16 @@ public sealed class EncryptionNormTests
     /// <summary>
     /// SASLprep (RFC 4013 with the tables of RFC 3454) against the tables of the RFC itself, code point by code point: mapped to nothing (B.1),
     /// non-ASCII spaces (C.1.2), prohibited (C.2.1 to C.9), unassigned in Unicode 3.2 (A.1, refused for stored strings), right-to-left (D.1) and
-    /// left-to-right (D.2). Local only: PDFKNEAD_RFC names the folder with rfc3454.txt (Normen-ISO/grundlagen/rfc); without it the test passes
-    /// without checking. Konformitätsabgleich M4, E1 (Grundlagen).
+    /// left-to-right (D.2); the case foldings B.2 and B.3 SASLprep does not use (the password keeps its case). Local only: rfc3454.txt in
+    /// Normen-ISO/grundlagen/rfc (or the folder PDFKNEAD_RFC names); without it the test is skipped — before, it passed without checking
+    /// (docs/FEHLERGEDAECHTNIS.md, No. 1095). Konformitätsabgleich M4.
     /// </summary>
-    [Fact]
+    [Rfc3454Fact]
     public void SaslPrep_AgainstTheTablesOfRfc3454()
     {
-        if (Environment.GetEnvironmentVariable("PDFKNEAD_RFC") is not { Length: > 0 } folder) return;
         var tables = new Dictionary<string, HashSet<int>>();
         HashSet<int>? current = null;
-        foreach (var line in File.ReadLines(Path.Combine(folder, "rfc3454.txt")))
+        foreach (var line in File.ReadLines(Rfc3454FactAttribute.Path()!))
         {
             var start = System.Text.RegularExpressions.Regex.Match(line, @"----- Start Table ([A-D][.0-9]+) -----");
             if (start.Success)
@@ -110,6 +110,12 @@ public sealed class EncryptionNormTests
             // RFC 4013 maps C.1.2 to a space (2.1) before B.1 to nothing (2.2): U+200B stands in both
             if ((tables["B.1"].Contains(c) && !tables["C.1.2"].Contains(c)) != (prepared.Length == 0)) Mismatch("B.1 auf nichts abgebildet", c);
             if (tables["C.1.2"].Contains(c) && prepared is not [0x20]) Mismatch("C.1.2 Leerzeichen", c);
+            // unassigned in Unicode 3.2 (A.1): refused whatever NFKC of the runtime makes of it (No. 1095: U+1D2C passed as „A“)
+            if (tables["A.1"].Contains(c) && StandardSecurityHandler.SaslRefusal(s) is null) Mismatch("A.1 nicht zugewiesen, nicht abgelehnt", c);
+            // B.2 and B.3 (case folding) are not part of SASLprep: the prepared password is NFKC of the character, its case kept
+            if ((tables["B.2"].Contains(c) || tables["B.3"].Contains(c)) && !tables["B.1"].Contains(c) && !tables["C.1.2"].Contains(c)
+                && !prepared.AsSpan().SequenceEqual(Encoding.UTF8.GetBytes(s.Normalize(NormalizationForm.FormKC))))
+                Mismatch("B.2/B.3 gefaltet", c);
             string stable;
             try
             {
@@ -119,7 +125,7 @@ public sealed class EncryptionNormTests
             {
                 continue;
             }
-            if (stable != s || tables["B.1"].Contains(c) || tables["C.1.2"].Contains(c)) continue;   // only characters that stay as they are
+            if (stable != s || tables["B.1"].Contains(c) || tables["C.1.2"].Contains(c)) continue;   // the remaining checks: characters that stay
             var expectRefused = prohibited.Contains(c) || tables["A.1"].Contains(c);
             var refused = StandardSecurityHandler.SaslRefusal(s) is not null;
             if (expectRefused && !refused) Mismatch(tables["A.1"].Contains(c) ? "A.1 nicht zugewiesen, nicht abgelehnt" : "C verboten, nicht abgelehnt", c);
@@ -176,11 +182,12 @@ public sealed class EncryptionNormTests
     }
 
     /// <summary>
-    /// 7.6.6, Table 25: the /Length of the crypt filter counts bits in PDF 2.0 (256 for AESV3) and bytes in ISO 32000-1 (32) — before, a new
-    /// protection wrote 32 in 2.0 as well (docs/FEHLERGEDAECHTNIS.md, No. 753). The file opens either way.
+    /// 7.6.6, Table 25: the standard security handler counts the /Length of the crypt filter in bytes in every version (32 for AESV3; the
+    /// resolution of pdf-issues 184, approved by ISO, keeps 128/256 for public-key handlers) — No. 753 had written 256 in 2.0
+    /// (docs/FEHLERGEDAECHTNIS.md, No. 1096). The file opens either way.
     /// </summary>
     [Theory]
-    [InlineData("2.0", 256)]
+    [InlineData("2.0", 32)]
     [InlineData("1.7", 32)]
     public void CryptFilterLength_AsTheVersionCounts(string version, int length)
     {
@@ -193,6 +200,26 @@ public sealed class EncryptionNormTests
         Assert.Equal("AESV3", std.GetName(PdfName.Get("CFM"))!.Value);
         Assert.Equal(length, std.GetInteger(PdfName.Length));
         Assert.Equal("ABC"u8.ToArray(), saved.DecodeStream(Assert.IsType<PdfStream>(saved.Catalog!.Get(PdfName.Get("Extra")))).Data);
+    }
+
+    /// <summary>
+    /// A kept encryption whose crypt filter of the standard handler gives its /Length in bits (256 for AESV3, as No. 753 wrote it in 2.0) is
+    /// written with 32 bytes (Table 25 with pdf-issues 184); the source's dictionary stays as it is, the copy opens with its password
+    /// (docs/FEHLERGEDAECHTNIS.md, No. 1096).
+    /// </summary>
+    [Theory]
+    [InlineData("2.0")]
+    [InlineData("1.7")]
+    public void CryptFilterLength_InBits_WrittenInBytesWhenKept(string version)
+    {
+        using var doc = PdfDocument.Open(PdfKnead.Tests.Pdf.TestPdf.Simple(1).Build(cipher: PdfCipher.Aes256, user: "geheim", owner: "Besitzer"), "geheim");
+        var std = doc.EncryptDictionary!.GetDictionary(PdfName.Get("CF"))!.GetDictionary(PdfName.Get("StdCF"))!;
+        std.Set(PdfName.Length, PdfInteger.Of(256));
+        using var output = new MemoryStream();
+        PdfWriter.Write(doc, PageItem.From(doc), output, new PdfSaveOptions { Version = version, KeepEncryption = true });
+        using var saved = PdfDocument.Open(output.ToArray(), "geheim");
+        Assert.Equal(32, saved.EncryptDictionary!.GetDictionary(PdfName.Get("CF"))!.GetDictionary(PdfName.Get("StdCF"))!.GetInteger(PdfName.Length));
+        Assert.Equal(256, std.GetInteger(PdfName.Length));
     }
 
     /// <summary>

@@ -576,6 +576,18 @@ public static partial class PdfWriter
         }
 
         private readonly Dictionary<Source, HashSet<PdfStream>> _embeddedFiles = [];
+        private readonly Dictionary<Source, HashSet<PdfStream>> _relatedFiles = [];
+
+        /// <summary>
+        /// The streams of the related-files arrays (/RF) of the file specifications of a source: embedded file streams too, encrypted with
+        /// the method of the embedded files (ISO 32000-2, 7.6.6: /RF uses the filter of /EF) — found by the same walk as
+        /// <see cref="EmbeddedFiles"/> (docs/FEHLERGEDAECHTNIS.md, No. 1100).
+        /// </summary>
+        private HashSet<PdfStream> RelatedFiles(Source source)
+        {
+            if (!_relatedFiles.ContainsKey(source)) EmbeddedFiles(source);
+            return _relatedFiles[source];
+        }
 
         /// <summary>
         /// The embedded files of a source: every stream an /EF of a file specification names (/Type /EmbeddedFile is optional, so the
@@ -585,6 +597,7 @@ public static partial class PdfWriter
         {
             if (_embeddedFiles.TryGetValue(source, out var known)) return known;
             var found = new HashSet<PdfStream>(ReferenceEqualityComparer.Instance);
+            var related = new HashSet<PdfStream>(ReferenceEqualityComparer.Instance);
             var queue = new Queue<int>();
             var seen = new HashSet<int>();
             void Walk(PdfObject obj, int depth)
@@ -605,6 +618,11 @@ public static partial class PdfWriter
                         if (PdfACheck.IsFileSpec(dict) && dict.GetDictionary(PdfName.Get("EF")) is { } files)
                             foreach (var (key, _) in files.Entries)
                                 if (files.Get(key) is PdfStream file) found.Add(file);
+                        if (PdfACheck.IsFileSpec(dict) && dict.GetDictionary(PdfName.Get("RF")) is { } relatedFiles)
+                            foreach (var (key, _) in relatedFiles.Entries)
+                                if (relatedFiles.Get(key) is PdfArray list)
+                                    for (var i = 0; i < list.Count; i++)
+                                        if (list.Get(i) is PdfStream file) related.Add(file);
                         foreach (var (_, value) in dict.Entries) Walk(value, depth + 1);
                         return;
                 }
@@ -622,6 +640,7 @@ public static partial class PdfWriter
                     // an object that cannot be read holds no file specification
                 }
             }
+            _relatedFiles[source] = related;
             return _embeddedFiles[source] = found;
         }
 

@@ -1399,6 +1399,10 @@ public static class English
         ["Das Passwort enthält ein Nichtzeichen."] = "The password contains a noncharacter.",
         ["Das Passwort enthält ein Zeichen, das in Passwörtern nicht erlaubt ist (Steuerung der Darstellung oder Schreibrichtung)."] = "The password contains a character not allowed in passwords (controlling display or writing direction).",
         ["Das Passwort enthält ein nicht zugewiesenes Zeichen."] = "The password contains an unassigned character.",
+        ["Den Integritätsschutz kann PDF-Knead erst prüfen, wenn die Anhänge mit ihrem Passwort entsperrt sind."] =
+            "PDF-Knead can check the integrity protection only once the attachments are unlocked with their password.",
+        ["Das Passwort enthält eine Zeichenfolge, die nach älteren und neueren Unicode-Regeln verschieden normalisiert wird."] =
+            "The password contains a sequence that older and newer Unicode rules normalise differently.",
         ["Das Passwort mischt Schreibrichtungen (zum Beispiel hebräische oder arabische mit lateinischen Buchstaben) — das ist in Passwörtern nicht erlaubt."] = "The password mixes writing directions (for example Hebrew or Arabic with Latin letters) — that is not allowed in passwords.",
         ["Integritätsschutz (MAC) verletzt: {0}"] = "Integrity protection (MAC) violated: {0}",
         ["Die Datei verlangt einen Integritätsschutz (MAC nach ISO/TS 32004), hat aber keinen — nicht normgerecht, die Unversehrtheit ist nicht nachweisbar."] = "The file asks for integrity protection (MAC per ISO/TS 32004) but has none — not conforming, its integrity cannot be shown.",

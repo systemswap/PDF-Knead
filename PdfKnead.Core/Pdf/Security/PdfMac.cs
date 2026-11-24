@@ -202,6 +202,10 @@ public static class PdfMac
                 : new MacCheck(MacState.None);
         if (newest.GetDictionary(AuthCodeKey) is not { } authCode)
             return required ? new MacCheck(MacState.MissingButRequired, null, empty) : new MacCheck(MacState.None);
+        // only the attachments encrypted and not unlocked: without the file key the MAC key cannot be unwrapped — not checkable, not
+        // „violated“ (docs/FEHLERGEDAECHTNIS.md, No. 1099)
+        if (!security.HasFileKey)
+            return new MacCheck(MacState.NotCheckable, Tr.T("Den Integritätsschutz kann PDF-Knead erst prüfen, wenn die Anhänge mit ihrem Passwort entsperrt sind."), empty);
         try
         {
             var result = Standalone(doc, security, encrypt, authCode);
