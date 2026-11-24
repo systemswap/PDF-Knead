@@ -56,7 +56,18 @@ public static class PdfMac
     // ------------------------------------------------------------ building blocks
 
     /// <summary>AES key wrap without padding (RFC 3394, 2.2.1): the key in 64-bit blocks, six rounds, the integrity value A6…A6 in front.</summary>
-    public static byte[] Wrap(byte[] kek, byte[] key)
+    public static byte[] Wrap(byte[] kek, byte[] key) => Wrap(kek, key, null);
+
+    /// <summary>
+    /// For the tests: called at every step t of <see cref="Wrap(byte[], byte[], KeyWrapStep?)"/> and
+    /// <see cref="Unwrap(byte[], byte[], KeyWrapStep?)"/> with copies of A and R, under the names of the tables of RFC 3394, section 4
+    /// („In“, „Enc“, „XorT“ when wrapping; „In“, „XorT“, „Dec“ when unwrapping). Without one nothing happens.
+    /// </summary>
+    internal delegate void KeyWrapStep(int t, string phase, byte[] a, byte[] r);
+
+    /// <inheritdoc cref="Wrap(byte[], byte[])"/>
+    /// <param name="step">Observes every step (tests only); null in every other caller.</param>
+    internal static byte[] Wrap(byte[] kek, byte[] key, KeyWrapStep? step)
     {
         if (key.Length < 16 || key.Length % 8 != 0) throw new ArgumentException("RFC 3394 wraps 64-bit blocks, at least two.", nameof(key));
         var n = key.Length / 8;
@@ -68,18 +79,28 @@ public static class PdfMac
         for (var j = 0; j <= 5; j++)
             for (var i = 1; i <= n; i++)
             {
+                step?.Invoke(n * j + i, "In", a.ToArray(), r.ToArray());
                 a.CopyTo(block, 0);
                 Array.Copy(r, (i - 1) * 8, block, 8, 8);
                 var b = aes.EncryptEcb(block, PaddingMode.None);
                 var t = (ulong)(n * j + i);
                 BinaryPrimitives.WriteUInt64BigEndian(a, BinaryPrimitives.ReadUInt64BigEndian(b) ^ t);
                 Array.Copy(b, 8, r, (i - 1) * 8, 8);
+                if (step is not null)
+                {
+                    step((int)t, "Enc", b[..8], r.ToArray());
+                    step((int)t, "XorT", a.ToArray(), r.ToArray());
+                }
             }
         return [.. a, .. r];
     }
 
     /// <summary>Unwraps (RFC 3394, 2.2.2); null if the integrity value does not come out (another key, or changed).</summary>
-    public static byte[]? Unwrap(byte[] kek, byte[] wrapped)
+    public static byte[]? Unwrap(byte[] kek, byte[] wrapped) => Unwrap(kek, wrapped, null);
+
+    /// <inheritdoc cref="Unwrap(byte[], byte[])"/>
+    /// <param name="step">Observes every step (tests only); null in every other caller.</param>
+    internal static byte[]? Unwrap(byte[] kek, byte[] wrapped, KeyWrapStep? step)
     {
         if (wrapped.Length < 24 || wrapped.Length % 8 != 0) return null;
         var n = wrapped.Length / 8 - 1;
@@ -92,11 +113,14 @@ public static class PdfMac
             for (var i = n; i >= 1; i--)
             {
                 var t = (ulong)(n * j + i);
+                step?.Invoke((int)t, "In", a.ToArray(), r.ToArray());
                 BinaryPrimitives.WriteUInt64BigEndian(block, BinaryPrimitives.ReadUInt64BigEndian(a) ^ t);
                 Array.Copy(r, (i - 1) * 8, block, 8, 8);
+                step?.Invoke((int)t, "XorT", block[..8], r.ToArray());
                 var b = aes.DecryptEcb(block, PaddingMode.None);
                 Array.Copy(b, 0, a, 0, 8);
                 Array.Copy(b, 8, r, (i - 1) * 8, 8);
+                step?.Invoke((int)t, "Dec", a.ToArray(), r.ToArray());
             }
         return CryptographicOperations.FixedTimeEquals(a, KeyWrapIv) ? r : null;
     }
@@ -227,7 +251,9 @@ public static class PdfMac
         if (location != "Standalone") return new MacCheck(MacState.NotCheckable, Tr.T("Unbekannte Lage des MAC („{0}“).", location));
 
         // the byte range: [0 L1 S L2], to the end of the file, the gap exactly „<“ hexadecimal digits „>“ (5.2.3, Table 6)
+        // four integers (Table 6) — a real was truncated and taken (docs/FEHLERGEDAECHTNIS.md, No. 1109)
         if (authCode.GetArray(PdfName.Get("ByteRange")) is not { Count: 4 } range
+            || Enumerable.Range(0, 4).Any(i => range.Get(i) is not PdfInteger)
             || range.GetNumber(0) is not 0.0 || range.GetNumber(1) is not { } l1 || range.GetNumber(2) is not { } s || range.GetNumber(3) is not { } l2
             || l1 < 1 || s <= l1 || l2 < 0)
             return new MacCheck(MacState.Invalid, Tr.T("Die Byte-Bereiche des Integritätsschutzes sind ungültig."));

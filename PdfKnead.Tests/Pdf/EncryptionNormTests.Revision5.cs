@@ -22,7 +22,7 @@ public sealed partial class EncryptionNormTests
     /// /UE = the file key encrypted with SHA-256(password ‖ key salt) (AES-256-CBC, no padding, zero IV), /O and /OE the same with /U appended,
     /// /Perms with „adb“; object 4 a stream with „ABC“ encrypted with the file key (AES-256-CBC, random IV, PKCS#7 padding).
     /// </summary>
-    private static byte[] Revision5File(int permissions = -3904)
+    private static byte[] Revision5File(int permissions = -3904, string userPassword = "nutzer")
     {
         static byte[] Sha(params byte[][] parts) => SHA256.HashData(parts.SelectMany(p => p).ToArray());
         static byte[] Wrap(byte[] key, byte[] data)
@@ -31,7 +31,7 @@ public sealed partial class EncryptionNormTests
             aes.Key = key;
             return aes.EncryptCbc(data, new byte[16], PaddingMode.None);
         }
-        var user = "nutzer"u8.ToArray();
+        var user = Encoding.UTF8.GetBytes(userPassword);
         var owner = "eigner"u8.ToArray();
         byte[] userValidation = [1, 2, 3, 4, 5, 6, 7, 8], userKey = [9, 10, 11, 12, 13, 14, 15, 16];
         byte[] ownerValidation = [17, 18, 19, 20, 21, 22, 23, 24], ownerKey = [25, 26, 27, 28, 29, 30, 31, 32];
@@ -57,6 +57,13 @@ public sealed partial class EncryptionNormTests
             var iv = Enumerable.Range(0, 16).Select(i => (byte)(200 - i)).ToArray();
             stream = [.. iv, .. aes.EncryptCbc("ABC"u8, iv, PaddingMode.PKCS7)];
         }
+        byte[] page;
+        using (var aes = Aes.Create())
+        {
+            aes.Key = R5Key;
+            var iv = Enumerable.Range(0, 16).Select(i => (byte)(100 + i)).ToArray();
+            page = [.. iv, .. aes.EncryptCbc("BT /F1 18 Tf 20 100 Td (Revision 5) Tj ET"u8, iv, PaddingMode.PKCS7)];
+        }
         static string Hex(byte[] b) => "<" + Convert.ToHexString(b) + ">";
 
         var output = new MemoryStream();
@@ -70,13 +77,18 @@ public sealed partial class EncryptionNormTests
         }
         Object("<< /Type /Catalog /Pages 2 0 R /Extra 4 0 R /Extensions << /ADBE << /BaseVersion /1.7 /ExtensionLevel 3 >> >> >>");
         Object("<< /Type /Pages /Kids [3 0 R] /Count 1 >>");
-        Object("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>");
+        Object("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 6 0 R " +
+               "/Resources << /Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> >> >> >>");
         offsets.Add(output.Position);
         Write($"4 0 obj\n<< /Length {stream.Length} >>\nstream\n");
         output.Write(stream);
         Write("\nendstream\nendobj\n");
         Object($"<< /Filter /Standard /V 5 /R 5 /Length 256 /P {permissions} /O {Hex(o)} /U {Hex(u)} /OE {Hex(oe)} /UE {Hex(ue)} " +
                $"/Perms {Hex(sealedPerms)} /CF << /StdCF << /CFM /AESV3 /AuthEvent /DocOpen /Length 32 >> >> /StmF /StdCF /StrF /StdCF >>");
+        offsets.Add(output.Position);
+        Write($"6 0 obj\n<< /Length {page.Length} >>\nstream\n");
+        output.Write(page);
+        Write("\nendstream\nendobj\n");
         var xref = output.Position;
         Write($"xref\n0 {offsets.Count + 1}\n0000000000 65535 f \n");
         foreach (var off in offsets) Write($"{off:D10} 00000 n \n");

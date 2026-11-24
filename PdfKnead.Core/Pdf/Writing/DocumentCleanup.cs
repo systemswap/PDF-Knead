@@ -261,6 +261,9 @@ public static class DocumentCleanup
         if (items.HasFlag(CleanupItems.Thumbnails) && key == Thumb) return true;
         // Also /EF in file specifications outside /EmbeddedFiles (actions, media, GoToE)
         if (items.HasFlag(CleanupItems.Attachments) && (key == EmbeddedFiles || key == AF || key == EmbeddedFile)) return true;
+        // the portfolio view of the catalogue presents the attachments: without them its /D would name a file that is gone (ISO 32000-2,
+        // 12.3.5; docs/FEHLERGEDAECHTNIS.md, No. 1104)
+        if (items.HasFlag(CleanupItems.Attachments) && key == CollectionKey) return true;
         if (items.HasFlag(CleanupItems.Scripts))
         {
             if (key == JavaScript || key == AA || key == Xfa) return true;   // XFA forms carry scripts
@@ -288,6 +291,7 @@ public static class DocumentCleanup
     }
 
     private static readonly PdfName Templates = PdfName.Get("Templates");
+    private static readonly PdfName CollectionKey = PdfName.Get("Collection");
 
     /// <summary>Keys of <see cref="CleanupItems.OtherData"/>.</summary>
     private static readonly HashSet<string> OtherDataKeys =
@@ -380,6 +384,7 @@ public static class DocumentCleanup
                         if (key == EmbeddedFile && KeepsFile(d, kept, doc)) drop = false;
                         else if (key == AF && KeptOf(value, kept, doc) is { } keptAf) (drop, replaced) = (false, keptAf);
                         else if (key == EmbeddedFiles && KeptTree(value, kept, doc) is { } keptTree) (drop, replaced) = (false, keptTree);
+                        else if (key == CollectionKey) drop = false;   // files stay: so does their portfolio view (No. 1104)
                     }
                     var filtered = replaced ?? (drop || value is not (PdfDictionary or PdfArray) ? value : Filter(value, items, doc, depth + 1, kept));
                     if (!drop && ReferenceEquals(filtered, value) && copy is null) continue;

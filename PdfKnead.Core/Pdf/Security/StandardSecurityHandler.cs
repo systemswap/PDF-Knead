@@ -59,7 +59,7 @@ public enum PdfCipher
 /// <remarks>Immutable after creation; decryption and encryption may be called from several threads.</remarks>
 public sealed class StandardSecurityHandler
 {
-    private static readonly byte[] Padding =
+    internal static readonly byte[] Padding =
     [
         0x28, 0xBF, 0x4E, 0x5E, 0x4E, 0x75, 0x8A, 0x41, 0x64, 0x00, 0x4E, 0x56, 0xFF, 0xFA, 0x01, 0x08,
         0x2E, 0x2E, 0x00, 0xB6, 0xD0, 0x68, 0x3E, 0x80, 0x2F, 0x0C, 0xA9, 0xFE, 0x64, 0x53, 0x69, 0x7A,
@@ -175,12 +175,18 @@ public sealed class StandardSecurityHandler
         var o = encrypt.GetString(PdfName.Get("O"))?.Bytes ?? [];
         var u = encrypt.GetString(PdfName.Get("U"))?.Bytes ?? [];
         var p = (int)(encrypt.GetInteger(PdfName.Get("P")) ?? -1);
-        var encryptMetadata = encrypt.GetBoolean(PdfName.Get("EncryptMetadata")) ?? true;
+        // /EncryptMetadata counts with crypt filters only (V 4 and 5, ISO 32000-2, 7.6.4.2, Table 21; V 6 of ISO/TS 32003 as V 5): with V 1 to
+        // 3 the document's metadata is encrypted like any stream — before, „false“ was obeyed there too and the encrypted XMP read as plain
+        // garbage (docs/FEHLERGEDAECHTNIS.md, No. 1101)
+        var encryptMetadata = v < 4 || (encrypt.GetBoolean(PdfName.Get("EncryptMetadata")) ?? true);
         var permissions = (PdfPermissions)p & PdfPermissions.All;
 
         var notes = new List<string>();
         var (stringCipher, streamCipher) = Ciphers(encrypt, v, notes);
         var (named, embedded) = Filters(encrypt, v, streamCipher, notes);
+        // V 6 belongs to revision 7 (ISO/TS 32003, 5.1, Table 3): another revision is read as the password algorithm of revision 6 allows,
+        // and said — revision 7 without V 6 is refused (docs/FEHLERGEDAECHTNIS.md, No. 1106)
+        if (v == 6 && r != 7) notes.Add(Tr.T("Die Verschlüsselung nennt Version 6 (AES-GCM) mit Revision {0} statt 7.", r));
         StandardSecurityHandler handler;
         try
         {
@@ -236,6 +242,10 @@ public sealed class StandardSecurityHandler
             throw new PdfException(Tr.T("Verschlüsselung Version 6 ohne AES-GCM-Filter (AESV4)."));
         var eff = encrypt.GetName(PdfName.Get("EFF"));
         var embedded = eff is null ? streams : eff.Value == "Identity" ? PdfCipher.None : named.TryGetValue(eff.Value, out var c) ? c : streams;
+        // every filter named must stand in /CF (Table 20): an unknown one for the embedded files is said, as for /StmF and /StrF — read with
+        // the filter of the streams as before (docs/FEHLERGEDAECHTNIS.md, No. 1102)
+        if (eff is not null && eff.Value != "Identity" && !named.ContainsKey(eff.Value))
+            notes.Add(Tr.T("Der Kryptfilter der Anhänge (/EFF „{0}“) fehlt in der Verschlüsselung — die Anhänge werden wie die übrigen Datenströme gelesen.", eff.Value));
         return (named, embedded);
     }
 
@@ -290,7 +300,15 @@ public sealed class StandardSecurityHandler
                 throw new PdfException(Tr.T("Verschlüsselungsdaten unvollständig."));
             var pwd = PrepareAesPassword(password ?? "");
             var owner = OpenAes256(r, pwd, o, u, oe, ue, owner: true);
-            var key = owner ?? OpenAes256(r, pwd, o, u, oe, ue, owner: false) ?? throw PasswordError(password);
+            var key = owner ?? OpenAes256(r, pwd, o, u, oe, ue, owner: false);
+            // a password with one of the ideographs Unicode decomposed differently after 3.2: also the form of the runtime, for files whose
+            // writer normalised that way (No. 1107)
+            if (key is null && PreparedWithRuntimeNormalisation(password ?? "") is { } other)
+            {
+                owner = OpenAes256(r, other, o, u, oe, ue, owner: true);
+                key = owner ?? OpenAes256(r, other, o, u, oe, ue, owner: false);
+            }
+            if (key is null) throw PasswordError(password);
             // /Perms with both passwords (ISO 32000-2, 7.6.4.3.3, algorithm 2.A f): the sealed bits count, byte 8 says /EncryptMetadata
             var (state, sealedP, sealedMetadata) = PermsOf(encrypt, key, p, encryptMetadata);
             var effectiveMetadata = sealedMetadata ?? encryptMetadata;
@@ -394,7 +412,7 @@ public sealed class StandardSecurityHandler
     private static byte[] PasswordBytes(string password) => Pad(PdfTextEncoding.EncodeDocEncoding(password) ?? Encoding.Latin1.GetBytes(password));
 
     /// <summary>Password to 32 bytes: truncated and filled up with the fixed padding.</summary>
-    private static byte[] Pad(byte[] raw)
+    internal static byte[] Pad(byte[] raw)
     {
         var padded = new byte[32];
         var n = Math.Min(32, raw.Length);
@@ -404,7 +422,7 @@ public sealed class StandardSecurityHandler
     }
 
     /// <summary>Algorithm 2: file key from the (padded) user password.</summary>
-    private static byte[] ComputeKey(byte[] paddedPassword, byte[] o, int p, byte[] firstId, int r, int keyLength, bool encryptMetadata)
+    internal static byte[] ComputeKey(byte[] paddedPassword, byte[] o, int p, byte[] firstId, int r, int keyLength, bool encryptMetadata)
     {
         using var md5 = IncrementalHash.CreateHash(HashAlgorithmName.MD5);
         md5.AppendData(paddedPassword);
@@ -425,7 +443,8 @@ public sealed class StandardSecurityHandler
     {
         var expected = ComputeU(key, firstId, r);
         var compare = r == 2 ? 32 : 16;
-        return expected.AsSpan(0, compare).SequenceEqual(u.AsSpan(0, compare));
+        // password checks compare in fixed time (no hint from the time taken; hardening of the M4 review, 24.11.2026)
+        return compare <= u.Length && CryptographicOperations.FixedTimeEquals(expected.AsSpan(0, compare), u.AsSpan(0, compare));
     }
 
     private static byte[] ComputeU(byte[] key, byte[] firstId, int r)
@@ -439,7 +458,7 @@ public sealed class StandardSecurityHandler
     }
 
     /// <summary>Algorithm 7: derives the (padded) user password from the owner password.</summary>
-    private static byte[] UserPasswordFromOwner(byte[] paddedOwner, byte[] o, int r, int keyLength)
+    internal static byte[] UserPasswordFromOwner(byte[] paddedOwner, byte[] o, int r, int keyLength)
     {
         var key = OwnerKey(paddedOwner, r, keyLength);
         var value = o[..32];
@@ -448,7 +467,7 @@ public sealed class StandardSecurityHandler
         return value;
     }
 
-    private static byte[] OwnerKey(byte[] paddedOwner, int r, int keyLength)
+    internal static byte[] OwnerKey(byte[] paddedOwner, int r, int keyLength)
     {
         var hash = MD5.HashData(paddedOwner);
         if (r >= 3)
@@ -470,9 +489,35 @@ public sealed class StandardSecurityHandler
     /// hyphen, zero-width characters …), maps space characters to a plain space, normalises to NFKC; then UTF-8,
     /// at most 127 bytes.
     /// </summary>
-    internal static byte[] PrepareAesPassword(string password)
+    internal static byte[] PrepareAesPassword(string password) => Prepared(password, in32: true);
+
+    /// <summary>
+    /// The prepared password with the normalisation of the runtime where it differs from Unicode 3.2 (one of
+    /// <see cref="DecompositionCorrected"/> in it); null where both are the same.
+    /// </summary>
+    private static byte[]? PreparedWithRuntimeNormalisation(string password) =>
+        password.EnumerateRunes().Any(r => Array.IndexOf(DecompositionCorrected, r.Value) >= 0) ? Prepared(password, in32: false) : null;
+
+    /// <summary>
+    /// The five CJK compatibility ideographs of <see cref="DecompositionCorrected"/> as Unicode 3.2 decomposed them (RFC 3454, 4: NFKC of
+    /// Unicode 3.2) — the runtime decomposes them as corrected later and so formed other bytes than a writer of Unicode 3.2
+    /// (docs/FEHLERGEDAECHTNIS.md, No. 1107).
+    /// </summary>
+    private static readonly int[] DecompositionIn32 = [0x2136A, 0x5F33, 0x43AB, 0x7AAE, 0x4D57];
+
+    private static byte[] Prepared(string password, bool in32)
     {
         var mapped = SaslMap(password);
+        if (in32 && password.EnumerateRunes().Any(r => Array.IndexOf(DecompositionCorrected, r.Value) >= 0))
+        {
+            var sb = new StringBuilder(mapped.Length);
+            foreach (var rune in mapped.EnumerateRunes())
+            {
+                var at = Array.IndexOf(DecompositionCorrected, rune.Value);
+                sb.Append(at >= 0 ? char.ConvertFromUtf32(DecompositionIn32[at]) : rune.ToString());
+            }
+            mapped = sb.ToString();
+        }
         // a lone surrogate cannot be normalised: when opening, taken as it is (setting refuses it, see SaslRefusal; No. 558)
         string normalized;
         try
@@ -618,13 +663,15 @@ public sealed class StandardSecurityHandler
         var udata = owner ? u[..48] : [];
         var validationSalt = hashOf.AsSpan(32, 8).ToArray();
         var keySalt = hashOf.AsSpan(40, 8).ToArray();
-        if (!Hash(r, pwd, validationSalt, udata).AsSpan().SequenceEqual(hashOf.AsSpan(0, 32))) return null;
+        if (!CryptographicOperations.FixedTimeEquals(Hash(r, pwd, validationSalt, udata), hashOf.AsSpan(0, 32))) return null;
         var intermediate = Hash(r, pwd, keySalt, udata);
         return AesCbcNoPadding(intermediate, new byte[16], (owner ? oe : ue)[..32], encrypt: false);
     }
 
     /// <summary>R5: SHA-256; R6: algorithm 2.B (ISO 32000-2, 7.6.4.3.4).</summary>
-    private static byte[] Hash(int r, byte[] password, byte[] salt, byte[] udata)
+    /// <param name="observeRound">For the tests: called once per round of algorithm 2.B with the round (from 0), the remainder chosen (0, 1, 2)
+    /// and the last byte of E; no effect when null.</param>
+    internal static byte[] Hash(int r, byte[] password, byte[] salt, byte[] udata, Action<int, int, byte>? observeRound = null)
     {
         var k = SHA256.HashData([.. password, .. salt, .. udata]);
         if (r == 5) return k;
@@ -637,7 +684,9 @@ public sealed class StandardSecurityHandler
             var e = AesCbcNoPadding(k[..16], k[16..32], k1, encrypt: true);
             var sum = 0;
             for (var i = 0; i < 16; i++) sum += e[i];
-            k = (sum % 3) switch
+            var choice = sum % 3;
+            observeRound?.Invoke(round, choice, e[^1]);
+            k = choice switch
             {
                 0 => SHA256.HashData(e),
                 1 => SHA384.HashData(e),
@@ -936,6 +985,7 @@ public sealed class StandardSecurityHandler
         }
 
         var r = cipher == PdfCipher.Aes128 ? 4 : 3;
+        if (r < 4) encryptMetadata = true;   // RC4 (V 2) knows no plain metadata (No. 1101)
         const int keyLength = 16;
         var paddedUser = PasswordBytes(userPassword);
         var paddedOwner = PasswordBytes(ownerPassword);
@@ -950,7 +1000,9 @@ public sealed class StandardSecurityHandler
 
         dict.Set(PdfName.Get("V"), PdfInteger.Of(r == 4 ? 4 : 2));
         dict.Set(PdfName.Get("R"), PdfInteger.Of(r));
-        dict.Set(PdfName.Length, PdfInteger.Of(128));
+        // /Length belongs to V 2 and 3 (ISO 32000-2, 7.6.2, Table 20); with the crypt filter of V 4 its /Length gives the key length
+        // (docs/FEHLERGEDAECHTNIS.md, No. 1108)
+        if (r < 4) dict.Set(PdfName.Length, PdfInteger.Of(128));
         dict.Set(PdfName.Get("O"), new PdfString(oValue));
         dict.Set(PdfName.Get("U"), new PdfString(uValue));
         if (r == 4) SetCryptFilter(dict, "AESV2", 16, encryptMetadata);   // R4 is AES-128 here; RC4 is written as R3
@@ -1071,7 +1123,9 @@ public sealed class StandardSecurityHandler
     /// <param name="encrypt">The current encryption dictionary; it is copied, not modified.</param>
     internal (PdfDictionary Encrypt, StandardSecurityHandler Handler) WithoutMacRequirement(PdfDictionary encrypt)
     {
-        var p = RawPermissions | MacBit;
+        // sealed anew, so bit 10 is set as writers always set it (ISO 32000-2, 7.6.4.2, Table 22) — a source without it kept it cleared
+        // (docs/FEHLERGEDAECHTNIS.md, No. 1105)
+        var p = RawPermissions | MacBit | (int)PdfPermissions.Accessibility;
         var dict = new PdfDictionary(encrypt.Count);
         foreach (var (name, value) in encrypt.Entries) dict.Set(name, value);
         dict.Set(PdfName.Get("P"), PdfInteger.Of(p));

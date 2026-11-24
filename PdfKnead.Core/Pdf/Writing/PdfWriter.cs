@@ -1558,6 +1558,8 @@ public static partial class PdfWriter
                     }
                     // a part of the document: what belongs to the whole stays behind (No. 447)
                     if (_options.PartOfDocument && (key == PdfName.Get("PieceInfo") || key == PdfName.Get("AF") && !_options.KeepDocumentAttachments)) continue;
+                    // without the attachments of the whole their portfolio view goes too — its /D would name a file that is gone (No. 1104)
+                    if (_options.PartOfDocument && !_options.KeepDocumentAttachments && key == PdfName.Get("Collection")) continue;
                     if (_options.PartOfDocument && !_options.KeepDocumentAttachments && key == PdfName.Get("Names") && original.Get(key) is PdfDictionary names &&
                         names.ContainsKey(PdfName.Get("EmbeddedFiles")))
                     {

@@ -187,4 +187,30 @@ public sealed class PartOfDocumentTests
         Assert.Equal(keep ? ["ganz.docx"] : [], names is null ? [] : Enumerable.Range(0, names.Count / 2).Select(i => ((PdfString)names.Get(2 * i)!).ToText()).ToArray());
         Assert.NotNull(saved.Catalog.GetDictionary(PdfName.Get("Names"))?.GetDictionary(PdfName.Get("Dests")));   // the rest of /Names stays
     }
+    /// <summary>
+    /// The portfolio view (/Collection, ISO 32000-2, 12.3.5) presents the attachments: it goes with them — a part without the attachments
+    /// of the whole, „Anhänge“ cleaned up — and stays where they stay (with the attachments, or a file kept). Before, /Collection stayed and
+    /// its /D named a file that was gone (docs/FEHLERGEDAECHTNIS.md, No. 1104).
+    /// </summary>
+    [Theory]
+    [InlineData("Teil", false)]
+    [InlineData("TeilMitAnhaengen", true)]
+    [InlineData("Bereinigt", false)]
+    [InlineData("BereinigtMitDatei", true)]
+    public void PortfolioView_GoesWithTheAttachments(string way, bool stays)
+    {
+        using var doc = Document();
+        doc.Catalog!.Set(PdfName.Get("Collection"), TestPdf.Dict(("D", new PdfString("ganz.docx"u8.ToArray())), ("View", TestPdf.N("D"))));
+        var spec = (PdfDictionary)doc.Catalog.GetArray(PdfName.Get("AF"))!.Get(0)!;
+        var stream = ((PdfReference)spec.GetDictionary(PdfName.Get("EF"))!.GetRaw(PdfName.Get("F"))!).Id;
+        var options = way switch
+        {
+            "Teil" => new PdfSaveOptions { PartOfDocument = true },
+            "TeilMitAnhaengen" => new PdfSaveOptions { PartOfDocument = true, KeepDocumentAttachments = true },
+            "Bereinigt" => new PdfSaveOptions { Cleanup = CleanupItems.Attachments },
+            _ => new PdfSaveOptions { Cleanup = CleanupItems.Attachments, KeptAttachments = new HashSet<PdfObjectId> { stream } },
+        };
+        using var saved = Saved(doc, options);
+        Assert.Equal(stays, saved.Catalog!.ContainsKey(PdfName.Get("Collection")));
+    }
 }

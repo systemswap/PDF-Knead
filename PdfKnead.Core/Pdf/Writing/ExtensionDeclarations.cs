@@ -88,8 +88,13 @@ internal static class ExtensionDeclarations
         if (iso && !pdf20) return false;
         // the levels of ISO_ name different specifications (32001, 32002, 32003 …), not steps of one: only the same level declares it,
         // and the others stay beside it (No. 536)
-        if (iso ? EntriesOf(extensions, prefix).Any(e => LevelOf(e) == level) : Declares(extensions, prefix, baseVersion, level)) return false;
+        // an ISO_ entry of this level with other values (base version, URL, revision of the specification — ISO/TS 32003, 4 and ISO/TS 32004, 4,
+        // Table 1 fix them) is replaced, not kept (docs/FEHLERGEDAECHTNIS.md, No. 1103)
+        if (iso ? EntriesOf(extensions, prefix).Any(e => LevelOf(e) == level && SameIsoValues(e, baseVersion, url, revision))
+                : Declares(extensions, prefix, baseVersion, level)) return false;
         var entry = new PdfDictionary();
+        // /Type is optional in ISO 32000-2, Table 49, and named by the tables of the ISO/TS extensions: written always (No. 1103)
+        entry.Set(PdfName.Type, PdfName.Get("DeveloperExtensions"));
         entry.Set(BaseVersion, PdfName.Get(baseVersion));
         entry.Set(ExtensionLevel, PdfInteger.Of(level));
         if (pdf20 && url is not null) entry.Set(Url, new PdfString(Encoding.ASCII.GetBytes(url)));
@@ -100,6 +105,12 @@ internal static class ExtensionDeclarations
         extensions.Set(name, pdf20 && (iso || others.Count > 0) ? new PdfArray([.. others, entry]) : entry);
         return true;
     }
+
+    /// <summary>Whether an ISO_ entry carries these values (those not given are not compared).</summary>
+    private static bool SameIsoValues(PdfDictionary entry, string baseVersion, string? url, string? revision) =>
+        BaseVersionOf(entry) == baseVersion
+        && (url is null || entry.GetString(Url)?.Bytes is { } u && Encoding.ASCII.GetString(u) == url)
+        && (revision is null || entry.GetString(ExtensionRevision)?.Bytes is { } r && Encoding.ASCII.GetString(r) == revision);
 
     /// <summary>
     /// Removes the declarations of a prefix at exactly this level (for an extension no longer used); an empty array removes the prefix.

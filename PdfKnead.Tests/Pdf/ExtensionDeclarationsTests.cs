@@ -238,4 +238,23 @@ public sealed class ExtensionDeclarationsTests
         Assert.Equal([32003, 32002], Enumerable.Range(0, iso.Count).Select(i => ExtensionDeclarations.LevelOf(iso.Get(i))));
         Assert.False(ExtensionDeclarations.Raise(extensions, "ISO_", "2.0", 32002, "2.0"));
     }
+    /// <summary>
+    /// ISO_ declarations as the tables of ISO/TS 32003 and 32004 (clause 4, Table 1) fix them: a new entry carries /Type /DeveloperExtensions;
+    /// an entry of the same level with another revision or URL is replaced (before, it stayed because only the level was compared); one with
+    /// the right values stays as it is (docs/FEHLERGEDAECHTNIS.md, No. 1103).
+    /// </summary>
+    [Fact]
+    public void Raise_IsoEntryWithOtherValues_Replaced_NewEntryTyped()
+    {
+        const string url = "https://www.iso.org/standard/45876.html";
+        var extensions = new PdfDictionary();
+        extensions.Set(PdfName.Get("ISO_"), new PdfArray([Dict(("BaseVersion", N("2.0")), ("ExtensionLevel", PdfInteger.Of(32003)),
+            ("ExtensionRevision", new PdfString(":2019"u8.ToArray())))]));
+        Assert.True(ExtensionDeclarations.Raise(extensions, "ISO_", "2.0", 32003, "2.0", url, ":2023"));
+        var entry = Assert.Single(ExtensionDeclarations.EntriesOf(extensions, "ISO_"));
+        Assert.Equal("DeveloperExtensions", entry.GetName(PdfName.Type)!.Value);
+        Assert.Equal(":2023"u8.ToArray(), entry.GetString(PdfName.Get("ExtensionRevision"))!.Bytes);
+        Assert.Equal(System.Text.Encoding.ASCII.GetBytes(url), entry.GetString(PdfName.Get("URL"))!.Bytes);
+        Assert.False(ExtensionDeclarations.Raise(extensions, "ISO_", "2.0", 32003, "2.0", url, ":2023"));
+    }
 }
