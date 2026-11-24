@@ -1565,7 +1565,8 @@ public sealed partial class PageInterpreter
             var bboxObject = dict.Get(PdfName.Get("BBox"));
             // BBox of valid numbers but without area ([0 0 0 0]) clips everything away, as in common PDF
             // readers (issue6413). If it is missing or unreadable, there is no clip
-            if (bboxObject is PdfArray { Count: 4 } box && Enumerable.Range(0, 4).All(i => box.GetNumber(i) is { } v && double.IsFinite(v))
+            // as PdfRectangle.From reads it: the first four numbers (before, five elements escaped the check and drew without a clip; No. 1124)
+            if (bboxObject is PdfArray { Count: >= 4 } box && Enumerable.Range(0, 4).All(i => box.GetNumber(i) is { } v && double.IsFinite(v))
                 && PdfKnead.Core.Pdf.Document.PdfRectangle.From(box) is null)
                 return;
             if (PdfKnead.Core.Pdf.Document.PdfRectangle.From(bboxObject) is { } bbox)

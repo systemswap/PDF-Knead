@@ -332,7 +332,7 @@ public static partial class PdfACheck
                             if (gs.GetBoolean(PdfName.Get("OP")) is { } op1)
                             {
                                 state.Overprint = op1;
-                                if (!gs.ContainsKey(PdfName.Get("op"))) state.OverprintFill = op1;
+                                if (gs.Get(PdfName.Get("op")) is not PdfBoolean) state.OverprintFill = op1;   // as the display reads it (S-A A67; No. 1124)
                             }
                             if (gs.GetBoolean(PdfName.Get("op")) is { } op2) state.OverprintFill = op2;
                             if (gs.GetInteger(PdfName.Get("OPM")) is { } mode) state.OverprintMode = (int)mode;
@@ -390,7 +390,7 @@ public static partial class PdfACheck
                         {
                             DrawnXObject(xobject.Dictionary);
                             // PDF/A-1 (6.4): no soft mask
-                            if (_part.Part() == 1 && xobject.Dictionary.ContainsKey(PdfName.Get("SMask")))
+                            if (_part.Part() == 1 && xobject.Dictionary.HasValue(PdfName.Get("SMask")))
                                 Add(PdfARules.NoImageSoftMask, Tr.T("Ein Bild oder eine Form hat eine weiche Maske (/SMask)."));
                             // a PostScript XObject: the display draws nothing; the writer leaves it out with its "Do" (6.2.9)
                             if (xobject.Dictionary.GetName(PdfName.Subtype)?.Value == "PS" && MissingNames is not null)
@@ -415,7 +415,7 @@ public static partial class PdfACheck
                                 else ColorSpace(xobject.Dictionary.Get(PdfName.Get("ColorSpace")), resources, 0);
                             }
                             // an image with a soft mask is transparency on the page (6.2.10)
-                            if (xobject.Dictionary.ContainsKey(PdfName.Get("SMask")) || xobject.Dictionary.GetInteger(PdfName.Get("SMaskInData")) is > 0) _transparency = true;
+                            if (xobject.Dictionary.HasValue(PdfName.Get("SMask")) || xobject.Dictionary.GetInteger(PdfName.Get("SMaskInData")) is > 0) _transparency = true;
                         }
                         break;
                     case "BDC" or "DP" when operands.Count > 1 && operands[1].Name is { } property:

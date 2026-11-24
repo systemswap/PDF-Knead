@@ -1728,7 +1728,18 @@ public static partial class PdfWriter
             if (catalog.Get(OpenAction) is PdfArray { Count: > 0 } open && open[0] is PdfNull) catalog.Remove(OpenAction);
             if (_pdfA is not null) catalog = PdfACatalog(catalog);
             if (Present(catalog, OCProperties)) Needs("1.5", Tr.T("Ebenen"));
+            // locked layers (8.11.4.3) are of PDF 1.6, in the default configuration or one of /Configs (docs/FEHLERGEDAECHTNIS.md, No. 1124)
+            if (_pdfA is null && catalog.Get(OCProperties) is PdfDictionary layers && LockedLayers(layers)) Needs("1.6", Tr.T("Ebenen (Sichtbarkeitsausdrücke, gesperrte Ebenen)"));
             _catalog = catalog;
+        }
+
+        private static bool LockedLayers(PdfDictionary layers)
+        {
+            if (layers.Get(D) is PdfDictionary standard && standard.Get(PdfName.Get("Locked")) is PdfArray { Count: > 0 }) return true;
+            if (layers.Get(PdfName.Get("Configs")) is not PdfArray configs) return false;
+            for (var i = 0; i < configs.Count && i < 1000; i++)
+                if (configs.Get(i) is PdfDictionary config && config.Get(PdfName.Get("Locked")) is PdfArray { Count: > 0 }) return true;
+            return false;
         }
 
         /// <summary>The catalogue as built by <see cref="WriteCatalog"/>, written after everything else (<see cref="WriteCatalogObject"/>).</summary>

@@ -41,6 +41,7 @@ internal static class VersionKeys
     public static PdfObject Filter(PdfObject obj, string version, bool pdfA, Action<string, string> needs, bool structureOrder = false)
     {
         var below15 = string.CompareOrdinal(version, "1.5") < 0;
+        var below16 = string.CompareOrdinal(version, "1.6") < 0;
         var below20 = string.CompareOrdinal(version, "2.0") < 0;
         return Walk(obj, 0);
 
@@ -85,6 +86,9 @@ internal static class VersionKeys
             {
                 if (dict.ContainsKey(key)) (drop ??= []).Add(key);
             }
+            // visibility expressions are of PDF 1.6 (8.11.2.2): named, not dropped; locked layers in the catalogue (docs/FEHLERGEDAECHTNIS.md, No. 1124)
+            if (below16 && !pdfA && type == "OCMD" && dict.GetRaw(PdfName.Get("VE")) is not null and not PdfNull)
+                needs("1.6", Localization.Tr.T("Ebenen (Sichtbarkeitsausdrücke, gesperrte Ebenen)"));
             if (below15)
             {
                 if (type == "Page" && !(structureOrder && dict.GetRaw(Tabs) is PdfName { Value: "S" })) Drop(Tabs);

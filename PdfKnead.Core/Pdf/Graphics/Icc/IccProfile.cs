@@ -218,7 +218,7 @@ internal sealed class IccProfile
             };
         }
         if (channels == 1 && tags.TryGetValue(0x6B545243, out var k))   // kTRC
-            return new IccProfile(data, space, 1, [new CurveStage([Curve(d.Slice(k.Offset, k.Size), out _)]), new GrayStage()], matrixShaper: false);
+            return new IccProfile(data, space, 1, [new CurveStage([Curve(d.Slice(k.Offset, k.Size), out _)]), new GrayStage(pcs == LabSpace)], matrixShaper: false);
         throw new IccFormatException();
     }
 
@@ -436,10 +436,19 @@ internal sealed class IccProfile
     }
 
     /// <summary>Grey: Y from the curve, chromaticity of the white point.</summary>
-    private sealed class GrayStage : IStage
+    /// <summary>
+    /// The grey of a monochrome profile into the PCS (ICC.1, F.2): with PCSXYZ the value is Y times the white, with PCSLAB it is L* / 100 — before,
+    /// it was taken as Y in both, a grey profile with PCS Lab drew far too light (0.5 gave L* 76, not 50; docs/FEHLERGEDAECHTNIS.md, No. 1124).
+    /// </summary>
+    private sealed class GrayStage(bool lab = false) : IStage
     {
         public void Apply(Span<float> v)
         {
+            if (lab)
+            {
+                IccColor.LabToXyz(Math.Clamp(v[0], 0, 1) * 100, 0, 0, v);
+                return;
+            }
             var y = v[0];
             v[0] = y * WhiteX;
             v[1] = y * WhiteY;

@@ -218,7 +218,7 @@ public static partial class PdfWriter
             var missing = new List<(PdfName Name, int Index)>();
             for (var i = 0; i < names.Count && i < 32; i++)
                 if (PdfAResolve(names[i], source) is PdfName name && name.Value is not ("None" or "Cyan" or "Magenta" or "Yellow" or "Black") &&
-                    process?.Any(p => p is PdfName n && n == name) != true && colorants?.ContainsKey(name) != true && missing.All(m => m.Name != name))
+                    process?.Any(p => p is PdfName n && n == name) != true && colorants?.HasValue(name) != true && missing.All(m => m.Name != name))
                     missing.Add((name, i));
             // (the space may lie in a dictionary the writer assembled: its references are those of the new file)
             if (missing.Count == 0 || Look(array[3], source) is not ({ } tintObject, var tintFrom) ||

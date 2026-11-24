@@ -1379,6 +1379,7 @@ public static class English
         ["Ein Anhang ist mit eigenem Passwort verschlüsselt und lässt sich so nicht übernehmen. Bitte die Datei mit dem Passwort der Anhänge öffnen."] = "An attachment is encrypted with a password of its own and cannot be taken over like this. Please open the file with the password of the attachments.",
         ["Gespeichert als PDF {0} (der Inhalt braucht mindestens diese Version: {1})."] = "Saved as PDF {0} (the content needs at least this version: {1}).",
         ["Ebenen"] = "layers",
+        ["Ebenen (Sichtbarkeitsausdrücke, gesperrte Ebenen)"] = "layers (visibility expressions, locked layers)",
         ["Vorige Seite"] = "Previous page",
         ["Erste Seite"] = "First page",
         ["Letzte Seite"] = "Last page",

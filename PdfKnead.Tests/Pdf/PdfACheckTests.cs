@@ -205,6 +205,20 @@ public sealed class PdfACheckTests
         Assert.False(Has(Check(Page("/CS0 cs 1 scn 0 0 10 10 re f", Dict(("ColorSpace", Dict(("CS0", Space("Cyan")))))).Pdf), "6.2.4.4"));
     }
 
+    /// <summary>
+    /// S-A A67 (7.3.9) for the colorants of DeviceN (ISO 19005-2, 6.2.4.4): /Colorants naming the spot colour with a reference into the void
+    /// counts as not naming it — reported. Before, the bare key counted, the check said nothing and the repair added no Separation space
+    /// (M6 draft e-866; docs/FEHLERGEDAECHTNIS.md, No. 1124).
+    /// </summary>
+    [Fact]
+    public void DeviceN_ColorantIntoTheVoid_Reported()
+    {
+        var tint = Dict(("FunctionType", PdfInteger.Of(2)), ("Domain", Box(0, 1)), ("C0", Box(0, 0, 0, 0)), ("C1", Box(0, 0, 0, 1)), ("N", PdfInteger.Of(1)));
+        var space = new PdfArray([N("DeviceN"), new PdfArray([N("Gold")]), N("DeviceCMYK"), tint,
+            Dict(("Colorants", Dict(("Gold", new PdfReference(new PdfObjectId(990, 0))))))]);
+        Assert.True(Has(Check(Page("/CS0 cs 1 scn 0 0 10 10 re f", Dict(("ColorSpace", Dict(("CS0", space))))).Pdf), "6.2.4.4"));
+    }
+
     // ------------------------------------------------------------ document
 
     [Fact]

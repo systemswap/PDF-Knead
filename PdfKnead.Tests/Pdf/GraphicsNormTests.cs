@@ -732,4 +732,47 @@ public sealed class GraphicsNormTests
             Assert.Equal(white, c.Red > 250 && c.Green > 250 && c.Blue > 250);
         }
     }
+
+    /// <summary>
+    /// 8.11.2.2 (/VE, PDF 1.6) and 8.11.4.3 (/Locked, PDF 1.6): a file with a visibility expression or locked layers, saved as 1.4 or 1.5, names
+    /// 1.6 in its catalogue — before, only 1.5 for /OCProperties (M6 draft k-811; docs/FEHLERGEDAECHTNIS.md, No. 1124).
+    /// </summary>
+    [Theory]
+    [InlineData("<< /Type /OCMD /VE [/Not 3 0 R] >>", "<< /OFF [] >>")]
+    [InlineData("<< /Type /OCMD /OCGs [3 0 R] >>", "<< /Locked [3 0 R] >>")]
+    public void Layers_VisibilityExpressionOrLocked_NamesVersion16(string membership, string config)
+    {
+        using var source = PdfDocument.Open(DocumentStructureNormTests.FileOf(
+            $"<< /Type /Catalog /Pages 2 0 R /OCProperties << /OCGs [3 0 R] /D {config} >> >>",
+            "<< /Type /Pages /Kids [5 0 R] /Count 1 >>",
+            "<< /Type /OCG /Name (A) >>",
+            membership,
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Resources << /Properties << /M 4 0 R >> >> /Contents 6 0 R >>",
+            "<< /Length 29 >>\nstream\n/OC /M BDC 0 0 10 10 re f EMC\nendstream"));
+        using var output = new MemoryStream();
+        Core.Pdf.Writing.PdfWriter.Write(source, Core.Pdf.Editing.PageItem.From(source), output, new Core.Pdf.Writing.PdfSaveOptions { Version = "1.4" });
+        using var saved = PdfDocument.Open(output.ToArray());
+        Assert.Equal("1.6", saved.Catalog!.GetName(PdfName.Version)?.Value);
+    }
+
+    /// <summary>
+    /// 8.10.2 (/BBox): a form whose box has no area paints nothing — also where the array has a fifth element, which the reading of rectangles
+    /// passes over. Before, [0 0 0 0] drew nothing but [0 0 0 0 9] drew the form without a clip (M6 draft j-810; docs/FEHLERGEDAECHTNIS.md,
+    /// No. 1124).
+    /// </summary>
+    [Theory]
+    [InlineData("[0 0 0 0]")]
+    [InlineData("[0 0 0 0 9]")]
+    public void FormBoxWithoutArea_PaintsNothing(string box)
+    {
+        var (doc, list) = InterpreterTests.Page("/Fm Do", pdf =>
+        {
+            var form = pdf.Add(new PdfStream(TestPdf.Dict(("Type", TestPdf.N("XObject")), ("Subtype", TestPdf.N("Form"))), "1 0 0 rg 0 0 200 200 re f"u8.ToArray()));
+            ((PdfStream)pdf.Get(form)).Dictionary.Set(PdfName.Get("BBox"), new PdfArray(box.Trim('[', ']').Split(' ').Select(n => (PdfObject)PdfInteger.Of(int.Parse(n)))));
+            return TestPdf.Dict(("XObject", TestPdf.Dict(("Fm", TestPdf.Ref(form)))));
+        });
+        using (doc)
+        using (var bitmap = SkiaRenderer.RenderPage(list, doc, doc.Pages[0], 1, new ImageCache()))
+            Assert.True(bitmap.GetPixel(100, 100).Green > 240);
+    }
 }

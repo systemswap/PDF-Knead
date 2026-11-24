@@ -147,7 +147,7 @@ public static partial class PdfACheck
                 if (!Utf8(name.Value)) Add(PdfARules.NamesUtf8, Tr.T("Der Name einer Sonderfarbe ist kein gültiges UTF-8."));
                 // the process colours and None are no spot colours
                 if (name.Value is "None" or "Cyan" or "Magenta" or "Yellow" or "Black" || process?.Any(p => p is PdfName n && n == name) == true) continue;
-                if (colorants?.ContainsKey(name) != true) Add(PdfARules.Colorants, Tr.T("Ein DeviceN-Farbraum beschreibt nicht alle seine Sonderfarben (/Colorants)."));
+                if (colorants?.HasValue(name) != true) Add(PdfARules.Colorants, Tr.T("Ein DeviceN-Farbraum beschreibt nicht alle seine Sonderfarben (/Colorants)."));
             }
             if (colorants is not null)
                 foreach (var (key, _) in colorants.Entries.Take(64))

@@ -169,4 +169,37 @@ public sealed class IccCraftedProfileTests
         Assert.DoesNotContain("FIRMENNAME", text);
         Assert.DoesNotContain("GEHE", Encoding.BigEndianUnicode.GetString(blank));
     }
+
+    /// <summary>
+    /// ICC.1, 7.2.8: the profiles PDF-Knead writes carry a valid date of creation (year, month 1–12, day 1–31, UTC) — before, all zero
+    /// (M6 draft n-icc-7; docs/FEHLERGEDAECHTNIS.md, No. 1124).
+    /// </summary>
+    [Fact]
+    public void OwnProfiles_ValidDateOfCreation()
+    {
+        foreach (var profile in new[] { CalibratedProfile.Srgb(), CalibratedProfile.Gray(null), CalibratedProfile.Rgb(null) })
+        {
+            int At(int i) => BinaryPrimitives.ReadUInt16BigEndian(profile.AsSpan(24 + 2 * i));
+            Assert.InRange(At(0), 1900, 9999);
+            Assert.InRange(At(1), 1, 12);
+            Assert.InRange(At(2), 1, 31);
+            Assert.InRange(At(3), 0, 23);
+        }
+    }
+
+    /// <summary>
+    /// ICC.1, F.2: a grey profile with PCSLAB maps its tone curve to L* = 100 × value — linear, 0.5 gives L* 50 (Y ≈ 0.184), not Y 0.5 (L* 76)
+    /// (M6 drafts p-icc-92, u-icc-1017-1031-F; docs/FEHLERGEDAECHTNIS.md, No. 1124).
+    /// </summary>
+    [Fact]
+    public void GreyProfileWithPcsLab_ValueIsLightness()
+    {
+        var profile = Profile(2, ("kTRC", Linear), ("wtpt", Xyz(0.9642, 1, 0.8249)));
+        BinaryPrimitives.WriteUInt32BigEndian(profile.AsSpan(16), IccProfile.GraySpace);
+        BinaryPrimitives.WriteUInt32BigEndian(profile.AsSpan(20), 0x4C616220);   // PCS Lab
+        var parsed = IccProfile.Parse(profile)!;
+        Span<float> xyz = stackalloc float[3];
+        parsed.ToXyz([0.5f], xyz);
+        Assert.InRange(xyz[1], 0.17f, 0.20f);
+    }
 }

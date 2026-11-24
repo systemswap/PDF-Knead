@@ -337,6 +337,10 @@ internal static class CalibratedProfile
         BinaryPrimitives.WriteUInt32BigEndian(h[16..], space);
         "XYZ "u8.CopyTo(h[20..]);
         "acsp"u8.CopyTo(h[36..]);
+        // the date of creation (ICC.1, 7.2.8: a valid dateTimeNumber in UTC) — fixed, the same profile always has the same bytes; before,
+        // all zero, month 0 and day 0 are no date (docs/FEHLERGEDAECHTNIS.md, No. 1124)
+        ReadOnlySpan<ushort> created = [2026, 11, 24, 0, 0, 0];
+        for (var i = 0; i < created.Length; i++) BinaryPrimitives.WriteUInt16BigEndian(h[(24 + 2 * i)..], created[i]);
         Xyz(IccProfile.WhiteX, IccProfile.WhiteY, IccProfile.WhiteZ).AsSpan(8, 12).CopyTo(h[68..]);   // illuminant of the PCS
         return Assemble(header, tags);
     }
