@@ -2445,11 +2445,24 @@ public static partial class PdfWriter
                 result.Set(Ocgs, ocgs);
                 config ??= result.Get(D) as PdfDictionary ?? new PdfDictionary();
                 result.Set(D, config);
+                // each inserted layer keeps the state it had in its file (its /BaseState, /ON, /OFF and /AS): in /ON where the merged
+                // configuration starts from OFF, in /OFF where it starts from ON — before, only /OFF went over, and the layers a file hides
+                // under /BaseState /OFF were visible after merging (8.11.4.3; docs/FEHLERGEDAECHTNIS.md, No. 1125)
+                var states = Content.OptionalContent.For(source.Doc);
+                var baseOff = config.GetName(PdfName.Get("BaseState"))?.Value == "OFF";
                 if (oc.GetArray(Ocgs) is { } list)
-                    for (var i = 0; i < list.Count; i++) ocgs.Add(Rebase(list[i], source));
+                    for (var i = 0; i < list.Count; i++)
+                    {
+                        var rebased = Rebase(list[i], source);
+                        ocgs.Add(rebased);
+                        if (list.Get(i) is not PdfDictionary group || states.IsOn(group) != baseOff) continue;
+                        var key = baseOff ? PdfName.Get("ON") : Off;
+                        if (config.Get(key) is not PdfArray target) config.Set(key, target = new PdfArray());
+                        target.Add(rebased);
+                    }
                 if (oc.GetDictionary(D) is { } other)
                 {
-                    foreach (var key in new[] { Off, Order })
+                    foreach (var key in new[] { Order })
                     {
                         if (other.GetArray(key) is not { } values) continue;
                         if (config.Get(key) is not PdfArray target) config.Set(key, target = new PdfArray());

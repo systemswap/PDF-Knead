@@ -167,4 +167,29 @@ public sealed class MergeWriterTests
         using var inserted = WithLayer("Druckansicht");
         Assert.Equal("Druckansicht", MergedDefaultConfiguration(inserted).GetString(PdfName.Get("Name"))?.ToText());
     }
+
+    /// <summary>
+    /// 8.11.4.3 when merging: a layer of an inserted file keeps the state it had there — off under /BaseState /OFF (not in its /OFF list) stays
+    /// off, an /ON layer of a file with /BaseState /OFF stays on; the main file's states stay. Before, only /OFF and /Order were taken over: the
+    /// inserted file's hidden layers became visible after merging (M6 draft k-811, privacy; docs/FEHLERGEDAECHTNIS.md, No. 1125).
+    /// </summary>
+    [Fact]
+    public void InsertedLayers_KeepTheirState()
+    {
+        var pdf = TestPdf.Simple(1);
+        var hidden = pdf.Add(TestPdf.Dict(("Type", TestPdf.N("OCG")), ("Name", S("Gehaltsliste"))));
+        var shown = pdf.Add(TestPdf.Dict(("Type", TestPdf.N("OCG")), ("Name", S("Text"))));
+        ((PdfDictionary)pdf.Get(pdf.RootNumber)).Set(PdfName.Get("OCProperties"), TestPdf.Dict(("OCGs", new PdfArray([TestPdf.Ref(hidden), TestPdf.Ref(shown)])),
+            ("D", TestPdf.Dict(("BaseState", TestPdf.N("OFF")), ("ON", new PdfArray([TestPdf.Ref(shown)]))))));
+        using var inserted = PdfDocument.Open(pdf.Build());
+        using var target = BlankPage.CreateDocument(595, 842, 1);
+        using var output = new MemoryStream();
+        PdfWriter.Write(target, [.. PageItem.From(target), .. PageItem.From(inserted)], output);
+        using var merged = PdfDocument.Open(output.ToArray());
+        var layers = merged.Catalog!.GetDictionary(PdfName.Get("OCProperties"))!.GetArray(PdfName.Get("OCGs"))!;
+        PdfObject Named(string name) => Enumerable.Range(0, layers.Count).Select(layers.Get).First(l => l.AsDictionary()!.GetString(PdfName.Get("Name"))!.ToText() == name);
+        var optional = Core.Pdf.Content.OptionalContent.For(merged);
+        Assert.True(optional.IsHidden(Named("Gehaltsliste"), null));
+        Assert.False(optional.IsHidden(Named("Text"), null));
+    }
 }

@@ -711,8 +711,10 @@ public static class Shadings
             points[row * (n + 1) + col] = ((float)x, (float)y);
             values[row * (n + 1) + col] = colors.FromComponents(mixed);
         }
-        for (var row = 0; row < n; row++)
+        // laid by v of the standard (here the column) and within it by u (the row): later lies on top, and where the patch overlaps itself
+        // the larger v wins, at equal v the larger u (8.7.4.5.7; before by u first — docs/FEHLERGEDAECHTNIS.md, No. 1125)
         for (var col = 0; col < n; col++)
+        for (var row = 0; row < n; row++)
         {
             int a = row * (n + 1) + col, b2 = a + 1, c = a + n + 1, d = c + 1;
             mesh.Triangle(points[a], values[a], points[b2], values[b2], points[c], values[c]);

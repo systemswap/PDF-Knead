@@ -67,6 +67,9 @@ internal sealed record PathShape(byte[] Content, int Start, int End, bool Fills,
             last = (ux, uy);
             return ++total <= MaxPoints;
         }
+        // a segment without a subpath of its own (after h, or without m) begins at the current point, as the display draws it (8.5.2.1;
+        // before, at its own end point — docs/FEHLERGEDAECHTNIS.md, No. 1125)
+        bool Begin() => current is not null || Add(last.X, last.Y);
         bool Curve((double X, double Y) c1, (double X, double Y) c2, (double X, double Y) to)
         {
             var from = last;
@@ -93,16 +96,16 @@ internal sealed record PathShape(byte[] Content, int Start, int End, bool Fills,
                     ok = Add(N(0), N(1));
                     break;
                 case "l" when o.Count >= 2:
-                    ok = Add(N(0), N(1));
+                    ok = Begin() && Add(N(0), N(1));
                     break;
                 case "c" when o.Count >= 6:
-                    ok = current is not null ? Curve((N(0), N(1)), (N(2), N(3)), (N(4), N(5))) : Add(N(4), N(5));
+                    ok = Begin() && Curve((N(0), N(1)), (N(2), N(3)), (N(4), N(5)));
                     break;
                 case "v" when o.Count >= 4:
-                    ok = current is not null ? Curve(last, (N(0), N(1)), (N(2), N(3))) : Add(N(2), N(3));
+                    ok = Begin() && Curve(last, (N(0), N(1)), (N(2), N(3)));
                     break;
                 case "y" when o.Count >= 4:
-                    ok = current is not null ? Curve((N(0), N(1)), (N(2), N(3)), (N(2), N(3))) : Add(N(2), N(3));
+                    ok = Begin() && Curve((N(0), N(1)), (N(2), N(3)), (N(2), N(3)));
                     break;
                 case "h" when current is not null:
                     result[^1] = (current, true);

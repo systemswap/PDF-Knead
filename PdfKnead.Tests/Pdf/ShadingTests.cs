@@ -582,4 +582,36 @@ public sealed class ShadingTests
         using var b = Render("/Sh sh", Shading(dict));
         Assert.True(At(b, 100, 100).Red > 240, $"{At(b, 100, 100)}");
     }
+
+    /// <summary>
+    /// 8.7.4.5.7 (sentences 17–18): where a patch overlaps itself, the point with the larger v lies on top, at equal v the one with the larger u.
+    /// A tensor patch folded back over itself along u (y rises and falls again), sheared so that the two layers meet at different v, its colour
+    /// running with v from red to blue: at (105, 130) the layer with v 0.5 (purple) covers the one with v 0.2 (reddish). Before, the triangles were
+    /// laid by u, the larger u came last (M6 draft h-8745; docs/FEHLERGEDAECHTNIS.md, No. 1125).
+    /// </summary>
+    [Fact]
+    public void FoldedPatch_LargerVOnTop()
+    {
+        // control points p[i, j]: x = 40 + 100 j/3 + 60 i/3, y over i = 40, 200, 200, 40 (i runs along u of the standard, j along v)
+        (double X, double Y) P(int i, int j) => (40 + 100.0 * j / 3 + 60.0 * i / 3, i is 1 or 2 ? 200 : 40);
+        (int I, int J)[] order = [(0, 0), (0, 1), (0, 2), (0, 3), (1, 3), (2, 3), (3, 3), (3, 2), (3, 1), (3, 0), (2, 0), (1, 0), (1, 1), (1, 2), (2, 2), (2, 1)];
+        var data = new List<byte> { 0 };   // flag 0
+        foreach (var (i, j) in order)
+        {
+            var (x, y) = P(i, j);
+            foreach (var v in new[] { x, y })
+            {
+                var raw = (ushort)Math.Round(v / 200 * 65535);
+                data.Add((byte)(raw >> 8));
+                data.Add((byte)raw);
+            }
+        }
+        // c00 red, c03 blue, c33 blue, c30 red: the colour runs with j (v of the standard) only
+        data.AddRange([255, 0, 0, 0, 0, 255, 0, 0, 255, 255, 0, 0]);
+        var dict = TestPdf.Dict(("ShadingType", PdfInteger.Of(7)), ("ColorSpace", TestPdf.N("DeviceRGB")), ("BitsPerCoordinate", PdfInteger.Of(16)),
+            ("BitsPerComponent", PdfInteger.Of(8)), ("BitsPerFlag", PdfInteger.Of(8)), ("Decode", TestPdf.Box(0, 200, 0, 200, 0, 1, 0, 1, 0, 1)));
+        using var b = Render("/Sh sh", Stream(dict, [.. data]));
+        var c = At(b, 105, 130);
+        Assert.True(c.Blue > 95 && c.Red < 175, $"{c}");
+    }
 }

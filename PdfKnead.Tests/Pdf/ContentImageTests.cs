@@ -845,4 +845,20 @@ public sealed class ContentImageTests
         var refused = Assert.Throws<PdfException>(() => ContentObjectEditor.Crop(item, [tooLarge.Key], RectD.FromLtrb(50, 100, 95, 180), SkiaImageCodec.Instance, all));
         Assert.Contains("72", refused.Message);
     }
+
+    /// <summary>
+    /// 8.5.2.1: after h the current point is the start of the subpath — a following l begins its segment there, as the display draws it: a
+    /// click on the line from (100, 100) to (100, 300) hits, one on the far end of an imagined segment from the closing point does not. Before,
+    /// the hit test began a subpath at the point of the l itself and missed the line the page shows (M6 draft c-85; docs/FEHLERGEDAECHTNIS.md,
+    /// No. 1125).
+    /// </summary>
+    [Fact]
+    public void Hits_LineAfterClose_BeginsAtTheStartOfTheSubpath()
+    {
+        var pdf = TestPdf.Simple(1);
+        pdf.Replace(4, TestPdf.FlateStream(Encoding.ASCII.GetBytes("q 0 G 2 w 100 100 m 300 100 l 300 200 l h 100 300 l S Q")));
+        using var doc = PdfDocument.Open(pdf.Build());
+        var path = Assert.Single(ContentObjectEditor.ObjectsOf(PageItem.From(doc)[0]));
+        Assert.True(path.Hits(100, 200, 0.5));   // on the segment the l draws from the start (100, 100)
+    }
 }

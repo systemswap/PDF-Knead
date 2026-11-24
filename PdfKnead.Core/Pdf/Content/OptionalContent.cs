@@ -237,6 +237,9 @@ public sealed class OptionalContent
     private bool GroupOn(PdfDictionary ocg) =>
         _forced.TryGetValue(ocg, out var forced) ? forced : _baseOff ? _on.Contains(ocg) : !_off.Contains(ocg);
 
+    /// <summary>Whether a layer is on as the configuration and /AS set it (for merging: an inserted layer keeps its state).</summary>
+    internal bool IsOn(PdfDictionary ocg) => GroupOn(ocg);
+
     /// <summary>The state of a layer for visibility; null if it has no effect (its intent is not one of the configuration's).</summary>
     private bool? GroupState(PdfDictionary ocg) => Counts(ocg) ? GroupOn(ocg) : null;
 
