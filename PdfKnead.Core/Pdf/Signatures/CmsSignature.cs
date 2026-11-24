@@ -438,6 +438,44 @@ public static class CmsSignature
     }
 
     /// <summary>
+    /// The CMSAlgorithmProtection attribute of the one signer of a block checked on its own (RFC 6211) — for the ways that do not go through
+    /// <see cref="CheckDigest"/>: adbe.pkcs7.sha1, the platform's check of an unusual method, the token of a document time stamp. True where it
+    /// is absent or fits; false where it names other algorithms; true too where the block cannot be read so far (that is judged elsewhere)
+    /// (second M4 probe, B3; docs/FEHLERGEDAECHTNIS.md, No. 1119).
+    /// </summary>
+    /// <param name="der">The CMS block (SignedData).</param>
+    internal static bool AlgorithmProtectionHolds(byte[] der)
+    {
+        try
+        {
+            var info = new AsnReader(der, AsnEncodingRules.BER).ReadSequence();
+            if (info.ReadObjectIdentifier() != SignedDataOid) return true;
+            var data = info.ReadSequence(Context0).ReadSequence();
+            data.ReadInteger();
+            data.ReadSetOf();
+            data.ReadSequence();
+            if (data.HasData && data.PeekTag().HasSameClassAndValue(Context0)) data.ReadEncodedValue();
+            if (data.HasData && data.PeekTag().HasSameClassAndValue(Context1)) data.ReadEncodedValue();
+            var signers = data.ReadSetOf();
+            var signerInfo = signers.ReadSequence();
+            if (signers.HasData) return true;
+            signerInfo.ReadInteger();
+            signerInfo.ReadEncodedValue();
+            var digestSequence = signerInfo.ReadEncodedValue();
+            if (!signerInfo.PeekTag().HasSameClassAndValue(Context0)) return true;
+            var attributes = signerInfo.ReadEncodedValue();
+            var algorithmSequence = signerInfo.ReadSequence();
+            var algorithm = algorithmSequence.ReadObjectIdentifier();
+            var parameters = algorithmSequence.HasData ? algorithmSequence.ReadEncodedValue() : (ReadOnlyMemory<byte>?)null;
+            return AlgorithmProtectionFits(attributes, new AsnReader(digestSequence, AsnEncodingRules.BER).ReadSequence(), algorithm, parameters);
+        }
+        catch (AsnContentException)
+        {
+            return true;
+        }
+    }
+
+    /// <summary>
     /// Whether the CMSAlgorithmProtection attribute fits the SignerInfo (RFC 6211, 2 and 3): absent, or exactly one attribute with exactly one
     /// value; its digest algorithm the SignerInfo's (parameters absent and NULL alike, 3), its signature algorithm [1] the SignerInfo's, no MAC
     /// algorithm [2] in a signature.
@@ -463,7 +501,8 @@ public static class CmsSignature
             var signature = protection.ReadSequence(new Asn1Tag(TagClass.ContextSpecific, 1, isConstructed: true));
             if (signature.ReadObjectIdentifier() != signatureOid) return false;
             var parameters = signature.HasData ? signature.ReadEncodedValue() : (ReadOnlyMemory<byte>?)null;
-            if (signature.HasData || !SameParameters(parameters, signatureParameters)) return false;
+            if (signature.HasData || !(SameParameters(parameters, signatureParameters)
+                                       || signatureOid == "1.2.840.113549.1.1.10" && SamePssParameters(parameters, signatureParameters))) return false;
             if (protection.HasData) return false;   // a MAC algorithm [2] does not belong to a signature
         }
         return true;
@@ -475,6 +514,64 @@ public static class CmsSignature
         static bool AbsentOrNull(ReadOnlyMemory<byte>? p) => p is null || p.Value.IsEmpty || p.Value.Span.SequenceEqual(new byte[] { 0x05, 0x00 });
         if (AbsentOrNull(a) && AbsentOrNull(b)) return true;
         return a is { } x && b is { } y && x.Span.SequenceEqual(y.Span);
+    }
+
+    /// <summary>
+    /// RSASSA-PSS parameters alike in meaning (RFC 4055, 3.1): fields with a default value may be written out or left away — the protected
+    /// attribute is DER, the algorithm field of the SignerInfo need not be; compared byte for byte, a written default made a valid signature
+    /// „changed“ (second M4 probe, A5; docs/FEHLERGEDAECHTNIS.md, No. 1119). Unreadable parameters are never alike.
+    /// </summary>
+    internal static bool SamePssParameters(ReadOnlyMemory<byte>? a, ReadOnlyMemory<byte>? b) =>
+        PssMeaning(a) is { } x && PssMeaning(b) is { } y && x == y;
+
+    private static (string Hash, string Mask, string MaskHash, long Salt, long Trailer)? PssMeaning(ReadOnlyMemory<byte>? parameters)
+    {
+        const string sha1 = "1.3.14.3.2.26", mgf1 = "1.2.840.113549.1.1.8";
+        if (parameters is not { IsEmpty: false } bytes) return (sha1, mgf1, sha1, 20, 1);
+        try
+        {
+            var reader = new AsnReader(bytes, AsnEncodingRules.BER);
+            var sequence = reader.ReadSequence();
+            if (reader.HasData) return null;
+            string hash = sha1, mask = mgf1, maskHash = sha1;
+            long salt = 20, trailer = 1;
+            static string AlgorithmOf(AsnReader holder, out AsnReader rest)
+            {
+                rest = holder.ReadSequence();
+                var oid = rest.ReadObjectIdentifier();
+                return oid;
+            }
+            if (sequence.HasData && sequence.PeekTag().HasSameClassAndValue(new Asn1Tag(TagClass.ContextSpecific, 0)))
+            {
+                var holder = sequence.ReadSequence(new Asn1Tag(TagClass.ContextSpecific, 0));
+                hash = AlgorithmOf(holder, out var rest);
+                if (rest.HasData) rest.ReadNull();
+                if (rest.HasData || holder.HasData) return null;
+            }
+            if (sequence.HasData && sequence.PeekTag().HasSameClassAndValue(new Asn1Tag(TagClass.ContextSpecific, 1)))
+            {
+                var holder = sequence.ReadSequence(new Asn1Tag(TagClass.ContextSpecific, 1));
+                mask = AlgorithmOf(holder, out var rest);
+                maskHash = AlgorithmOf(rest, out var inner);
+                if (inner.HasData) inner.ReadNull();
+                if (inner.HasData || rest.HasData || holder.HasData) return null;
+            }
+            if (sequence.HasData && sequence.PeekTag().HasSameClassAndValue(new Asn1Tag(TagClass.ContextSpecific, 2)))
+            {
+                var holder = sequence.ReadSequence(new Asn1Tag(TagClass.ContextSpecific, 2));
+                if (!holder.TryReadInt64(out salt) || holder.HasData) return null;
+            }
+            if (sequence.HasData && sequence.PeekTag().HasSameClassAndValue(new Asn1Tag(TagClass.ContextSpecific, 3)))
+            {
+                var holder = sequence.ReadSequence(new Asn1Tag(TagClass.ContextSpecific, 3));
+                if (!holder.TryReadInt64(out trailer) || holder.HasData) return null;
+            }
+            return sequence.HasData ? null : (hash, mask, maskHash, salt, trailer);
+        }
+        catch (AsnContentException)
+        {
+            return null;
+        }
     }
 
     /// <summary>The one value of the message-digest attribute; null if it is missing, repeated or has several values.</summary>

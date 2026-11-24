@@ -580,4 +580,53 @@ public sealed class PdfSignerTests
         using (var owner = PdfDocument.Open(printOnly, "owner"))
             Assert.NotEmpty(PdfSigner.Sign(owner, 0, Signature(100, 100), Certificate.Value, When));
     }
+
+    /// <summary>
+    /// The rights for signing an encrypted file opened without full access (ISO 32000-2, Table 22; second M4 probe, D): an existing signature
+    /// field takes bit 6 or, from revision 3, bit 9; a signature field of its own needs bits 4 and 6 — before, bit 6 or 9 sufficed in every case.
+    /// </summary>
+    [Theory]
+    [InlineData(PdfPermissionsAlias.FillForms, true, false)]
+    [InlineData(PdfPermissionsAlias.Annotate, true, false)]
+    [InlineData(PdfPermissionsAlias.AnnotateModify, true, true)]
+    public void Encrypted_RightsForExistingAndNewField(PdfPermissionsAlias rights, bool intoField, bool ownField)
+    {
+        var permissions = rights switch
+        {
+            PdfPermissionsAlias.FillForms => Core.Pdf.Security.PdfPermissions.Print | Core.Pdf.Security.PdfPermissions.FillForms,
+            PdfPermissionsAlias.Annotate => Core.Pdf.Security.PdfPermissions.Print | Core.Pdf.Security.PdfPermissions.Annotate,
+            _ => Core.Pdf.Security.PdfPermissions.Print | Core.Pdf.Security.PdfPermissions.Annotate | Core.Pdf.Security.PdfPermissions.Modify,
+        };
+        byte[] Build()
+        {
+            var pdf = TestPdf.Simple(pages: 1);
+            var field = pdf.Add(TestPdf.Dict(("Type", TestPdf.N("Annot")), ("Subtype", TestPdf.N("Widget")), ("FT", TestPdf.N("Sig")),
+                ("T", new PdfString("Kunde"u8.ToArray())), ("Rect", TestPdf.Box(100, 100, 300, 180)), ("P", TestPdf.Ref(5))));
+            ((PdfDictionary)pdf.Get(5)).Set(PdfName.Get("Annots"), new PdfArray { TestPdf.Ref(field) });
+            ((PdfDictionary)pdf.Get(pdf.RootNumber)).Set(PdfName.Get("AcroForm"), TestPdf.Dict(("Fields", new PdfArray { TestPdf.Ref(field) })));
+            return pdf.Build(cipher: Core.Pdf.Security.PdfCipher.Aes256, user: "", permissions: permissions, version: "2.0");
+        }
+        bool Signs(PageElement signature)
+        {
+            using var doc = PdfDocument.Open(Build());
+            try
+            {
+                PdfSigner.Sign(doc, 0, signature, Certificate.Value, When);
+                return true;
+            }
+            catch (Core.Pdf.PdfException e) when (e.Message == Tr.T("Die Rechte dieser Datei erlauben kein Unterschreiben."))
+            {
+                return false;
+            }
+        }
+        Assert.Equal(intoField, Signs(Signature(100, 100, field: "Kunde")));
+        Assert.Equal(ownField, Signs(Signature(350, 400)));
+    }
+
+    public enum PdfPermissionsAlias
+    {
+        FillForms,
+        Annotate,
+        AnnotateModify,
+    }
 }

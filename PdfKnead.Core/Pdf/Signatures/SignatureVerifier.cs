@@ -382,6 +382,9 @@ public static class SignatureVerifier
         if (CmsSignature.Der(block) is not { } der || !Decodable(der)) return result with { Problem = Tr.T("Der Signaturblock ist beschädigt.") };
         if (method == "ETSI.RFC3161")
         {
+            // the token's protected statement of the algorithms (RFC 6211, also in a time stamp's SignedData; No. 1119)
+            if (!CmsSignature.AlgorithmProtectionHolds(der))
+                return result with { Problem = Tr.T("Die geschützte Angabe der Verfahren im Signaturblock passt nicht zu den verwendeten: der Signaturblock ist verändert oder fehlerhaft."), Cause = SubIndication.SigCryptoFailure };
             var documentStamp = DocumentTimestamp(doc, range, der, result, roots, store, lists, proven);
             return documentStamp.Problem is not null ? documentStamp : Finish(doc, documentStamp, range, end, wholeFile, password, revisions, restriction);
         }
@@ -438,6 +441,9 @@ public static class SignatureVerifier
                         // (decoding a block with content of its own replaces the bytes of the file with it)
                         if (!cms.Detached && !carriesCopy) return result with { Problem = Tr.T("Der Signaturblock unterschreibt eigene Daten statt der Datei.") };
                         cms.CheckSignature(verifySignatureOnly: true);
+                        // the protected statement of the algorithms on this way too (RFC 6211; No. 1119)
+                        if (!CmsSignature.AlgorithmProtectionHolds(der))
+                            return result with { Problem = Tr.T("Die geschützte Angabe der Verfahren im Signaturblock passt nicht zu den verwendeten: der Signaturblock ist verändert oder fehlerhaft."), Cause = SubIndication.SigCryptoFailure };
                     }
                     break;
                 case "adbe.pkcs7.sha1":
@@ -450,6 +456,9 @@ public static class SignatureVerifier
                     if (cms.SignerInfos.Count == 1 && CmsSignature.NotComputable(cms.SignerInfos[0]) is { } unsupportedSha1)
                         return result with { Outcome = SignatureOutcome.NotChecked, Problem = Tr.T("Das Signaturverfahren {0} wird nicht geprüft.", unsupportedSha1) };
                     cms.CheckSignature(verifySignatureOnly: true);
+                    // the protected statement of the algorithms (RFC 6211; No. 1119)
+                    if (!CmsSignature.AlgorithmProtectionHolds(der))
+                        return result with { Problem = Tr.T("Die geschützte Angabe der Verfahren im Signaturblock passt nicht zu den verwendeten: der Signaturblock ist verändert oder fehlerhaft."), Cause = SubIndication.SigCryptoFailure };
                     if (!cms.ContentInfo.Content.AsSpan().SequenceEqual(Digest(doc, range, HashAlgorithmName.SHA1)))
                         return result with { Problem = Tr.T("Die Signatur passt nicht zum Inhalt: das Dokument wurde verändert."), Cause = SubIndication.HashFailure };
                     break;

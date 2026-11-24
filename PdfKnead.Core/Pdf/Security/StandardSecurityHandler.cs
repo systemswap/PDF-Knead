@@ -1102,6 +1102,9 @@ public sealed partial class StandardSecurityHandler
     /// <exception cref="PdfException">Unsupported method or incomplete encryption data.</exception>
     public static bool OpensWithoutPassword(PdfDictionary encrypt, PdfArray? id)
     {
+        // encrypted for recipients: never without a certificate — and not tried here, which would decrypt with the user's private key (perhaps
+        // asking a card for its PIN) or fail with another exception (second M4 probe, A1; docs/FEHLERGEDAECHTNIS.md, No. 1119)
+        if (encrypt.GetName(PdfName.Filter)?.Value != "Standard" && IsPublicKeyEncryption(encrypt)) return false;
         try
         {
             return !Open(encrypt, id, null).AttachmentsLocked;
@@ -1120,6 +1123,8 @@ public sealed partial class StandardSecurityHandler
     /// <exception cref="PdfException">Unsupported method or incomplete encryption data.</exception>
     public static bool IsOwnerPassword(PdfDictionary encrypt, PdfArray? id, string password)
     {
+        // a public-key handler has no passwords
+        if (encrypt.GetName(PdfName.Filter)?.Value != "Standard" && IsPublicKeyEncryption(encrypt)) return false;
         try
         {
             return Open(encrypt, id, password) is { IsOwner: true, AttachmentsLocked: false };

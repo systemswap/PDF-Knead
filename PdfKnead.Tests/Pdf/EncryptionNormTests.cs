@@ -292,8 +292,9 @@ public sealed partial class EncryptionNormTests
     }
 
     /// <summary>
-    /// 7.6.7: an unencrypted wrapper around an encrypted document (/EncryptedPayload) is not unwrapped — the wrapper opens as any file, its
-    /// page (meant as a notice) is shown and the payload is one of its attachments (M4 row 27).
+    /// 7.6.7: a file with a collection showing an encrypted payload as attachment, but without /AF naming it as /EncryptedPayload, is no wrapper
+    /// in the sense of 7.6.7 — it opens as any file, its page is shown and the payload is one of its attachments. A real wrapper (with /AF) is
+    /// recognised and its payload offered: EncryptedPayloadUiTests (docs/FEHLERGEDAECHTNIS.md, No. 1115).
     /// </summary>
     [Fact]
     public void EncryptedPayload_WrapperOpensAsAFile_PayloadIsAnAttachment()

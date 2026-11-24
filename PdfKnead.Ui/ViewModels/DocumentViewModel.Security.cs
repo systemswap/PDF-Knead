@@ -60,9 +60,21 @@ public sealed partial class DocumentViewModel
     /// <summary>Whether „Einschränkungen entfernen“ has been done (until the next save; after that it is in the file).</summary>
     public bool RestrictionsLifted { get; private set; }
 
-    /// <summary>Permissions the file itself grants (/P), even when it is opened with the owner password and therefore everything is allowed.</summary>
+    /// <summary>
+    /// Permissions the file itself grants (/P), even when it is opened with the owner password and therefore everything is allowed. Encrypted for
+    /// recipients there is no /P: the permissions of the recipient list that opened it count (ISO 32000-2, 7.6.5.2; before, everything was shown
+    /// as allowed — docs/FEHLERGEDAECHTNIS.md, No. 1119).
+    /// </summary>
     public PdfPermissions FilePermissions =>
-        Document.EncryptDictionary?.GetInteger(Core.Pdf.Objects.PdfName.Get("P")) is { } p ? (PdfPermissions)(int)p & PdfPermissions.All : PdfPermissions.All;
+        Document.Security is { IsPublicKey: true } recipient ? recipient.Permissions & PdfPermissions.All
+        : Document.EncryptDictionary?.GetInteger(Core.Pdf.Objects.PdfName.Get("P")) is { } p ? (PdfPermissions)(int)p & PdfPermissions.All : PdfPermissions.All;
+
+    /// <summary>
+    /// Encrypted for recipients and opened without full access (Table 24, bit 2): the restrictions belong to the recipient's certificate —
+    /// they can neither be lifted nor the protection changed here (before, „Einschränkungen entfernen“ saved the file without any protection;
+    /// docs/FEHLERGEDAECHTNIS.md, No. 1119).
+    /// </summary>
+    public bool RecipientRestricted => Document.Security is { IsPublicKey: true, IsOwner: false };
 
     /// <summary>Whether there are restrictions that „Einschränkungen entfernen“ can lift (also when opened with the owner password).</summary>
     public bool HasRestrictions => Document.Security is not null && !RestrictionsLifted && FilePermissions != PdfPermissions.All;
@@ -71,10 +83,11 @@ public sealed partial class DocumentViewModel
     /// Whether the file has an owner password that was not given — also when it permits everything: then nothing is locked, but without
     /// „Einschränkungen entfernen“ the password could never be removed, since changing the protection needs it (CanChangeProtection).
     /// </summary>
-    public bool HasPermissionPassword => Document.Security is { IsOwner: false } && !RestrictionsLifted;
+    public bool HasPermissionPassword => Document.Security is { IsOwner: false, IsPublicKey: false } && !RestrictionsLifted;
 
-    /// <summary>Whether „Einschränkungen entfernen“ has something to do: restrictions, or an owner password that was not given.</summary>
-    public bool CanLiftRestrictions => HasRestrictions || HasPermissionPassword;
+    /// <summary>Whether „Einschränkungen entfernen“ has something to do: restrictions, or an owner password that was not given — never for a
+    /// recipient without full access.</summary>
+    public bool CanLiftRestrictions => !RecipientRestricted && (HasRestrictions || HasPermissionPassword);
 
     /// <summary>
     /// Protection may be changed if the file was opened without encryption or with the owner password, or the restrictions have been
@@ -114,6 +127,7 @@ public sealed partial class DocumentViewModel
         Document.Security is null ? Tr.T("Die Datei hat keine Einschränkungen.")
         : RestrictionsLifted ? Tr.T("Einschränkungen entfernt — in der Datei ab dem nächsten Speichern.")
         : FilePermissions == PdfPermissions.All ? Tr.T("Die Datei erlaubt alles.")
+        : RecipientRestricted ? Tr.T("Diese Rechte gelten für Ihr Zertifikat. Ändern kann sie nur, wer die Datei mit allen Rechten öffnen kann.")
         : Document.Security.IsOwner ? Tr.T("Mit dem Rechte-Passwort geöffnet: hier ist trotzdem alles erlaubt.")
         : Tr.T("Gesperrtes lässt sich mit „Einschränkungen entfernen“ wieder erlauben.");
 
@@ -138,7 +152,8 @@ public sealed partial class DocumentViewModel
     /// <param name="keepOpenPassword">Keep the open password if the file has one.</param>
     public void LiftRestrictions(bool keepOpenPassword)
     {
-        if (Document.Security is null) return;
+        // a recipient without full access cannot lift anything (No. 1119)
+        if (Document.Security is null || RecipientRestricted) return;
         var keep = keepOpenPassword && HasOpenPassword && Document.Security.CanGrantAllPermissions;
         PendingProtection = new ProtectionChange(null, AllRights: keep);
         RestrictionsLifted = true;

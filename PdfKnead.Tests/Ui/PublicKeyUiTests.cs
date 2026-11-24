@@ -130,4 +130,47 @@ public sealed class PublicKeyUiTests
         Assert.False(asLeser.Security.Permissions.HasFlag(PdfPermissions.Modify));
         Assert.True(asLeser.Security.Permissions.HasFlag(PdfPermissions.Print));
     }
+
+    /// <summary>
+    /// A recipient without full access (Table 24, bit 2 not set): the rights shown are those of the recipient list — not „everything“, as when
+    /// /P was read —, „Einschränkungen entfernen“ is not offered and does nothing, the question for an open password answers without an
+    /// exception (second M4 probe, A1/A2; docs/FEHLERGEDAECHTNIS.md, No. 1119).
+    /// </summary>
+    [Fact]
+    public void Recipient_WithoutFullAccess_RightsShown_NothingToLift()
+    {
+        using var leser = Person("Max Mustermann");
+        byte[] file;
+        using (var source = PdfDocument.Open(TestPdf.Simple(1).Build()))
+        using (var output = new MemoryStream())
+        {
+            Core.Pdf.Writing.PdfWriter.Write(source, Core.Pdf.Editing.PageItem.From(source), output, new Core.Pdf.Writing.PdfSaveOptions
+            {
+                Version = "2.0",
+                Recipients = [new PdfRecipientGroup([X509CertificateLoader.LoadCertificate(leser.RawData)], PdfPermissions.Print)],
+            });
+            file = output.ToArray();
+        }
+        var path = TestFiles.Write(file, "empfaenger-eingeschraenkt.pdf");
+        UiSession.Run(() =>
+        {
+            var doc = new DocumentViewModel(path, PdfDocument.Open(path, null, [leser]));
+            try
+            {
+                Assert.True(doc.RecipientRestricted);
+                Assert.Equal(PdfPermissions.Print | PdfPermissions.Accessibility, doc.FilePermissions);
+                Assert.False(doc.Rights.Single(r => r.Label == Tr.T("Kopieren")).Allowed);
+                Assert.False(doc.CanLiftRestrictions);
+                Assert.True(doc.HasOpenPassword);
+                doc.LiftRestrictions(keepOpenPassword: false);
+                Assert.Null(doc.PendingProtection);
+                Assert.False(doc.HasAllRights);
+            }
+            finally
+            {
+                doc.Dispose();
+            }
+            return Task.CompletedTask;
+        });
+    }
 }

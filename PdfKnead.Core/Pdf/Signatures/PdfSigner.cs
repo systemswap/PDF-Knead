@@ -89,14 +89,21 @@ public static partial class PdfSigner
         // moment the key signs, by the clock (the /M a caller passes is only claimed; No. 526)
         if (checkCertificate && Platform.SigningCertificates.Unusable(certificate.Certificate, DateTimeOffset.UtcNow) is { } unusable)
             throw new Platform.SigningCertificateException(Tr.T("Mit diesem Zertifikat lässt sich nicht unterschreiben: {0}", unusable));
-        // an encrypted file opened without the owner password: signing needs the right to fill in forms (bit 9, from revision 3) or to add
-        // annotations and fill in (bit 6) — ISO 32000-2, Table 22 (docs/FEHLERGEDAECHTNIS.md, No. 543)
-        if (doc.Security is { IsOwner: false } rights && (rights.Permissions & (Security.PdfPermissions.Annotate | Security.PdfPermissions.FillForms)) == 0)
-            throw new PdfException(Tr.T("Die Rechte dieser Datei erlauben kein Unterschreiben."));
         signature = WithCertificateHolder(signature, certificate.Certificate);
         // An empty field of the file is filled where the signature lies within it; moved out of it, the signature gets a field of its own
         var target = signature.Digital?.FieldName is { Length: > 0 } name ? EmptySignatureField(doc, name) : null;
         if (target is { } found && !Within(signature.Rect, found.Rect)) target = null;
+        // an encrypted file opened without full access (ISO 32000-2, Table 22; Table 24 for recipients): filling an existing signature field
+        // needs bit 9 (from revision 3; revision 2 does not know it) or bit 6; a signature field of its own is created — bits 4 and 6 together.
+        // Before, bit 6 or 9 sufficed in every case (second M4 probe, D; docs/FEHLERGEDAECHTNIS.md, No. 543, 1111, 1119)
+        if (doc.Security is { IsOwner: false } rights)
+        {
+            var p = rights.Permissions;
+            var fill = p.HasFlag(Security.PdfPermissions.Annotate) || rights.Revision >= 3 && p.HasFlag(Security.PdfPermissions.FillForms);
+            var create = p.HasFlag(Security.PdfPermissions.Annotate) && p.HasFlag(Security.PdfPermissions.Modify);
+            if (target is null ? !create : !fill)
+                throw new PdfException(Tr.T("Die Rechte dieser Datei erlauben kein Unterschreiben."));
+        }
         // the seed values of the prepared field (Table 237): a requirement PDF Knead cannot meet refuses signing into it — before anything is
         // written (docs/ABLAUFPLAN.md, 2.3, phase 1: refuse, adapt nothing)
         if (target is { } prepared && SeedValues.Of(prepared.Field) is { } seed

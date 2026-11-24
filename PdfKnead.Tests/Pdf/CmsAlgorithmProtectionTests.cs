@@ -140,5 +140,54 @@ public sealed class CmsAlgorithmProtectionTests
         cms.ComputeSignature(signer, silent: true);
         Assert.Equal(valid ? CmsSignature.DigestCheck.Valid : CmsSignature.DigestCheck.AlgorithmMismatch,
             CmsSignature.CheckDigest(cms.Encode(), certificate, h => CryptographicOperations.HashData(h, Content)));
+        // the same judgement on the ways without the digest check (adbe.pkcs7.sha1, the platform's check, document time stamps; No. 1119)
+        Assert.Equal(valid, CmsSignature.AlgorithmProtectionHolds(cms.Encode()));
+    }
+
+    /// <summary>
+    /// RSASSA-PSS parameters compared by meaning (RFC 4055, 3.1; second M4 probe, A5): the defaults written out equal them left away, a salt of
+    /// another length does not; unreadable parameters never match.
+    /// </summary>
+    [Fact]
+    public void PssParameters_DefaultsWrittenOrLeftAway_Alike()
+    {
+        static byte[] Pss(bool explicitDefaults, int salt)
+        {
+            var w = new System.Formats.Asn1.AsnWriter(System.Formats.Asn1.AsnEncodingRules.DER);
+            using (w.PushSequence())
+            {
+                if (explicitDefaults)
+                {
+                    using (w.PushSequence(new System.Formats.Asn1.Asn1Tag(System.Formats.Asn1.TagClass.ContextSpecific, 0)))
+                    using (w.PushSequence())
+                    {
+                        w.WriteObjectIdentifier("1.3.14.3.2.26");
+                        w.WriteNull();
+                    }
+                    using (w.PushSequence(new System.Formats.Asn1.Asn1Tag(System.Formats.Asn1.TagClass.ContextSpecific, 1)))
+                    using (w.PushSequence())
+                    {
+                        w.WriteObjectIdentifier("1.2.840.113549.1.1.8");
+                        using (w.PushSequence())
+                        {
+                            w.WriteObjectIdentifier("1.3.14.3.2.26");
+                            w.WriteNull();
+                        }
+                    }
+                }
+                // the fields in their order: [2] saltLength before [3] trailerField
+                if (explicitDefaults || salt != 20)
+                    using (w.PushSequence(new System.Formats.Asn1.Asn1Tag(System.Formats.Asn1.TagClass.ContextSpecific, 2)))
+                        w.WriteInteger(salt);
+                if (explicitDefaults)
+                    using (w.PushSequence(new System.Formats.Asn1.Asn1Tag(System.Formats.Asn1.TagClass.ContextSpecific, 3)))
+                        w.WriteInteger(1);
+            }
+            return w.Encode();
+        }
+        Assert.True(PdfKnead.Core.Pdf.Signatures.CmsSignature.SamePssParameters(Pss(true, 20), Pss(false, 20)));
+        Assert.True(PdfKnead.Core.Pdf.Signatures.CmsSignature.SamePssParameters(Pss(false, 20), null));
+        Assert.False(PdfKnead.Core.Pdf.Signatures.CmsSignature.SamePssParameters(Pss(true, 20), Pss(false, 32)));
+        Assert.False(PdfKnead.Core.Pdf.Signatures.CmsSignature.SamePssParameters(new byte[] { 0x30, 0x03, 0x02, 0x01 }, null));
     }
 }

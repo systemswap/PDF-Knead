@@ -211,6 +211,7 @@ public sealed class PermissionRulesUiTests
     /// </summary>
     [Theory]
     [InlineData(PdfPermissions.Print | PdfPermissions.Copy | PdfPermissions.Annotate | PdfPermissions.FillForms | PdfPermissions.Assemble, false)]
+    [InlineData(PdfPermissions.Print | PdfPermissions.Modify | PdfPermissions.Copy | PdfPermissions.FillForms | PdfPermissions.Assemble, false)]   // bit 6 missing
     [InlineData(PdfPermissions.Print | PdfPermissions.Modify | PdfPermissions.Annotate, true)]
     public void ApplyRedactions_OnlyWithBits4And6(PdfPermissions permissions, bool allowed)
     {

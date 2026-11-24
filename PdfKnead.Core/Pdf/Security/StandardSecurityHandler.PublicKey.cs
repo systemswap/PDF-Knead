@@ -70,7 +70,8 @@ public sealed partial class StandardSecurityHandler
             throw new PdfException(Tr.T("Verschlüsselung für Empfänger: {0} passt nicht zu Version {1}.", subFilter, v));
         var encryptMetadata = v < 4 || (encrypt.GetBoolean(PdfName.Get("EncryptMetadata")) ?? true);
         var (stringCipher, streamCipher) = Ciphers(encrypt, v, notes);
-        var (named, embedded) = Filters(encrypt, v, streamCipher, notes);
+        var (filters, embedded) = Filters(encrypt, v, streamCipher, notes);
+        var named = new Dictionary<string, PdfCipher>(filters);
 
         PdfArray? lists;
         int keyBits;
@@ -91,6 +92,16 @@ public sealed partial class StandardSecurityHandler
             // one key for the document: filters with other recipients would need keys of their own — said, not guessed
             if (used.Any(d => d != first && d.ContainsKey(PdfName.Get("Recipients")) && !SameRecipients(lists, RecipientsOf(d.Get(PdfName.Get("Recipients"))))))
                 throw new PdfException(Tr.T("Die Kryptfilter dieser Datei nennen verschiedene Empfängerlisten; das wird nicht unterstützt."));
+            // a filter only single streams name (/Crypt) with recipients of its own: its data would decrypt to garbage with the document's key
+            // — the filter is left out, such a stream is reported as not decryptable (second M4 probe, A3; docs/FEHLERGEDAECHTNIS.md, No. 1119)
+            if (cf is not null)
+                foreach (var (name, _) in cf.Entries)
+                    if (cf.GetDictionary(name) is { } other && !used.Contains(other) && other.ContainsKey(PdfName.Get("Recipients"))
+                        && !SameRecipients(lists, RecipientsOf(other.Get(PdfName.Get("Recipients")))))
+                    {
+                        named.Remove(name.Value);
+                        notes.Add(Tr.T("Der Kryptfilter „{0}“ nennt eine eigene Empfängerliste; das wird nicht unterstützt, Datenströme mit ihm sind nicht lesbar.", name.Value));
+                    }
             // the crypt filter's /Length counts bits for public-key handlers (Table 25 with pdf-issues 184); a small value is taken as bytes
             var length = first?.GetInteger(PdfName.Length) ?? 128;
             keyBits = (int)(length < 40 ? length * 8 : length);
@@ -123,18 +134,45 @@ public sealed partial class StandardSecurityHandler
                 // not for this user, or not readable: the next list
             }
         }
-        if (content is null) throw new PdfRecipientException(filter);
+        if (content is null)
+        {
+            // only the attachments encrypted (/StmF and /StrF Identity, /EFF a filter, authorised when an attachment opens): the document opens
+            // without a certificate, the attachments stay locked — as with the standard handler (7.6.6, Table 25; second M4 probe, A4;
+            // docs/FEHLERGEDAECHTNIS.md, No. 1119)
+            if (stringCipher == PdfCipher.None && streamCipher == PdfCipher.None && embedded != PdfCipher.None
+                && encrypt.GetName(PdfName.Get("EFF")) is { Value: not "Identity" } && AuthorisedWhenAttachmentOpens(encrypt))
+            {
+                var locked = new StandardSecurityHandler([], subFilter == S3 ? 2 : 4, PdfCipher.None, PdfCipher.None, encryptMetadata, PdfPermissions.All, false)
+                {
+                    AttachmentsLocked = true,
+                    IsPublicKey = true,
+                    PublicKeyFilter = filter,
+                    RawPermissions = -1,
+                };
+                locked._named = named;
+                locked.EmbeddedFileCipher = embedded;
+                locked.Notes = notes.Distinct().ToList();
+                return locked;
+            }
+            throw new PdfRecipientException(filter);
+        }
         if (content.Length < 20) throw new PdfException(Tr.T("Die Daten für den Empfänger sind unvollständig."));
 
         var aes256 = streamCipher == PdfCipher.Aes256 || stringCipher == PdfCipher.Aes256 || embedded == PdfCipher.Aes256;
         var key = PublicKeyFileKey(content.AsSpan(0, 20), lists, encryptMetadata, aes256, keyBits);
-        // 4 bytes of permissions, most significant first (absent only in the data of a stream's own crypt filter, 7.6.5.3)
+        // 4 bytes of permissions, most significant first (absent only in the data of a stream's own crypt filter, 7.6.5.3) — absent here, at the
+        // level of the document, the data are damaged: no permission beyond viewing rather than all (second M4 probe, A3; No. 1119)
         int? permissions = content.Length >= 24 ? BinaryPrimitives.ReadInt32BigEndian(content.AsSpan(20, 4)) : null;
+        if (permissions is null)
+        {
+            notes.Add(Tr.T("In den Daten für den Empfänger fehlen die Rechte — die Datei wird nur zum Ansehen geöffnet."));
+            permissions = 0;
+        }
         // the seed is key material: cleared once the key is derived (docs/FEHLERGEDAECHTNIS.md, No. 1118)
         CryptographicOperations.ZeroMemory(content);
         // bit 2: change of the encryption and every other permission (Table 24); only bits 2–6 and 9–12 count
-        var full = permissions is null || (permissions.Value & 2) != 0;
-        var granted = full ? PdfPermissions.All : (PdfPermissions)permissions!.Value & PdfPermissions.All;
+        var full = (permissions.Value & 2) != 0;
+        var granted = full ? PdfPermissions.All : (PdfPermissions)permissions.Value & PdfPermissions.All;
         // s3 has the permissions of revision 2 (7.6.5.3); the others those of revisions 3 and up — the revision stands for that and for the
         // key handling (256-bit AES as revision 6)
         var revision = subFilter == S3 ? 2 : aes256 ? 6 : subFilter == S4 ? 3 : 4;
@@ -144,7 +182,7 @@ public sealed partial class StandardSecurityHandler
             PublicKeyFilter = filter,
             FileId = id is { Count: > 0 } && id.Get(0) is PdfString first0 ? first0.Bytes : [],
             // bit 13 (ISO/TS 32004: a MAC required) does not belong to these permissions — set, so none is asked for
-            RawPermissions = (permissions ?? -1) | (1 << 12),
+            RawPermissions = permissions.Value | (1 << 12),
         };
         handler._named = named;
         handler.EmbeddedFileCipher = embedded;
@@ -192,6 +230,10 @@ public sealed partial class StandardSecurityHandler
     public static (PdfDictionary Encrypt, StandardSecurityHandler Handler) CreateForRecipients(IReadOnlyList<PdfRecipientGroup> groups, byte[] fileId)
     {
         if (groups.Count == 0) throw new PdfException(Tr.T("Für die Verschlüsselung für Empfänger fehlt ein Empfänger."));
+        // one CMS object per set of permissions (Table 23): groups with the same permissions become one, in the order they first appear
+        // (second M4 probe; docs/FEHLERGEDAECHTNIS.md, No. 1119)
+        groups = groups.GroupBy(g => (Permissions: (g.Permissions & PdfPermissions.All) | PdfPermissions.Accessibility, g.FullAccess))
+            .Select(same => new PdfRecipientGroup(same.SelectMany(g => g.Certificates).ToList(), same.Key.Permissions, same.Key.FullAccess)).ToList();
         var seed = RandomNumberGenerator.GetBytes(20);
         var lists = new PdfArray();
         foreach (var group in groups)
