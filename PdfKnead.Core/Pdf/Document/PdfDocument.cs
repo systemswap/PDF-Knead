@@ -495,7 +495,7 @@ public sealed class PdfDocument : IPdfResolver, IDisposable
         }
 
         // the integrity protection, where the file has one or asks for one: checked when opened, a violation or a missing MAC said (No. 556)
-        if (Security.Revision >= 6 && (StandardSecurityHandler.RequiresMac(Security.RawPermissions, Security.Revision) || Trailer.ContainsKey(PdfName.Get("AuthCode"))))
+        if (Security.Revision >= 6 && (StandardSecurityHandler.RequiresMac(Security.RawPermissions, Security.Revision) || Trailer.HasValue(PdfName.Get("AuthCode"))))
         {
             _cache.Clear();
             switch (Integrity.State)

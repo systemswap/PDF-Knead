@@ -274,6 +274,7 @@ public sealed partial class JpxColourTests
     /// compositing layer (M.9.2.2): the image is the codestream's, at once, without a loop or a wait.
     /// </summary>
     [TestPdfsTheory]
+    [InlineData(0x00, 0, 0u, 0, 0u, 0u)]   // Ityp 0: no instruction (Table M.38, counted since No. 1121)
     [InlineData(0x01, 0, 0u, 0, 0u, 0u)]
     [InlineData(0x02, 0, 0u, 0, 0u, 0u)]
     [InlineData(0x08, 0, 100u, 0, 0u, 0u)]

@@ -38,12 +38,12 @@ public sealed partial class StandardSecurityHandler
     private static string? PublicKeySubFilter(PdfDictionary encrypt)
     {
         if (encrypt.GetName(PdfName.Get("SubFilter"))?.Value is (S3 or S4 or S5) and var named) return named;
-        if (encrypt.ContainsKey(PdfName.Get("SubFilter"))) return null;
+        if (encrypt.HasValue(PdfName.Get("SubFilter"))) return null;
         // no /SubFilter (files of that kind exist): recipients in crypt filters are s5, in the dictionary itself s4 (s3 only with V 1)
         if ((encrypt.GetInteger(PdfName.Get("V")) ?? 0) >= 4 && encrypt.GetDictionary(PdfName.Get("CF")) is { } cf
-            && cf.Entries.Any(e => cf.GetDictionary(e.Key)?.ContainsKey(PdfName.Get("Recipients")) == true))
+            && cf.Entries.Any(e => cf.GetDictionary(e.Key)?.HasValue(PdfName.Get("Recipients")) == true))
             return S5;
-        return encrypt.ContainsKey(PdfName.Get("Recipients")) ? (encrypt.GetInteger(PdfName.Get("V")) ?? 0) <= 1 ? S3 : S4 : null;
+        return encrypt.HasValue(PdfName.Get("Recipients")) ? (encrypt.GetInteger(PdfName.Get("V")) ?? 0) <= 1 ? S3 : S4 : null;
     }
 
     /// <summary>
@@ -63,7 +63,7 @@ public sealed partial class StandardSecurityHandler
         var subFilter = PublicKeySubFilter(encrypt)!;
         var v = (int)(encrypt.GetInteger(PdfName.Get("V")) ?? 0);
         var notes = new List<string>();
-        if (!encrypt.ContainsKey(PdfName.Get("SubFilter")))
+        if (!encrypt.HasValue(PdfName.Get("SubFilter")))
             notes.Add(Tr.T("In der Verschlüsselung für Empfänger fehlt /SubFilter — gelesen als {0}.", subFilter));
         // s3 and s4 without crypt filters, s5 with them (7.6.5.2)
         if (subFilter == S5 ? v is not (4 or 5) : v is not (1 or 2 or 3))
@@ -81,7 +81,7 @@ public sealed partial class StandardSecurityHandler
             var cf = encrypt.GetDictionary(PdfName.Get("CF"));
             var used = new[] { encrypt.GetName(PdfName.Get("StmF")), encrypt.GetName(PdfName.Get("StrF")), encrypt.GetName(PdfName.Get("EFF")) }
                 .Where(n => n is not null && n.Value != "Identity").Select(n => cf?.GetDictionary(n!)).OfType<PdfDictionary>().ToList();
-            var first = used.FirstOrDefault(d => d.ContainsKey(PdfName.Get("Recipients")));
+            var first = used.FirstOrDefault(d => d.HasValue(PdfName.Get("Recipients")));
             lists = RecipientsOf(first?.Get(PdfName.Get("Recipients")));
             // recipients in the dictionary itself instead of the crypt filter (s4 style, Table 23 asks for the filter with s5): read, and said
             if (lists is null && RecipientsOf(encrypt.Get(PdfName.Get("Recipients"))) is { } outside)
@@ -90,13 +90,13 @@ public sealed partial class StandardSecurityHandler
                 notes.Add(Tr.T("Die Empfänger stehen nicht im Kryptfilter, sondern im Verschlüsselungswörterbuch — so gelesen."));
             }
             // one key for the document: filters with other recipients would need keys of their own — said, not guessed
-            if (used.Any(d => d != first && d.ContainsKey(PdfName.Get("Recipients")) && !SameRecipients(lists, RecipientsOf(d.Get(PdfName.Get("Recipients"))))))
+            if (used.Any(d => d != first && d.HasValue(PdfName.Get("Recipients")) && !SameRecipients(lists, RecipientsOf(d.Get(PdfName.Get("Recipients"))))))
                 throw new PdfException(Tr.T("Die Kryptfilter dieser Datei nennen verschiedene Empfängerlisten; das wird nicht unterstützt."));
             // a filter only single streams name (/Crypt) with recipients of its own: its data would decrypt to garbage with the document's key
             // — the filter is left out, such a stream is reported as not decryptable (second M4 probe, A3; docs/FEHLERGEDAECHTNIS.md, No. 1119)
             if (cf is not null)
                 foreach (var (name, _) in cf.Entries)
-                    if (cf.GetDictionary(name) is { } other && !used.Contains(other) && other.ContainsKey(PdfName.Get("Recipients"))
+                    if (cf.GetDictionary(name) is { } other && !used.Contains(other) && other.HasValue(PdfName.Get("Recipients"))
                         && !SameRecipients(lists, RecipientsOf(other.Get(PdfName.Get("Recipients")))))
                     {
                         named.Remove(name.Value);

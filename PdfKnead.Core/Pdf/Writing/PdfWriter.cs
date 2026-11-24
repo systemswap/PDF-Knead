@@ -1553,8 +1553,8 @@ public static partial class PdfWriter
 
         private static bool SourceHadMac(Document.PdfDocument source) =>
             source.Security is { } s && (StandardSecurityHandler.RequiresMac(s.RawPermissions, s.Revision)
-                                         || source.EncryptDictionary?.ContainsKey(PdfName.Get("KDFSalt")) == true
-                                         || source.Trailer.ContainsKey(PdfName.Get("AuthCode")));
+                                         || source.EncryptDictionary?.HasValue(PdfName.Get("KDFSalt")) == true
+                                         || source.Trailer.HasValue(PdfName.Get("AuthCode")));
 
         private void WriteCatalog(int pagesRoot)
         {

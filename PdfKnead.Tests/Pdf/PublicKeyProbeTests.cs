@@ -153,4 +153,25 @@ public sealed class PublicKeyProbeTests
         Assert.False(StandardSecurityHandler.IsOwnerPassword(doc.EncryptDictionary!, null, "irgendwas"));
         Assert.Equal(MacState.None, doc.Integrity.State);
     }
+
+    /// <summary>S-A A67 (7.3.9; docs/FEHLERGEDAECHTNIS.md, No. 1120): /SubFilter into the void counts as absent — the kind is taken from the
+    /// entries and said, as without the key; /Recipients into the void in the document's crypt filter counts as absent — the recipients in the
+    /// dictionary are read. Before, the bare key counted: the file was taken for an unknown handler.</summary>
+    [Fact]
+    public void SubFilterAndRecipientsIntoTheVoid_CountAsAbsent()
+    {
+        using var leser = Person("Max Mustermann");
+        using (var doc = PdfDocument.Open(FileWith($"<< /Filter /Adobe.PubSec /SubFilter 990 0 R /V 2 /Length 128 /Recipients [{Recipient(leser, -1)}] >>"), null, [leser]))
+        {
+            Assert.True(doc.Security!.IsPublicKey);
+            Assert.Contains(doc.Security.Notes, n => n.Contains("adbe.pkcs7.s4", StringComparison.Ordinal));
+        }
+        var s5 = FileWith("<< /Filter /Adobe.PubSec /SubFilter /adbe.pkcs7.s5 /V 4 /CF << /DefaultCryptFilter << /CFM /AESV2 /Length 128 /Recipients 991 0 R >> >> " +
+                          $"/StmF /DefaultCryptFilter /StrF /DefaultCryptFilter /Recipients [{Recipient(leser, -1)}] >>");
+        using (var doc = PdfDocument.Open(s5, null, [leser]))
+        {
+            Assert.True(doc.Security!.IsOwner);
+            Assert.Contains(doc.Security.Notes, n => n.Contains("Verschlüsselungswörterbuch", StringComparison.Ordinal));
+        }
+    }
 }

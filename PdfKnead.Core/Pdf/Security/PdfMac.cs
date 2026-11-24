@@ -311,7 +311,7 @@ public static class PdfMac
         var empty = StandardSecurityHandler.OpensWithoutPassword(encrypt, doc.Trailer.Get(PdfName.ID) as PdfArray);
         var required = StandardSecurityHandler.RequiresMac(security.RawPermissions, security.Revision);
         if (doc.NewestTrailer is not { } newest)
-            return doc.Trailer.ContainsKey(AuthCodeKey) || required
+            return doc.Trailer.HasValue(AuthCodeKey) || required
                 ? new MacCheck(MacState.NotCheckable, Tr.T("Die Querverweise der Datei mussten repariert werden; die neueste Fassung ist nicht sicher bestimmt."), empty)
                 : new MacCheck(MacState.None);
         if (newest.GetDictionary(AuthCodeKey) is not { } authCode)
@@ -349,7 +349,7 @@ public static class PdfMac
     private static MacCheck Standalone(PdfDocument doc, StandardSecurityHandler security, PdfDictionary encrypt, PdfDictionary authCode)
     {
         // /SigObjRef belongs to a token attached to a signature (Table 6)
-        if (authCode.ContainsKey(PdfName.Get("SigObjRef")))
+        if (authCode.HasValue(PdfName.Get("SigObjRef")))
             return new MacCheck(MacState.Invalid, Tr.T("Ein eigenständiger MAC nennt keine Signatur (/SigObjRef)."));
 
         // the byte range: [0 L1 S L2], to the end of the file, the gap exactly „<“ hexadecimal digits „>“ (5.2.3, Table 6)
@@ -395,7 +395,7 @@ public static class PdfMac
     /// </summary>
     private static MacCheck Attached(PdfDocument doc, StandardSecurityHandler security, PdfDictionary encrypt, PdfDictionary authCode)
     {
-        if (authCode.ContainsKey(PdfName.Get("ByteRange")) || authCode.ContainsKey(PdfName.Get("MAC")))
+        if (authCode.HasValue(PdfName.Get("ByteRange")) || authCode.HasValue(PdfName.Get("MAC")))
             return new MacCheck(MacState.Invalid, Tr.T("Ein MAC an einer Signatur hat im Integritätsschutz weder /ByteRange noch /MAC."));
         if (authCode.GetRaw(PdfName.Get("SigObjRef")) is not PdfReference reference || doc.Resolve(reference.Id) is not PdfDictionary signature)
             return new MacCheck(MacState.Invalid, Tr.T("Der Integritätsschutz nennt nicht die Signatur, an der der MAC hängt (/SigObjRef)."));

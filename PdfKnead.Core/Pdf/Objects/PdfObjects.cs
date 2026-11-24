@@ -488,6 +488,11 @@ public sealed class PdfDictionary : PdfObject
     /// <returns>True if the entry exists (even if its value is null or a reference that cannot be resolved).</returns>
     public bool ContainsKey(PdfName key) => _map?.ContainsKey(key) ?? IndexOf(key) >= 0;
 
+    /// <summary>Whether the dictionary has a value for a key: an entry whose value is null or a reference that leads nowhere counts as
+    /// absent (ISO 32000-2, 7.3.9; S-A A67, docs/FEHLERGEDAECHTNIS.md, No. 1120) — unlike <see cref="ContainsKey"/>.</summary>
+    /// <param name="key">The key.</param>
+    public bool HasValue(PdfName key) => Get(key) is not PdfNull;
+
     /// <summary>Sets an entry; an existing entry with the same key is replaced.</summary>
     /// <param name="key">The key.</param>
     /// <param name="value">The value (may be a reference).</param>

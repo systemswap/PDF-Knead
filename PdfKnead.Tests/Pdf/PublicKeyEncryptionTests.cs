@@ -20,9 +20,10 @@ namespace PdfKnead.Tests.Pdf;
 /// </summary>
 public sealed class PublicKeyEncryptionTests
 {
-    private static string CollectionFolder()
+    // found from this source file, not from the build output: the guards build outside the repository (waechter.sh)
+    private static string CollectionFolder([System.Runtime.CompilerServices.CallerFilePath] string source = "")
     {
-        var root = AppContext.BaseDirectory;
+        var root = Path.GetDirectoryName(source)!;
         while (!Directory.Exists(Path.Combine(root, "TestPDFs"))) root = Path.GetDirectoryName(root) ?? throw new DirectoryNotFoundException("TestPDFs");
         return Path.Combine(root, "TestPDFs", "pdfium", "fx", "FRC_3.5_part1");
     }

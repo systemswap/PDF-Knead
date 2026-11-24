@@ -115,7 +115,7 @@ public sealed class IncrementalUpdate
     private static bool MacAsked(Security.StandardSecurityHandler? security, PdfDictionary? encrypt, PdfDictionary trailer) =>
         // bit 13 as sealed in /Perms where valid, else as in /P (No. 544): a /P edited afterwards does not hide the MAC requirement
         security is not null && (security.Revision >= 6 && (security.RawPermissions & (1 << 12)) == 0
-                                 || encrypt?.ContainsKey(PdfName.Get("KDFSalt")) == true || trailer.ContainsKey(PdfName.Get("AuthCode")));
+                                 || encrypt?.HasValue(PdfName.Get("KDFSalt")) == true || trailer.HasValue(PdfName.Get("AuthCode")));
 
     /// <summary>Adds a new object under the next free number.</summary>
     /// <param name="value">The object; a stream must carry its data in memory.</param>
