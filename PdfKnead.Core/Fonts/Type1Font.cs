@@ -477,7 +477,8 @@ public sealed class Type1Font
                 case 12:                        // div
                     if (_sp >= 2)
                     {
-                        _stack[_sp - 2] = _stack[_sp - 1] == 0 ? 0 : _stack[_sp - 2] / _stack[_sp - 1];
+                        // within the 32-bit numbers of Type 1: chains of div by fractions grew beyond any finite value (No. 1139)
+                        _stack[_sp - 2] = _stack[_sp - 1] == 0 ? 0 : Math.Clamp(_stack[_sp - 2] / _stack[_sp - 1], int.MinValue, int.MaxValue);
                         _sp--;
                     }
                     return true;

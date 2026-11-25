@@ -117,4 +117,52 @@ public sealed class CffSubsetterTests
         Assert.True(allocated < 400_000_000, $"{allocated / 1_000_000} MB angelegt");
         Assert.True(watch.ElapsedMilliseconds < 5000 * TestKind.Factor, $"{watch.ElapsedMilliseconds} ms");
     }
+
+    /// <summary>A CFF with one glyph after .notdef whose charstring the caller gives (no subroutines).</summary>
+    private static byte[] OneGlyph(byte[] glyph)
+    {
+        var name = Index("Probe"u8.ToArray());
+        var strings = Index();
+        var global = Index();
+        var topSize = Index(new byte[6]).Length;
+        var charStringsAt = 4 + name.Length + topSize + strings.Length + global.Length;
+        byte[] top = [29, (byte)(charStringsAt >> 24), (byte)(charStringsAt >> 16), (byte)(charStringsAt >> 8), (byte)charStringsAt, 17];
+        return [1, 0, 4, 4, .. name, .. Index(top), .. strings, .. global, .. Index([14], glyph)];
+    }
+
+    /// <summary>
+    /// Adobe TN 5177, Appendix B: dotsection is deprecated and a no-op. Flattening refused it like an arithmetic operator, so the subset
+    /// failed and the redaction kept the whole program with the glyphs of the redacted text (docs/FEHLERGEDAECHTNIS.md, No. 1139).
+    /// </summary>
+    [Fact]
+    public void Dotsection_IsLeftOutWhenFlattening()
+    {
+        // 100 100 rmoveto, dotsection, 50 0 rlineto, 0 50 rlineto, dotsection, endchar
+        byte[] glyph = [239, 239, 21, 12, 0, 189, 139, 5, 139, 189, 5, 12, 0, 14];
+        var cff = OneGlyph(glyph);
+        var before = CffFont.Parse(cff).Outline(1).Bounds;
+        var subset = CffSubsetter.Subset(cff, [1]);
+        var (cleaned, keep) = CffScrubber.Scrub(cff, [1]);
+        Assert.Contains(1, keep);
+        foreach (var result in new[] { subset, cleaned })
+        {
+            var after = CffFont.Parse(result).Outline(1).Bounds;
+            Assert.Equal((before.Left, before.Top, before.Right, before.Bottom), (after.Left, after.Top, after.Right, after.Bottom));
+        }
+    }
+
+    /// <summary>
+    /// Adobe TN 5177, 4.3: the arithmetic of Type 2 works on 16.16 fixed values. A chain of 70 times mul 30 000 grew beyond any finite
+    /// value and put infinities and NaN into the outline and the FontBBox of the PDF/A copy (docs/FEHLERGEDAECHTNIS.md, No. 1139).
+    /// </summary>
+    [Fact]
+    public void MultiplicationChain_StaysFinite()
+    {
+        var glyph = new List<byte> { 28, 0x75, 0x30 };                         // 30 000
+        for (var i = 0; i < 70; i++) glyph.AddRange([28, 0x75, 0x30, 12, 24]);   // 30 000 mul
+        glyph.AddRange([139, 21, 149, 149, 5, 14]);                              // 0 rmoveto, 10 10 rlineto, endchar
+        var bounds = CffFont.Parse(OneGlyph([.. glyph])).Outline(1).Bounds;
+        Assert.True(double.IsFinite(bounds.Left) && double.IsFinite(bounds.Right) && double.IsFinite(bounds.Top) && double.IsFinite(bounds.Bottom),
+            $"{bounds.Left} {bounds.Right} {bounds.Top} {bounds.Bottom}");
+    }
 }

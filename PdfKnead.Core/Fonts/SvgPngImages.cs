@@ -95,7 +95,7 @@ internal sealed partial class SvgPngImages : IGlyphImages
         if (Picture(entry, glyph) is not { } picture) return null;
         var width = (int)Math.Round(picture.Width * _scale);
         var height = (int)Math.Round(picture.Height * _scale);
-        if (width < 1 || height < 1 || (long)width * height > PngDecoder.MaxPixels) return null;
+        if (width < 1 || height < 1 || (long)width * height > ColorGlyphs.MaxGlyphPixels || !ColorGlyphs.Fits(picture.Png.Span)) return null;
         try
         {
             var image = PngDecoder.Decode(picture.Png.Span);
@@ -116,7 +116,7 @@ internal sealed partial class SvgPngImages : IGlyphImages
         var at = _list + (long)(uint)t.U32(record + 4);
         var length = (uint)t.U32(record + 8);
         if (length == 0 || at + length > _end) return null;
-        if (Text(_data.AsSpan((int)at, (int)length)) is not { } text) return null;
+        if (Document(at, length) is not { } text) return null;
         // Anything besides one image (shapes, references, transforms, an own coordinate system) is not a plain PNG glyph
         if (Unsupported().IsMatch(text)) return null;
         var from = 0;
@@ -157,6 +157,24 @@ internal sealed partial class SvgPngImages : IGlyphImages
             return null;
         }
     }
+
+    /// <summary>
+    /// The document at <paramref name="at"/> as text, the last one kept: the records of a document shared by many glyphs name the same
+    /// one, and each glyph unpacked it again (up to 16 MB) — some hundred megabytes for one name (No. 1138).
+    /// </summary>
+    private string? Document(long at, uint length)
+    {
+        lock (_lock)
+        {
+            if (_document is { } kept && kept.At == at && kept.Length == length) return kept.Text;
+        }
+        var text = Text(_data.AsSpan((int)at, (int)length));
+        lock (_lock) _document = (at, length, text);
+        return text;
+    }
+
+    private readonly Lock _lock = new();
+    private (long At, uint Length, string? Text)? _document;
 
     /// <summary>Returns the document as text; gzip-compressed documents are unpacked up to <see cref="MaxDocumentBytes"/>.</summary>
     private static string? Text(ReadOnlySpan<byte> document)

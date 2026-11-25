@@ -789,14 +789,14 @@ public sealed class CffFont
                     break;
                 // Arithmetic operators (rare; actually deprecated in Type 2)
                 case 9: if (_sp >= 1) _stack[_sp - 1] = Math.Abs(_stack[_sp - 1]); return;
-                case 10: if (_sp >= 2) { _stack[_sp - 2] += _stack[_sp - 1]; _sp--; } return;
-                case 11: if (_sp >= 2) { _stack[_sp - 2] -= _stack[_sp - 1]; _sp--; } return;
-                case 12: if (_sp >= 2) { _stack[_sp - 2] = _stack[_sp - 1] == 0 ? 0 : _stack[_sp - 2] / _stack[_sp - 1]; _sp--; } return;
+                case 10: if (_sp >= 2) { _stack[_sp - 2] = Fixed(_stack[_sp - 2] + _stack[_sp - 1]); _sp--; } return;
+                case 11: if (_sp >= 2) { _stack[_sp - 2] = Fixed(_stack[_sp - 2] - _stack[_sp - 1]); _sp--; } return;
+                case 12: if (_sp >= 2) { _stack[_sp - 2] = _stack[_sp - 1] == 0 ? 0 : Fixed(_stack[_sp - 2] / _stack[_sp - 1]); _sp--; } return;
                 case 14: if (_sp >= 1) _stack[_sp - 1] = -_stack[_sp - 1]; return;
                 case 18: if (_sp >= 1) _sp--; return;
                 case 20: if (_sp >= 2) { var idx = (int)_stack[_sp - 1]; if (idx >= 0 && idx < _transient.Length) _transient[idx] = _stack[_sp - 2]; _sp -= 2; } return;
                 case 21: if (_sp >= 1) { var idx = (int)_stack[_sp - 1]; _stack[_sp - 1] = idx >= 0 && idx < _transient.Length ? _transient[idx] : 0; } return;
-                case 24: if (_sp >= 2) { _stack[_sp - 2] *= _stack[_sp - 1]; _sp--; } return;
+                case 24: if (_sp >= 2) { _stack[_sp - 2] = Fixed(_stack[_sp - 2] * _stack[_sp - 1]); _sp--; } return;
                 case 26: if (_sp >= 1) _stack[_sp - 1] = Math.Sqrt(Math.Abs(_stack[_sp - 1])); return;
                 case 27: if (_sp >= 1) Push(_stack[_sp - 1]); return;
                 case 28: if (_sp >= 2) (_stack[_sp - 1], _stack[_sp - 2]) = (_stack[_sp - 2], _stack[_sp - 1]); return;
@@ -827,6 +827,12 @@ public sealed class CffFont
         private static int _seacDepth;
 
         private double Arg(int k) => k < _sp ? _stack[k] : 0;
+
+        /// <summary>
+        /// The result of an arithmetic operator as a 16.16 fixed value, the numbers of Type 2 charstrings (Adobe TN 5177, 4.3): chains of
+        /// mul or div grew beyond any finite value and put infinities and NaN into the outline and the FontBBox of the PDF/A copy (No. 1139).
+        /// </summary>
+        private static double Fixed(double v) => double.IsNaN(v) ? 0 : Math.Clamp(v, -32768, 32767.99998);
 
         private static int At(ReadOnlySpan<byte> code, int i) => i < code.Length ? code[i] : 0;
 

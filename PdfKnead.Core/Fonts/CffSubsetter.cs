@@ -269,6 +269,14 @@ internal static class CffSubsetter
                 {
                     if (i >= cs.Length) throw new FontFormatException("CFF: Operator abgeschnitten");
                     var b1 = cs[i++];
+                    // dotsection: deprecated, a no-op (Adobe TN 5177, Appendix B) — left out; before, it was refused like the arithmetic
+                    // operators, and the redaction kept the whole program with the glyphs of the redacted text (No. 1139)
+                    if (b1 == 0)
+                    {
+                        s.Stack = s.RecentCount = 0;
+                        s.LastOperand = -1;
+                        continue;
+                    }
                     // Arithmetic operators change the stack differently; they practically never occur in fonts
                     if (b1 is not (34 or 35 or 36 or 37)) throw new FontFormatException("CFF: Rechenoperator im Charstring");
                     output.Add(12);

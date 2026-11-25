@@ -145,6 +145,60 @@ public sealed class GlyphLimitTests
     /// A glyph number of int.MaxValue (from a damaged map) reads as no glyph: checking it by adding one overflowed, passed, and the read went
     /// beyond the table (found by the redaction focus of the fuzzer; docs/FEHLERGEDAECHTNIS.md, No. 379).
     /// </summary>
+    /// <summary>
+    /// Without a glyph count in maxp a font has as many glyphs as loca holds — but never more than 65 535, the most a glyph number names:
+    /// a loca of 12 MB (zeros, a few kilobytes compressed) gave three million glyphs, which the PDF/A check, the CIDSet and the subset
+    /// went through (docs/FEHLERGEDAECHTNIS.md, No. 1138).
+    /// </summary>
+    [Fact]
+    public void LocaWithoutGlyphCount_HoldsAtMost65535Glyphs()
+    {
+        var data = Sfnt([], Enumerable.Repeat(0, 3_000_000));
+        Assert.Equal(65_535, OpenTypeFont.Parse(data).GlyphCount);
+        Assert.Equal(65_535, OpenTypeFont.Parse(TrueTypeSubsetter.Subset(data, [0])).GlyphCount);
+    }
+
+    /// <summary>
+    /// 64 cmap records with their own platform and encoding, all naming one format-13 subtable whose single group maps all of Unicode to
+    /// one glyph that stays: cleaning the font read, held and wrote each of them with a million codes — some gigabytes from a few hundred
+    /// bytes. Records sharing a subtable share the new one, and all together read at most a million codes (docs/FEHLERGEDAECHTNIS.md,
+    /// No. 1138).
+    /// </summary>
+    [Trait(TestKind.Name, TestKind.Time)]
+    [Fact]
+    public void CmapRecordsSharingAWholeUnicodeGroup_StayWithinMemory()
+    {
+        var liberation = EmbeddedFonts.LoadStandard("LiberationSans-Regular.ttf");
+        var a = OpenTypeFont.Parse(liberation).GlyphForUnicode('A');
+        var cmap = new List<byte>();
+        U16(cmap, 0);
+        U16(cmap, 64);
+        var subtable = 4 + 64 * 8;
+        for (var i = 0; i < 64; i++)
+        {
+            U16(cmap, 4);          // platform 4 (custom), encodings 0–63
+            U16(cmap, i);
+            U32(cmap, subtable);
+        }
+        U16(cmap, 13);
+        U16(cmap, 0);
+        U32(cmap, 28);
+        U32(cmap, 0);
+        U32(cmap, 1);              // format 13, one group: U+0000–U+10FFFF → „A“
+        U32(cmap, 0);
+        U32(cmap, 0x10FFFF);
+        U32(cmap, a);
+        var font = ColorFontBuilder.WithTables(liberation, new Dictionary<string, byte[]?> { ["cmap"] = [.. cmap] });
+        var watch = Stopwatch.StartNew();
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        var cleaned = TrueTypeSubsetter.Scrub(font, [0, a]);
+        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.True(allocated < 400_000_000, $"{allocated / 1_000_000} MB angelegt");
+        Assert.True(watch.ElapsedMilliseconds < 5000 * TestKind.Factor, $"{watch.ElapsedMilliseconds} ms");
+        Assert.True(cleaned.Length < liberation.Length + 20_000_000, $"{cleaned.Length} Bytes");
+        Assert.Equal(a, OpenTypeFont.Parse(cleaned).Lookup(4, 63, 'A'));
+    }
+
     [Fact]
     public void GlyphNumberAtTheLimitOfInt_ReadsAsNoGlyph()
     {

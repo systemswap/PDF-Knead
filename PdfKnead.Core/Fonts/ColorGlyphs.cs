@@ -26,6 +26,16 @@ public sealed class ColorGlyphs
     /// <summary>Maximum bytes of decoded glyph images (a name needs about 5 MB); beyond that the cache starts again.</summary>
     private const long GlyphBudget = 16L << 20;
 
+    /// <summary>
+    /// Pixels of one glyph image at most (2 048 × 2 048, 16 MB as RGBA — the cache budget): checked in the PNG header before decoding.
+    /// Before, a glyph could decode up to the PNG limit (2²⁵ pixels, 128 MB) whatever the strike, and the cache kept it (No. 1138).
+    /// </summary>
+    internal const long MaxGlyphPixels = 1L << 22;
+
+    /// <summary>Whether a PNG glyph image is within <see cref="MaxGlyphPixels"/> (and, if given, within the size its metrics allow).</summary>
+    internal static bool Fits(ReadOnlySpan<byte> png, int maxSide = int.MaxValue) =>
+        PngDecoder.Size(png) is { } size && size.Width <= maxSide && size.Height <= maxSide && size.Width * size.Height <= MaxGlyphPixels;
+
     private ColorGlyphs(IGlyphImages source, int glyphCount)
     {
         _source = source;
@@ -57,6 +67,7 @@ public sealed class ColorGlyphs
     {
         if (_glyphs.TryGetValue(glyph, out var known)) return known;
         var loaded = glyph >= 0 && glyph < _glyphCount ? _source.Load(glyph) : null;
+        if (loaded is { } big && big.Image.Pixels.Length > GlyphBudget) return loaded;   // larger than the budget: not kept
         if (loaded is { } l && Interlocked.Add(ref _glyphBytes, l.Image.Pixels.Length) > GlyphBudget)
         {
             // Too many different glyphs decoded: start again (callers currently using an image hold their own reference)

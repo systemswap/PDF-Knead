@@ -80,6 +80,19 @@ public sealed class TextTests
         }
     }
 
+    /// <summary>
+    /// Text in clip mode collects the outlines of its glyphs until ET: a string of 400 000 „@“ in mode 7 — 400 KB of content, a few KB
+    /// compressed — collected some 24 million path segments while each character counted once towards the work of the page. The segments
+    /// count now as those of a path do, and the page is reported as too complex (docs/FEHLERGEDAECHTNIS.md, No. 1140).
+    /// </summary>
+    [Trait(TestKind.Name, TestKind.Time)]
+    [Fact]
+    public void ClipTextOfManyGlyphs_CountsItsOutlines()
+    {
+        var (doc, _) = InterpreterTests.Page("BT 7 Tr /F1 10 Tf (" + new string('@', 400_000) + ") Tj ET", Fonts(("F1", _ => Helvetica())));
+        using (doc) Assert.Contains(doc.Problems, p => p.Contains("zu aufwendig"));
+    }
+
     [Fact]
     public void ClipText_RestrictsLaterPainting()
     {

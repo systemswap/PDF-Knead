@@ -85,6 +85,14 @@ public static class PngDecoder
     /// <returns>True if the data starts with the PNG signature and has more bytes after it.</returns>
     public static bool IsPng(ReadOnlySpan<byte> data) => data.Length > 8 && data[..8].SequenceEqual(Signature);
 
+    /// <summary>Width and height from the header (IHDR, the first chunk) without decoding the image.</summary>
+    /// <param name="data">The file data.</param>
+    /// <returns>The size, or null if the data do not begin with a PNG signature and an IHDR chunk.</returns>
+    public static (long Width, long Height)? Size(ReadOnlySpan<byte> data) =>
+        data.Length >= 24 && IsPng(data) && data[12..16].SequenceEqual("IHDR"u8)
+            ? (System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(data[16..]), System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(data[20..]))
+            : null;
+
     /// <summary>Decodes a PNG image.</summary>
     /// <param name="data">The file data.</param>
     /// <param name="complete">

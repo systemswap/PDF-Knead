@@ -358,30 +358,61 @@ public static class TrueTypeSubsetter
         return output.ToArray();
     }
 
-    /// <summary>A new cmap with every subtable of the font, mapping only to the glyphs kept: format 4, format 12 for codes above 0xFFFF.</summary>
+    /// <summary>
+    /// A new cmap with every subtable of the font, mapping only to the glyphs kept: format 4, format 12 for codes above 0xFFFF. Records
+    /// that share a subtable share the new one too, and all subtables together read at most a million codes, as many as one subtable
+    /// may give (<see cref="OpenTypeFont.Mappings"/>): before, 64 records naming one group over all of Unicode were each read, held and
+    /// written again — gigabytes from a few hundred bytes (No. 1138).
+    /// </summary>
     private static byte[] CmapOf(OpenTypeFont font, HashSet<int> keep)
     {
-        var subtables = font.CmapSubtables.Select(st => (st.Platform, st.Encoding,
-            Map: font.Mappings(st.Platform, st.Encoding).Where(m => keep.Contains(m.Glyph)).ToList())).ToList();
-        // format 4 holds at most 64 KB (about 8 000 runs); beyond that, and for codes above 0xFFFF, format 12
-        var bodies = subtables.Select(st => st.Map.Any(m => m.Code > 0xFFFF) || (st.Platform, st.Encoding) is (3, 10) or (0, 4) or (0, 6) ||
-                                            Runs(st.Map).Count > 8000
-            ? Format12Of(st.Map) : Format4Of(st.Map)).ToList();
-        using var output = new MemoryStream();
-        var header = new byte[4 + 8 * subtables.Count];
-        BinaryPrimitives.WriteUInt16BigEndian(header.AsSpan(2), (ushort)subtables.Count);
-        var offset = header.Length;
-        for (var i = 0; i < subtables.Count; i++)
+        var budget = MaxCmapCodes;
+        var bodies = new List<byte[]>();
+        var bodyOf = new Dictionary<(int Offset, bool Long), int>();
+        var records = new List<(int Platform, int Encoding, int Body)>();
+        foreach (var (platform, encoding) in font.CmapSubtables)
         {
-            BinaryPrimitives.WriteUInt16BigEndian(header.AsSpan(4 + i * 8), (ushort)subtables[i].Platform);
-            BinaryPrimitives.WriteUInt16BigEndian(header.AsSpan(6 + i * 8), (ushort)subtables[i].Encoding);
-            BinaryPrimitives.WriteUInt32BigEndian(header.AsSpan(8 + i * 8), (uint)offset);
-            offset += bodies[i].Length;
+            // format 4 holds at most 64 KB (about 8 000 runs); beyond that, and for codes above 0xFFFF, format 12
+            var wide = (platform, encoding) is (3, 10) or (0, 4) or (0, 6);
+            var source = font.CmapOffset(platform, encoding);
+            if (!bodyOf.TryGetValue((source, wide), out var body))
+            {
+                var map = new List<(int Code, int Glyph)>();
+                foreach (var m in font.Mappings(platform, encoding))
+                {
+                    if (--budget < 0) break;
+                    if (keep.Contains(m.Glyph)) map.Add(m);
+                }
+                var runs = Runs(map);
+                var long12 = wide || map.Any(m => m.Code > 0xFFFF) || runs.Count > 8000;
+                bodyOf[(source, wide)] = body = bodies.Count;
+                bodies.Add(long12 ? Format12Of(runs) : Format4Of(runs));
+            }
+            records.Add((platform, encoding, body));
+        }
+        using var output = new MemoryStream();
+        var header = new byte[4 + 8 * records.Count];
+        BinaryPrimitives.WriteUInt16BigEndian(header.AsSpan(2), (ushort)records.Count);
+        var offsets = new int[bodies.Count];
+        var offset = header.Length;
+        for (var b = 0; b < bodies.Count; b++)
+        {
+            offsets[b] = offset;
+            offset += bodies[b].Length;
+        }
+        for (var i = 0; i < records.Count; i++)
+        {
+            BinaryPrimitives.WriteUInt16BigEndian(header.AsSpan(4 + i * 8), (ushort)records[i].Platform);
+            BinaryPrimitives.WriteUInt16BigEndian(header.AsSpan(6 + i * 8), (ushort)records[i].Encoding);
+            BinaryPrimitives.WriteUInt32BigEndian(header.AsSpan(8 + i * 8), (uint)offsets[records[i].Body]);
         }
         output.Write(header);
         foreach (var body in bodies) output.Write(body);
         return output.ToArray();
     }
+
+    /// <summary>Codes read from all cmap subtables together when the cmap is written again.</summary>
+    private const int MaxCmapCodes = 1_000_000;
 
     /// <summary>Runs of consecutive codes with consecutive glyphs.</summary>
     private static List<(int First, int Last, int Glyph)> Runs(List<(int Code, int Glyph)> map)
@@ -395,9 +426,10 @@ public static class TrueTypeSubsetter
         return runs;
     }
 
-    private static byte[] Format4Of(List<(int Code, int Glyph)> map)
+    private static byte[] Format4Of(List<(int First, int Last, int Glyph)> all)
     {
-        var runs = Runs(map.Where(m => m.Code < 0xFFFF).ToList());
+        // code 0xFFFF is the closing segment's
+        var runs = all.Where(r => r.First < 0xFFFF).Select(r => (r.First, Math.Min(r.Last, 0xFFFE), r.Glyph)).ToList();
         runs.Add((0xFFFF, 0xFFFF, 0));   // the closing segment
         var segments = runs.Count;
         var entrySelector = (int)Math.Floor(Math.Log2(segments));
@@ -421,9 +453,8 @@ public static class TrueTypeSubsetter
         return body;
     }
 
-    private static byte[] Format12Of(List<(int Code, int Glyph)> map)
+    private static byte[] Format12Of(List<(int First, int Last, int Glyph)> runs)
     {
-        var runs = Runs(map);
         var body = new byte[16 + runs.Count * 12];
         BinaryPrimitives.WriteUInt16BigEndian(body, 12);
         BinaryPrimitives.WriteUInt32BigEndian(body.AsSpan(4), (uint)body.Length);

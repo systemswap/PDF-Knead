@@ -124,6 +124,32 @@ public sealed class FontFileTests
         Assert.Equal(2, font.Outline("A").Verbs.Count(v => v == PathVerb.Move));
     }
 
+    /// <summary>
+    /// Type 1 Font Format 6.6: div of 32-bit numbers. A chain of 70 divisions by 1/30 000 grew beyond any finite value and put
+    /// infinities into the outline and its bounds (docs/FEHLERGEDAECHTNIS.md, No. 1139); the quotient stays within the 32-bit numbers.
+    /// </summary>
+    [Fact]
+    public void Type1_DivisionChain_StaysFinite()
+    {
+        var font = Type1Font.Parse(Type1Builder.Build(w =>
+        {
+            w.N(0); w.N(600); w.Op(13);
+            w.N(30000);
+            for (var i = 0; i < 70; i++)
+            {
+                w.N(1); w.N(30000); w.Op(12); w.Op(12);   // 1/30 000 …
+                w.Op(12); w.Op(12);                       // … and the number so far divided by it
+            }
+            w.N(0); w.Op(21);
+            w.N(10); w.N(10); w.Op(5);
+            w.Op(9);
+            w.Op(14);
+        }));
+        var bounds = font.Outline("A").Bounds;
+        Assert.True(double.IsFinite(bounds.Left) && double.IsFinite(bounds.Right) && double.IsFinite(bounds.Top) && double.IsFinite(bounds.Bottom),
+            $"{bounds.Left} {bounds.Right} {bounds.Top} {bounds.Bottom}");
+    }
+
     [Fact]
     public void GlyphNames_FollowTheAdobeGlyphList()
     {
@@ -149,12 +175,13 @@ public sealed class FontFileTests
 /// <summary>Builds a small but genuine Type 1 font (clear-text part plus eexec section with encrypted charstrings).</summary>
 internal static class Type1Builder
 {
-    public static byte[] Build()
+    /// <param name="a">The charstring of „A“ in place of the triangle with its crossbar.</param>
+    public static byte[] Build(Action<Writer>? a = null)
     {
         // Subr 0: the crossbar of the A as a separate subpath, then return
         var subr0 = Charstring(w => { w.N(-350); w.N(300); w.Op(21); w.N(300); w.N(0); w.Op(5); w.Op(9); w.Op(11); });
         // A: hsbw 50 600, triangle, crossbar from Subr 0, endchar
-        var glyphA = Charstring(w =>
+        var glyphA = Charstring(a ?? (w =>
         {
             w.N(50); w.N(600); w.Op(13);
             w.N(0); w.N(0); w.Op(21);
@@ -163,7 +190,7 @@ internal static class Type1Builder
             w.Op(9);
             w.N(0); w.Op(10);
             w.Op(14);
-        });
+        }));
         var notdef = Charstring(w => { w.N(0); w.N(500); w.Op(13); w.Op(14); });
 
         var priv = new MemoryStream();
@@ -204,7 +231,7 @@ internal static class Type1Builder
         return result;
     }
 
-    private sealed class Writer
+    internal sealed class Writer
     {
         public readonly List<byte> Bytes = [];
 

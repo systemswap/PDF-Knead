@@ -201,9 +201,14 @@ public sealed class OpenTypeFont
     /// <param name="maxpGlyphs">The number of glyphs in maxp (0 if it has none).</param>
     /// <param name="locaLength">Length of the loca table in bytes.</param>
     /// <param name="longLoca">Whether loca holds 32-bit offsets.</param>
-    /// <returns>The number of loca entries (glyphs + 1, or fewer if loca is too short).</returns>
+    /// <returns>The number of loca entries (glyphs + 1, or fewer if loca is too short); at most 65 536 — a glyph number has 16 bits, and
+    /// without a count in maxp a loca of some megabytes (a stream of zeros) made millions of glyphs that the PDF/A check, the CIDSet and
+    /// the subset went through (No. 1138).</returns>
     internal static int LocaEntries(int maxpGlyphs, int locaLength, bool longLoca) =>
-        maxpGlyphs == 0 ? locaLength / (longLoca ? 4 : 2) : Math.Min(maxpGlyphs + 1, locaLength / (longLoca ? 4 : 2));
+        Math.Min(MaxLocaEntries, maxpGlyphs == 0 ? locaLength / (longLoca ? 4 : 2) : Math.Min(maxpGlyphs + 1, locaLength / (longLoca ? 4 : 2)));
+
+    /// <summary>Glyph numbers 0 to 65 535 and the end of the last glyph.</summary>
+    private const int MaxLocaEntries = 65_536;
 
     /// <summary>Ascender from hhea in font units.</summary>
     public int Ascent { get; }
@@ -297,6 +302,12 @@ public sealed class OpenTypeFont
             for (var code = first; code <= last && count < 1_000_000; code++, count++)
                 if (map.Map(code) is > 0 and var glyph) yield return (code, glyph);
     }
+
+    /// <summary>Where the subtable of a cmap record lies in the file (records may share one).</summary>
+    /// <param name="platform">Platform ID.</param>
+    /// <param name="encoding">Encoding ID.</param>
+    /// <returns>Its offset in the file; -1 if the font has no such record.</returns>
+    internal int CmapOffset(int platform, int encoding) => CmapIndex(platform, encoding) is >= 0 and var i ? _cmapRecords[i].Offset : -1;
 
     /// <summary>Whether the font has a cmap for a platform and encoding.</summary>
     /// <param name="platform">Platform ID.</param>

@@ -130,10 +130,11 @@ internal sealed class CbdtImages : IGlyphImages
         int bearingX, bearingY, png;
         switch (imageFormat)
         {
-            case 17:   // smallGlyphMetrics: height, width, bearingX, bearingY, advance
+            // the metrics only when the image data hold them: read before, they lay behind the file when the table ended there (No. 1138)
+            case 17 when length >= 5:   // smallGlyphMetrics: height, width, bearingX, bearingY, advance
                 (bearingX, bearingY, png) = ((sbyte)_data[p + 2], (sbyte)_data[p + 3], p + 5);
                 break;
-            case 18:   // bigGlyphMetrics: height, width, horiBearingX, horiBearingY, horiAdvance, vertical metrics
+            case 18 when length >= 8:   // bigGlyphMetrics: height, width, horiBearingX, horiBearingY, horiAdvance, vertical metrics
                 (bearingX, bearingY, png) = ((sbyte)_data[p + 2], (sbyte)_data[p + 3], p + 8);
                 break;
             case 19 when metrics >= 0:
@@ -145,6 +146,8 @@ internal sealed class CbdtImages : IGlyphImages
         if (png + 4 > end) return null;
         var size = (uint)t.U32(png);
         if (size > end - png - 4) return null;
+        // the image has the size of its metrics, which are bytes (OpenType, CBDT 5.3): at most 255 × 255 (No. 1138)
+        if (!ColorGlyphs.Fits(_data.AsSpan(png + 4, (int)size), 255)) return null;
         try
         {
             var image = PngDecoder.Decode(_data.AsSpan(png + 4, (int)size));

@@ -399,6 +399,9 @@ public sealed partial class PageInterpreter
 
     private void AppendTextClip(GlyphOutline outline, Matrix glyphToPage)
     {
+        // the segments count towards the work of the page as those of a path do: a character counted once, and a string of 400 000
+        // characters in mode 7 (a few KB compressed) collected some 24 million segments until ET (docs/FEHLERGEDAECHTNIS.md, No. 1140)
+        _operations += outline.VerbSpan.Length;
         var points = outline.PointSpan;
         var p = 0;
         foreach (var verb in outline.VerbSpan)

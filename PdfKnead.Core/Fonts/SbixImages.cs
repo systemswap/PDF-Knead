@@ -60,12 +60,13 @@ internal sealed class SbixImages : IGlyphImages
         var t = new Layout.TableData(_data);
         var start = t.U32(_strike + 4 + glyph * 4);
         var end = t.U32(_strike + 4 + (glyph + 1) * 4);
-        if (end - start <= 8) return null;
+        // Offset32 from the strike: one of 2³¹ or more, read as negative, pointed before the strike (No. 1138)
+        if (start < 0 || end < 0 || end - start <= 8) return null;
         var at = _strike + start;
         if (at < 0 || (long)_strike + end > _end) return null;
         var type = t.Tag(at + 4);
         if (type == "dupe") return Load(t.U16(at + 8), depth + 1);
-        if (type != "png ") return null;
+        if (type != "png " || !ColorGlyphs.Fits(_data.AsSpan(at + 8, end - start - 8))) return null;
         try
         {
             var image = PngDecoder.Decode(_data.AsSpan(at + 8, end - start - 8));
