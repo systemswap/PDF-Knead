@@ -1394,6 +1394,10 @@ public static partial class PdfWriter
             // A page of another file: its key into that file's parent tree means nothing here — only the main file's structure tree is
             // written, and the key would hand its content to a stranger's element (ISO 32000-2, 14.7.5.4; docs/FEHLERGEDAECHTNIS.md, No. 435)
             if (!source.IsMain && source.StructKeyOffset is null) WithoutStructureKeys(source, original);
+            // an inline image the display reads only with a tolerance (JPEG 2000 or JBIG2 inline, ASCII85 without its end, „EI“ in the data; as
+            // 2.0 also one of more than 4 096 bytes): decided before the keys are taken over, so that the contents and resources as read are not
+            // written as objects nothing names (docs/FEHLERGEDAECHTNIS.md, No. 1135)
+            var inline = !flat && _pdfA is null && !_options.ContentAsStored ? PageInlineImages(item, original, source) : null;
             foreach (var (key, value) in original.Entries)
             {
                 if (key == PdfName.Parent) continue;
@@ -1409,6 +1413,7 @@ public static partial class PdfWriter
                     continue;
                 }
                 if (flat && (key == PdfName.Contents || key == PdfName.Resources)) continue;
+                if (inline is not null && (key == PdfName.Contents || key == PdfName.Resources)) continue;
                 if (fields && key == Annots) continue;
                 // PDF/A: content written anew as one stream (PdfAContent) — the parts as read are not written
                 if (_pdfA is not null && key == PdfName.Contents && (value is PdfArray || page.Dictionary.Get(PdfName.Contents) is PdfArray ||
@@ -1447,7 +1452,7 @@ public static partial class PdfWriter
             // an inline image the display reads only with a tolerance (JPEG 2000 or JBIG2 inline, ASCII85 without its end, „EI“ in the data):
             // an image XObject in the page's resources, the content otherwise byte for byte (decided on 20.11.2026; S-A A12, A13,
             // A86, A110; docs/FEHLERGEDAECHTNIS.md, No. 993) — its resources keep only what is used, as below
-            if (!flat && _pdfA is null && !_options.ContentAsStored && PageInlineImages(item, original, source) is var (inlineContents, inlineResources))
+            if (inline is var (inlineContents, inlineResources))
             {
                 dict.Set(PdfName.Contents, inlineContents);
                 dict.Set(PdfName.Resources, inlineResources);

@@ -74,7 +74,7 @@ public static partial class PdfACheck
                     }
             // without an output intent (of the document; part 4 also of the page) a page with transparency needs a group with a colour space
             if (_transparency && _intentSpace is null && _pageIntent is null &&
-                dict.GetDictionary(PdfName.Get("Group"))?.ContainsKey(PdfName.Get("CS")) != true)
+                dict.GetDictionary(PdfName.Get("Group"))?.HasValue(PdfName.Get("CS")) != true)
                 Add(PdfARules.TransparencyNeedsSpace, Tr.T("Die Seite nutzt Transparenz, hat aber weder Ausgabebedingung noch einen Farbraum zum Mischen (/Group /CS)."));
         }
 

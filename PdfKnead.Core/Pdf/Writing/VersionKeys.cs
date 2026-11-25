@@ -16,7 +16,7 @@ namespace PdfKnead.Core.Pdf.Writing;
 /// namespaces carry what the structure means);</item>
 /// <item>2.0: the deprecated /ProcSet, /Name of fonts (not of Type 3 fonts, No. 812) and XObjects, /CharSet and /CIDSet of font descriptors, /Suspects, /NeedsRendering
 /// and the XFA of a form that has fields of its own go; /PS and /Subtype2 leave a form (PostScript XObjects leave the resources in PdfWriter), /TR and /TR2 a
-/// graphics state (not the /TR of a soft mask), /BM as an array becomes the name that counts, CalCMYK becomes DeviceCMYK (No. 1127); the
+/// graphics state where they are transfer functions (not the /TR of a soft mask, nor that of a role map: No. 1135), /BM as an array becomes the name that counts, CalCMYK becomes DeviceCMYK (No. 1127); the
 /// document information dictionary stays (deprecated, not forbidden, and what it says may stand nowhere else); /OPI of images and forms goes
 /// (deprecated in 8.9.5.1 and 8.10.2: OPI is for prepress proxies, nothing a reader shows; docs/FEHLERGEDAECHTNIS.md, No. 1131).</item>
 /// <item>every version: a form whose /Type is not XObject gets /Type /XObject (8.10.2: where given, it is XObject) — the display never reads the
@@ -31,7 +31,8 @@ internal static class VersionKeys
         Suspects = PdfName.Get("Suspects"), NeedsRendering = PdfName.Get("NeedsRendering"), Xfa = PdfName.Get("XFA"), Fields = PdfName.Get("Fields"),
         FT = PdfName.Get("FT"), Ps = PdfName.Get("PS"), Subtype2 = PdfName.Get("Subtype2"), Tr = PdfName.Get("TR"),
         Tr2 = PdfName.Get("TR2"), Bm = PdfName.Get("BM"), DeviceCmyk = PdfName.Get("DeviceCMYK"), Process = PdfName.Get("Process"),
-        ColorSpaceKey = PdfName.Get("ColorSpace"), Opi = PdfName.Get("OPI"), XObjectType = PdfName.Get("XObject");
+        ColorSpaceKey = PdfName.Get("ColorSpace"), Opi = PdfName.Get("OPI"), XObjectType = PdfName.Get("XObject"),
+        FunctionType = PdfName.Get("FunctionType");
 
     /// <summary>Field flags (bits 23–27, 1-based) introduced with PDF 1.5 (ISO 32000-2, Tables 228, 230, 232).</summary>
     private const long Flags15 = (1L << 22) | (1L << 23) | (1L << 24) | (1L << 25) | (1L << 26);
@@ -138,10 +139,12 @@ internal static class VersionKeys
                     Drop(Ps);
                     Drop(Subtype2);
                 }
+                // only where the value is a transfer function: a dictionary without /Type is also a role map or a class map, whose /TR is the
+                // table row of the structure (docs/FEHLERGEDAECHTNIS.md, No. 1135)
                 if (subtype is null && (type is null or "ExtGState") && !PdfACheck.IsSoftMask(dict))
                 {
-                    Drop(Tr);
-                    Drop(Tr2);
+                    if (dict.GetRaw(Tr) is { } tr && IsTransfer(tr, dict, true)) Drop(Tr);
+                    if (dict.GetRaw(Tr2) is { } tr2 && IsTransfer(tr2, dict, true)) Drop(Tr2);
                 }
                 if (dict.GetRaw(Bm) is PdfArray choices) (set ??= []).Add((Bm, PdfName.Get(Content.BlendModes.Name(Content.BlendModes.From(choices)))));
                 // OPI of images and forms is deprecated (8.9.5.1, 8.10.2): proxies for prepress, which no reader shows (No. 1131)
@@ -182,6 +185,36 @@ internal static class VersionKeys
             return copy;
         }
     }
+
+    /// <summary>
+    /// Whether a value is what /TR or /TR2 of a graphics state holds (ISO 32000-2, Table 57): a function, an array of four functions or names,
+    /// /Identity, or /Default (only /TR2 has it, a reader passes over it in /TR as well) — not the name of a structure type or an attribute
+    /// object. A reference that cannot be followed here (one the writer already gave its number in the output, or one without a document) counts
+    /// when its owner is a graphics state by its keys: /Type /ExtGState, or another key of Table 57 beside the transfer functions.
+    /// </summary>
+    private static bool IsTransfer(PdfObject value, PdfDictionary owner, bool arrayAllowed)
+    {
+        if (value is PdfReference r && owner.Resolver is { } resolver) value = resolver.Resolve(r.Id);
+        return value switch
+        {
+            PdfName { Value: "Identity" or "Default" } => true,
+            PdfDictionary d => d.ContainsKey(FunctionType),
+            PdfStream s => s.Dictionary.ContainsKey(FunctionType),
+            PdfArray { Count: 4 } a when arrayAllowed => a.All(item => IsTransfer(item, owner, false)),
+            PdfReference or OutputReference => IsGraphicsState(owner),
+            _ => false,
+        };
+    }
+
+    // a graphics state by its keys (ISO 32000-2, Table 57): its /Type, or a key it alone has beside /TR and /TR2
+    private static bool IsGraphicsState(PdfDictionary dict) =>
+        dict.GetRaw(Type) is PdfName { Value: "ExtGState" } || dict.Entries.Any(e => GraphicsStateKeys.Contains(e.Key.Value));
+
+    private static readonly HashSet<string> GraphicsStateKeys =
+    [
+        "LW", "LC", "LJ", "ML", "D", "RI", "OP", "op", "OPM", "Font", "BG", "BG2", "UCR", "UCR2", "HT", "FL", "SM", "SA", "BM", "SMask", "CA", "ca",
+        "AIS", "TK", "UseBlackPtComp", "HTO",
+    ];
 
     private static PdfStream WithDictionary(PdfStream stream, PdfDictionary dict) =>
         stream.RawData is { } data ? new PdfStream(dict, data) : new PdfStream(dict, stream.DataOffset, stream.DataLength, stream.Id);

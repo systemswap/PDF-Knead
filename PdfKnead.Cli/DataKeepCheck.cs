@@ -236,13 +236,21 @@ internal static class DataKeepCheck
                         Note(strict, "Typ anders", path, null);
                         return;
                     }
+                    // 2.0: a PostScript XObject becomes an empty form, so that its "Do" still names an XObject (8.8.2; FG 1127, 1128) — the
+                    // whole object, its box and data, is that form
+                    if (s.Dictionary.GetName(PdfName.Subtype)?.Value == "PS" && t.Dictionary.GetName(PdfName.Subtype)?.Value == "Form" &&
+                        string.CompareOrdinal(version, "2.0") >= 0)
+                    {
+                        Note(strict, "als leere Form", path, "in PDF 2.0 gibt es keine PostScript-XObjects: als leere Form geschrieben (ISO 32000-2, 8.8.2; FG 1127, 1128)");
+                        return;
+                    }
                     Dict(s.Dictionary, t.Dictionary, path, strict, depth, stream: true);
                     // an XMP packet: /Subtype /XML, /Type /Metadata or the value of /Metadata (some writers leave out the first two)
                     if ((s.Dictionary.GetName(PdfName.Subtype)?.Value == "XML" || s.Dictionary.GetName(PdfName.Type)?.Value == "Metadata" || LastKey(path) == "Metadata") &&
                         Xmp(s, t, path))
                         return;
                     if (!SameData(s, t))
-                        Note(strict, "Daten anders", path, Canonical(s, t) ? CanonicalReason : ImageRepaired(s, t) ? ImageReason : null);
+                        Note(strict, "Daten anders", path, Canonical(s, t) ? CanonicalReason : InlinePlaced(s, t) ? InlineReason : ImageRepaired(s, t) ? ImageReason : null);
                     return;
                 case PdfDictionary d:
                     if (v is not PdfDictionary e)
@@ -271,9 +279,16 @@ internal static class DataKeepCheck
                     _rebuiltWidths = outerFont;
                     return;
                 case PdfArray ar:
+                    if (v is PdfStream joined && LastKey(path) == "Contents" && InlinePlaced(ar, joined))
+                    {
+                        Note(strict, "Typ anders", path, InlineReason);
+                        return;
+                    }
                     if (v is not PdfArray br)
                     {
-                        Note(strict, "Typ anders", path, null);
+                        // 2.0: a blend mode as an array of choices becomes the name the display takes (ISO 32000-2, 11.3.5; FG 1127)
+                        Note(strict, "Typ anders", path, LastKey(path) == "BM" && v is PdfName && string.CompareOrdinal(version, "2.0") >= 0
+                            ? "in PDF 2.0 ist /BM ein Name: der, den die Anzeige nimmt (ISO 32000-2, 11.3.5; FG 1127)" : null);
                         return;
                     }
                     if (ar.Count == br.Count || (long)ar.Count * br.Count > 4_000_000)
@@ -302,6 +317,32 @@ internal static class DataKeepCheck
             }
         }
 
+        /// <summary>Why the copy as 2.0 may lack a key that ISO 32000-2 deprecates in chapter 8, or null.</summary>
+        private string? Deprecated20(PdfDictionary owner, string path, string key, PdfObject value)
+        {
+            var subtype = owner.GetName(PdfName.Subtype)?.Value;
+            if (key is "PS" or "Subtype2" && subtype == "Form") return "in PDF 2.0 veraltet: PostScript an Formen (ISO 32000-2, 8.10.2; FG 1127)";
+            if (key == "OPI" && subtype is "Form" or "Image") return "in PDF 2.0 veraltet: OPI an Bildern und Formen (ISO 32000-2, 8.9.5.1, 8.10.2; FG 1131)";
+            var graphicsState = owner.GetName(PdfName.Type)?.Value == "ExtGState" || path.Contains("/ExtGState/", StringComparison.Ordinal);
+            var softMask = owner.GetName(PdfName.Type)?.Value == "Mask" || owner.GetName(PdfName.Get("S"))?.Value is "Luminosity" or "Alpha" && owner.ContainsKey(PdfName.Get("G"));
+            if (key is "TR" or "TR2" && graphicsState && !softMask && Transfer(value, true))
+                return "in PDF 2.0 veraltet: Transferfunktionen des Grafikzustands (ISO 32000-2, Tabelle 57; FG 1127)";
+            return null;
+
+            bool Transfer(PdfObject v, bool arrayAllowed)
+            {
+                if (v is PdfReference r) v = a.Resolve(r.Id);
+                return v switch
+                {
+                    PdfName { Value: "Identity" or "Default" } => true,
+                    PdfDictionary d => d.ContainsKey(PdfName.Get("FunctionType")),
+                    PdfStream s => s.Dictionary.ContainsKey(PdfName.Get("FunctionType")),
+                    PdfArray { Count: 4 } items when arrayAllowed => items.All(item => Transfer(item, false)),
+                    _ => false,
+                };
+            }
+        }
+
         private void Missing(PdfObject u, string path, bool strict, PdfDictionary? owner, string? via)
         {
             if (IsEmpty(a, u, 0)) return;   // an empty container carries nothing
@@ -322,6 +363,13 @@ internal static class DataKeepCheck
                 owner.GetName(PdfName.Subtype)?.Value != "Type3")
             {
                 Note(false, "fehlt", path, "in PDF 2.0 veraltet bei Schriften außer Typ 3 (FG 702, 812)");
+                return;
+            }
+            // 2.0: what chapter 8 deprecates goes (FG 1127, 1131) — /PS and /Subtype2 of a form, /TR and /TR2 of a graphics state (not of a soft
+            // mask, and only a transfer function: the /TR of a role map stays, FG 1135), /OPI of images and forms
+            if (string.CompareOrdinal(version, "2.0") >= 0 && owner is not null && Deprecated20(owner, path, key, u) is { } deprecated)
+            {
+                Note(false, "fehlt", path, deprecated);
                 return;
             }
             // a copy that keeps the claim of PDF/A-4 has no document information dictionary (FG 707)
@@ -583,6 +631,59 @@ internal static class DataKeepCheck
             {
                 return false;
             }
+        }
+
+        /// <summary>Whether the copy's content is the source's (one stream, or the parts joined) with its inline images placed as XObjects.</summary>
+        private bool InlinePlaced(PdfObject source, PdfStream t)
+        {
+            try
+            {
+                var content = source switch
+                {
+                    PdfStream s => Joined(new PdfArray([s])),
+                    PdfArray parts => Joined(parts),
+                    _ => null,
+                };
+                return content is not null && InlineImagesPlaced(content) is { } placed && placed.AsSpan().SequenceEqual(b.GetStreamData(t));
+            }
+            catch (Exception e) when (e is Core.Pdf.PdfException or InvalidDataException or InvalidOperationException)
+            {
+                return false;
+            }
+        }
+
+        /// <summary>Why a page's content differs whose inline images the writer made image XObjects.</summary>
+        private const string InlineReason =
+            "Inline-Bilder, die die Fassung nicht erlaubt (2.0 über 4 096 Byte, Crypt), als Bild-XObjects geschrieben; mehrere Inhaltsströme dabei zu einem (ISO 32000-2, 8.9.7; FG 1128, 1131)";
+
+        /// <summary>
+        /// The content as the writer makes it when inline images the version does not allow become image XObjects
+        /// (<c>PdfWriter.PageInlineImages</c>, <c>FormInlineImages</c>): each such image <c>/PDFKneadIm1 Do</c> …, then the canonical syntax; null if none does.
+        /// </summary>
+        private byte[]? InlineImagesPlaced(byte[] content)
+        {
+            var pdf20 = string.CompareOrdinal(version, "2.0") >= 0;
+            var names = new List<PdfName>();
+            var rewritten = InlineImageConformance.Rewrite(content, content.Length, _ =>
+            {
+                var name = InlineImageConformance.FreeName(n => names.Contains(n));
+                names.Add(name);
+                return name;
+            }, pdf20);
+            return rewritten is null ? null : ContentConformance.CanonicalSyntax(rewritten, pdf20) ?? rewritten;
+        }
+
+        /// <summary>The page's content streams as the writer joins them before it places inline images: each decoded, a line feed after each (also after a single one).</summary>
+        private byte[]? Joined(PdfArray parts)
+        {
+            var output = new MemoryStream();
+            foreach (var part in parts)
+            {
+                if ((part is PdfReference r ? a.Resolve(r.Id) : part) is not PdfStream stream) return null;
+                output.Write(a.GetStreamData(stream));
+                output.WriteByte((byte)'\n');
+            }
+            return output.ToArray();
         }
 
         /// <summary>Why the data of an image differs that the writer put in the form the standard asks for.</summary>

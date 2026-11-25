@@ -230,7 +230,7 @@ public static partial class PdfACheck
             // PDF/A-1 (6.1.11, 6.1.13): neither embedded files nor optional content
             if (_part.Part() == 1 && catalog.GetDictionary(PdfName.Get("Names"))?.ContainsKey(PdfName.Get("EmbeddedFiles")) == true)
                 Add(PdfARules.NoEmbeddedFiles, Tr.T("Das Dokument enthält Anhänge (/EmbeddedFiles), die PDF/A-1 nicht erlaubt."));
-            if (_part.Part() == 1 && catalog.ContainsKey(PdfName.Get("OCProperties")))
+            if (_part.Part() == 1 && catalog.HasValue(PdfName.Get("OCProperties")))
                 Add(PdfARules.NoOptionalContent, Tr.T("Das Dokument hat Ebenen (/OCProperties), die PDF/A-1 nicht erlaubt."));
             if (catalog.GetDictionary(PdfName.Get("OCProperties")) is { } layers)
             {

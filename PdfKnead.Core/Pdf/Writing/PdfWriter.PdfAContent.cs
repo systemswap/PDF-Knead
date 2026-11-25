@@ -38,7 +38,7 @@ public static partial class PdfWriter
             badBits |= image.Get(PdfName.Get("Mask")) is PdfStream mask && mask.Dictionary.GetInteger(PdfName.Get("BitsPerComponent")) is { } maskBits &&
                 maskBits != 1;
             var jpxFaults = StreamFilters.Chain(image).Any(f => f.Name == "JPXDecode") && JpxBytes(stream, source) is { } jpx
-                ? PdfAJpeg2000.Faults(jpx, image.ContainsKey(PdfName.Get("ColorSpace")))
+                ? PdfAJpeg2000.Faults(jpx, image.HasValue(PdfName.Get("ColorSpace")))
                 : [];
             // a filter PDF/A does not know (6.1.7.2): the image as the display decodes it — where it cannot, its placeholder area
             if (PdfACheck.FilterNames(image).Any(f => !PdfACheck.IsStandardFilter(f, _pdfA!.Part))) return DisplayedImage(stream, source, dict);
@@ -64,7 +64,7 @@ public static partial class PdfWriter
             // (the opacity channel /SMaskInData announces for a bare codestream named in the wrapper, as when saving: No. 996)
             if (!badBits && StreamFilters.Chain(image) is [("JPXDecode", _)] && source.Doc.GetRawStreamData(stream).ToArray() is var raw &&
                 ImageDataConformance.BareOpacity(image, raw, source.Doc) is >= 0 and var opacity &&
-                PdfAJpeg2000.Wrap(raw, opacity) is { } wrapped && PdfAJpeg2000.Faults(wrapped, image.ContainsKey(PdfName.Get("ColorSpace"))).Count == 0)
+                PdfAJpeg2000.Wrap(raw, opacity) is { } wrapped && PdfAJpeg2000.Faults(wrapped, image.HasValue(PdfName.Get("ColorSpace"))).Count == 0)
                 return (Clone(dict), wrapped, false);
             return DisplayedImage(stream, source, dict);
         }
@@ -275,7 +275,7 @@ public static partial class PdfWriter
                 if (!rewrite) return (result, decoded.Data, true);
                 // a form, pattern or appearance nested too deep: what moves into forms of its own gets them in its resources
                 var drawnWith = borrowed ?? stream.Dictionary.GetDictionary(PdfName.Resources) ?? usage.PageResources.GetValueOrDefault(stream);
-                var nests = usage.Deep.Contains(stream) && stream.Dictionary.ContainsKey(PdfName.Get("BBox")) ? new List<(PdfName, byte[])>() : null;
+                var nests = usage.Deep.Contains(stream) && stream.Dictionary.HasValue(PdfName.Get("BBox")) ? new List<(PdfName, byte[])>() : null;
                 // PDF/A-4: inline images over 4 096 bytes become image XObjects in the resources the stream draws with, now its own — a glyph
                 // procedure's go where its plan says (the font's resources or its own; docs/FEHLERGEDAECHTNIS.md, No. 1131)
                 var glyph = GlyphPlanOf(source.Doc, stream);

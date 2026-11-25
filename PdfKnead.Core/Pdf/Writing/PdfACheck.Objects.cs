@@ -148,10 +148,10 @@ public static partial class PdfACheck
             {
                 case "Image":
                     if (StreamFilters.Chain(dict).Any(f => f.Name == "JPXDecode"))
-                        foreach (var (rule, text) in PdfAJpeg2000.Faults(JpxData(stream), dict.ContainsKey(PdfName.Get("ColorSpace")))) Add(rule, text);
+                        foreach (var (rule, text) in PdfAJpeg2000.Faults(JpxData(stream), dict.HasValue(PdfName.Get("ColorSpace")))) Add(rule, text);
                     if (dict.GetBoolean(PdfName.Get("Interpolate")) == true) Add(PdfARules.ImageInterpolate, Tr.T("Ein Bild soll beim Vergrößern geglättet werden (/Interpolate)."));
-                    if (dict.ContainsKey(PdfName.Get("Alternates"))) Add(PdfARules.ImageAlternates, Tr.T("Ein Bild hat Ersatzbilder (/Alternates)."));
-                    if (dict.ContainsKey(PdfName.Get("OPI"))) Add(PdfARules.ImageOpi, Tr.T("Ein Bild verweist auf ein Original (OPI)."));
+                    if (dict.HasValue(PdfName.Get("Alternates"))) Add(PdfARules.ImageAlternates, Tr.T("Ein Bild hat Ersatzbilder (/Alternates)."));
+                    if (dict.HasValue(PdfName.Get("OPI"))) Add(PdfARules.ImageOpi, Tr.T("Ein Bild verweist auf ein Original (OPI)."));
                     if (dict.Get(PdfName.Get("Intent")) is PdfName imageIntent && !RenderingIntent(imageIntent.Value))
                         Add(PdfARules.RenderingIntent, Tr.T("Eine unbekannte Farbwiedergabe (Rendering Intent) wird benutzt."));
                     // the stream of /Mask is an image mask whether or not it says so (ISO 32000-1, 8.9.6.3)
@@ -182,9 +182,9 @@ public static partial class PdfACheck
             {
                 case "Form":
                     // PDF/A-1 (6.2.4) names the original of a form with that of an image
-                    if (dict.ContainsKey(PdfName.Get("OPI")))
+                    if (dict.HasValue(PdfName.Get("OPI")))
                         Add(_part.Part() == 1 ? PdfARules.ImageOpi : PdfARules.FormOpiPostScript, Tr.T("Eine Form verweist auf ein Original (OPI)."));
-                    if (dict.ContainsKey(PdfName.Get("Ref"))) Add(PdfARules.NoReferenceXObject, Tr.T("Eine Form zeigt eine Seite einer anderen Datei (Referenz-XObject)."));
+                    if (dict.HasValue(PdfName.Get("Ref"))) Add(PdfARules.NoReferenceXObject, Tr.T("Eine Form zeigt eine Seite einer anderen Datei (Referenz-XObject)."));
                     if (dict.GetName(PdfName.Get("Subtype2"))?.Value == "PS" || dict.ContainsKey(PdfName.Get("PS")))
                         Add(PdfARules.FormOpiPostScript, Tr.T("Das Dokument enthält PostScript."));
                     break;
