@@ -168,6 +168,26 @@ public static partial class PdfWriter
         }
 
         /// <summary>
+        /// A Separation or DeviceN space whose alternate is a special space (Pattern, Indexed, Separation, DeviceN — not allowed, 8.6.6.4 and
+        /// 8.6.6.5): the device space of as many components as the tint transform gives (1 grey, 3 RGB, 4 CMYK; the display reads it so).
+        /// Before, the copy kept such a space and the check passed it (M6 probe P14; docs/FEHLERGEDAECHTNIS.md, No. 1128). Unchanged where the
+        /// tint transform is unreadable or gives another number of components.
+        /// </summary>
+        private PdfArray PlainAlternate(PdfArray array, Source? source)
+        {
+            if (array.Count < 4 || array.Get(0) is not PdfName { Value: "Separation" or "DeviceN" }) return array;
+            var alternate = PdfAResolve(array[2], source);
+            var special = alternate is PdfName { Value: "Pattern" }
+                          || alternate is PdfArray { Count: >= 1 } a && PdfAResolve(a[0], source) is PdfName { Value: "Pattern" or "Indexed" or "I" or "Separation" or "DeviceN" };
+            if (!special || PdfAResolve(array[3], source) is not { } tint || PdfFunction.Create(tint, source?.Doc ?? _main) is not { } function) return array;
+            var device = function.Outputs switch { 1 => "DeviceGray", 3 => "DeviceRGB", 4 => "DeviceCMYK", _ => null };
+            if (device is null) return array;
+            var copy = new PdfArray { Resolver = array.Resolver };
+            for (var i = 0; i < array.Count; i++) copy.Add(i == 2 ? PdfName.Get(device) : array[i]);
+            return copy;
+        }
+
+        /// <summary>
         /// A colour space array whose base is a device space the output intent does not cover (the alternate of DeviceN and Separation, the base
         /// of Indexed and of an uncoloured pattern): the base becomes the ICC-based space a default colour space would give it — the same colours,
         /// and valid where no default space applies (a shading pattern has none of the page, 6.2.4.3).

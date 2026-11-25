@@ -888,7 +888,7 @@ public static partial class PdfWriter
                     // colour spaces: profiles as the display reads them, names in UTF-8, same names alike, colourants complete, device bases covered
                     var icc = IccSpace(copy ?? array, source);
                     if (icc is not PdfArray space) return icc;
-                    return DeviceBase(CompleteColorants(AlikeColorants(Utf8Colorants(space, source), source), source));
+                    return DeviceBase(CompleteColorants(AlikeColorants(Utf8Colorants(PlainAlternate(space, source), source), source), source));
                 }
                 // a dictionary of a source copied into an object of the new file (the dictionaries of a page, its resources): brought in line
                 // as it is read — the pages were measured by those (fonts shown, resources borrowed …) —, then copied as before

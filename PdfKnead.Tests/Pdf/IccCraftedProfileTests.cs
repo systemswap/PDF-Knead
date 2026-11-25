@@ -184,7 +184,28 @@ public sealed class IccCraftedProfileTests
             Assert.InRange(At(1), 1, 12);
             Assert.InRange(At(2), 1, 31);
             Assert.InRange(At(3), 0, 23);
+            Assert.InRange(At(4), 0, 59);
+            Assert.InRange(At(5), 0, 59);
         }
+    }
+
+    /// <summary>
+    /// ICC.1, 4.2 and 7.2.8: rewritten as 2.1 for PDF/A-1, a foreign profile whose date is none (all zero: month 0, day 0) gets the fixed valid
+    /// date of the own profiles; a valid date stays as it was (docs/FEHLERGEDAECHTNIS.md, No. 1128 — before, the date was copied as it was).
+    /// </summary>
+    [Fact]
+    public void AsVersion2_InvalidDate_BecomesValid_ValidDateStays()
+    {
+        var profile = Profile(4, [.. MatrixTags(), ("desc", Text("Profil")), ("cprt", Text("frei"))]);
+        profile.AsSpan(24, 12).Clear();
+        var rewritten = CalibratedProfile.AsVersion2(profile)!;
+        int At(byte[] p, int i) => BinaryPrimitives.ReadUInt16BigEndian(p.AsSpan(24 + 2 * i));
+        Assert.InRange(At(rewritten, 1), 1, 12);
+        Assert.InRange(At(rewritten, 2), 1, 31);
+        ReadOnlySpan<ushort> date = [2019, 6, 30, 23, 59, 58];
+        for (var i = 0; i < 6; i++) BinaryPrimitives.WriteUInt16BigEndian(profile.AsSpan(24 + 2 * i), date[i]);
+        rewritten = CalibratedProfile.AsVersion2(profile)!;
+        for (var i = 0; i < 6; i++) Assert.Equal(date[i], At(rewritten, i));
     }
 
     /// <summary>

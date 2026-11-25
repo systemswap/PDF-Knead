@@ -259,7 +259,25 @@ internal static class CalibratedProfile
         var header = data.AsSpan(0, 128).ToArray();
         BinaryPrimitives.WriteUInt32BigEndian(header.AsSpan(8), 0x02100000);
         header.AsSpan(84, 16).Clear();   // the profile ID is a field of version 4
+        // a date that is none (month or day 0, hours beyond 23 …) becomes the fixed one of the own profiles (ICC.1 4.2, 7.2.8; before, copied as
+        // it was — the PDF/A-1 way could write a profile with month 0; docs/FEHLERGEDAECHTNIS.md, No. 1128)
+        if (!ValidCreated(header)) WriteCreated(header);
         return Assemble(header, tags);
+    }
+
+    /// <summary>The fixed date of creation of the own profiles (ICC.1, 7.2.8: a valid dateTimeNumber in UTC; No. 1124).</summary>
+    private static void WriteCreated(Span<byte> header)
+    {
+        ReadOnlySpan<ushort> created = [2026, 11, 24, 0, 0, 0];
+        for (var i = 0; i < created.Length; i++) BinaryPrimitives.WriteUInt16BigEndian(header[(24 + 2 * i)..], created[i]);
+    }
+
+    /// <summary>Whether bytes 24–35 of a header are a date and time (ICC.1, 4.2).</summary>
+    private static bool ValidCreated(byte[] header)
+    {
+        int Field(int i) => BinaryPrimitives.ReadUInt16BigEndian(header.AsSpan(24 + 2 * i));
+        var (year, month, day, hour, minute, second) = (Field(0), Field(1), Field(2), Field(3), Field(4), Field(5));
+        return year >= 1 && month is >= 1 and <= 12 && day >= 1 && day <= DateTime.DaysInMonth(year, month) && hour <= 23 && minute <= 59 && second <= 59;
     }
 
     /// <summary>The text of a description or copyright tag: the first entry of multiLocalizedUnicodeType, textType, textDescriptionType.</summary>
@@ -339,8 +357,7 @@ internal static class CalibratedProfile
         "acsp"u8.CopyTo(h[36..]);
         // the date of creation (ICC.1, 7.2.8: a valid dateTimeNumber in UTC) — fixed, the same profile always has the same bytes; before,
         // all zero, month 0 and day 0 are no date (docs/FEHLERGEDAECHTNIS.md, No. 1124)
-        ReadOnlySpan<ushort> created = [2026, 11, 24, 0, 0, 0];
-        for (var i = 0; i < created.Length; i++) BinaryPrimitives.WriteUInt16BigEndian(h[(24 + 2 * i)..], created[i]);
+        WriteCreated(h);
         Xyz(IccProfile.WhiteX, IccProfile.WhiteY, IccProfile.WhiteZ).AsSpan(8, 12).CopyTo(h[68..]);   // illuminant of the PCS
         return Assemble(header, tags);
     }

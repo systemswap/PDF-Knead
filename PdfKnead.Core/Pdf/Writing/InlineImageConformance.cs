@@ -45,7 +45,8 @@ internal static class InlineImageConformance
     public static bool Breaks(InlineImage image)
     {
         var filters = Filters(image.AsXObjectDictionary());
-        if (filters.Any(f => f is "JPXDecode" or "JBIG2Decode")) return true;
+        // Crypt is not allowed inline either (8.9.7; before, such an image stayed inline — docs/FEHLERGEDAECHTNIS.md, No. 1128)
+        if (filters.Any(f => f is "JPXDecode" or "JBIG2Decode" or "Crypt")) return true;
         var data = image.Data.AsSpan();
         if (filters is ["ASCII85Decode", ..] && !data.TrimEnd(" \t\r\n\f\0"u8).EndsWith("~>"u8)) return true;
         for (var i = 1; i + 2 < data.Length; i++)

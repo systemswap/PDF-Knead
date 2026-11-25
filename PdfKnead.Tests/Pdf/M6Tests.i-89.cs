@@ -857,16 +857,16 @@ public sealed partial class M6NormTests
     }
 
     /// <summary>
-    /// 8.9.7 sentence 31, today's behaviour: an inline image with /F /Crypt (not allowed inline) stays inline when saved normally; only the
-    /// PDF/A ways repack it.
+    /// 8.9.7 sentence 31: an inline image with /F /Crypt (not allowed inline) becomes an image XObject when saved, as JPX and JBIG2 do
+    /// (<c>InlineImageConformance.Breaks</c>; before, it stayed inline — docs/FEHLERGEDAECHTNIS.md, No. 1128).
     /// </summary>
     [Fact]
-    public void InlineImage_WithCryptFilter_StaysInline_TodaysBehaviour()
+    public void InlineImage_WithCryptFilter_BecomesAnXObject()
     {
         using var saved = DocumentStructureNormTests.Saved(I89_File("", "", "q 200 0 0 200 0 0 cm BI /W 1 /H 1 /CS /G /BPC 8 /F /Crypt ID \x80 EI Q"));
         var content = I89_Content(saved);
-        Assert.Contains("BI", content);
-        Assert.Contains("Crypt", content);
+        Assert.DoesNotContain("BI", content);
+        Assert.Contains("Do", content);
     }
 
     /// <summary>

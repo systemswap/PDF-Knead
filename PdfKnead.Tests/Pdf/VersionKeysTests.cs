@@ -128,7 +128,8 @@ public sealed class VersionKeysTests
     /// Saved as 2.0, what 2.0 deprecates or no longer has goes (M6, pass over what is deprecated and gone; docs/FEHLERGEDAECHTNIS.md, No. 1127):
     /// a PostScript XObject leaves the resources (8.8.2; it draws nothing — the PDF/A way did so already, No. 307), /PS and /Subtype2 leave a form,
     /// /TR and /TR2 a graphics state (deprecated, Table 57) — not the /TR of a soft mask —, /BM as an array becomes the name that counts
-    /// (11.3.5), CalCMYK becomes DeviceCMYK (8.6.5.1). Saved as 1.7, all of it stays.
+    /// (11.3.5), CalCMYK becomes DeviceCMYK (8.6.5.1). Saved as 1.7, all of it stays. The PostScript XObject is written as an empty form, so
+    /// that its "Do" still names an XObject (No. 1128; before, a reference into the void).
     /// </summary>
     [Fact]
     public void As20_DeprecatedGraphicsGo_As17TheyStay()
@@ -144,15 +145,22 @@ public sealed class VersionKeysTests
             [5] = ("/Type/XObject/Subtype/PS", "% PostScript für Drucker"),
             [6] = ("/Type/XObject/Subtype/Form/BBox[0 0 10 10]/Subtype2/PS/PS 5 0 R", "0 0 5 5 re f"),
         });
-        string Saved(string version)
+        byte[] Bytes(string version)
         {
             using var doc = PdfDocument.Open(file);
             using var output = new MemoryStream();
             PdfWriter.Write(doc, PageItem.From(doc), output, new PdfSaveOptions { Version = version, CompressStreams = false, ObjectStreams = false });
-            return Encoding.Latin1.GetString(output.ToArray()).Replace(" ", "");
+            return output.ToArray();
         }
+        string Saved(string version) => Encoding.Latin1.GetString(Bytes(version)).Replace(" ", "");
         var as20 = Saved("2.0");
-        Assert.DoesNotMatch(@"/P0\d+0R", as20);   // a reference into the void (null), as for any object that is not written (7.3.10)
+        // the PostScript XObject became an empty form: the "Do" still names a stream of /XObject (8.8.1; No. 1128)
+        using (var doc20 = PdfDocument.Open(Bytes("2.0")))
+        {
+            var p0 = doc20.Pages[0].Dictionary.GetDictionary(PdfName.Resources)!.GetDictionary(PdfName.Get("XObject"))!.Get(PdfName.Get("P0"));
+            var form = Assert.IsType<PdfStream>(p0);
+            Assert.Equal("Form", form.Dictionary.GetName(PdfName.Subtype)?.Value);
+        }
         Assert.DoesNotContain("/Subtype/PS", as20);
         Assert.DoesNotContain("/Subtype2", as20);
         Assert.DoesNotContain("/TR2", as20);
@@ -164,5 +172,37 @@ public sealed class VersionKeysTests
         var as17 = Saved("1.7");
         foreach (var kept in new[] { "/P0", "/Subtype/PS", "/Subtype2/PS", "/TR2/Default", "/BM[/Unbekannt/Multiply/Screen]", "/CalCMYK" })
             Assert.Contains(kept, as17);
+    }
+
+    /// <summary>
+    /// 8.6.6.5: ISO 32000-1 allowed Lab as the process space of NChannel, 2.0 does not — saved as 2.0 the attributes lose /Process and become
+    /// plain DeviceN attributes (L, a, b stay colorants through the tint transform, as the display draws them); saved as 1.7 they stay
+    /// (docs/FEHLERGEDAECHTNIS.md, No. 1128).
+    /// </summary>
+    [Fact]
+    public void As20_NChannelWithLabProcess_BecomesDeviceN_As17Stays()
+    {
+        var file = CraftedFileTests.Build(new Dictionary<int, object>
+        {
+            [1] = "<</Type/Catalog/Pages 2 0 R>>",
+            [2] = "<</Type/Pages/Kids[3 0 R]/Count 1/MediaBox[0 0 200 200]>>",
+            [3] = "<</Type/Page/Parent 2 0 R/Contents 4 0 R/Resources<</ColorSpace<</N0[/DeviceN[/L/a/b/Schmuck]/DeviceRGB 5 0 R" +
+                  "<</Subtype/NChannel/Process<</ColorSpace[/Lab<</WhitePoint[0.9505 1 1.089]>>]/Components[/L/a/b]>>>>]>>>>>>",
+            [4] = ("", "/N0 cs 50 0 0 1 scn 0 0 100 100 re f"),
+            [5] = ("/FunctionType 4/Domain[0 100 -128 127 -128 127 0 1]/Range[0 1 0 1 0 1]", "{ pop pop pop pop 0.5 0.5 0.5 }"),
+        });
+        string Saved(string version)
+        {
+            using var doc = PdfDocument.Open(file);
+            using var output = new MemoryStream();
+            PdfWriter.Write(doc, PageItem.From(doc), output, new PdfSaveOptions { Version = version, CompressStreams = false, ObjectStreams = false });
+            return Encoding.Latin1.GetString(output.ToArray()).Replace(" ", "");
+        }
+        var as20 = Saved("2.0");
+        Assert.DoesNotContain("/Process", as20);
+        Assert.DoesNotContain("/NChannel", as20);
+        Assert.Contains("/Subtype/DeviceN", as20);
+        var as17 = Saved("1.7");
+        Assert.Contains("/Subtype/NChannel/Process", as17);
     }
 }

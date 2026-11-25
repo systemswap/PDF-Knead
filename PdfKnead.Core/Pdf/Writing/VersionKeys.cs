@@ -27,7 +27,8 @@ internal static class VersionKeys
         ProcSet = PdfName.Get("ProcSet"), Name = PdfName.Get("Name"), CharSet = PdfName.Get("CharSet"), CidSet = PdfName.Get("CIDSet"),
         Suspects = PdfName.Get("Suspects"), NeedsRendering = PdfName.Get("NeedsRendering"), Xfa = PdfName.Get("XFA"), Fields = PdfName.Get("Fields"),
         FT = PdfName.Get("FT"), Ps = PdfName.Get("PS"), Subtype2 = PdfName.Get("Subtype2"), Tr = PdfName.Get("TR"),
-        Tr2 = PdfName.Get("TR2"), Bm = PdfName.Get("BM"), DeviceCmyk = PdfName.Get("DeviceCMYK");
+        Tr2 = PdfName.Get("TR2"), Bm = PdfName.Get("BM"), DeviceCmyk = PdfName.Get("DeviceCMYK"), Process = PdfName.Get("Process"),
+        ColorSpaceKey = PdfName.Get("ColorSpace");
 
     /// <summary>Field flags (bits 23–27, 1-based) introduced with PDF 1.5 (ISO 32000-2, Tables 228, 230, 232).</summary>
     private const long Flags15 = (1L << 22) | (1L << 23) | (1L << 24) | (1L << 25) | (1L << 26);
@@ -140,6 +141,14 @@ internal static class VersionKeys
                     Drop(Tr2);
                 }
                 if (dict.GetRaw(Bm) is PdfArray choices) set = (Bm, PdfName.Get(Content.BlendModes.Name(Content.BlendModes.From(choices))));
+                // NChannel with Lab as its process space: allowed in 1.x, not in 2.0 (8.6.6.5) — written as plain DeviceN attributes, its
+                // components become ordinary colorants through the tint transform, as the display draws them (docs/FEHLERGEDAECHTNIS.md, No. 1128)
+                if (subtype == "NChannel" && dict.GetRaw(Process) is PdfDictionary process
+                    && process.GetRaw(ColorSpaceKey) is PdfName { Value: "Lab" } or PdfArray { Count: >= 1 } and [PdfName { Value: "Lab" }, ..])
+                {
+                    Drop(Process);
+                    set = (Subtype, PdfName.Get("DeviceN"));
+                }
                 if (dict.ContainsKey(Xfa) && dict.Get(Fields) is PdfArray { Count: > 0 }) Drop(Xfa);
             }
             PdfDictionary? copy = null;

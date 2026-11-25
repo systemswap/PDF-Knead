@@ -1080,11 +1080,12 @@ public static partial class PdfWriter
             // a reference into the void stays the void (ISO 32000-2, 7.3.10): null where it stood, not a number of its own with a null object —
             // so the copy shows it as absent as the source does, and a page inherits in its place (S-A A67; docs/FEHLERGEDAECHTNIS.md, No. 798)
             if (source.Doc.GetObject(old) is null or PdfNull) return 0;
-            // PDF 2.0 has no PostScript XObjects (8.8.2 of ISO 32000-1 is gone): a reference to one is a reference into the void — it draws
-            // nothing, its "Do" then names nothing (docs/FEHLERGEDAECHTNIS.md, No. 1127; the PDF/A way takes them out in PdfAFix)
+            // PDF 2.0 has no PostScript XObjects (8.8.2 of ISO 32000-1 is gone): one is written as an empty form — it drew nothing before
+            // either, and the "Do" that names it keeps naming a stream of /XObject (8.8.1; docs/FEHLERGEDAECHTNIS.md, No. 1127 and 1128 —
+            // a reference into the void left the "Do" without its XObject; the PDF/A way takes them out in PdfAFix)
             if (Pdf20 && _pdfA is null && (source.Overrides.TryGetValue(old, out var over) ? over : source.Doc.GetObject(old)) is PdfStream { Dictionary: var ps }
                 && ps.GetName(PdfName.Subtype)?.Value == "PS")
-                return 0;
+                source.Overrides[old] = EmptyForm();
             // Compression: the same content (from another place or file) only once
             if (Duplicate(source, old, out var key) is { } same)
             {
@@ -1097,6 +1098,16 @@ public static partial class PdfWriter
             RememberContent(key, number);
             _queue.Enqueue((source, old, number));
             return number;
+        }
+
+        /// <summary>An empty form XObject (no content, /BBox of no area): it draws nothing (No. 1128).</summary>
+        private static PdfStream EmptyForm()
+        {
+            var dict = new PdfDictionary();
+            dict.Set(PdfName.Get("Type"), PdfName.Get("XObject"));
+            dict.Set(PdfName.Subtype, PdfName.Get("Form"));
+            dict.Set(PdfName.Get("BBox"), new PdfArray([PdfInteger.Of(0), PdfInteger.Of(0), PdfInteger.Of(0), PdfInteger.Of(0)]));
+            return new PdfStream(dict, []);
         }
 
         /// <summary>
