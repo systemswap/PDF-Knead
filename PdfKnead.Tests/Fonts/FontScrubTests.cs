@@ -383,6 +383,34 @@ public sealed class FontScrubTests
         Assert.False(cleanCff.AsSpan().IndexOf((ReadOnlySpan<byte>)[29, 0, 0x47, 0xE5, 0x87, 13]) >= 0, "UniqueID");
         Assert.False(cleanCff.AsSpan().IndexOf((ReadOnlySpan<byte>)[140, 141, 142, 14]) >= 0, "XUID");
     }
+
+    /// <summary>
+    /// OpenType name 30.2, OS/2 31.2.12/21/22 and recommendations 3.27: a font rebuilt as symbolic (its only cmap (3,0), the PDF/A copy of a
+    /// symbolic TrueType font) has its Windows names in encoding 0, PANOSE family kind 5 and usFirst/LastCharIndex of its codes. Before, the
+    /// names (3,1), PANOSE and range of Liberation Sans stayed (docs/FEHLERGEDAECHTNIS.md, No. 1146).
+    /// </summary>
+    [Fact]
+    public void RebuiltAsSymbolic_NamesPanoseAndRangeFollow()
+    {
+        var ttf = EmbeddedFonts.LoadStandard("LiberationSans-Regular.ttf");
+        var a = OpenTypeFont.Parse(ttf).GlyphForUnicode('A');
+        var rebuilt = TrueTypeSubsetter.Rebuild(ttf, new Dictionary<int, int> { [a] = 1000 }, [], [(0xF041, a), (0xF05A, a)]);
+        var font = OpenTypeFont.Parse(rebuilt);
+        Assert.Equal(a, font.Lookup(3, 0, 0xF041));
+        var os2 = font.Table("OS/2")!.Value;
+        var data = font.FileData;
+        Assert.Equal(5, data[os2.Offset + 32]);
+        Assert.Equal(0xF041, data[os2.Offset + 64] << 8 | data[os2.Offset + 65]);
+        Assert.Equal(0xF05A, data[os2.Offset + 66] << 8 | data[os2.Offset + 67]);
+        var name = font.Table("name")!.Value;
+        int count = data[name.Offset + 2] << 8 | data[name.Offset + 3];
+        var windows = Enumerable.Range(0, count).Select(i => name.Offset + 6 + i * 12)
+            .Where(r => (data[r] << 8 | data[r + 1]) == 3).Select(r => data[r + 2] << 8 | data[r + 3]).ToList();
+        Assert.NotEmpty(windows);
+        Assert.All(windows, e => Assert.Equal(0, e));
+        Assert.Equal("Liberation Sans", font.FamilyName);
+    }
+
 }
 
 /// <summary>A small Type 1 font for tests: glyphs A (through subroutine 4), B and C, encoding A B C at their ASCII codes.</summary>

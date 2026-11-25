@@ -231,9 +231,56 @@ public static class TrueTypeSubsetter
         data["loca"] = newLoca;
         data["glyf"] = newGlyf.ToArray();
         data["post"] = newPost;
-        if (cmap is not null) data["cmap"] = SymbolCmap(cmap);
+        if (cmap is not null)
+        {
+            data["cmap"] = SymbolCmap(cmap);
+            Symbolic(data, cmap);
+        }
         else if (keepCmap && tables.TryGetValue("cmap", out var own)) data["cmap"] = font.AsSpan(own.Offset, own.Length).ToArray();
         return Finish(data);
+    }
+
+    /// <summary>
+    /// A font made symbolic (its only cmap is (3,0)): the Windows names take the same encoding 0, PANOSE names the family kind „pictorial“ (5),
+    /// usFirstCharIndex and usLastCharIndex the codes of the new cmap (OpenType name 30.2, OS/2 31.2.12 and 31.2.21/22, recommendations 3.27).
+    /// Before, the names, PANOSE and the range of the text font it was made from stayed (docs/FEHLERGEDAECHTNIS.md, No. 1146).
+    /// </summary>
+    private static void Symbolic(Dictionary<string, byte[]> data, IReadOnlyList<(int Code, int Glyph)> cmap)
+    {
+        var codes = cmap.Select(m => m.Code).Where(c => c is >= 0 and < 0xFFFF).ToList();
+        if (data.TryGetValue("OS/2", out var os2) && os2.Length >= 68)
+        {
+            os2[32] = 5;   // bFamilyType: pictorial
+            if (codes.Count > 0)
+            {
+                BinaryPrimitives.WriteUInt16BigEndian(os2.AsSpan(64), (ushort)codes.Min());
+                BinaryPrimitives.WriteUInt16BigEndian(os2.AsSpan(66), (ushort)codes.Max());
+            }
+        }
+        if (data.TryGetValue("name", out var name) && name.Length >= 6)
+        {
+            int count = BinaryPrimitives.ReadUInt16BigEndian(name.AsSpan(2));
+            if (6 + count * 12 > name.Length) return;
+            var records = new List<byte[]>();
+            for (var i = 0; i < count; i++)
+            {
+                var record = name.AsSpan(6 + i * 12, 12).ToArray();
+                if (BinaryPrimitives.ReadUInt16BigEndian(record) == 3 && BinaryPrimitives.ReadUInt16BigEndian(record.AsSpan(2)) == 1)
+                    BinaryPrimitives.WriteUInt16BigEndian(record.AsSpan(2), 0);
+                records.Add(record);
+            }
+            // the records stay sorted by platform, encoding, language and name ID (30.2)
+            records.Sort((a, b) =>
+            {
+                for (var k = 0; k < 8; k += 2)
+                {
+                    var d = BinaryPrimitives.ReadUInt16BigEndian(a.AsSpan(k)).CompareTo(BinaryPrimitives.ReadUInt16BigEndian(b.AsSpan(k)));
+                    if (d != 0) return d;
+                }
+                return 0;
+            });
+            for (var i = 0; i < count; i++) records[i].CopyTo(name, 6 + i * 12);
+        }
     }
 
     /// <summary>A cmap with one (3,0) table of format 4, one segment per code (at most a few hundred).</summary>
