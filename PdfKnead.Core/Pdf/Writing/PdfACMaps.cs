@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using PdfKnead.Core.Pdf.Fonts;
 using PdfKnead.Core.Pdf.Objects;
 
 namespace PdfKnead.Core.Pdf.Writing;
@@ -19,21 +20,48 @@ internal static class PdfACMaps
     /// <returns>The ranges, shorter codes first.</returns>
     internal static List<(int Bytes, uint Low, uint High)> Codespace(IEnumerable<(uint Code, int Bytes)> codes)
     {
-        var ranges = new List<(int Bytes, uint Low, uint High)>();
+        // runs of first bytes per length
+        var runs = new List<(int Bytes, uint First, uint Last)>();
+        var used = new Dictionary<int, HashSet<uint>>();
         foreach (var group in codes.GroupBy(c => Math.Clamp(c.Bytes, 1, 4)).OrderBy(g => g.Key))
         {
             var shift = 8 * (group.Key - 1);
-            var rest = shift == 0 ? 0u : (1u << shift) - 1;
             var firsts = group.Select(c => (c.Code >> shift) & 0xFF).Distinct().Order().ToList();
+            used[group.Key] = [.. firsts];
             for (var i = 0; i < firsts.Count;)
             {
                 var end = i;
                 while (end + 1 < firsts.Count && firsts[end + 1] == firsts[end] + 1) end++;
-                ranges.Add((group.Key, firsts[i] << shift, firsts[end] << shift | rest));
+                runs.Add((group.Key, firsts[i], firsts[end]));
                 i = end + 1;
             }
         }
-        return ranges;
+        // no more ranges than a reader reads (CMap.MaxCodespaceRanges): runs of one length are joined across their smallest gaps, as long
+        // as no code of another length begins with a byte of the gap — before, a large font with scattered codes got more ranges than the
+        // display reads back, and its own copy split two-byte codes (docs/FEHLERGEDAECHTNIS.md, No. 1141)
+        while (runs.Count > CMap.MaxCodespaceRanges)
+        {
+            var best = -1;
+            uint gap = uint.MaxValue;
+            for (var i = 0; i + 1 < runs.Count; i++)
+            {
+                var (bytes, _, last) = runs[i];
+                if (runs[i + 1].Bytes != bytes || runs[i + 1].First - last >= gap) continue;
+                var free = true;
+                for (var b = last + 1; b < runs[i + 1].First && free; b++)
+                    free = used.Where(u => u.Key != bytes).All(u => !u.Value.Contains(b));
+                if (free) (best, gap) = (i, runs[i + 1].First - last);
+            }
+            if (best < 0) break;   // interleaved with other lengths everywhere: left as it is
+            runs[best] = (runs[best].Bytes, runs[best].First, runs[best + 1].Last);
+            runs.RemoveAt(best + 1);
+        }
+        return runs.Select(r =>
+        {
+            var shift = 8 * (r.Bytes - 1);
+            var rest = shift == 0 ? 0u : (1u << shift) - 1;
+            return (r.Bytes, r.First << shift, r.Last << shift | rest);
+        }).ToList();
     }
 
     /// <summary>An encoding CMap (CMapType 1) for the codes shown, with the same writing mode in its dictionary and its program (6.2.11.3.3).</summary>

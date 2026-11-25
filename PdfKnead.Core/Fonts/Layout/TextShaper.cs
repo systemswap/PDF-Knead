@@ -573,25 +573,42 @@ public sealed class TextShaper
 
         private static bool None(int k, int g) => false;
 
-        /// <summary>Applies the nested lookups at the input positions (SubstLookupRecords).</summary>
-        private bool Apply(int[] positions, int records, int count, int depth, out int next)
+        /// <summary>
+        /// Applies the nested lookups at the input positions (SubstLookupRecords). A record names its place in the input sequence as the
+        /// records before it left it (OpenType GSUB, 21.4.6): glyphs a multiple substitution adds after a place are places of their own,
+        /// those a ligature joins into its first component are gone. Before, the places were counted in the sequence as matched, and a
+        /// record after a ligature hit the wrong glyph (docs/FEHLERGEDAECHTNIS.md, No. 1142).
+        /// </summary>
+        private bool Apply(int[] matched, int records, int count, int depth, out int next)
         {
-            var end = positions[^1] + 1;
+            var positions = new List<int>(matched);
+            var end = matched[^1] + 1;
             for (var r = 0; r < count && work.Spend(1); r++)
             {
                 var seq = T.U16(records + r * 4);
                 var lookupIndex = T.U16(records + r * 4 + 2);
-                if (seq >= positions.Length) continue;
+                if (seq >= positions.Count) continue;
                 var before = run.Count;
                 shaper.ApplyNested(this, lookupIndex, positions[seq], depth + 1);
                 var delta = run.Count - before;
                 if (delta == 0) continue;
-                // Length changed (ligature, multiple substitution): shift the later positions
                 end += delta;
-                work.Spend(positions.Length - seq);
-                for (var k = seq + 1; k < positions.Length; k++) positions[k] = Math.Max(positions[seq], positions[k] + delta);
+                work.Spend(positions.Count - seq + Math.Max(0, delta));
+                if (delta > 0)
+                {
+                    // the new glyphs follow the place where they came from
+                    for (var k = seq + 1; k < positions.Count; k++) positions[k] += delta;
+                    positions.InsertRange(seq + 1, Enumerable.Range(positions[seq] + 1, delta));
+                }
+                else
+                {
+                    // joined into the glyph at this place: the places after it that it took are gone, the later ones move up
+                    var gone = Math.Min(-delta, positions.Count - seq - 1);
+                    positions.RemoveRange(seq + 1, gone);
+                    for (var k = seq + 1; k < positions.Count; k++) positions[k] = Math.Max(positions[seq] + 1, positions[k] + delta);
+                }
             }
-            next = Math.Max(positions[0] + 1, end);
+            next = Math.Max(matched[0] + 1, end);
             return true;
         }
 

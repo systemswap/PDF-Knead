@@ -11,7 +11,7 @@ namespace PdfKnead.Tests.Fonts;
 public sealed class ShaperLimitTests
 {
     /// <summary>A table written big-endian, with the position of each part known before it is written.</summary>
-    private sealed class Table
+    internal sealed class Table
     {
         private readonly List<byte> _bytes = [];
 
@@ -39,10 +39,10 @@ public sealed class ShaperLimitTests
         public byte[] ToArray() => [.. _bytes];
     }
 
-    private static readonly byte[] Liberation = EmbeddedFonts.LoadStandard("LiberationSans-Regular.ttf");
+    internal static readonly byte[] Liberation = EmbeddedFonts.LoadStandard("LiberationSans-Regular.ttf");
 
     /// <summary>Liberation Sans with the GSUB given and without GPOS, and its glyph of „a“.</summary>
-    private static (TextShaper Shaper, int A) With(Func<int, byte[]> gsub)
+    internal static (TextShaper Shaper, int A) With(Func<int, byte[]> gsub)
     {
         var a = OpenTypeFont.Parse(Liberation).GlyphForUnicode('a');
         var font = ColorFontBuilder.WithTables(Liberation, new Dictionary<string, byte[]?> { ["GSUB"] = gsub(a), ["GPOS"] = null });
@@ -54,7 +54,7 @@ public sealed class ShaperLimitTests
     /// the FeatureList with that feature and the lookup indices given, and the LookupList <paramref name="lookups"/> writes (offsets in it
     /// relative to its start). The parts are placed so that each starts within the 16-bit offsets of the header.
     /// </summary>
-    private static byte[] Gsub(int langSysEntries, int[] featureLookups, Action<Table> lookups)
+    internal static byte[] Gsub(int langSysEntries, int[] featureLookups, Action<Table> lookups)
     {
         var script = new Table().U16(1).Tag("latn").U16(8)                   // one record, script at +8
             .U16(4).U16(0)                                                       // default language system at +4

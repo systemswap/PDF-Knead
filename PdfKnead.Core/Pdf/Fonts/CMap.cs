@@ -11,8 +11,14 @@ namespace PdfKnead.Core.Pdf.Fonts;
 public sealed class CMap
 {
     private readonly List<(int Bytes, uint Low, uint High)> _codespace = [];
-    private readonly List<(int Bytes, uint Low, uint High, int Cid)> _cidRanges = [];
-    private readonly Dictionary<(int Bytes, uint Code), int> _cidSingles = [];
+    // code → CID with the place of the mapping in the file: where mappings overlap the later applies (Adobe TN 5014, 5.2)
+    private readonly List<(int Bytes, uint Low, uint High, int Cid, int Order)> _cidRanges = [];
+    private readonly Dictionary<(int Bytes, uint Code), (int Cid, int Order)> _cidSingles = [];
+    private int _order;
+    // notdef mappings (ISO 32000-2, 9.7.5.4; TN 5014, 5.2): the CID a code takes that no other mapping covers; a range gives all its
+    // codes the same CID
+    private readonly List<(int Bytes, uint Low, uint High, int Cid)> _notdefRanges = [];
+    private readonly Dictionary<(int Bytes, uint Code), int> _notdefSingles = [];
     private readonly Dictionary<(int Bytes, uint Code), string> _unicodeSingles = [];
 
     /// <summary>Codes whose target, as written, holds the value 0, U+FEFF or U+FFFE (the text drops them; PDF/A asks: docs/FEHLERGEDAECHTNIS.md, No. 501).</summary>
@@ -25,7 +31,8 @@ public sealed class CMap
     private RangeIndex? _unicodeIndex;
     private bool _identity;
 
-    private const int MaxCodespaceRanges = 64;
+    /// <summary>Codespace ranges read at most (real CMaps have a handful; they are searched for every character).</summary>
+    internal const int MaxCodespaceRanges = 64;
 
     /// <summary>
     /// Longest Unicode target of a bfchar/bfrange entry (Adobe Technical Note #5411, ToUnicode Mapping File Tutorial: at most 512 bytes).
@@ -84,13 +91,25 @@ public sealed class CMap
                 case "begincidrange":
                     cmap.ReadTriples(ref tokens, "endcidrange", (lo, hi, dst) =>
                     {
-                        if (dst.Kind == TokenKind.Number) cmap._cidRanges.Add((lo.Length, ToCode(lo), ToCode(hi), (int)dst.Number));
+                        if (dst.Kind == TokenKind.Number) cmap._cidRanges.Add((lo.Length, ToCode(lo), ToCode(hi), (int)dst.Number, cmap._order++));
                     });
                     break;
                 case "begincidchar":
                     cmap.ReadPairs(ref tokens, "endcidchar", (code, dst) =>
                     {
-                        if (dst.Kind == TokenKind.Number) cmap._cidSingles[(code.Length, ToCode(code))] = (int)dst.Number;
+                        if (dst.Kind == TokenKind.Number) cmap._cidSingles[(code.Length, ToCode(code))] = ((int)dst.Number, cmap._order++);
+                    }, secondAnyToken: true);
+                    break;
+                case "beginnotdefrange":
+                    cmap.ReadTriples(ref tokens, "endnotdefrange", (lo, hi, dst) =>
+                    {
+                        if (dst.Kind == TokenKind.Number) cmap._notdefRanges.Add((lo.Length, ToCode(lo), ToCode(hi), (int)dst.Number));
+                    });
+                    break;
+                case "beginnotdefchar":
+                    cmap.ReadPairs(ref tokens, "endnotdefchar", (code, dst) =>
+                    {
+                        if (dst.Kind == TokenKind.Number) cmap._notdefSingles[(code.Length, ToCode(code))] = (int)dst.Number;
                     }, secondAnyToken: true);
                     break;
                 case "beginbfchar":
@@ -119,9 +138,12 @@ public sealed class CMap
     /// <summary>All mappings code → CID (single entries and ranges expanded, at most 65,536 per range), for inverting the Uni… CMaps.</summary>
     internal IEnumerable<(uint Code, int Bytes, int Cid)> CidMappings()
     {
-        foreach (var ((bytes, code), cid) in _cidSingles) yield return (code, bytes, cid);
-        foreach (var (bytes, low, high, cid) in _cidRanges)
-            for (var c = low; c <= high && c - low < 65536; c++) yield return (c, bytes, cid + (int)(c - low));
+        // only the mappings that apply (a later one overrides an earlier one)
+        foreach (var ((bytes, code), (cid, _)) in _cidSingles)
+            if (ToCid(code, bytes) == cid) yield return (code, bytes, cid);
+        foreach (var (bytes, low, high, cid, _) in _cidRanges)
+            for (var c = low; c <= high && c - low < 65536; c++)
+                if (ToCid(c, bytes) == cid + (int)(c - low)) yield return (c, bytes, cid + (int)(c - low));
         if (_base is not null)
             foreach (var (code, bytes, cid) in _base.CidMappings())
                 if (ToCid(code, bytes) == cid) yield return (code, bytes, cid);   // (only where the own mappings do not override it)
@@ -225,14 +247,27 @@ public sealed class CMap
     /// <returns>The CID; 0 if the code is not mapped.</returns>
     public int ToCid(uint code, int length)
     {
-        if (_cidSingles.TryGetValue((length, code), out var cid)) return cid;
-        _cidIndex ??= RangeIndex.Build(_cidRanges.Select(r => (r.Bytes, r.Low, r.High)).ToList());
-        if (_cidIndex.Find(length, code) is var i and >= 0) return _cidRanges[i].Cid + (int)(code - _cidRanges[i].Low);
+        // of a single mapping and the ranges the later one in the file (Adobe TN 5014, 5.2; measured: all three reference readers take the
+        // later of two ranges, two of them a range after a single mapping) — before, single mappings always and of the ranges the first
+        // (docs/FEHLERGEDAECHTNIS.md, No. 1141)
+        var single = _cidSingles.TryGetValue((length, code), out var s) ? s : (Cid: 0, Order: -1);
+        _cidIndex ??= RangeIndex.Build(_cidRanges.Select(r => (r.Bytes, r.Low, r.High)).ToList(), last: true);
+        if (_cidIndex.Find(length, code) is var i and >= 0 && _cidRanges[i].Order > single.Order) return _cidRanges[i].Cid + (int)(code - _cidRanges[i].Low);
+        if (single.Order >= 0) return single.Cid;
         if (_base?.ToCid(code, length) is > 0 and var inherited) return inherited;
         if (_identity) return (int)code;
         // encoding CMap written in ToUnicode notation (bfchar/bfrange instead of cidchar/cidrange, bug920426): target taken as the CID, as in other readers
         if (_base is null && _cidSingles.Count == 0 && _cidRanges.Count == 0 && ToUnicode(code, length) is { Length: 1 } bf) return bf[0];
-        return 0;
+        return NotdefCid(code, length);
+    }
+
+    /// <summary>The CID of the notdef mappings for a code no other mapping covers (own ones, then those of the included CMap); 0 if none.</summary>
+    private int NotdefCid(uint code, int length)
+    {
+        if (_notdefSingles.TryGetValue((length, code), out var cid)) return cid;
+        for (var k = _notdefRanges.Count - 1; k >= 0; k--)
+            if (_notdefRanges[k].Bytes == length && code >= _notdefRanges[k].Low && code <= _notdefRanges[k].High) return _notdefRanges[k].Cid;
+        return _base?.NotdefCid(code, length) ?? 0;
     }
 
     /// <summary>
@@ -300,17 +335,18 @@ public sealed class CMap
 
     /// <summary>
     /// Ranges per code length, sorted by their start: search in log n instead of through all of them (predefined and crafted CMaps
-    /// have tens of thousands). On overlap the first range in the file wins, as with a linear search; overlapping ranges are followed
-    /// back at most <see cref="MaxOverlapSteps"/> steps (real CMaps do not overlap).
+    /// have tens of thousands). On overlap the first range in the file wins — for code → CID the last (<c>last</c>, TN 5014 5.2);
+    /// overlapping ranges are followed back at most <see cref="MaxOverlapSteps"/> steps (real CMaps do not overlap).
     /// </summary>
     private sealed class RangeIndex
     {
         private const int MaxOverlapSteps = 256;
         private readonly (uint Low, uint High, uint MaxHigh, int Index)[]?[] _byLength = new (uint, uint, uint, int)[]?[5];
+        private bool _last;
 
-        public static RangeIndex Build(List<(int Bytes, uint Low, uint High)> ranges)
+        public static RangeIndex Build(List<(int Bytes, uint Low, uint High)> ranges, bool last = false)
         {
-            var index = new RangeIndex();
+            var index = new RangeIndex { _last = last };
             for (var length = 1; length <= 4; length++)
             {
                 var list = new List<(uint Low, uint High, uint MaxHigh, int Index)>();
@@ -330,7 +366,7 @@ public sealed class CMap
             return index;
         }
 
-        /// <summary>Position (in file order) of the first range containing <paramref name="code"/>; -1 = none.</summary>
+        /// <summary>Position (in file order) of the first (or last) range containing <paramref name="code"/>; -1 = none.</summary>
         public int Find(int length, uint code)
         {
             if ((uint)length >= 5 || _byLength[length] is not { } ranges) return -1;
@@ -343,7 +379,7 @@ public sealed class CMap
             }
             var best = -1;
             for (int i = at, steps = 0; i >= 0 && ranges[i].MaxHigh >= code && steps < MaxOverlapSteps; i--, steps++)
-                if (ranges[i].High >= code && (best < 0 || ranges[i].Index < best)) best = ranges[i].Index;
+                if (ranges[i].High >= code && (best < 0 || (_last ? ranges[i].Index > best : ranges[i].Index < best))) best = ranges[i].Index;
             return best;
         }
     }
