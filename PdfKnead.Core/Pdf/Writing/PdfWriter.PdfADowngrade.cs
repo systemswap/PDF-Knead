@@ -195,6 +195,8 @@ public static partial class PdfWriter
         {
             var state = _pdfA!;
             if (page is not null && state.ArtifactMcidsByPage.TryGetValue(page, out var byPage)) return byPage;
+            // a page of one stream written anew as a whole (PDF/A-4 with an inline image, No. 1131): that stream's, as MarksFor
+            if (page?.Get(PdfName.Contents) is PdfStream single && state.ArtifactMcidsByStream.TryGetValue(single, out var bySingle)) return bySingle;
             return stream is not null && state.ArtifactMcidsByStream.TryGetValue(stream, out var byStream) ? byStream : null;
         }
     }

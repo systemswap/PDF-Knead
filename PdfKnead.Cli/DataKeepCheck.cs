@@ -291,6 +291,12 @@ internal static class DataKeepCheck
                 default:
                     // a page's rotation counts modulo 360 (ISO 32000-2, Table 31: a multiple of 90)
                     if (LastKey(path) == "Rotate" && u.AsNumber() is { } r1 && v.AsNumber() is { } r2 && ((r1 - r2) % 360 + 360) % 360 == 0) return;
+                    // a form's wrong /Type written as XObject (ISO 32000-2, 8.10.2; FG 1131)
+                    if (LastKey(path) == "Type" && u is PdfName && v is PdfName { Value: "XObject" } && !SameValue(u, v))
+                    {
+                        Note(strict, "Wert anders", path, "/Type einer Form als XObject geschrieben (ISO 32000-2, 8.10.2; FG 1131)");
+                        return;
+                    }
                     if (!SameValue(u, v)) Note(strict, "Wert anders", path, RenamedTarget(path, u, v));
                     return;
             }
@@ -559,7 +565,7 @@ internal static class DataKeepCheck
         }
 
         /// <summary>Why content differs that the writer wrote in its canonical form (the copy is exactly that form of the source).</summary>
-        private const string CanonicalReason = "Inhalt normgerecht geschrieben, so wie die Anzeige ihn liest (ISO 32000-2, 7.3.3; FG 930, 931)";
+        private const string CanonicalReason = "Inhalt normgerecht geschrieben, so wie die Anzeige ihn liest (ISO 32000-2, 7.3.3, 8.4.3.6, 8.5.3.1, 8.9.7; FG 930, 931, 1131)";
 
         /// <summary>
         /// Whether the copy's content is the canonical form of the source's (<see cref="ContentConformance.CanonicalSyntax"/>): malformed
@@ -569,7 +575,9 @@ internal static class DataKeepCheck
         {
             try
             {
-                return ContentConformance.CanonicalSyntax(a.GetStreamData(s)) is { } canonical && canonical.AsSpan().SequenceEqual(b.GetStreamData(t));
+                // with the repairs that keep the meaning, as written for the version (FG 1131: „F“, dash phase, /L of inline images in 2.0)
+                return ContentConformance.CanonicalSyntax(a.GetStreamData(s), string.CompareOrdinal(version, "2.0") >= 0) is { } canonical &&
+                       canonical.AsSpan().SequenceEqual(b.GetStreamData(t));
             }
             catch (Exception e) when (e is Core.Pdf.PdfException or InvalidDataException or InvalidOperationException)
             {

@@ -1,4 +1,5 @@
 using System.Globalization;
+using PdfKnead.Core.Localization;
 using PdfKnead.Core.Pdf.Document;
 using PdfKnead.Core.Pdf.Objects;
 
@@ -22,12 +23,23 @@ public enum OptionalContentUse
 /// (/OCProperties /D): /BaseState, /ON, /OFF; the usage application dictionaries of /AS for the use at hand (viewing, printing,
 /// exporting); /Intent (a layer whose intent the configuration does not name has no effect on visibility). Optional content groups (OCG)
 /// and membership dictionaries are evaluated: a visibility expression (/VE with /And, /Or, /Not over layers) first, otherwise /OCGs with /P
-/// AnyOn, AllOn, AnyOff, AllOff (ISO 32000-2, 8.11.2.2).
+/// AnyOn, AllOn, AnyOff, AllOff (ISO 32000-2, 8.11.2.2). Only the layers listed in /OCProperties /OCGs that are layers (/Type /OCG) count
+/// (8.11.3.2): content marked with any other dictionary is not optional and is visible (docs/FEHLERGEDAECHTNIS.md, No. 1132).
 /// </summary>
 public sealed class OptionalContent
 {
     private readonly HashSet<PdfDictionary> _on = new(ReferenceEqualityComparer.Instance);
     private readonly HashSet<PdfDictionary> _off = new(ReferenceEqualityComparer.Instance);
+
+    /// <summary>
+    /// The layers that count: the entries of /OCProperties /OCGs with /Type /OCG (8.11.2.1, 8.11.3.2). Before, every dictionary that was not
+    /// a membership dictionary counted as a layer, and /BaseState /OFF or an /OFF list hid content that every 2.0 reader shows — removing
+    /// hidden content took it along (No. 1132).
+    /// </summary>
+    private readonly HashSet<PdfDictionary> _listed = new(ReferenceEqualityComparer.Instance);
+
+    /// <summary>Most entries of /OCGs read as layers that count.</summary>
+    internal const int MaxListed = 100_000;
     private readonly bool _baseOff;
 
     /// <summary>The intents of the configuration (8.11.2.3): null for all (/All); empty: no layer counts, everything is visible.</summary>
@@ -39,9 +51,13 @@ public sealed class OptionalContent
     /// <summary>States set by the usage application dictionaries of /AS for the use at hand (ISO 32000-2, 8.11.4.4); they take precedence over ON/OFF.</summary>
     private readonly Dictionary<PdfDictionary, bool> _forced = new(ReferenceEqualityComparer.Instance);
 
-    private OptionalContent(PdfDictionary? config, OptionalContentUse use, string language)
+    private OptionalContent(PdfDictionary? properties, OptionalContentUse use, string language)
     {
-        if (config is null) return;
+        if (properties?.GetDictionary(PdfName.Get("D")) is not { } config) return;
+        // at most the first 100 000 entries (built for every page, mask and pattern cell): a layer beyond counts as unlisted, its content shows
+        if (properties.GetArray(PdfName.Get("OCGs")) is { } groups)
+            for (var i = 0; i < groups.Count && i < MaxListed; i++)
+                if (groups.Get(i) is PdfDictionary group && group.GetName(PdfName.Type)?.Value == "OCG") _listed.Add(group);
         _baseOff = config.GetName(PdfName.Get("BaseState"))?.Value == "OFF";
         Collect(config.GetArray(PdfName.Get("ON")), _on);
         Collect(config.GetArray(PdfName.Get("OFF")), _off);
@@ -52,7 +68,15 @@ public sealed class OptionalContent
             PdfArray array when Names(array) is var names => names.Contains("All") ? null : names,
             _ => ["View"],
         };
-        if (config.GetArray(PdfName.Get("AS")) is { } usages) ApplyUsages(usages, use, language);
+        if (config.GetArray(PdfName.Get("AS")) is not { } usages) return;
+        // the current states are those shown — PDF-Knead changes no layer by hand or by action, so they are /D with the /View dictionaries;
+        // printing and exporting apply their own dictionaries over them (8.11.4.5 sentences 21 and 23). Before, they started from /D alone,
+        // and a layer the screen turned off was printed (No. 1132)
+        ApplyUsages(usages, OptionalContentUse.View, language, _forced);
+        if (use == OptionalContentUse.View) return;
+        var over = new Dictionary<PdfDictionary, bool>(ReferenceEqualityComparer.Instance);
+        ApplyUsages(usages, use, language, over);
+        foreach (var (group, state) in over) _forced[group] = state;
     }
 
     /// <summary>
@@ -60,9 +84,9 @@ public sealed class OptionalContent
     /// of its usage dictionary named by /Category give a recommendation; ON only if every one is ON, also across several dictionaries.
     /// /View, /Print, /Export give their state (a missing one leaves the layer as it is); /Language compares with the language of the program.
     /// /Zoom (the drawn page is the same at every magnification) and /User (the reader is not known) give none — the layer stays as the
-    /// configuration has it.
+    /// configuration has it. Only listed layers are set; the recommendations go into <paramref name="forced"/>.
     /// </summary>
-    private void ApplyUsages(PdfArray usages, OptionalContentUse use, string language)
+    private void ApplyUsages(PdfArray usages, OptionalContentUse use, string language, Dictionary<PdfDictionary, bool> forced)
     {
         var eventName = use switch { OptionalContentUse.Print => "Print", OptionalContentUse.Export => "Export", _ => "View" };
         // every layer and category of every dictionary counted together: 1 000 dictionaries × 10 000 layers × 100 categories were 10^9 steps,
@@ -79,10 +103,10 @@ public sealed class OptionalContent
             };
             if (categories.Count == 0 || usage.Get(PdfName.Get("OCGs")) is not { } listed) continue;
             var groups = new List<PdfDictionary>();
-            if (listed is PdfDictionary one) groups.Add(one);
+            if (listed is PdfDictionary one && _listed.Contains(one)) groups.Add(one);
             else if (listed is PdfArray members)
                 for (var g = 0; g < members.Count && g < 10_000; g++)
-                    if (members.Get(g) is PdfDictionary group) groups.Add(group);
+                    if (members.Get(g) is PdfDictionary group && _listed.Contains(group)) groups.Add(group);
             var byLanguage = categories.Contains("Language") ? LanguageRecommendations(groups, language) : null;
             foreach (var group in groups)
             {
@@ -100,7 +124,7 @@ public sealed class OptionalContent
                     };
                     if (recommended is { } r) state = (state ?? true) && r;
                 }
-                if (state is { } s) _forced[group] = _forced.TryGetValue(group, out var before) ? before && s : s;
+                if (state is { } s) forced[group] = forced.TryGetValue(group, out var before) ? before && s : s;
             }
         }
     }
@@ -154,10 +178,39 @@ public sealed class OptionalContent
     /// <summary>Reads the default layer configuration of <paramref name="doc"/> for a use (viewing, printing, exporting).</summary>
     /// <param name="doc">The document whose /OCProperties are evaluated.</param>
     /// <param name="use">The use: decides which usage application dictionaries of /AS apply.</param>
-    /// <param name="language">The language for /Language (BCP 47, for example de-DE); null: that of the program.</param>
+    /// <param name="language">The language for /Language (BCP 47, for example de-DE); null: that of the program (<see cref="ProgramLanguage()"/>).</param>
     /// <returns>The visibility rules; without /OCProperties all content is visible.</returns>
     public static OptionalContent For(PdfDocument doc, OptionalContentUse use, string? language = null) =>
-        new(doc.Catalog?.GetDictionary(PdfName.Get("OCProperties"))?.GetDictionary(PdfName.Get("D")), use, language ?? CultureInfo.CurrentUICulture.Name);
+        new(doc.Catalog?.GetDictionary(PdfName.Get("OCProperties")), use, language ?? ProgramLanguage());
+
+    /// <summary>
+    /// The language of the program for /Language (8.11.4.4): the one chosen in PDF-Knead (<see cref="Tr.Current"/>), not the system's —
+    /// before, the system's language decided, and a German system showed the German layers to an English user (No. 1132).
+    /// </summary>
+    /// <returns>A language with region, see <see cref="ProgramLanguage(string, CultureInfo)"/>.</returns>
+    public static string ProgramLanguage() => ProgramLanguage(Tr.Current.Code, CultureInfo.CurrentUICulture);
+
+    /// <summary>
+    /// A language of the program with a region, as /Lang names one (BCP 47): the languages of PDF-Knead have none. Where the system's language
+    /// is the same, its region is taken (de on de-AT: de-AT); otherwise the usual region of the language (en: en-US, de: de-DE), as .NET knows it.
+    /// </summary>
+    /// <param name="program">The code of the program's language (for example "de").</param>
+    /// <param name="system">The culture of the system.</param>
+    /// <returns>The language with region; the code alone if no region is known; the system's language without a code.</returns>
+    internal static string ProgramLanguage(string program, CultureInfo system)
+    {
+        if (string.IsNullOrWhiteSpace(program)) return system.Name;
+        if (string.Equals(system.TwoLetterISOLanguageName, program, StringComparison.OrdinalIgnoreCase) && !system.IsNeutralCulture && system.Name.Length > 0)
+            return system.Name;
+        try
+        {
+            return CultureInfo.CreateSpecificCulture(program).Name is { Length: > 0 } specific ? specific : program;
+        }
+        catch (CultureNotFoundException)
+        {
+            return program;
+        }
+    }
 
     /// <summary>
     /// Layers that are shown neither on screen nor when printed: what „Dokument bereinigen“ may remove as „Inhalte ausgeblendeter Ebenen“.
@@ -189,7 +242,7 @@ public sealed class OptionalContent
         for (var i = 0; i < groups.Count && i < 10_000; i++)
         {
             all.Add(groups[i]);
-            if (groups.Get(i) is PdfDictionary group && print.Counts(group) && !print.GroupOn(group)) off.Add(groups[i]);
+            if (groups.Get(i) is PdfDictionary group && print.GroupState(group) == false) off.Add(groups[i]);
         }
         var config = new PdfDictionary();
         config.Set(PdfName.Get("OFF"), off);
@@ -211,7 +264,7 @@ public sealed class OptionalContent
     /// </summary>
     /// <param name="obj">An OCG or OCMD dictionary, or a name looked up in /Resources /Properties.</param>
     /// <param name="resources">The resources used to resolve a name; may be null.</param>
-    /// <returns>True if the content is hidden; false for anything that is not an OCG or OCMD.</returns>
+    /// <returns>True if the content is hidden; false for anything that is not an OCMD or a layer listed in /OCGs.</returns>
     public bool IsHidden(PdfObject? obj, PdfDictionary? resources)
     {
         if (obj is PdfName name) obj = resources?.GetDictionary(PdfName.Get("Properties"))?.Get(name);
@@ -240,8 +293,14 @@ public sealed class OptionalContent
     /// <summary>Whether a layer is on as the configuration and /AS set it (for merging: an inserted layer keeps its state).</summary>
     internal bool IsOn(PdfDictionary ocg) => GroupOn(ocg);
 
-    /// <summary>The state of a layer for visibility; null if it has no effect (its intent is not one of the configuration's).</summary>
-    private bool? GroupState(PdfDictionary ocg) => Counts(ocg) ? GroupOn(ocg) : null;
+    /// <summary>Whether a dictionary is a layer that counts: listed in /OCProperties /OCGs, with /Type /OCG (8.11.3.2).</summary>
+    internal bool IsListed(PdfDictionary ocg) => _listed.Contains(ocg);
+
+    /// <summary>
+    /// The state of a layer for visibility; null if it has no effect: it is not a listed layer (8.11.3.2), or its intent is not one of the
+    /// configuration's (8.11.2.3).
+    /// </summary>
+    private bool? GroupState(PdfDictionary ocg) => _listed.Contains(ocg) && Counts(ocg) ? GroupOn(ocg) : null;
 
     /// <summary>Whether content of a membership dictionary is visible; null if it has no effect (then it is visible).</summary>
     private bool? MembershipVisible(PdfDictionary ocmd)

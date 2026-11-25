@@ -1261,7 +1261,7 @@ public static class English
         ["versteckte Seiten (Vorlagen)"] = "hidden pages (templates)",
         ["EXIF und Ähnliches in {0} JPEG-Bildern"] = "EXIF and the like in {0} JPEG images",
         ["Angaben in {0} JPEG-2000-Bildern"] = "details in {0} JPEG 2000 images",
-        ["Gerätedaten in {0} Farbprofilen"] = "device data in {0} colour profiles",
+        ["Geräte- und Herkunftsdaten in {0} Farbprofilen"] = "device and origin data in {0} colour profiles",
         ["Autor und Datum an {0} Kommentaren"] = "author and date on {0} comments",
         ["in {0} Schriften"] = "in {0} fonts",
         ["in {0} Farbprofilen"] = "in {0} colour profiles",
@@ -1688,6 +1688,8 @@ public static class English
         ["OpenType-Schriften"] = "OpenType fonts",
         ["16-Bit-Bilder"] = "16-bit images",
         ["Die XMP-Metadaten sind nicht lesbar; das Änderungsdatum darin wurde nicht nachgeführt."] = "The XMP metadata cannot be read; the modification date in it was not updated.",
+        ["{0} nie gezeichnete Formen ohne eigene Ressourcen blieben ohne: keine Seite nennt sie, ihre Ressourcen sind unbekannt."] =
+            "{0} forms that are never drawn stayed without resources of their own: no page names them, their resources are unknown.",
         ["Ein Datenstrom nennt einen Kryptfilter, den die Verschlüsselung nicht kennt („{0}“)."] = "A stream names a crypt filter the encryption does not know (“{0}”).",
         ["Die Daten sind mit einem auf 16 Byte aufgefüllten Schlüssel verschlüsselt (nicht nach ISO 32000-2, 7.6.3.3) — so gelesen; eine Kopie wird nach der Norm verschlüsselt."] =
             "The data are encrypted with a key padded to 16 bytes (not as ISO 32000-2, 7.6.3.3 describes) — read that way; a copy is encrypted as the standard asks.",
@@ -4052,6 +4054,8 @@ public static class English
         ["Nach „xref“ steht nicht genau ein Zeilenende vor dem Abschnitt."] = "“xref” is not followed by exactly one end-of-line marker before the subsection.",
         ["Ein Inhalt nennt eine Ressource, die nur die Ressourcen um ihn herum haben ({0})."] = "A content names a resource only the resources around it have ({0}).",
         ["Das Profil eines ICC-Farbraums ist kein gültiges Eingabe-, Bildschirm-, Ausgabe- oder Farbraumprofil (Version unter 5)."] = "The profile of an ICC-based colour space is not a valid input, display, output or colour space profile (version below 5).",
+        ["Dem Profil eines ICC-Farbraums fehlt eine Pflichtangabe (Beschreibung, Urheberrecht oder Medienweiß)."] = "The profile of an ICC-based colour space lacks a required tag (description, copyright or media white point).",
+        ["Dem Profil der Ausgabebedingung fehlt eine Pflichtangabe (Beschreibung, Urheberrecht oder Medienweiß)."] = "The profile of the output intent lacks a required tag (description, copyright or media white point).",
         ["Ein ICC-Farbraum nutzt das CMYK-Profil der Ausgabebedingung oder des Mischfarbraums."] = "An ICC-based colour space uses the CMYK profile of the output intent or of the blending space.",
         ["Die Seite nutzt Transparenz, hat aber weder Ausgabebedingung noch einen Farbraum zum Mischen (/Group /CS)."] = "The page uses transparency but has neither an output intent nor a colour space to blend in (/Group /CS).",
         ["Ein Grafikzustand legt den Ursprung des Rasters fest (/{0})."] = "A graphics state sets the origin of the halftone (/{0}).",

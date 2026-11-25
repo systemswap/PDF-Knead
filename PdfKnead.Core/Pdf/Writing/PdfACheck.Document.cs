@@ -185,6 +185,9 @@ public static partial class PdfACheck
                             // PDF/A-1 (6.2.3.2): /N the number of colours of the profile, as for every ICC profile
                             if (_part.Part() == 1 && profile.Dictionary.GetInteger(PdfName.Get("N")) != IccComponents(data))
                                 Add(PdfARules.IccProfileValid, Tr.T("Die Zahl der Farben (/N) eines ICC-Profils passt nicht zu seinem Farbraum."));
+                            // description, copyright and media white point are required (ICC.1, 8.2; docs/FEHLERGEDAECHTNIS.md, No. 1133)
+                            if (space is not null && Graphics.Icc.CalibratedProfile.MissingRequiredTags(data).Length > 0)
+                                Add(PdfARules.IccProfileValid, Tr.T("Dem Profil der Ausgabebedingung fehlt eine Pflichtangabe (Beschreibung, Urheberrecht oder Medienweiß)."));
                         }
                     }
                     if (profileRaw is null) profileRaw = raw;

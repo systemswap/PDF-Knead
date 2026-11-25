@@ -91,6 +91,11 @@ public struct DisplayItem
 /// <param name="FillShading">Index into <see cref="DisplayList.Shadings"/> for the fill; -1 = colour.</param>
 /// <param name="StrokeShading">Index into <see cref="DisplayList.Shadings"/> for the stroke; -1 = colour.</param>
 /// <param name="Overprint">Overprint bits: 1 fill, 2 stroke.</param>
+/// <param name="OverprintReplace">
+/// Overprint mode 1 with a DeviceCMYK colour (ISO 32000-2, 8.6.7): the plates whose component is not 0 and so replaces what lies beneath — bits 1
+/// cyan, 2 magenta, 4 yellow for the fill, the same shifted by 4 for the stroke; the overprint preview replaces the matching RGB channel (red,
+/// green, blue) by that of the colour and multiplies the others. 0: the colour multiplies all channels (Separation, DeviceN).
+/// </param>
 public readonly record struct Paint(
     uint Fill,
     uint Stroke,
@@ -102,7 +107,8 @@ public readonly record struct Paint(
     byte BlendMode,
     int FillShading = -1,
     int StrokeShading = -1,
-    byte Overprint = 0);
+    byte Overprint = 0,
+    byte OverprintReplace = 0);
 
 /// <summary>Dash pattern: lengths in the space of the path and the start offset; compared by value.</summary>
 /// <param name="Lengths">Alternating dash and gap lengths (the interpreter doubles odd-length arrays, so the count is even).</param>

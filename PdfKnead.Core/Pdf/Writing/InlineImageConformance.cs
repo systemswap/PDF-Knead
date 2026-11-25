@@ -11,7 +11,9 @@ namespace PdfKnead.Core.Pdf.Writing;
 /// <item>with /JPXDecode or /JBIG2Decode, which ISO 32000-2 does not allow in an inline image (7.4.9, 7.4.7);</item>
 /// <item>ASCII85 data without its end „~>“ (7.4.3: the end of the data);</item>
 /// <item>data that holds „EI“ between white-space — where an inline image ends is then a guess (8.9.7) — the display found the end, other readers
-/// may not.</item>
+/// may not;</item>
+/// <item>written as PDF 2.0: data of more than 4 096 bytes — inline images are for small images, a larger one should be an XObject (8.9.7;
+/// docs/FEHLERGEDAECHTNIS.md, No. 1131).</item>
 /// </list>
 /// The XObject gets the dictionary with the full keys (<see cref="InlineImage.AsXObjectDictionary"/>), a colour space named in the resources
 /// replaced by the space itself, and the data without the ASCII filters in front (only there to keep inline data text), otherwise as the parser
@@ -41,12 +43,22 @@ internal static class InlineImageConformance
         return false;
     }
 
+    /// <summary>The most bytes of data an inline image of PDF 2.0 should have (8.9.7: a larger image goes as an image XObject).</summary>
+    public const int MaxInlineData = 4096;
+
     /// <summary>Whether the inline image is one to write as an XObject (see the class).</summary>
-    public static bool Breaks(InlineImage image)
+    /// <param name="image">The inline image.</param>
+    /// <param name="pdf20">Written as PDF 2.0: an image of more than <see cref="MaxInlineData"/> bytes of data as written goes as an XObject as
+    /// well (docs/FEHLERGEDAECHTNIS.md, No. 1131).</param>
+    public static bool Breaks(InlineImage image, bool pdf20 = false)
     {
+        if (pdf20 && image.Data.Length > MaxInlineData) return true;
         var filters = Filters(image.AsXObjectDictionary());
         // Crypt is not allowed inline either (8.9.7; before, such an image stayed inline — docs/FEHLERGEDAECHTNIS.md, No. 1128)
         if (filters.Any(f => f is "JPXDecode" or "JBIG2Decode" or "Crypt")) return true;
+        // a depth between the allowed ones (8.9.5.1, Table 87; read leniently, S-A A192): as an XObject with 8 or 16 bits
+        // (docs/FEHLERGEDAECHTNIS.md, No. 1134)
+        if (Graphics.ImageDepth.Odd(image.AsXObjectDictionary())) return true;
         var data = image.Data.AsSpan();
         if (filters is ["ASCII85Decode", ..] && !data.TrimEnd(" \t\r\n\f\0"u8).EndsWith("~>"u8)) return true;
         for (var i = 1; i + 2 < data.Length; i++)
@@ -81,6 +93,8 @@ internal static class InlineImageConformance
             RemoveFirst(dict, FilterKey);
             RemoveFirst(dict, ParmsKey);
         }
+        // a depth between the allowed ones: the samples with 8 or 16 bits, the same appearance (S-A A192; No. 1134)
+        if (Graphics.ImageDepth.Conforming(dict, data) is { } wide) data = wide;
         return new PdfStream(dict, data);
     }
 
@@ -101,7 +115,11 @@ internal static class InlineImageConformance
     /// The content with each inline image that <see cref="Breaks"/> replaced by <c>/Name Do</c>, the name from <paramref name="place"/> (which
     /// keeps the XObject); everything else byte for byte. Null if the content holds no such inline image.
     /// </summary>
-    public static byte[]? Rewrite(byte[] content, int length, Func<InlineImage, PdfName> place)
+    /// <param name="content">The decoded content.</param>
+    /// <param name="length">Number of valid bytes.</param>
+    /// <param name="place">Keeps the XObject of an inline image and gives its name.</param>
+    /// <param name="pdf20">Written as PDF 2.0 (<see cref="Breaks"/>).</param>
+    public static byte[]? Rewrite(byte[] content, int length, Func<InlineImage, PdfName> place, bool pdf20 = false)
     {
         length = Math.Clamp(length, 0, content.Length);
         if (!MayHold(content.AsSpan(0, length))) return null;
@@ -110,7 +128,7 @@ internal static class InlineImageConformance
         var before = 0;
         while (parser.Next() is { } op)
         {
-            if (op == "BI" && parser.InlineImage is { } image && Breaks(image))
+            if (op == "BI" && parser.InlineImage is { } image && Breaks(image, pdf20))
             {
                 var start = content.AsSpan(before, parser.Position - before).IndexOf("BI"u8);
                 if (start >= 0) found.Add((before + start, parser.Position, place(image)));

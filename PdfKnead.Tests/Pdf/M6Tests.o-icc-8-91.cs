@@ -398,11 +398,11 @@ public sealed partial class M6NormTests
     }
 
     /// <summary>
-    /// ICC.1, 8.3.3 sentences 7–8, 10 and 8.4.3 sentences 8–9, 11 (reader, behaviour of today): a matrix profile whose header names the PCS Lab
+    /// ICC.1, 8.3.3 sentences 7–8, 10 and 8.4.3 sentences 8–9, 11 (reader; read leniently, S-A A190): a matrix profile whose header names the PCS Lab
     /// is still read — the matrix way does not check the PCS (reported leniency).
     /// </summary>
     [Fact]
-    public void Icc8_3_3_MatrixProfileWithPcsLab_ReadToday()
+    public void Icc8_3_3_MatrixProfileWithPcsLab_ReadLeniently()
     {
         var lab = IccO_Matrix();
         BinaryPrimitives.WriteUInt32BigEndian(lab.AsSpan(20), IccO_PcsLab);
@@ -474,18 +474,18 @@ public sealed partial class M6NormTests
     }
 
     /// <summary>
-    /// ICC.1, 8.6 sentences 9–19 and 8.10.3 (reader, behaviour of today): a DeviceLink profile RGB → Lab with an A2B0 in an ICCBased space is
-    /// read like a device profile instead of falling back to /Alternate — the reader does not look at the class (reported, light); the PDF/A
-    /// check rejects it.
+    /// ICC.1, 8.6 sentences 9–19 and 8.10.3 (reader; docs/normabgleich/sonderregeln.md S-A A188): a DeviceLink profile RGB → Lab with an A2B0
+    /// in an ICCBased space is not used, the space falls back to /Alternate, as with the reference readers (before, it was read like a device
+    /// profile; docs/FEHLERGEDAECHTNIS.md, No. 1134); the PDF/A check rejects it.
     /// </summary>
     [Fact]
-    public void Icc8_6_DeviceLinkToLab_ReadLikeADeviceProfileToday()
+    public void Icc8_6_DeviceLinkToLab_AlternateApplies()
     {
         var link = IccO_Profile("link", IccProfile.RgbSpace, IccO_PcsLab,
             [("desc", IccO_Text("Link")), ("cprt", IccO_Text("frei")), ("A2B0", IccO_Lut16(3, 3, 2, v => IccO_LabRaw(100 * v[1], 0, 0)))]);
         Assert.False(PdfACheck.IccProfileHeaderValid(link, 4));
-        Assert.NotNull(IccProfile.Parse(link));
-        Assert.NotSame(ColorSpace.DeviceGray, IccO_Space(link, 3, "DeviceGray"));
+        Assert.Null(IccProfile.Parse(link));
+        Assert.Same(ColorSpace.DeviceGray, IccO_Space(link, 3, "DeviceGray"));
     }
 
     /// <summary>
@@ -529,17 +529,18 @@ public sealed partial class M6NormTests
     }
 
     /// <summary>
-    /// ICC.1, 8.8 sentences 1–5 and 8.10.3 (reader, behaviour of today): an abstract profile Lab → Lab in an ICCBased space with /N 3 is read as
-    /// Lab data instead of falling back to /Alternate — the reader does not look at the class (reported, light).
+    /// ICC.1, 8.8 sentences 1–5 and 8.10.3 (reader; S-A A188): an abstract profile Lab → Lab in an ICCBased space with /N 3 is not used, the
+    /// space falls back to /Alternate, as with the reference readers (before, its table was read as if Lab were device values;
+    /// docs/FEHLERGEDAECHTNIS.md, No. 1134).
     /// </summary>
     [Fact]
-    public void Icc8_8_AbstractProfile_ReadAsLabDataToday()
+    public void Icc8_8_AbstractProfile_AlternateApplies()
     {
         var abst = IccO_Profile("abst", IccO_PcsLab, IccO_PcsLab,
             [("desc", IccO_Text("Abstrakt")), ("cprt", IccO_Text("frei")), ("wtpt", IccO_XyzTag(0.9642, 1, 0.8249)), ("A2B0", IccO_Lut16(3, 3, 2, v => v))]);
         Assert.False(PdfACheck.IccProfileHeaderValid(abst, 4));
-        Assert.NotNull(IccProfile.Parse(abst));
-        Assert.NotSame(ColorSpace.DeviceGray, IccO_Space(abst, 3, "DeviceGray"));
+        Assert.Null(IccProfile.Parse(abst));
+        Assert.Same(ColorSpace.DeviceGray, IccO_Space(abst, 3, "DeviceGray"));
     }
 
     /// <summary>

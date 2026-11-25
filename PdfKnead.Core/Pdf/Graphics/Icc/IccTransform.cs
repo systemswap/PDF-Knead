@@ -99,45 +99,133 @@ internal static class IccColor
 }
 
 /// <summary>
-/// Profile → sRGB (relative colorimetric with black point compensation as in common colour management; otherwise the black of a print profile
-/// would become dark grey). Single colours exactly, with a cache; 8-bit images through a grid (RGB 33³, CMYK 17⁴), tetrahedrally
-/// interpolated — built once per profile. Thread-safe.
+/// Profile → sRGB for a rendering intent: the tables of the intent, black point compensation after ISO 18619 (otherwise the black of a print
+/// profile would become dark grey), and for absolute colorimetric the media white of the profile (ICC.1 6.3.2.2, equations 4 to 6) instead.
+/// Both are one affine map in the PCS (a factor and an offset per component), applied after the tables. Single colours exactly, with a cache;
+/// 8-bit images through a grid (RGB 33³, CMYK 17⁴), tetrahedrally interpolated — built once per profile. Thread-safe.
 /// </summary>
 internal sealed class IccTransform
 {
     private readonly IccProfile _profile;
-    private readonly float _bpx, _bpy, _bpz;
-    private readonly bool _compensate;
+    private readonly float[] _scale = [1, 1, 1], _offset = [0, 0, 0], _bp = [0, 0, 0];
+    private readonly bool _absolute, _compensate;
     private readonly ColorCache _cache = new();
     private readonly Lazy<float[]?> _grid;
 
-    public IccTransform(IccProfile profile, bool compensateBlack = true)
+    /// <summary>
+    /// The perceptual reference medium's black (ICC.1 6.3.3.2): 0.30911 % reflectance on a medium of 89 %, so Y = 0.30911 / 89 relative to the
+    /// medium's white, neutral (the chromaticity of D50).
+    /// </summary>
+    internal const float PerceptualBlackY = 0.30911f / 89;
+
+    /// <param name="profile">The profile (as read, or a variant of <see cref="IccProfile.ForIntent"/>).</param>
+    /// <param name="compensateBlack">Black point compensation (never for absolute colorimetric: ISO 32000-2, 8.6.5.9).</param>
+    /// <param name="intent">The rendering intent, 0 perceptual … 3 absolute colorimetric (ISO 32000-2, Table 69).</param>
+    public IccTransform(IccProfile profile, bool compensateBlack = true, int intent = 1)
     {
-        _profile = profile;
+        intent = intent is >= 0 and <= 3 ? intent : 1;
+        _profile = profile.ForIntent(intent);
         _grid = new Lazy<float[]?>(BuildGrid, LazyThreadSafetyMode.ExecutionAndPublication);
-        // black point: device black, taken as a neutral grey of the same lightness (as in common colour management modules); none above L* 50
-        Span<float> black = stackalloc float[profile.Channels];
-        var additive = profile.Space is IccProfile.RgbSpace or IccProfile.GraySpace;
-        black.Fill(additive ? 0 : 1);
-        if (compensateBlack && profile.Space is IccProfile.RgbSpace or IccProfile.GraySpace or IccProfile.CmykSpace or IccProfile.CmySpace)
+        if (intent == 3)
         {
-            Span<float> xyz = stackalloc float[3];
-            profile.ToXyz(black, xyz);
-            var (l, _, _) = IccColor.XyzToLab(xyz[0], xyz[1], xyz[2]);
-            if (l is > 0.01f and <= 50)
+            // ICC-absolute (ICC.1 6.2.3, 6.3.2.2 equations 4–6): the media-relative values times media white / PCS white; the display as
+            // destination has the PCS white as its media white (6.2.3 sentences 8–9), so nothing is divided out again. Without a usable wtpt
+            // as relative colorimetric (docs/FEHLERGEDAECHTNIS.md, No. 1129)
+            if (profile.AbsoluteScale is { } scale)
             {
-                IccColor.LabToXyz(l, 0, 0, xyz);
-                (_bpx, _bpy, _bpz) = (xyz[0], xyz[1], xyz[2]);
-                _compensate = true;
+                scale.CopyTo(_scale, 0);
+                _absolute = true;
             }
+            return;
+        }
+        Span<float> bp = stackalloc float[3];
+        if (compensateBlack && DetectBlackPoint(profile, intent, bp))
+        {
+            // ISO 18619: a linear scaling in XYZ that keeps the PCS white and moves the source black onto the destination's — the display's
+            // black is 0 — per component: X′ = (X − Xbp) · Xw / (Xw − Xbp)
+            ReadOnlySpan<float> white = [IccProfile.WhiteX, IccProfile.WhiteY, IccProfile.WhiteZ];
+            for (var i = 0; i < 3; i++)
+            {
+                _bp[i] = bp[i];
+                _scale[i] = white[i] / (white[i] - bp[i]);
+                _offset[i] = -bp[i] * _scale[i];
+            }
+            _compensate = true;
         }
     }
 
-    /// <summary>The source profile.</summary>
+    /// <summary>
+    /// The black point of a source profile for black point compensation, as ISO 18619 detects it (the procedure published for it; the PDF
+    /// Association's AN001 only states the aim — the darkest colour of the source onto the darkest of the destination — and names ISO 18619;
+    /// docs/FEHLERGEDAECHTNIS.md, No. 1129):
+    /// <list type="bullet">
+    /// <item>DeviceLink, abstract and named colour profiles and absolute colorimetric: none;</item>
+    /// <item>version 4 or later, perceptual or saturation: the black of the perceptual reference medium (its tables are made for it), for a
+    /// profile with matrix and curves the darkest colorant through the relative tables;</item>
+    /// <item>output profiles of CMYK, relative colorimetric: the perceptual round trip (Lab 0/0/0 through BToA0, back through the relative
+    /// tables), which discounts an ink limit the device black would exceed — without a readable BToA0 the darkest colorant;</item>
+    /// <item>otherwise the darkest colorant (device black: 0 for grey and RGB, all channels 1 for CMY and CMYK) through the tables of the
+    /// intent.</item>
+    /// </list>
+    /// The black found is made neutral (a* = b* = 0, its L* kept); a darkest colorant lighter than L* 50 (or below 0) counts as none, a round
+    /// trip lighter than L* 50 as L* 50.
+    /// </summary>
+    /// <param name="profile">The profile (as read, or a variant).</param>
+    /// <param name="intent">The rendering intent, 0 to 3.</param>
+    /// <param name="xyz">The black point (XYZ, D50).</param>
+    /// <returns>False where there is no black point to compensate (it is 0).</returns>
+    internal static bool DetectBlackPoint(IccProfile profile, int intent, Span<float> xyz)
+    {
+        xyz.Clear();
+        var root = profile.Root;
+        if (root.DeviceClass is IccProfile.LinkClass or IccProfile.AbstractClass or IccProfile.NamedColorClass || intent is not (0 or 1 or 2)) return false;
+        if (root.Version >= 4 && intent is 0 or 2)
+        {
+            if (root.HasShaperTags) return DarkestColorant(root.ForIntent(1), xyz);
+            xyz[0] = PerceptualBlackY * IccProfile.WhiteX;
+            xyz[1] = PerceptualBlackY * IccProfile.WhiteY;
+            xyz[2] = PerceptualBlackY * IccProfile.WhiteZ;
+            return true;
+        }
+        if (intent == 1 && root.DeviceClass == IccProfile.OutputClass && root.Space == IccProfile.CmykSpace && root.PerceptualRoundTripBlack(xyz))
+        {
+            var (l, _, _) = IccColor.XyzToLab(xyz[0], xyz[1], xyz[2]);
+            l = float.IsNaN(l) ? 0 : Math.Clamp(l, 0, 50);
+            IccColor.LabToXyz(l, 0, 0, xyz);
+            return l > 0.01f;
+        }
+        return DarkestColorant(root.ForIntent(intent), xyz);
+    }
+
+    /// <summary>The darkest colorant through the tables of <paramref name="profile"/>, neutral; none for other colour spaces or above L* 50.</summary>
+    private static bool DarkestColorant(IccProfile profile, Span<float> xyz)
+    {
+        xyz.Clear();
+        if (profile.Space is not (IccProfile.RgbSpace or IccProfile.GraySpace or IccProfile.CmykSpace or IccProfile.CmySpace)) return false;
+        Span<float> black = stackalloc float[profile.Channels];
+        black.Fill(profile.Space is IccProfile.RgbSpace or IccProfile.GraySpace ? 0 : 1);
+        profile.ToXyz(black, xyz);
+        var (l, _, _) = IccColor.XyzToLab(xyz[0], xyz[1], xyz[2]);
+        if (l is not (> 0.01f and <= 50))
+        {
+            xyz.Clear();
+            return false;
+        }
+        IccColor.LabToXyz(l, 0, 0, xyz);
+        return true;
+    }
+
+    /// <summary>The source profile (the variant of the intent).</summary>
     public IccProfile Profile => _profile;
 
     /// <summary>Number of device channels of the profile.</summary>
     public int Channels => _profile.Channels;
+
+    /// <summary>The factors of the affine map in the PCS after the tables (black point compensation or ICC-absolute; otherwise 1).</summary>
+    internal ReadOnlySpan<float> PcsScale => _scale;
+
+    /// <summary>The offsets of the affine map in the PCS after the tables (black point compensation; otherwise 0).</summary>
+    internal ReadOnlySpan<float> PcsOffset => _offset;
 
     /// <summary>Device values 0…1 → sRGB 0…1.</summary>
     public void ToSrgb(ReadOnlySpan<float> device, Span<float> rgb)
@@ -147,9 +235,15 @@ internal sealed class IccTransform
         float x = xyz[0], y = xyz[1], z = xyz[2];
         if (_compensate)
         {
-            x = (x - _bpx) * IccProfile.WhiteX / (IccProfile.WhiteX - _bpx);
-            y = (y - _bpy) * IccProfile.WhiteY / (IccProfile.WhiteY - _bpy);
-            z = (z - _bpz) * IccProfile.WhiteZ / (IccProfile.WhiteZ - _bpz);
+            x = (x - _bp[0]) * IccProfile.WhiteX / (IccProfile.WhiteX - _bp[0]);
+            y = (y - _bp[1]) * IccProfile.WhiteY / (IccProfile.WhiteY - _bp[1]);
+            z = (z - _bp[2]) * IccProfile.WhiteZ / (IccProfile.WhiteZ - _bp[2]);
+        }
+        else if (_absolute)
+        {
+            x *= _scale[0];
+            y *= _scale[1];
+            z *= _scale[2];
         }
         IccColor.XyzToSrgb(x, y, z, rgb);
     }

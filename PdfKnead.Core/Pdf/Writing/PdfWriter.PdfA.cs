@@ -175,9 +175,12 @@ public static partial class PdfWriter
                         continue;
                     var profileData = _main.GetStreamData(profile);
                     // its /N as the profile says (PDF/A-1, 6.2.3.2, asks so of every profile; a reader takes the colours from the profile)
-                    state.Profile = profile.Dictionary.GetInteger(PdfName.Get("N")) == PdfACheck.IccComponents(profileData)
+                    // without the tags ICC.1 8.2 requires: a copy with them added, the same colours (docs/FEHLERGEDAECHTNIS.md, No. 1133); the
+                    // profile as read stays the one compared with (IntentProfile)
+                    var completed = CalibratedProfile.WithRequiredTags(profileData);
+                    state.Profile = completed is null && profile.Dictionary.GetInteger(PdfName.Get("N")) == PdfACheck.IccComponents(profileData)
                         ? new OutputReference(Map(main, profileRef.Id.Number))
-                        : Fresh(IccStream(profileData, PdfACheck.IccComponents(profileData) ?? 3));
+                        : Fresh(IccStream(completed ?? profileData, PdfACheck.IccComponents(profileData) ?? 3));
                     state.IntentProfile = (main, profileRef.Id.Number, profileData);
                     state.ProfileSpace = space;
                     state.Condition = intent.GetString(PdfName.Get("OutputConditionIdentifier"))?.ToText() is { Length: > 0 } condition ? condition : "Custom";
@@ -198,7 +201,8 @@ public static partial class PdfWriter
             }
             if (state.Profile is PdfNull)
             {
-                state.Profile = Fresh(IccStream(CalibratedProfile.Srgb(), 3));
+                // the own sRGB as version 4 in PDF/A-4 (PDF 2.0), as version 2 in the parts before (docs/FEHLERGEDAECHTNIS.md, No. 1133)
+                state.Profile = Fresh(IccStream(CalibratedProfile.Srgb(Pdf20), 3));
                 state.ProfileSpace = IccProfile.RgbSpace;
             }
             state.Usage = usage;
@@ -213,7 +217,7 @@ public static partial class PdfWriter
                 state.MissingFont = new OutputReference(n);
             }
             if (cmyk && state.ProfileSpace != IccProfile.CmykSpace) state.Cmyk = new PdfArray([IccBased, Fresh(IccStream(CmykProfile.Bytes(), 4))]);
-            if (rgb && state.ProfileSpace != IccProfile.RgbSpace) state.Rgb = new PdfArray([IccBased, Fresh(IccStream(CalibratedProfile.Srgb(), 3))]);
+            if (rgb && state.ProfileSpace != IccProfile.RgbSpace) state.Rgb = new PdfArray([IccBased, Fresh(IccStream(CalibratedProfile.Srgb(Pdf20), 3))]);
         }
 
         private static PdfStream IccStream(byte[] profile, int components)
@@ -946,7 +950,7 @@ public static partial class PdfWriter
                     // as for DeviceRGB in content (/DefaultRGB) — the artwork has no resources (docs/FEHLERGEDAECHTNIS.md, No. 518)
                     if (dict.GetName(PdfName.Type)?.Value == "3D" && dict.Get(PdfName.Get("ColorSpace")) is PdfName { Value: "DeviceRGB" } &&
                         _pdfA!.Part.Part() == 4 && _pdfA.ProfileSpace != IccProfile.RgbSpace)
-                        Writable().Set(PdfName.Get("ColorSpace"), _pdfA.Rgb ??= new PdfArray([IccBased, Fresh(IccStream(CalibratedProfile.Srgb(), 3))]));
+                        Writable().Set(PdfName.Get("ColorSpace"), _pdfA.Rgb ??= new PdfArray([IccBased, Fresh(IccStream(CalibratedProfile.Srgb(Pdf20), 3))]));
                     // the field hierarchy is a tree as well (ISO 32000-2, 12.7.4): no child reached before in /Kids, /Parent the field it is
                     // reached from — a field its own child or parent made a reference validator give up (docs/FEHLERGEDAECHTNIS.md, No. 514)
                     if (number > 0 && (dict.ContainsKey(PdfName.Get("Kids")) || dict.ContainsKey(PdfName.Get("Parent"))) &&
@@ -998,6 +1002,9 @@ public static partial class PdfWriter
                             return new OutputReference(own);
                         }
                     }
+                    // a Type 3 font whose glyphs call inline images made image XObjects: the copy is that font too (written directly, it is
+                    // rebased from the copy; docs/FEHLERGEDAECHTNIS.md, No. 1131)
+                    if (_fontImages.Count > 0 && !ReferenceEquals(result, read) && _fontImages.TryGetValue(read, out var fontImages)) _fontImages.TryAdd(result, fontImages);
                     return result;
                 }
                 case PdfInteger or PdfReal:

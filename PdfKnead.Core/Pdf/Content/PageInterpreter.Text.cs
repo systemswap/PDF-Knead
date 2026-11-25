@@ -11,7 +11,7 @@ public sealed partial class PageInterpreter
 {
     private Matrix _tm = Matrix.Identity;      // text matrix
     private Matrix _tlm = Matrix.Identity;     // text line matrix
-    private bool _uncolored;                   // Type 3 glyph with d1
+    private bool _uncolored;                   // Type 3 glyph with d1, or the cell of an uncoloured pattern (8.6.8)
 
     // text as a clip (modes 4–7): glyph outlines in page space, applied at ET
     private readonly List<PathVerb> _textClipVerbs = [];
@@ -314,8 +314,10 @@ public sealed partial class PageInterpreter
             bounds = bounds.Inflate(_gs.LineWidth * _gs.Ctm.MeanScale);
         }
         EnsureMask();
+        var patternGroup = BeginPatternGroup(k is DisplayItemKind.Fill or DisplayItemKind.FillStroke, k is DisplayItemKind.Stroke or DisplayItemKind.FillStroke);
         // filled and stroked text is text as well: the renderer draws its outline in its real width, never enhanced to a full pixel (No. 816)
         _builder.Add(k, false, path, _builder.AddUniqueMatrix(glyphToPage), paint, _gs.Clip, -1, bounds, glyph: k is DisplayItemKind.Fill or DisplayItemKind.FillStroke);
+        EndPatternGroup(patternGroup);
     }
 
     private int GlyphPath(GlyphOutline outline)
@@ -454,7 +456,8 @@ public sealed partial class PageInterpreter
         {
             _gs.Ctm = glyphToPage;
             _gs.MatrixIndex = _gs.PaintIndex = -1;
-            _uncolored = false;
+            // a glyph shown inside a d1 glyph or an uncoloured cell stays restricted: the restriction holds for everything called from there (8.6.8)
+            _uncolored = savedUncolored;
             // a Type 3 font without resources of its own: those of the page (7.8.3, sentence 18; No. 791)
             ExecuteShared(procedure, font.Type3Resources ?? _pageResources ?? _textResources);
         }

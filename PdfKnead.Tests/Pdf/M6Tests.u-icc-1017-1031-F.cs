@@ -214,19 +214,20 @@ public sealed partial class M6NormTests
     }
 
     /// <summary>
-    /// ICC.1, 10.19 sentences 4–13 (today's behaviour; whether profile sequences are removed as well: design decision pending): removing the
-    /// device descriptions (dmnd) of a profile leaves a profile sequence whose structure carries the description „HERSTELLERGEHEIM“ — after the
-    /// cleaning it is still there.
+    /// ICC.1, 10.19 sentences 4–13 (docs/FEHLERGEDAECHTNIS.md, No. 1133): cleaning removes the profile sequence with the device descriptions
+    /// copied into it, together with the device description (dmnd) of the profile itself — the description „HERSTELLERGEHEIM“ in the structure
+    /// of the sequence is gone; before, the sequence stayed.
     /// </summary>
     [Fact]
-    public void Pseq_DeviceDescriptions_KeptByMetadataCleaningToday()
+    public void Pseq_DeviceDescriptions_RemovedByMetadataCleaning()
     {
         var pseq = UIcc_Pseq(1, TIcc_Mluc(("deDE", "HERSTELLERGEHEIM")), TIcc_MlucRaw(0, 12, [], []));
         var profile = RIcc_MatrixProfile(("dmnd", TIcc_Mluc(("deDE", "Geraet"))), ("pseq", pseq));
         var cleaned = ObjectMetadata.Icc(profile)!;
         Assert.NotNull(cleaned);
         Assert.Null(TIcc_Tag(cleaned, "dmnd"));
-        Assert.True(cleaned.AsSpan().IndexOf(Encoding.BigEndianUnicode.GetBytes("HERSTELLERGEHEIM")) >= 0);
+        Assert.Null(TIcc_Tag(cleaned, "pseq"));
+        Assert.Equal(-1, cleaned.AsSpan().IndexOf(Encoding.BigEndianUnicode.GetBytes("HERSTELLERGEHEIM")));
     }
 
     /// <summary>ICC.1, 10.19 sentences 14–17: PDF-Knead writes no profile sequence — its own profiles carry no pseq tag.</summary>
@@ -358,11 +359,12 @@ public sealed partial class M6NormTests
     }
 
     /// <summary>
-    /// ICC.1, F.3 sentences 43–45 (today's behaviour; strict or lenient: design decision pending): the matrix model needs PCS XYZ — an RGB matrix
-    /// profile whose header names PCS Lab is read as with PCS XYZ, the same colours.
+    /// ICC.1, F.3 sentences 43–45 (read leniently, docs/normabgleich/sonderregeln.md S-A A190): the matrix model needs PCS XYZ — an RGB matrix
+    /// profile whose header names PCS Lab is read as with PCS XYZ, the same colours: the matrix gives XYZ, as the three reference readers take
+    /// it (T26 of tools/normabgleich/proben/lesetoleranzen_m6.py).
     /// </summary>
     [Fact]
-    public void MatrixProfileWithPcsLab_ReadAsXyzToday() =>
+    public void MatrixProfileWithPcsLab_ReadAsXyzAsTheReferenceReaders() =>
         RIcc_AssertSameColours(RIcc_Profile("mntr", IccProfile.RgbSpace, RIcc_XyzSpace, RIcc_MatrixTags()),
             RIcc_Profile("mntr", IccProfile.RgbSpace, RIcc_LabSpace, RIcc_MatrixTags()));
 }

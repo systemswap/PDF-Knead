@@ -130,6 +130,14 @@ public sealed record PdfSaveOptions
     internal PdfAAccessibility? PdfAAccessibility { get; init; }
 
     /// <summary>
+    /// The content streams of the file as stored: no repair of their syntax (numbers, „F“, dash phase, /L of inline images, inline images as
+    /// XObjects). For the copy <see cref="AppendedChanges"/> compares with a signed file: an appearance of the file that only the repairs
+    /// changed would count as changed and be appended — the update carries what is new, the signed revision stays as it is
+    /// (docs/FEHLERGEDAECHTNIS.md, No. 1131).
+    /// </summary>
+    internal bool ContentAsStored { get; init; }
+
+    /// <summary>
     /// The title of the document (docs/FEHLERGEDAECHTNIS.md, No. 492): into /Info /Title (from PDF 2.0 only into the XMP, /Info is deprecated
     /// there) and as dc:title into the XMP — an existing packet is changed, a file without one gets a slim one. Null: as it is.
     /// </summary>
@@ -277,6 +285,12 @@ public sealed record PdfSaveResult(string Version, long Length, int Objects, boo
 
     /// <summary>Pages (index in the written order) with images whose hidden parts could not be cut away (<see cref="CleanupItems.HiddenImageParts"/>).</summary>
     public IReadOnlyList<int> ImagePartsKept { get; init; } = [];
+
+    /// <summary>
+    /// Forms written without resources of their own whose content names resources: no content draws them and no page names them, so nothing
+    /// tells which resources they would be drawn with (ISO 32000-2, 7.8.3, 8.10.2; docs/FEHLERGEDAECHTNIS.md, No. 1131). Said to the user.
+    /// </summary>
+    public int FormsWithoutResources { get; init; }
 
     /// <summary>
     /// The source was protected against changes by a MAC (ISO/TS 32004) and the copy is not: PDF Knead cannot write the MAC yet — the copy
@@ -874,6 +888,7 @@ public static partial class PdfWriter
             PlanFormCopies();
             if (_touchedFonts.Count > 0) ScrubFonts();
             if (_options.Cleanup.HasFlag(CleanupItems.HiddenLayers)) DropHiddenLayers();
+            PlanUnlistedLayers();
 
             // Cross-references about as large as all sources together: no repeated copying while growing
             _xref.Capacity = (int)Math.Min(1 << 22, _sourceOrder.Sum(s => (long)s.Doc.ObjectCount) + _pages.Count + 64);
@@ -928,7 +943,12 @@ public static partial class PdfWriter
             // (correction of 7.5.8.2, pdf-issues 246: an indirect one could be looked for in an encrypted object stream), the text of 7.5.8.2
             // allows both, and so does ISO 32000-1 — direct in every version, behind a table it stays an object of its own (No. 811)
             if (_security is not null && !_objectStreams) _encryptNumber = NewNumber();
-            if (_pdfA is not null) PreparePdfA();
+            if (_pdfA is not null)
+            {
+                PreparePdfA();
+                // forms no content draws: the resources of the first page that names them, as below (V10; docs/FEHLERGEDAECHTNIS.md, No. 1131)
+                PlanUndrawnFormsPdfA();
+            }
             // forms, patterns and Type 3 fonts get the resources they borrow from the page (PDF/A sees to it itself; No. 549), in every version
             // — PDF 2.0 no longer allows inheriting, below 2.0 it is deprecated and writers should not use it (ISO 32000-2, 7.8.3; ISO 32000-1,
             // 7.8.3); one drawn with same-named, different resources is written once per set that fits together, so it looks as before wherever
@@ -944,6 +964,8 @@ public static partial class PdfWriter
                     ResourceUsage.Borrowed(item.Source, item.Page, _borrowed, ambiguous, givens);
                     foreach (var owner in givens.Keys) ownerSource.TryAdd(owner, item.Source);
                 }
+                // forms no content draws: the resources of the first page that names them (V10; docs/FEHLERGEDAECHTNIS.md, No. 1131)
+                PlanUndrawnForms(givens, ownerSource);
                 // every owner: only the names it uses, one copy per set that fits (ambiguous owners are among them)
                 foreach (var (owner, all) in givens)
                     if (ownerSource.TryGetValue(owner, out var doc) && _sources.TryGetValue(doc, out var ownerSrc)) PlanResourceVariants(owner, all, ownerSrc);
@@ -956,6 +978,8 @@ public static partial class PdfWriter
                     _cancel.ThrowIfCancellationRequested();
                     _contentStreams.AddPage(item.Source, item.Page);
                 }
+            // inline images over 4 096 bytes in the glyphs of Type 3 fonts: image XObjects in the font's resources (2.0, PDF/A-4; No. 1131)
+            PlanType3InlineImages();
             PrepareElements();
             PrepareFonts();
 
@@ -983,7 +1007,7 @@ public static partial class PdfWriter
             WriteXRef();
             if (_writeMac) FinishMac();
             _output.Flush();
-            return new PdfSaveResult(_version, _position, objects, CompareVersions(_version, requested) > 0, _security) { PdfAClaimRemovedFor = _pdfAClaimRemovedFor, AccessibilityClaimRemoved = _accessibilityClaimRemoved, AccessibilityBreaks = [.. _accessibilityBreaks], DeclarationsLeftOut = [.. _declarationsLeftOut], RaisedFor = CompareVersions(_version, requested) > 0 && _contentVersion == _version ? _contentReason : null, IntegrityProtectionDropped = _integrityDropped, XmpNotUpdated = _xmpNotUpdated, IdleHiddenMarks = _idleHidden, LengthsPartlyShown = _partlyShown, BarExtensions = _barExtensions, DroppedExtensions = _droppedExtensions, DocumentPartsDropped = _documentPartsDropped, TabOrderByStructure = _tabOrderByStructure, ImagePartsKept = _imagePartsKept, SubstitutedFonts = [.. _substitutedNames],
+            return new PdfSaveResult(_version, _position, objects, CompareVersions(_version, requested) > 0, _security) { PdfAClaimRemovedFor = _pdfAClaimRemovedFor, AccessibilityClaimRemoved = _accessibilityClaimRemoved, AccessibilityBreaks = [.. _accessibilityBreaks], DeclarationsLeftOut = [.. _declarationsLeftOut], RaisedFor = CompareVersions(_version, requested) > 0 && _contentVersion == _version ? _contentReason : null, IntegrityProtectionDropped = _integrityDropped, XmpNotUpdated = _xmpNotUpdated, IdleHiddenMarks = _idleHidden, LengthsPartlyShown = _partlyShown, BarExtensions = _barExtensions, DroppedExtensions = _droppedExtensions, DocumentPartsDropped = _documentPartsDropped, TabOrderByStructure = _tabOrderByStructure, ImagePartsKept = _imagePartsKept, FormsWithoutResources = _unresourcedWritten.Count, SubstitutedFonts = [.. _substitutedNames],
                 // what else changes the content of the pages on saving makes the characters outside the bars differ by intent
                 RedactionChecks = _writtenChecks.Count > 0
                     ? (_writtenChecks, _options.Cleanup == CleanupItems.None && _options.ScopedCleanup is null && _pdfA is null && !_options.Flatten)
@@ -1142,6 +1166,8 @@ public static partial class PdfWriter
                     // names that stand for a copy of an owner drawn with other resources here (No. 895)
                     if (_variantNames.Count > 0 && _variantNames.TryGetValue(d, out var variantNames))
                         foreach (var (variantName, variantNumber) in variantNames) dict.Set(variantName, new OutputReference(variantNumber));
+                    // a Type 3 font written directly whose glyphs call inline images made image XObjects (No. 1131)
+                    if (_fontImages.Count > 0 && _fontImages.ContainsKey(d)) dict = (PdfDictionary)WithFontImages(dict, d, 0, source);
                     // PDF/A: what the copy was made from (the pages are noted by the dictionaries as read, PdfAFix)
                     if (_pdfA is not null) _pdfA.RebasedFrom[dict] = (d, source, [.. dict.Entries.Select(e => e.Value)]);
                     return dict;
@@ -1172,7 +1198,7 @@ public static partial class PdfWriter
                 if (Cleanup != CleanupItems.None) obj = DocumentCleanup.Filter(obj, Cleanup, source.Doc, kept: KeptFor(source));
                 // metadata in the data of images and colour profiles (EXIF, XMP boxes, device descriptions; ObjectMetadata)
                 if ((_options.Cleanup & (CleanupItems.Metadata | CleanupItems.Notices)) != 0 && obj is PdfStream withData &&
-                    ObjectMetadata.Clean(withData, source.Doc, _options.Cleanup) is { } cleaned)
+                    ObjectMetadata.Clean(withData, source.Doc, _options.Cleanup, old) is { } cleaned)
                     obj = cleaned;
                 // judged by the element as read: an element refilled with the edited text no longer names the marked content it covered (No. 676)
                 if ((source.RedactedPages.Count > 0 || source.EditedMcids.Count > 0 || source.EditedForms.Count > 0) && obj is PdfDictionary element)
@@ -1421,7 +1447,7 @@ public static partial class PdfWriter
             // an inline image the display reads only with a tolerance (JPEG 2000 or JBIG2 inline, ASCII85 without its end, „EI“ in the data):
             // an image XObject in the page's resources, the content otherwise byte for byte (decided on 20.11.2026; S-A A12, A13,
             // A86, A110; docs/FEHLERGEDAECHTNIS.md, No. 993) — its resources keep only what is used, as below
-            if (!flat && _pdfA is null && PageInlineImages(item, original, source) is var (inlineContents, inlineResources))
+            if (!flat && _pdfA is null && !_options.ContentAsStored && PageInlineImages(item, original, source) is var (inlineContents, inlineResources))
             {
                 dict.Set(PdfName.Contents, inlineContents);
                 dict.Set(PdfName.Resources, inlineResources);
@@ -2453,6 +2479,7 @@ public static partial class PdfWriter
                                 .Select(i => configs.Get(i) is PdfDictionary c ? Rebase(c, source) : Rebase(configs[i], source))]));
                         else result.Set(key, key == Ocgs || key == D ? Rebase(oc.Get(key), source) : Rebase(value, source));
                     }
+                    EnterUnlistedLayers(source, result, oc.GetDictionary(D));
                     continue;
                 }
                 if (source.Items.Count == 0) continue;
@@ -2471,11 +2498,12 @@ public static partial class PdfWriter
                     {
                         var rebased = Rebase(list[i], source);
                         ocgs.Add(rebased);
-                        if (list.Get(i) is not PdfDictionary group || states.IsOn(group) != baseOff) continue;
+                        if (list.Get(i) is not PdfDictionary group || EntersUnlisted(source, list[i]) || states.IsOn(group) != baseOff) continue;
                         var key = baseOff ? PdfName.Get("ON") : Off;
                         if (config.Get(key) is not PdfArray target) config.Set(key, target = new PdfArray());
                         target.Add(rebased);
                     }
+                EnterUnlistedLayers(source, ocgs, config);
                 if (oc.GetDictionary(D) is { } other)
                 {
                     foreach (var key in new[] { Order })
@@ -4360,7 +4388,7 @@ public static partial class PdfWriter
             if (page.Dictionary.Get(PdfName.Contents) is PdfArray or PdfStream && _pdfA is not null &&
                 PdfAContent(page.Dictionary, page.Resources, source, out nested) is { } content)
                 old.Add(content);   // balanced: every q has its Q (ContentNesting)
-            else if (_pdfA is null && PageInlineImageContent(page.Dictionary, source) is var (inlineContent, images))
+            else if (_pdfA is null && !_options.ContentAsStored && PageInlineImageContent(page.Dictionary, source, Pdf20) is var (inlineContent, images))
             {
                 // an inline image the display reads only with a tolerance: an XObject of the page (see PageInlineImages; No. 993)
                 var single = new PdfStream(new PdfDictionary(), inlineContent);
@@ -5217,6 +5245,12 @@ public static partial class PdfWriter
                 while (_sourcedQueue.TryDequeue(out var entry))
                 {
                     var (number, stream, source) = entry;
+                    // an inline image of PDF/A-4 made an image XObject: the way of every image of the source (PdfAStream; No. 1131)
+                    if (_pdfAPlaced.Contains(stream))
+                    {
+                        WriteObject(number, stream, source);
+                        continue;
+                    }
                     var dict = (PdfDictionary)Rebase(stream.Dictionary, source);
                     dict.Remove(PdfName.Length);
                     var data = stream.RawData ?? [];
@@ -5413,6 +5447,10 @@ public static partial class PdfWriter
 
         private void WriteObject(int number, PdfObject obj, Source? source)
         {
+            // a stream as read: what the writer noted about it (lent resources, PDF/A's usage) is found by it, also where the keys of the version
+            // change its dictionary below (a form with /Name in 2.0, a form with another /Type; docs/FEHLERGEDAECHTNIS.md, No. 1131)
+            var asRead = obj as PdfStream;
+            var asReadDict = obj as PdfDictionary;
             // a copy of an owner with the resources of its set; names in resources that stand for such a copy (No. 895)
             obj = WithVariantNames(obj);
             if (_variantLent.TryGetValue(number, out var variantLent) && obj is PdfDictionary variantOwner && variantOwner.GetDictionary(PdfName.Resources) is null)
@@ -5428,6 +5466,8 @@ public static partial class PdfWriter
             // (in 2.0 the /Name of a font), the copy was another object, and a font the copy shows stayed without a program
             // (docs/FEHLERGEDAECHTNIS.md, No. 922)
             if (_pdfA is not null && obj is not PdfStream && number != _catalogNumber && number != _infoNumber) obj = PdfAFix(obj, source, number);
+            // a Type 3 font whose glyphs call inline images made image XObjects: those in its resources (No. 1131)
+            obj = WithFontImages(obj, asReadDict, number, source);
             // keys the version written does not have, or no longer (docs/FEHLERGEDAECHTNIS.md, No. 702)
             obj = VersionKeys.Filter(obj, _version, _pdfA is not null, Needs, TaggedCopy());
             // file specifications as ISO 32000-2, Table 43 asks of writers — after PDF/A, which judges embedded files by the objects as read
@@ -5447,7 +5487,7 @@ public static partial class PdfWriter
             if (Pdf20 && obj is PdfDictionary cidHolder && WithCidToGidMap(cidHolder) is { } mapped) obj = mapped;
             if (obj is PdfStream stream)
             {
-                WriteStream(number, stream, source);
+                WriteStream(number, stream, source, asRead);
                 return;
             }
             // Encrypted: catalogue and Info are not put into an object stream; the standard allows it, but a widely used reader otherwise
@@ -5530,8 +5570,9 @@ public static partial class PdfWriter
 
         /// <summary>The content in a form ISO 32000-2 allows (<see cref="ContentConformance.CanonicalSyntax"/>: numbers, unfinished arrays and
         /// dictionaries); null where it is, or where the content cannot be read or is damaged — it is then copied as it is: written anew, a
-        /// damaged stream would lose the bytes behind the damage (docs/FEHLERGEDAECHTNIS.md, No. 937).</summary>
-        private static byte[]? CanonicalContent(PdfStream stream, PdfDocument doc, out bool intact)
+        /// damaged stream would lose the bytes behind the damage (docs/FEHLERGEDAECHTNIS.md, No. 937). With the repairs that keep the meaning
+        /// (No. 1131): „F“ as „f“, an empty dash array with phase 0, as PDF 2.0 /L in every inline image.</summary>
+        private static byte[]? CanonicalContent(PdfStream stream, PdfDocument doc, bool pdf20, out bool intact)
         {
             intact = false;
             try
@@ -5543,7 +5584,7 @@ public static partial class PdfWriter
                 // damage with bytes behind it: copied as stored (No. 937); a Flate stream the decoder read to its end (only its header or sum
                 // not as RFC 1950 asks) is complete and written anew like any other (decided on 19.11.2026; No. 963)
                 if (damaged && !(StreamFilters.Chain(stream.Dictionary) is [("FlateDecode", _)] && Flate.Repaired(raw) is not null)) return null;
-                return ContentConformance.CanonicalSyntax(data.Array, data.Length);
+                return ContentConformance.CanonicalSyntax(data.Array, data.Length, pdf20);
             }
             catch (Exception e) when (e is PdfException or InvalidDataException or IOException)
             {
@@ -5551,9 +5592,10 @@ public static partial class PdfWriter
             }
         }
 
-        private void WriteStream(int number, PdfStream stream, Source? source)
+        private void WriteStream(int number, PdfStream stream, Source? source, PdfStream? asReadStream = null)
         {
             var original = stream.Dictionary;
+            var asRead = (asReadStream ?? stream).Dictionary;
             // (PDF/A embeds the fonts it shows by the dictionaries as read and describes the rest itself: not there)
             var dict = Pdf20 && _pdfA is null && source is not null && WithDescribedFontMaps(original, source.Doc) is { } withFonts ? withFonts : Clone(original);
             dict.Remove(PdfName.Length);
@@ -5566,8 +5608,9 @@ public static partial class PdfWriter
             // the dictionary, which VersionKeys saw before they were lent — in 2.0 the page's /ProcSet came along (docs/FEHLERGEDAECHTNIS.md, No. 814)
             if (_variantLent.TryGetValue(number, out var variantLent) && original.GetDictionary(PdfName.Resources) is null)
                 dict.Set(PdfName.Resources, VersionKeys.Filter(Lent(variantLent, source), _version, _pdfA is not null, Needs, TaggedCopy()));   // a copy of its set (No. 895)
-            else if (_borrowed.Count > 0 && _borrowed.TryGetValue(original, out var lent) && original.GetDictionary(PdfName.Resources) is null)
+            else if (_borrowed.Count > 0 && _borrowed.TryGetValue(asRead, out var lent) && original.GetDictionary(PdfName.Resources) is null)
                 dict.Set(PdfName.Resources, VersionKeys.Filter(Lent(lent, source), _version, _pdfA is not null, Needs, TaggedCopy()));
+            NoteUnresourced(asRead, dict);   // a form never drawn and named by no page, still without (V10; No. 1131)
             // a form with /PieceInfo carries /LastModified (ISO 32000-2, 8.10.2, Table 93) — the time of writing, as for pages (No. 755, 766)
             if (Present(dict, PieceInfoKey) && !Present(dict, LastModifiedKey) && original.GetName(PdfName.Subtype)?.Value == "Form")
                 dict.Set(LastModifiedKey, new PdfString(System.Text.Encoding.ASCII.GetBytes(PdfDate(Modified))));
@@ -5632,7 +5675,7 @@ public static partial class PdfWriter
             }
             // Stored unencrypted: bytes directly from the (memory-mapped) source, without a copy
             ReadOnlySpan<byte> raw = doc.IsStoredPlain(stream) ? doc.StoredStreamData(stream) : doc.GetRawStreamData(stream);
-            if (_pdfA is not null && !identityCrypt && PdfAStream(stream, source, dict) is { } plain)
+            if (_pdfA is not null && !identityCrypt && PdfAStream(asReadStream ?? stream, source, dict) is { } plain)
             {
                 // PDF/A: LZW unpacked and packed with Flate, content written anew, borrowed resources given
                 plain.Dict.Remove(DecodedLength);
@@ -5643,9 +5686,19 @@ public static partial class PdfWriter
             // parts as the display reads them, the rest byte for byte — the copy is well-formed, and other readers show what PDF-Knead showed
             // (S-A A01, A02; No. 930, 931)
             var intact = false;
+            // a glyph procedure of a Type 3 font as planned for 2.0: its inline images as image XObjects of the font (PlanType3InlineImages; No. 1131)
+            if (_pdfA is null && !_options.ContentAsStored && !identityCrypt && !original.ContainsKey(PdfName.Get("F")) && GlyphPlanOf(doc, asReadStream ?? stream) is { Content: { } glyphContent })
+            {
+                dict.Remove(PdfName.Filter);
+                dict.Remove(PdfName.DecodeParms);
+                dict.Remove(DecodedLength);
+                WriteStreamData(number, dict, Compress(glyphContent), compressed: true, encrypt, source, cipher);
+                return;
+            }
             // a form, pattern, group or appearance with an inline image the display reads only with a tolerance: the image as an XObject in
             // the resources it draws with, now its own (decided on 20.11.2026; docs/FEHLERGEDAECHTNIS.md, No. 993)
-            if (_pdfA is null && !identityCrypt && !original.ContainsKey(PdfName.Get("F")) && _contentStreams.Contains(doc, stream) &&
+            // (not for the copy compared with a signed file: ContentAsStored, No. 1131)
+            if (_pdfA is null && !_options.ContentAsStored && !identityCrypt && !original.ContainsKey(PdfName.Get("F")) && _contentStreams.Contains(doc, stream) &&
                 FormInlineImages(stream, doc, source) is var (formContent, formResources))
             {
                 dict.Remove(PdfName.Filter);
@@ -5655,8 +5708,8 @@ public static partial class PdfWriter
                 WriteStreamData(number, dict, Compress(formContent), compressed: true, encrypt, source, cipher);
                 return;
             }
-            if (_pdfA is null && !identityCrypt && !original.ContainsKey(PdfName.Get("F")) && _contentStreams.Contains(doc, stream) &&
-                CanonicalContent(stream, doc, out intact) is { } canonical)
+            if (_pdfA is null && !_options.ContentAsStored && !identityCrypt && !original.ContainsKey(PdfName.Get("F")) && _contentStreams.Contains(doc, stream) &&
+                CanonicalContent(stream, doc, Pdf20, out intact) is { } canonical)
             {
                 dict.Remove(PdfName.Filter);
                 dict.Remove(PdfName.DecodeParms);
@@ -5670,6 +5723,14 @@ public static partial class PdfWriter
                 font.Dict.Remove(PdfName.Length);
                 font.Dict.Remove(DecodedLength);
                 WriteStreamData(number, font.Dict, font.Data, compressed: false, encrypt, source, cipher);
+                return;
+            }
+            // an image of a depth between the allowed ones (8.9.5.1, Table 87; read leniently, S-A A192): written with 8 or 16 bits, the values
+            // scaled, the indices of an Indexed space kept — the same appearance (docs/FEHLERGEDAECHTNIS.md, No. 1134)
+            if (_pdfA is null && !identityCrypt && !original.ContainsKey(PdfName.F) && Graphics.ImageDepth.Odd(original) &&
+                Graphics.ImageDepth.Conforming(dict, raw.ToArray()) is { } widened)
+            {
+                WriteStreamData(number, dict, Compress(widened), compressed: true, encrypt, source, cipher);
                 return;
             }
             if (!identityCrypt && RewriteImage(stream, source, original, raw) is { } image)

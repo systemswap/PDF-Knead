@@ -390,6 +390,7 @@ public static class SkiaRenderer
                     // Glyph as a pre-rendered mask (tinted with the fill colour), otherwise as a path below
                     fill.Color = new SKColor(paint.Fill);
                     fill.BlendMode = ItemBlend(paint.BlendMode, knockout, fillOverprint);
+                    OverprintPlates(fill, fillOverprint, paint.BlendMode, paint.OverprintReplace);
                     canvas.ResetMatrix();
                     if (masks.TryDraw(canvas, list, item.Path, matrix, fill, path)) continue;
                 }
@@ -450,6 +451,7 @@ public static class SkiaRenderer
                 {
                     fill.Color = new SKColor(paint.Fill);
                     fill.BlendMode = pair ? SKBlendMode.SrcOver : ItemBlend(paint.BlendMode, knockout, fillOverprint);
+                    if (paint.FillShading < 0) OverprintPlates(fill, fillOverprint && !pair, paint.BlendMode, paint.OverprintReplace);
                     if (paint.FillShading >= 0)
                     {
                         FillShaded(canvas, list.Shadings[paint.FillShading], path, matrix, pageToDevice, fill, doc, images, overprintPreview, cancel);
@@ -479,10 +481,12 @@ public static class SkiaRenderer
                     var strokeOverprint = overprintPreview && (paint.Overprint & 2) != 0;
                     if (pair) stroke.BlendMode = SKBlendMode.Src;
                     else if (knockout || strokeOverprint) stroke.BlendMode = ItemBlend(paint.BlendMode, knockout, strokeOverprint);
+                    if (!pair && paint.StrokeShading < 0) OverprintPlates(stroke, strokeOverprint, paint.BlendMode, paint.OverprintReplace >> 4);
                     // Stroke with shading or pattern (rare): as a shader in the entry's space; meshes keep the substitute colour
                     var strokeFill = paint.StrokeShading >= 0 ? list.Shadings[paint.StrokeShading] : null;
                     using var shader = strokeFill is null ? default
-                        : Shader(strokeFill, strokeFill.ToPage * list.Matrices[item.Matrix].Invert(), strokeFill.ToPage * pageToDevice, doc, images, overprintPreview, cancel);
+                        : Shader(strokeFill, strokeFill.ToPage * list.Matrices[item.Matrix].Invert(), strokeFill.ToPage * pageToDevice, doc, images, overprintPreview, cancel,
+                            canvas.DeviceClipBounds);
                     if (strokeFill is not null && shader.Value is not null)
                     {
                         stroke.Shader = shader.Value;
@@ -552,7 +556,7 @@ public static class SkiaRenderer
             case TilingFill large when DrawLargeTiles(canvas, large, shadingToDevice, fill, doc, images, overprint, cancel):
                 break;
             case GradientFill or TilingFill or ImageFill:
-                using (var shader = Shader(shading, Matrix.Identity, shadingToDevice, doc, images, overprint, cancel))
+                using (var shader = Shader(shading, Matrix.Identity, shadingToDevice, doc, images, overprint, cancel, canvas.DeviceClipBounds))
                 {
                     if (shader.Value is null) break;
                     fill.Shader = shader.Value;
@@ -586,12 +590,13 @@ public static class SkiaRenderer
     /// Shader for a shading or a tiling pattern; null for meshes (<see cref="FillShaded"/> draws those as triangles).
     /// <paramref name="local"/>: shading space → canvas space; <paramref name="toDevice"/>: → screen (resolution of the cell).
     /// </summary>
+    /// <paramref name="visible"/>: the device pixels drawn into (a function-based shading is sampled there by them).
     private static OwnedShader Shader(ShadingFill fill, Matrix local, Matrix toDevice, PdfDocument doc, ImageCache images, bool overprint,
-        CancellationToken cancel) => fill switch
+        CancellationToken cancel, SKRect? visible = null) => fill switch
     {
         GradientFill gradient => GradientShader(gradient, local),
         TilingFill tiling => new(TilingShader(tiling, local, toDevice, doc, images, overprint, cancel), true),
-        ImageFill image => new(ImageShader(image, local), true),
+        ImageFill image => new(ImageShader(image, local, toDevice, visible, cancel), true),
         _ => default,
     };
 
@@ -626,7 +631,7 @@ public static class SkiaRenderer
         var tile = new SKRect(0, 0, (float)(tiling.XStep * s), (float)(tiling.YStep * s));
         if (!(tile.Width > 0 && tile.Height > 0)) return null;
         var picture = CellPicture(tiling, level, s, tile, doc, images, overprint, cancel);
-        var placed = Matrix.Scale(1 / s, 1 / s) * Matrix.Translate(box.Left, box.Top) * local;
+        var placed = Matrix.Scale(1 / s, 1 / s) * Matrix.Translate(box.Left, box.Top) * WholePixelSteps(tiling, toDevice) * local;
         SKShader shader;
         if (Reach(tile, placed * toDevice) <= MaxTileReach)
         {
@@ -647,6 +652,35 @@ public static class SkiaRenderer
         using (shader)
         using (var filter = SKColorFilter.CreateBlendMode(new SKColor(color), SKBlendMode.SrcIn))
             return shader.WithColorFilter(filter);
+    }
+
+    /// <summary>
+    /// /TilingType 1 and 3 (ISO 32000-2, 8.7.3.1 sentences 26–30, 33): a change of pattern space after which the steps XStep and YStep are whole
+    /// device pixels — each step vector on the device rounded to whole pixels (at least one), the origin of pattern space kept; the cell is
+    /// distorted by less than a pixel per step for it. The identity for type 2 (the exact step, the cell undistorted) and where the matrix
+    /// cannot be inverted. Before, every type kept the exact step (docs/FEHLERGEDAECHTNIS.md, No. 1130).
+    /// </summary>
+    /// <param name="tiling">The pattern.</param>
+    /// <param name="toDevice">Pattern space → device.</param>
+    private static Matrix WholePixelSteps(TilingFill tiling, Matrix toDevice)
+    {
+        if (!tiling.WholePixels || !toDevice.IsInvertible) return Matrix.Identity;
+        var (ax, ay) = Whole(toDevice.TransformVector(tiling.XStep, 0));
+        var (bx, by) = Whole(toDevice.TransformVector(0, tiling.YStep));
+        var rounded = new Matrix(ax / tiling.XStep, ay / tiling.XStep, bx / tiling.YStep, by / tiling.YStep, toDevice.E, toDevice.F);
+        return rounded.IsInvertible && rounded.IsFinite ? rounded * toDevice.Invert() : Matrix.Identity;
+
+        // a step vector in whole pixels; one shorter than half a pixel becomes one pixel along its longer component
+        static (double X, double Y) Whole((double X, double Y) v)
+        {
+            var (x, y) = (Math.Round(v.X), Math.Round(v.Y));
+            if (x == 0 && y == 0)
+            {
+                if (Math.Abs(v.X) >= Math.Abs(v.Y)) x = v.X < 0 ? -1 : 1;
+                else y = v.Y < 0 ? -1 : 1;
+            }
+            return (x, y);
+        }
     }
 
     /// <summary>
@@ -682,7 +716,10 @@ public static class SkiaRenderer
         // Only without overlap (cell not larger than the spacing): otherwise neighbouring copies would appear twice
         // (with rounding tolerance: issue6737 has BBox 695.256 with spacing 695.255)
         if (box.Width > tiling.XStep * 1.0001 || box.Bottom - box.Top > tiling.YStep * 1.0001) return false;
-        var visible = canvas.LocalClipBounds;
+        // types 1 and 3: the tiles a whole number of pixels apart (the visible area taken back into the rounded pattern space)
+        var steps = WholePixelSteps(tiling, toDevice);
+        var local = canvas.LocalClipBounds;
+        var visible = steps.Invert().TransformBounds(RectD.FromLtrb(local.Left, local.Top, local.Right, local.Bottom));
         // Tiles whose cell extends into the visible area
         var i0 = Math.Ceiling((visible.Left - box.Right) / tiling.XStep);
         var i1 = Math.Floor((visible.Right - box.Left) / tiling.XStep);
@@ -703,7 +740,7 @@ public static class SkiaRenderer
         for (var i = i0; i <= i1; i++)
         {
             canvas.Save();
-            canvas.SetMatrix(ToSk(Matrix.Scale(1 / s, 1 / s) * Matrix.Translate(box.Left + i * tiling.XStep, box.Top + j * tiling.YStep) * toDevice));
+            canvas.SetMatrix(ToSk(Matrix.Scale(1 / s, 1 / s) * Matrix.Translate(box.Left + i * tiling.XStep, box.Top + j * tiling.YStep) * steps * toDevice));
             canvas.ClipRect(tile);
             canvas.DrawPicture(picture);
             canvas.Restore();
@@ -748,9 +785,15 @@ public static class SkiaRenderer
     // Type 1 shadings as images, once per colour array (shared by all places and tiles)
     private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<uint[], SKImage> FunctionImages = new();
 
-    /// <summary>Image shader of a function-based shading: texel centre i lies on grid point i of the /Domain, bilinear.</summary>
-    private static SKShader ImageShader(ImageFill fill, Matrix local)
+    /// <summary>
+    /// Image shader of a function-based shading: texel centre i lies on grid point i of the /Domain, bilinear. Where the coarse grid of
+    /// <see cref="ImageFill.Pixels"/> lies more than a device pixel apart, the part of /Domain within <paramref name="visible"/> (device pixels) is
+    /// sampled anew a pixel apart (<see cref="ImageFill.Resample"/>, within its limits), so that a jump of the function stays within a pixel
+    /// (ISO 32000-2, 8.7.4.5.2; docs/FEHLERGEDAECHTNIS.md, No. 1130).
+    /// </summary>
+    private static SKShader ImageShader(ImageFill fill, Matrix local, Matrix toDevice, SKRect? visible, CancellationToken cancel)
     {
+        if (Resampled(fill, local, toDevice, visible, cancel) is { } fine) return fine;
         const int n = ImageFill.Samples;
         if (!FunctionImages.TryGetValue(fill.Pixels, out var image))
         {
@@ -761,6 +804,52 @@ public static class SkiaRenderer
         }
         double sx = (fill.X1 - fill.X0) / (n - 1), sy = (fill.Y1 - fill.Y0) / (n - 1);
         var toDomain = new Matrix(sx, 0, 0, sy, fill.X0 - 0.5 * sx, fill.Y0 - 0.5 * sy);
+        return image.ToShader(SKShaderTileMode.Clamp, SKShaderTileMode.Clamp, new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.None),
+            ToSk(toDomain * fill.Matrix * local));
+    }
+
+    /// <summary>The visible part of a function-based shading sampled a device pixel apart; null where the coarse grid is fine enough.</summary>
+    private static SKShader? Resampled(ImageFill fill, Matrix local, Matrix toDevice, SKRect? visible, CancellationToken cancel)
+    {
+        var domainToDevice = fill.Matrix * toDevice;
+        if (fill.Resample is not { } resample || visible is not { Width: > 0, Height: > 0 } area || !domainToDevice.IsInvertible || !domainToDevice.IsFinite)
+            return null;
+        double Length(double x, double y)
+        {
+            var (dx, dy) = domainToDevice.TransformVector(x, y);
+            return Math.Sqrt(dx * dx + dy * dy);
+        }
+        // the coarse grid a pixel apart or closer: enough
+        const int coarse = ImageFill.Samples - 1;
+        if (Length((fill.X1 - fill.X0) / coarse, 0) <= 1 && Length(0, (fill.Y1 - fill.Y0) / coarse) <= 1) return null;
+        var seen = domainToDevice.Invert().TransformBounds(RectD.FromLtrb(area.Left, area.Top, area.Right, area.Bottom));
+        double x0 = Math.Max(seen.Left, Math.Min(fill.X0, fill.X1)), x1 = Math.Min(seen.Right, Math.Max(fill.X0, fill.X1));
+        double y0 = Math.Max(seen.Top, Math.Min(fill.Y0, fill.Y1)), y1 = Math.Min(seen.Bottom, Math.Max(fill.Y0, fill.Y1));
+        if (!(x1 > x0) || !(y1 > y0) || !double.IsFinite(x1 - x0) || !double.IsFinite(y1 - y0)) return null;
+        // one sample per device pixel and one more, within the limits of the fill (beyond them both axes coarser in proportion)
+        var nx = (int)Math.Clamp(Math.Ceiling(Length(x1 - x0, 0)) + 1, 2, ImageFill.MaxResampleEdge);
+        var ny = (int)Math.Clamp(Math.Ceiling(Length(0, y1 - y0)) + 1, 2, ImageFill.MaxResampleEdge);
+        if ((long)nx * ny > ImageFill.MaxResampleSamples)
+        {
+            var shrink = Math.Sqrt((double)ImageFill.MaxResampleSamples / ((long)nx * ny));
+            (nx, ny) = (Math.Max(2, (int)(nx * shrink)), Math.Max(2, (int)(ny * shrink)));
+        }
+        uint[] pixels;
+        try
+        {
+            pixels = resample(x0, x1, y0, y1, nx, ny, cancel);
+        }
+        catch (Exception e) when (e is ArgumentException or IndexOutOfRangeException or InvalidCastException or ArithmeticException
+                                      or PdfKnead.Core.Pdf.PdfException)
+        {
+            return null;   // the coarse version instead
+        }
+        if (pixels.Length != nx * ny) return null;
+        using var image = SKImage.FromPixelCopy(new SKImageInfo(nx, ny, SKColorType.Bgra8888, SKAlphaType.Unpremul),
+            System.Runtime.InteropServices.MemoryMarshal.AsBytes(pixels.AsSpan()));
+        if (image is null) return null;
+        double sx = (x1 - x0) / (nx - 1), sy = (y1 - y0) / (ny - 1);
+        var toDomain = new Matrix(sx, 0, 0, sy, x0 - 0.5 * sx, y0 - 0.5 * sy);
         return image.ToShader(SKShaderTileMode.Clamp, SKShaderTileMode.Clamp, new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.None),
             ToSk(toDomain * fill.Matrix * local));
     }
@@ -1220,6 +1309,7 @@ public static class SkiaRenderer
         }
         var maskOnly = maskBlend is not null;
         paint.BlendMode = maskBlend ?? ItemBlend(style.BlendMode, knockout, overprint);
+        if (!maskOnly && source.IsStencil) OverprintPlates(paint, overprint, style.BlendMode, style.OverprintReplace);   // a mask paints the fill colour
         // Stencils are pure coverage (1 byte per pixel): Skia paints them in the colour of the paint; otherwise the opacity of the fill
         paint.Color = maskOnly ? SKColors.Black : source.IsStencil ? new SKColor(source.StencilColor) : new SKColor(255, 255, 255, (byte)(style.Fill >> 24));
         var total = canvas.TotalMatrix;
@@ -1268,6 +1358,48 @@ public static class SkiaRenderer
     /// becomes green); exact results would require colour separations.</summary>
     private static SKBlendMode ItemBlend(byte mode, bool knockout, bool overprint = false) =>
         mode != 0 ? Blend(mode) : overprint ? SKBlendMode.Multiply : knockout ? SKBlendMode.Src : SKBlendMode.SrcOver;
+
+    /// <summary>
+    /// Overprint mode 1 of a DeviceCMYK colour in the preview (ISO 32000-2, 8.6.7 sentences 21–22): the plates whose component is not 0 replace
+    /// those beneath, the others stay. In RGB the plates are taken as the channels — cyan red, magenta green, yellow blue —: the channels of the
+    /// replaced plates (<paramref name="replace"/>, bits 1, 2, 4) take the colour's, the others are multiplied by it as with any overprint
+    /// (black, carried by every channel, darkens them). Before, all channels were multiplied: 0.2 cyan over full cyan stayed full cyan
+    /// (docs/FEHLERGEDAECHTNIS.md, No. 1130). Called after the blend mode is set; any later blend mode replaces the blender again.
+    /// </summary>
+    private static void OverprintPlates(SKPaint paint, bool overprint, byte blendMode, int replace)
+    {
+        if (!overprint || blendMode != 0 || (replace & 7) == 0 || OverprintBlender(replace & 7) is not { } blender) return;
+        paint.Blender = blender;
+    }
+
+    // per mask of replaced channels (1 to 7), built once
+    private static readonly SKBlender?[] OverprintBlenders = new SKBlender?[8];
+    private static readonly object OverprintLock = new();
+
+    // premultiplied: Multiply in the kept channels, source over in the replaced ones
+    private const string OverprintSksl = """
+        uniform half3 replaced;
+        half4 main(half4 src, half4 dst) {
+            half3 multiplied = src.rgb * (1 - dst.a) + dst.rgb * (1 - src.a) + src.rgb * dst.rgb;
+            half3 over = src.rgb + dst.rgb * (1 - src.a);
+            return half4(mix(multiplied, over, replaced), src.a + dst.a * (1 - src.a));
+        }
+        """;
+
+    private static SKBlender? OverprintBlender(int replace)
+    {
+        lock (OverprintLock)
+        {
+            if (OverprintBlenders[replace] is { } built) return built;
+            using var effect = SKRuntimeEffect.CreateBlender(OverprintSksl, out _);
+            if (effect is null) return null;
+            var uniforms = new SKRuntimeEffectUniforms(effect)
+            {
+                ["replaced"] = new[] { (replace & 1) != 0 ? 1f : 0f, (replace & 2) != 0 ? 1f : 0f, (replace & 4) != 0 ? 1f : 0f },
+            };
+            return OverprintBlenders[replace] = effect.ToBlender(uniforms);
+        }
+    }
 
     /// <summary>
     /// Applies a soft mask to the open layer: draws its content into a layer of its own (Luminosity: over the backdrop /BC), turns

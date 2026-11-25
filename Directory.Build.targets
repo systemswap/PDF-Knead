@@ -6,21 +6,12 @@
          Directory.Build.targets wird nach den Paket-Targets geladen, die letzte Definition gilt. -->
     <Target Name="AvaloniaStats" />
 
-    <!-- Lizenzierte Handschriften (nicht im Programm, Wunsch vom 22.10.2026): beim Entwickeln als „Schriften-Unterschrift“ neben
-         Programm, Kommandozeile und Tests; nie in die Publish-Ausgabe (sonst landeten sie in der einen Datei) — dorthin kopieren
-         publish.ps1/publish.sh den Ordner. Der Ordner liegt nur lokal (.gitignore, seit 16.11.2026 nicht mehr im Repository); fehlt er,
-         gibt es nur die freien Handschriften. -->
     <!-- Modelle der Texterkennung und des Feld-Erkenners (Festlegung 13.11.2026: im Paket, kein Download): beim Entwickeln
          aus Modelle/ocr als „ocr“ neben Programm und Kommandozeile (nicht neben die Tests: die wählen ihre Modelle selbst); in die Pakete
-         legen sie publish.ps1/publish.sh nach geprüften Prüfsummen. Fehlt der Ordner Modelle, geht alles außer Texterkennung und Feld-Erkenner. -->
+         legen sie publish.ps1/publish.sh nach geprüften Prüfsummen. Fehlt der Ordner Modelle, geht alles außer Texterkennung und Feld-Erkenner. PdfKneadTool=true: Hilfsprogramme, die keine Modelle brauchen.
+         Lizenzierte Handschriften liefert PDF-Knead nicht mit (seit 25.11.2026 auch nicht beim Entwickeln); eigene fügt der Nutzer im Programm hinzu. -->
     <ItemGroup Condition="('$(OutputType)' == 'Exe' or '$(OutputType)' == 'WinExe') and '$(PdfKneadTool)' != 'true'">
         <None Include="$(MSBuildThisFileDirectory)Modelle/ocr/**/*" Exclude="$(MSBuildThisFileDirectory)Modelle/ocr/SHA256SUMS"
               Link="ocr/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="Never" Visible="false" />
-    </ItemGroup>
-
-    <!-- PdfKneadTool=true: Hilfsprogramme, die weder Modelle noch Handschriften brauchen -->
-    <ItemGroup Condition="('$(OutputType)' == 'Exe' or '$(OutputType)' == 'WinExe' or '$(IsTestProject)' == 'true') and '$(PdfKneadTool)' != 'true'">
-        <None Include="$(MSBuildThisFileDirectory)Schriften/Handschriften-lizenziert/*.ttf;$(MSBuildThisFileDirectory)Schriften/Handschriften-lizenziert/*.otf"
-              Link="Schriften-Unterschrift/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="Never" Visible="false" />
     </ItemGroup>
 </Project>

@@ -6,7 +6,7 @@ namespace PdfKnead.Core.Fonts;
 /// Fonts from the folder "Schriften/" that the build embeds into the program: substitutes for the
 /// 14 standard fonts and the free handwriting fonts for signatures. The folder alone determines which
 /// fonts exist. The handwriting fonts are managed by <see cref="SignatureFonts"/>, which adds those
-/// from the folder "Schriften-Unterschrift" (licensed and imported fonts).
+/// from the folder "Schriften-Unterschrift" (fonts the user imported).
 /// </summary>
 public static class EmbeddedFonts
 {

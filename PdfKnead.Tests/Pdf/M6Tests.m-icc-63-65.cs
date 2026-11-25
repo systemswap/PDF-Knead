@@ -31,18 +31,28 @@ public sealed partial class M6NormTests
     }
 
     /// <summary>
-    /// ICC.1 6.3.2.2 sentences 28–42 (records today's behaviour; design decision on absolute colorimetric pending): the bundled FOGRA39 profile has a media
-    /// white darker than D50, yet with the absolute colorimetric intent its paper "0 0 0 0" is drawn white 255 — the media white is not
-    /// multiplied in.
+    /// ICC.1 6.3.2.2 sentences 28–42 (equations 4 to 6): media-relative values times media white / PCS white give ICC-absolute values
+    /// (docs/FEHLERGEDAECHTNIS.md, No. 1129). The bundled FOGRA39 profile has a media white darker than D50 and slightly bluish (L* 95,
+    /// b* about −2): with the absolute colorimetric intent its paper „0 0 0 0“ is drawn as its wtpt (within one step of that XYZ in sRGB) — a light
+    /// grey below 254, blue above red —, relative colorimetric still white.
     /// </summary>
     [Fact]
-    public void IccAbsoluteColorimetric_Fogra39PaperStaysWhite_TodaysBehaviour()
+    public void IccAbsoluteColorimetric_Fogra39PaperShowsItsTone()
     {
         var fogra = CmykProfile.Bytes();
         var wtpt = IccL_Tag(fogra, "wtpt")!;
-        Assert.True(BinaryPrimitives.ReadInt32BigEndian(wtpt.AsSpan(12)) / 65536.0 < 0.95, "wtpt Y");
-        var paper = IccL_Space(fogra, 4).WithRendering(ColorSpace.AbsoluteColorimetric, ColorSpace.BpcDefault).ToRgb([0, 0, 0, 0]);
-        Assert.True(paper is { R: >= 254, G: >= 254, B: >= 254 }, paper.ToString());
+        float X(int i) => BinaryPrimitives.ReadInt32BigEndian(wtpt.AsSpan(8 + 4 * i)) / 65536f;
+        Assert.True(X(1) < 0.95, "wtpt Y");
+        var rgb = new float[3];
+        IccColor.XyzToSrgb(X(0), X(1), X(2), rgb);
+        var expected = Rgb.FromUnit(rgb[0], rgb[1], rgb[2]);
+        var space = IccL_Space(fogra, 4);
+        var paper = space.WithRendering(ColorSpace.AbsoluteColorimetric, ColorSpace.BpcDefault).ToRgb([0, 0, 0, 0]);
+        Assert.InRange(paper.R - expected.R, -1, 1);
+        Assert.InRange(paper.G - expected.G, -1, 1);
+        Assert.InRange(paper.B - expected.B, -1, 1);
+        Assert.True(paper.R < 254 && paper.B > paper.R, paper.ToString());
+        Assert.True(space.ToRgb([0, 0, 0, 0]) is { R: >= 254, G: >= 254, B: >= 254 });
     }
 
     /// <summary>
@@ -133,11 +143,12 @@ public sealed partial class M6NormTests
     }
 
     /// <summary>
-    /// ICC.1 6.3.4.1 sentences 1–2, 5–7 (records today's behaviour; design decision on read tolerances pending): there is no 8-bit PCSXYZ; a lut8 table
+    /// ICC.1 6.3.4.1 sentences 1–2, 5–7 (read leniently as the three reference readers, docs/normabgleich/sonderregeln.md S-A A187): there is no
+    /// 8-bit PCSXYZ; a lut8 table
     /// in a profile with PCS XYZ is still read, its bytes on the scale of the 16-bit encoding: FFh as 1.99997, 80h as about 1.004.
     /// </summary>
     [Fact]
-    public void IccLut8_PcsXyz_ReadLeniently_TodaysBehaviour()
+    public void IccLut8_PcsXyz_ReadLeniently()
     {
         var profile = IccProfile.Parse(IccL_Grey(("A2B0", IccL_Lut8(1, [0x80, 0x80, 0x80], [0xFF, 0xFF, 0xFF]))));
         Assert.NotNull(profile);

@@ -1304,7 +1304,11 @@ public sealed partial class MainViewModel
                 // the document parts no longer fitting the pages written went (docs/FEHLERGEDAECHTNIS.md, No. 790)
                 (result.DocumentPartsDropped ? " — " + Tr.T("Die Dokumentteile passten nicht mehr zur geänderten Seitenfolge und wurden entfernt.") : "") +
                 // the XMP of the document unreadable: its date of change not updated (docs/FEHLERGEDAECHTNIS.md, No. 552)
-                (result.XmpNotUpdated ? " — " + Tr.T("Die XMP-Metadaten sind nicht lesbar; das Änderungsdatum darin wurde nicht nachgeführt.") : ""));
+                (result.XmpNotUpdated ? " — " + Tr.T("Die XMP-Metadaten sind nicht lesbar; das Änderungsdatum darin wurde nicht nachgeführt.") : "") +
+                // forms never drawn that no page names stayed without resources (V10; docs/FEHLERGEDAECHTNIS.md, No. 1131)
+                (result.FormsWithoutResources > 0
+                    ? " — " + Tr.T("{0} nie gezeichnete Formen ohne eigene Ressourcen blieben ohne: keine Seite nennt sie, ihre Ressourcen sind unbekannt.", result.FormsWithoutResources)
+                    : ""));
             // a file identified as PDF/A that the copy is not any more: the identification went, said and kept on screen (No. 554)
             if (result.PdfAClaimRemovedFor is { } broken)
                 Message = Tr.T("Die Datei war als PDF/A gekennzeichnet; mit {0} ist sie es nicht mehr. Die Kennung wurde entfernt. Für eine gültige PDF/A-Datei „Als PDF/A speichern“ wählen.", broken);

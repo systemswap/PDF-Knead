@@ -150,7 +150,7 @@ internal static class ImageBlanker
         var maskLike = role is Role.Stencil or Role.ExplicitMask || dict.GetBoolean(PdfName.Get("ImageMask")) == true;
         var bpc = maskLike ? 1 : (int)(dict.Get(PdfName.Get("BitsPerComponent")).AsNumber() ?? 8);
         if (width <= 0 || height <= 0 || width > PdfImageDecoder.MaxSide || height > PdfImageDecoder.MaxSide ||
-            (long)width * height > PdfImageDecoder.MaxPixels || bpc is not (1 or 2 or 4 or 8 or 16))
+            (long)width * height > PdfImageDecoder.MaxPixels || !ImageDepth.Readable(bpc))
             return null;   // nonsensical: the decoder does not draw it either — dropped
         if (maskLike && role != Role.ExplicitMask) role = Role.Stencil;
 
@@ -200,6 +200,17 @@ internal static class ImageBlanker
         }
         if (source is null) return null;   // not in its own samples: the other way
         handled = true;
+        // a depth between the allowed ones (read leniently, S-A A192): blacked out and written with 8 or 16 bits, the same appearance — the
+        // values scaled, the indices of an Indexed space kept (docs/FEHLERGEDAECHTNIS.md, No. 1134)
+        int? widenedFrom = null;
+        if (!ImageDepth.Allowed(source.Bpc))
+        {
+            var indexed = space is { IsIndexed: true };
+            widenedFrom = source.Bpc;
+            decode = ImageDepth.Decode(decode, source.Bpc, indexed);
+            source = new Source(source.Width, source.Height, ImageDepth.Wider(source.Bpc),
+                new ImageDepth.WideRows(source.Rows, source.Width * n, source.Bpc, indexed));
+        }
         using (source)
         {
             (width, height, bpc) = (source.Width, source.Height, source.Bpc);
@@ -259,6 +270,7 @@ internal static class ImageBlanker
             if (decode is null || source.OwnSpace is not null) copy.Remove(PdfName.Get("Decode"));
             if (softMask is not null) copy.Set(PdfName.Get("SMask"), softMask);
             if (explicitMask is not null) copy.Set(PdfName.Get("Mask"), explicitMask);
+            if (widenedFrom is { } narrow) ImageDepth.Describe(copy, narrow, space is { IsIndexed: true });
             return new PdfStream(copy, packed.ToArray());
         }
     }

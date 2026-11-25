@@ -403,8 +403,8 @@ public sealed partial class M6NormTests
     }
 
     /// <summary>
-    /// 8.6.8 sentence 104T (d1 glyph, only the image mask; other images await a design decision on d1 glyphs): an image mask a d1 glyph draws
-    /// over its right half paints in the blue of the text.
+    /// 8.6.8 sentence 104T (d1 glyph, the image mask; other images are passed over, D1Glyph_ImagesOtherThanMasks_PassedOver): an image mask a d1
+    /// glyph draws over its right half paints in the blue of the text.
     /// </summary>
     [Fact]
     public void D1Glyph_ImageMask_PaintsInTheTextColour()

@@ -432,11 +432,12 @@ public sealed partial class M6NormTests
     }
 
     /// <summary>
-    /// ICC.1 6.2.1 sentences 13–14: the colorimetric intent image state tag is not read (records today's behaviour): a matrix profile with
-    /// ciis = scoe (scene colorimetry) converts exactly as without the tag.
+    /// ICC.1 6.2.1 sentences 13–14: the colorimetric intent image state tag is not read — a reasoned deviation (docs/normabgleich/sonderregeln.md
+    /// S-B B57: rare in embedded profiles, a colour rendering of scenes is a function of its own): a matrix profile with ciis = scoe (scene
+    /// colorimetry) converts exactly as without the tag.
     /// </summary>
     [Fact]
-    public void IccSceneReferredTag_Ignored_TodaysBehaviour()
+    public void IccSceneReferredTag_NoColourRendering()
     {
         byte[] ciis = [.. "sig "u8, 0, 0, 0, 0, .. "scoe"u8];
         var with = new IccTransform(IccProfile.Parse(IccL_AdobeRgb(("ciis", ciis)))!);
@@ -464,21 +465,24 @@ public sealed partial class M6NormTests
     }
 
     /// <summary>
-    /// ICC.1 6.2.3 sentences 1–7 (records today's behaviour; design decision on absolute colorimetric pending): a CMYK profile whose media white point is
-    /// 0.9 · D50 (tinted paper), drawn with /AbsoluteColorimetric ri: the paper "0 0 0 0" stays white 255/255/255 — the intent is computed as
-    /// relative colorimetric without black point compensation, the paper tone is not rendered.
+    /// ICC.1 6.2.3 sentences 1–7: ICC-absolute colorimetry from the media-relative table, scaled with the media white (docs/FEHLERGEDAECHTNIS.md,
+    /// No. 1129). A CMYK profile whose media white point is 0.9 · D50 (tinted paper), drawn with /AbsoluteColorimetric ri: the paper „0 0 0 0“
+    /// is XYZ 0.9 · D50, a neutral sRGB grey of 243 (linear 0.9) — the paper tone shows; without the intent (relative colorimetric) it is white.
     /// </summary>
     [Fact]
-    public void IccAbsoluteColorimetric_TintedPaperStaysWhite_TodaysBehaviour()
+    public void IccAbsoluteColorimetric_TintedPaperShowsItsTone()
     {
         var tinted = (byte[])IccL_NaiveCmyk.Value.Clone();
         Assert.Equal("wtpt", Encoding.ASCII.GetString(tinted, 132, 4));
         var wtpt = (int)IccL_U32(tinted, 136);
         IccL_Xyz(0.9 * 0.9642, 0.9, 0.9 * 0.8249).CopyTo(tinted, wtpt);
-        using var b = IccL_Render("/AbsoluteColorimetric ri /CS0 cs 0 0 0 0 sc 0 0 200 200 re f", pdf => TestPdf.Dict(("ColorSpace", TestPdf.Dict(
+        using var b = IccL_Render("/AbsoluteColorimetric ri /CS0 cs 0 0 0 0 sc 0 0 100 200 re f /RelativeColorimetric ri 100 0 100 200 re f", pdf =>
+            TestPdf.Dict(("ColorSpace", TestPdf.Dict(
             ("CS0", new PdfArray([TestPdf.N("ICCBased"), TestPdf.Ref(pdf.Add(new PdfStream(TestPdf.Dict(("N", PdfInteger.Of(4))), tinted)))]))))));
-        var c = IccL_Pixel(b, 100, 100);
-        Assert.True(c is { Red: >= 254, Green: >= 254, Blue: >= 254 }, c.ToString());
+        var c = IccL_Pixel(b, 50, 100);
+        Assert.True(c is { Red: >= 242 and <= 244, Green: >= 242 and <= 244, Blue: >= 242 and <= 244 }, c.ToString());
+        var relative = IccL_Pixel(b, 150, 100);
+        Assert.True(relative is { Red: >= 254, Green: >= 254, Blue: >= 254 }, relative.ToString());
     }
 
     /// <summary>

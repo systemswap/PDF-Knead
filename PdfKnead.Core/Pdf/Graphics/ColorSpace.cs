@@ -69,6 +69,15 @@ public abstract partial class ColorSpace
     /// <summary>The base space of an indexed space (its palette colours are in it); null for every other space.</summary>
     internal virtual ColorSpace? IndexedBase => null;
 
+    /// <summary>
+    /// The components in <see cref="IndexedBase"/> of the palette entry nearest to <paramref name="index"/> (a half upwards, as <see cref="ToRgb"/>);
+    /// null for every space but an indexed one. A shading blends these, never the indices (ISO 32000-2, 8.7.4.4).
+    /// </summary>
+    internal virtual double[]? IndexedComponents(double index) => null;
+
+    /// <summary>The underlying space of a Pattern space (an uncoloured pattern takes its colour there); null for every other space.</summary>
+    internal virtual ColorSpace? PatternUnderlying => null;
+
     /// <summary>Separation or DeviceN: paints only its own colourants (relevant for overprint, ISO 32000-2, 11.7.4).</summary>
     public virtual bool IsColorant => false;
 
@@ -203,16 +212,26 @@ public abstract partial class ColorSpace
         private readonly double[] _range = [-100, 100, -100, 100];
 
         private readonly float[] _white;
+        private readonly PdfDictionary? _dict;
+        private readonly CieMapping _mapping;
 
-        public LabSpace(PdfDictionary? dict)
+        public LabSpace(PdfDictionary? dict, byte intent = RelativeColorimetric, bool compensate = true)
         {
+            _dict = dict;
             if (Numbers(dict?.GetArray(PdfName.Get("WhitePoint"))) is { Length: 3 } wp && wp[1] > 0) (_xw, _yw, _zw) = (wp[0], wp[1], wp[2]);
             _white = [(float)_xw, (float)_yw, (float)_zw];
             // only a sensible range (finite, minimum not above maximum): otherwise Math.Clamp would throw during conversion (found by fuzzing)
             if (Numbers(dict?.GetArray(PdfName.Get("Range"))) is { Length: 4 } r && r.All(double.IsFinite) && r[0] <= r[1] && r[2] <= r[3]) _range = r;
+            // /BlackPoint and the rendering intent (8.6.5.4, 8.6.5.8; docs/FEHLERGEDAECHTNIS.md, No. 1129)
+            _mapping = CieMapping.For(_white, BlackPoint(dict), intent, compensate);
         }
 
         public override int Components => 3;
+
+        private protected override bool DependsOnRendering => true;
+
+        private protected override ColorSpace Rendered(byte intent, bool compensate) =>
+            CieMapping.For(_white, BlackPoint(_dict), intent, compensate).Same(_mapping) ? this : new LabSpace(_dict, intent, compensate);
 
         public override double[] DefaultDecode(int bpc) => [0, 100, _range[0], _range[1], _range[2], _range[3]];
 
@@ -228,7 +247,7 @@ public abstract partial class ColorSpace
             static double G(double t) => t >= 6.0 / 29 ? t * t * t : 108.0 / 841 * (t - 4.0 / 29);
             // XYZ under the white point of the colour space, adapted to D50 → sRGB (assuming D65 instead gives a yellow cast with a D50 white point)
             Span<float> xyz = [(float)(_xw * G(fx)), (float)(_yw * G(fy)), (float)(_zw * G(fz))];
-            return FromXyz(_white, xyz);
+            return _mapping.ToRgb(_white, xyz);
         }
     }
 
@@ -248,9 +267,9 @@ public abstract partial class ColorSpace
         private protected override bool DependsOnRendering => _base.DependsOnRendering;
 
         // the palette again through the base space's variant (ISO 32000-2, 8.6.5.8: the intent applies to the base)
-        private protected override ColorSpace Rendered(byte table, bool compensate)
+        private protected override ColorSpace Rendered(byte intent, bool compensate)
         {
-            var variant = _base.WithRendering(table, compensate ? BpcDefault : BpcOff);
+            var variant = _base.WithRendering(intent, compensate ? BpcDefault : BpcOff);
             return ReferenceEquals(variant, _base) ? this : new IndexedSpace(Palette(variant, _palette.Length - 1, _lookup), variant, _lookup);
         }
 
@@ -294,11 +313,26 @@ public abstract partial class ColorSpace
 
         public override bool IsIndexed => true;
 
-        public override Rgb ToRgb(ReadOnlySpan<double> c)
+        public override Rgb ToRgb(ReadOnlySpan<double> c) => _palette[Entry(c.Length > 0 ? c[0] : 0)];
+
+        // to the nearest entry, a half upwards (8.6.6.3, PDF 2.0; before, to even: 2.5 gave 2 — docs/FEHLERGEDAECHTNIS.md, No. 1123)
+        private int Entry(double index) =>
+            Math.Clamp(double.IsFinite(index) ? (int)Math.Clamp(Math.Floor(index + 0.5), int.MinValue, int.MaxValue) : 0, 0, _palette.Length - 1);
+
+        internal override double[] IndexedComponents(double index)
         {
-            // to the nearest entry, a half upwards (8.6.6.3, PDF 2.0; before, to even: 2.5 gave 2 — docs/FEHLERGEDAECHTNIS.md, No. 1123)
-            var i = c.Length > 0 && double.IsFinite(c[0]) ? (int)Math.Clamp(Math.Floor(c[0] + 0.5), int.MinValue, int.MaxValue) : 0;
-            return _palette[Math.Clamp(i, 0, _palette.Length - 1)];
+            // as Palette maps the bytes of the table onto the value range of the base
+            var n = _base.Components;
+            var range = _base.DefaultDecode(8);
+            var entry = Entry(index);
+            var comps = new double[n];
+            for (var k = 0; k < n; k++)
+            {
+                var idx = entry * n + k;
+                var (min, max) = 2 * k + 1 < range.Length ? (range[2 * k], range[2 * k + 1]) : (0.0, 1.0);
+                comps[k] = min + (idx < _lookup.Length ? _lookup[idx] / 255.0 : 0) * (max - min);
+            }
+            return comps;
         }
     }
 
@@ -340,9 +374,9 @@ public abstract partial class ColorSpace
 
         private protected override bool DependsOnRendering => _alternate.DependsOnRendering;
 
-        private protected override ColorSpace Rendered(byte table, bool compensate)
+        private protected override ColorSpace Rendered(byte intent, bool compensate)
         {
-            var variant = _alternate.WithRendering(table, compensate ? BpcDefault : BpcOff);
+            var variant = _alternate.WithRendering(intent, compensate ? BpcDefault : BpcOff);
             return ReferenceEquals(variant, _alternate) ? this : new SeparationSpace(_components, variant, _tint, _none, _all);
         }
 
@@ -401,6 +435,8 @@ public abstract partial class ColorSpace
         public override int Components => underlying?.Components ?? 0;
 
         public override bool IsPattern => true;
+
+        internal override ColorSpace? PatternUnderlying => underlying;
 
         public override Rgb ToRgb(ReadOnlySpan<double> c) =>
             underlying is not null && c.Length >= underlying.Components ? underlying.ToRgb(c[..underlying.Components]) : Placeholder;

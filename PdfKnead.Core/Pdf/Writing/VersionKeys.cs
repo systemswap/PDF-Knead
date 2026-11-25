@@ -17,7 +17,10 @@ namespace PdfKnead.Core.Pdf.Writing;
 /// <item>2.0: the deprecated /ProcSet, /Name of fonts (not of Type 3 fonts, No. 812) and XObjects, /CharSet and /CIDSet of font descriptors, /Suspects, /NeedsRendering
 /// and the XFA of a form that has fields of its own go; /PS and /Subtype2 leave a form (PostScript XObjects leave the resources in PdfWriter), /TR and /TR2 a
 /// graphics state (not the /TR of a soft mask), /BM as an array becomes the name that counts, CalCMYK becomes DeviceCMYK (No. 1127); the
-/// document information dictionary stays (deprecated, not forbidden, and what it says may stand nowhere else).</item>
+/// document information dictionary stays (deprecated, not forbidden, and what it says may stand nowhere else); /OPI of images and forms goes
+/// (deprecated in 8.9.5.1 and 8.10.2: OPI is for prepress proxies, nothing a reader shows; docs/FEHLERGEDAECHTNIS.md, No. 1131).</item>
+/// <item>every version: a form whose /Type is not XObject gets /Type /XObject (8.10.2: where given, it is XObject) — the display never reads the
+/// /Type of a form, nothing changes in its meaning (No. 1131).</item>
 /// </list>
 /// </summary>
 internal static class VersionKeys
@@ -28,7 +31,7 @@ internal static class VersionKeys
         Suspects = PdfName.Get("Suspects"), NeedsRendering = PdfName.Get("NeedsRendering"), Xfa = PdfName.Get("XFA"), Fields = PdfName.Get("Fields"),
         FT = PdfName.Get("FT"), Ps = PdfName.Get("PS"), Subtype2 = PdfName.Get("Subtype2"), Tr = PdfName.Get("TR"),
         Tr2 = PdfName.Get("TR2"), Bm = PdfName.Get("BM"), DeviceCmyk = PdfName.Get("DeviceCMYK"), Process = PdfName.Get("Process"),
-        ColorSpaceKey = PdfName.Get("ColorSpace");
+        ColorSpaceKey = PdfName.Get("ColorSpace"), Opi = PdfName.Get("OPI"), XObjectType = PdfName.Get("XObject");
 
     /// <summary>Field flags (bits 23–27, 1-based) introduced with PDF 1.5 (ISO 32000-2, Tables 228, 230, 232).</summary>
     private const long Flags15 = (1L << 22) | (1L << 23) | (1L << 24) | (1L << 25) | (1L << 26);
@@ -54,9 +57,9 @@ internal static class VersionKeys
             switch (value)
             {
                 case PdfStream stream:
-                    return Dict(stream.Dictionary, depth) is { } changedDict ? WithDictionary(stream, changedDict) : stream;
+                    return Dict(stream.Dictionary, depth, true) is { } changedDict ? WithDictionary(stream, changedDict) : stream;
                 case PdfDictionary dict:
-                    return Dict(dict, depth) ?? dict;
+                    return Dict(dict, depth, false) ?? dict;
                 // CalCMYK, never more than DeviceCMYK, is not in 2.0 (8.6.5.1; No. 1127)
                 case PdfArray { Count: >= 1 } cal when !below20 && cal[0] is PdfName { Value: "CalCMYK" }:
                     return DeviceCmyk;
@@ -84,10 +87,10 @@ internal static class VersionKeys
         }
 
         // a dictionary without what the version does not have; null if nothing changes (direct parts walked as well, references not followed)
-        PdfDictionary? Dict(PdfDictionary dict, int depth)
+        PdfDictionary? Dict(PdfDictionary dict, int depth, bool stream)
         {
             List<PdfName>? drop = null;
-            (PdfName Key, PdfObject Value)? set = null;
+            List<(PdfName Key, PdfObject Value)>? set = null;
             var type = dict.GetRaw(Type) is PdfName t ? t.Value : null;
             var subtype = dict.GetRaw(Subtype) is PdfName s ? s.Value : null;
             void Drop(PdfName key)
@@ -104,7 +107,7 @@ internal static class VersionKeys
                 if (dict.GetRaw(Ff) is PdfInteger flags && (flags.Value & Flags15) != 0 && (dict.ContainsKey(FT) || dict.ContainsKey(PdfName.Get("T")) ||
                                                                                           dict.ContainsKey(PdfName.Kids)))
                 {
-                    if (pdfA) set = (Ff, PdfInteger.Of(flags.Value & ~Flags15));
+                    if (pdfA) (set ??= []).Add((Ff, PdfInteger.Of(flags.Value & ~Flags15)));
                     else needs("1.5", Localization.Tr.T("Formularfeld-Eigenschaften"));
                 }
             }
@@ -140,17 +143,23 @@ internal static class VersionKeys
                     Drop(Tr);
                     Drop(Tr2);
                 }
-                if (dict.GetRaw(Bm) is PdfArray choices) set = (Bm, PdfName.Get(Content.BlendModes.Name(Content.BlendModes.From(choices))));
+                if (dict.GetRaw(Bm) is PdfArray choices) (set ??= []).Add((Bm, PdfName.Get(Content.BlendModes.Name(Content.BlendModes.From(choices)))));
+                // OPI of images and forms is deprecated (8.9.5.1, 8.10.2): proxies for prepress, which no reader shows (No. 1131)
+                if (subtype is "Image" or "Form") Drop(Opi);
                 // NChannel with Lab as its process space: allowed in 1.x, not in 2.0 (8.6.6.5) — written as plain DeviceN attributes, its
                 // components become ordinary colorants through the tint transform, as the display draws them (docs/FEHLERGEDAECHTNIS.md, No. 1128)
                 if (subtype == "NChannel" && dict.GetRaw(Process) is PdfDictionary process
                     && process.GetRaw(ColorSpaceKey) is PdfName { Value: "Lab" } or PdfArray { Count: >= 1 } and [PdfName { Value: "Lab" }, ..])
                 {
                     Drop(Process);
-                    set = (Subtype, PdfName.Get("DeviceN"));
+                    (set ??= []).Add((Subtype, PdfName.Get("DeviceN")));
                 }
                 if (dict.ContainsKey(Xfa) && dict.Get(Fields) is PdfArray { Count: > 0 }) Drop(Xfa);
             }
+            // a form with another /Type than XObject (8.10.2), in every version: the display does not read it, the meaning stays (No. 1131) — not a
+            // tiling pattern that also says /Subtype /Form, which is drawn as a pattern by its /Type
+            if (stream && subtype == "Form" && dict.GetRaw(Type) is PdfName { Value: not "XObject" } && !dict.ContainsKey(PdfName.Get("PatternType")))
+                (set ??= []).Add((Type, XObjectType));
             PdfDictionary? copy = null;
             PdfDictionary Copy()
             {
@@ -161,7 +170,8 @@ internal static class VersionKeys
             }
             if (drop is not null)
                 foreach (var key in drop) Copy().Remove(key);
-            if (set is { } change) Copy().Set(change.Key, change.Value);
+            if (set is not null)
+                foreach (var (key, value) in set) Copy().Set(key, value);
             // direct parts: resources, graphics states, the mark information, an inline form dictionary …
             foreach (var (key, item) in (copy ?? dict).Entries.ToList())
             {

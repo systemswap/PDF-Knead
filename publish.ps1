@@ -235,13 +235,9 @@ function Copy-CjkFonts([string]$dest) {
     Copy-Item $source $target -Recurse -Force
 }
 
-# Lizenzierte Handschriften (nicht im Programm, Wunsch vom 22.10.2026) als Schriften-Unterschrift neben das Programm.
-# Schriften\Handschriften-lizenziert liegt nur lokal (.gitignore, seit 16.11.2026 nicht im Repository); fehlt der Ordner, kommt nichts
-# mit. Die Pakete zum Weitergeben baut der Workflow auf GitHub, wo der Ordner fehlt. In denselben Ordner importiert das Programm eigene Schriften
-# (Datei -> Schrift importieren): die bleiben bei jedem Bau stehen (Fehlergedaechtnis 96). Welche Dateien mitgeliefert sind, steht in
-# Schriften-Unterschrift\.mitgeliefert (eine Zeile je Datei, LF); nur davon entfernt ein Bau, was es im Repository nicht mehr gibt, und
-# nur sie kommen ins Paket.
-$signatureSource = Join-Path $root 'Schriften\Handschriften-lizenziert'
+# Schriften-Unterschrift neben dem Programm: dorthin importiert das Programm eigene Schriften (Datei -> Schrift importieren); sie bleiben bei
+# jedem Bau stehen (Fehlergedaechtnis 96) und kommen nie ins Paket. Lizenzierte Handschriften liefert PDF-Knead nicht mehr mit (seit
+# 25.11.2026): was ein frueherer Bau mitgeliefert hat (Schriften-Unterschrift\.mitgeliefert, eine Zeile je Datei), entfernt ein neuer Bau.
 function Get-ShippedSignatureFonts([string]$target) {
     $manifest = Join-Path $target '.mitgeliefert'
     if (-not (Test-Path -LiteralPath $manifest)) { return @() }
@@ -252,19 +248,11 @@ function Copy-SignatureFonts([string]$dest) {
     $target = Join-Path $dest 'Schriften-Unterschrift'
     $manifest = Join-Path $target '.mitgeliefert'
     foreach ($name in (Get-ShippedSignatureFonts $target)) {
-        if (Test-Path -LiteralPath (Join-Path $signatureSource $name)) { continue }
         $old = Join-Path $target $name
         if (Test-Path -LiteralPath $old) { Remove-Item -LiteralPath $old -Force }
     }
     if (Test-Path -LiteralPath $manifest) { Remove-Item -LiteralPath $manifest -Force }
-    $fonts = @(Get-ChildItem -LiteralPath $signatureSource -File -ErrorAction SilentlyContinue | Where-Object { $_.Extension -in @('.ttf', '.otf') })
-    if ($fonts.Count -gt 0) {
-        New-Item -ItemType Directory -Force -Path $target | Out-Null
-        foreach ($font in $fonts) { Copy-Item -LiteralPath $font.FullName -Destination $target -Force }
-        $names = (@($fonts | ForEach-Object { $_.Name }) -join "`n") + "`n"
-        [System.IO.File]::WriteAllText($manifest, $names, (New-Object System.Text.UTF8Encoding $false))
-    }
-    # Leer (nichts mitgeliefert, nichts importiert): weg
+    # Leer (nichts importiert): weg
     if ((Test-Path -LiteralPath $target) -and -not (Get-ChildItem -LiteralPath $target -Force)) { Remove-Item -LiteralPath $target -Force }
 }
 

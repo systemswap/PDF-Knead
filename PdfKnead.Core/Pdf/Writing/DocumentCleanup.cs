@@ -547,7 +547,7 @@ public static class DocumentCleanup
             if (xmp) parts.Add("XMP");
             if (inObjects.Jpeg > 0) parts.Add(Tr.T("EXIF und Ähnliches in {0} JPEG-Bildern", inObjects.Jpeg));
             if (inObjects.Jpx > 0) parts.Add(Tr.T("Angaben in {0} JPEG-2000-Bildern", inObjects.Jpx));
-            if (inObjects.Icc > 0) parts.Add(Tr.T("Gerätedaten in {0} Farbprofilen", inObjects.Icc));
+            if (inObjects.Icc > 0) parts.Add(Tr.T("Geräte- und Herkunftsdaten in {0} Farbprofilen", inObjects.Icc));
             if (authored > 0) parts.Add(Tr.T("Autor und Datum an {0} Kommentaren", authored));
             if (objectXmp > 0) parts.Add(Tr.T("XMP an {0} Objekten (Seiten, Bilder, Kommentare …)", objectXmp));
             found.Add(new CleanupFinding(CleanupItems.Metadata, infoKeys.Count + (xmp ? 1 : 0) + objectParts, string.Join(" · ", parts)));

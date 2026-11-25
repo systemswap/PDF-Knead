@@ -51,11 +51,21 @@ public static partial class PdfWriter
                     _olderProfiles[profile] = older = CalibratedProfile.AsVersion2(data) is { } version2 ? Fresh(IccStream(version2, n)) : null;
                 if (older is not null) return new PdfArray([IccBased, older]);
             }
+            // a readable profile without the tags ICC.1 8.2 requires gets them added, with the same colours (No. 1133)
+            else if (CalibratedProfile.MissingRequiredTags(data).Length > 0)
+            {
+                if (!_completedProfiles.TryGetValue(profile, out var completed))
+                    _completedProfiles[profile] = completed = CalibratedProfile.WithRequiredTags(data) is { } whole ? Fresh(IccStream(whole, n)) : null;
+                if (completed is not null) return new PdfArray([IccBased, completed]);
+            }
             return array;
         }
 
         /// <summary>Profiles of a version the part does not allow, written as version 2 once each (null: they cannot be).</summary>
         private readonly Dictionary<PdfStream, PdfObject?> _olderProfiles = new(ReferenceEqualityComparer.Instance);
+
+        /// <summary>Profiles without the required tags, written with them once each (null: they cannot be completed).</summary>
+        private readonly Dictionary<PdfStream, PdfObject?> _completedProfiles = new(ReferenceEqualityComparer.Instance);
 
         /// <summary>The first description of each spot colour by name (alternate space and tint transform), and the names given to others.</summary>
         private readonly Dictionary<string, (string Fingerprint, PdfArray Space, Source? Source)> _separations = new(StringComparer.Ordinal);

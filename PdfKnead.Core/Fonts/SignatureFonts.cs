@@ -5,10 +5,9 @@ using PdfKnead.Core.Platform;
 namespace PdfKnead.Core.Fonts;
 
 /// <summary>
-/// Handwriting fonts for signatures. The free ones are embedded in the program (folder "Schriften/Handschriften-frei"); all
-/// licensed ones are files in the folder "Schriften-Unterschrift" next to the program (the publish scripts copy
-/// "Schriften/Handschriften-lizenziert" there, and the „Handschriften“ window (File → Fonts) adds copies to it and removes them, so the program stays portable
-/// and the fonts move with it). Only if that folder is not writable does an import go to the user folder. Signatures are saved as
+/// Handwriting fonts for signatures. The free ones are embedded in the program (folder "Schriften/Handschriften-frei"); fonts the
+/// user adds are files in the folder "Schriften-Unterschrift" next to the program (the „Handschriften“ window (File → Fonts) adds
+/// copies to it and removes them, so the program stays portable and the fonts move with it). No licensed font comes with the program. Only if that folder is not writable does an import go to the user folder. Signatures are saved as
 /// outlines, never as a font: the font file itself never ends up in a PDF file.
 /// </summary>
 /// <remarks>Safe to call from rendering threads and the user interface at the same time.</remarks>

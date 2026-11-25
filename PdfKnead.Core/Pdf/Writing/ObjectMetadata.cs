@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using PdfKnead.Core.Pdf.Document;
+using PdfKnead.Core.Pdf.Graphics.Icc;
 using PdfKnead.Core.Pdf.Objects;
 
 namespace PdfKnead.Core.Pdf.Writing;
@@ -10,9 +11,11 @@ namespace PdfKnead.Core.Pdf.Writing;
 /// <list type="bullet">
 /// <item>JPEG: EXIF (with a preview of its own — a cropped photo can show whole in it —, GPS, camera, serial number), XMP, Photoshop/IPTC,
 /// comments, JFXX previews and the segments of other programs; cut out losslessly. JFIF (without the preview it may carry), the colour
-/// profile and the Adobe segment stay: they decide the colours.</item>
-/// <item>JPEG 2000: the boxes XML, UUID (XMP, GeoJP2, camera data) and UUID info.</item>
-/// <item>Colour profiles (ICC): descriptions of the device maker and model, the metadata tag; the profile ID (a checksum) becomes 0.</item>
+/// profile (cleaned as below) and the Adobe segment stay: they decide the colours.</item>
+/// <item>JPEG 2000: the boxes XML, UUID (XMP, GeoJP2, camera data) and UUID info; the colour profile of a colour box cleaned as below.</item>
+/// <item>Colour profiles (ICC), as streams, in JPEG and in JPEG 2000: date of creation, device maker, model and creator in the header,
+/// descriptions of the device maker and model, profile sequences, the metadata tag, private tags (<see cref="Icc"/>); the profile ID (a
+/// checksum) is computed afresh.</item>
 /// </list>
 /// Copyright and licence notices in fonts and profiles stay: many licences require them, and they tell nothing about the document.
 /// </summary>
@@ -21,21 +24,25 @@ internal static class ObjectMetadata
     /// <summary>What kinds of object metadata a document carries, counted for the window.</summary>
     /// <param name="Jpeg">JPEG images with metadata segments.</param>
     /// <param name="Jpx">JPEG 2000 images with metadata boxes.</param>
-    /// <param name="Icc">Colour profiles with device descriptions or metadata.</param>
+    /// <param name="Icc">Colour profiles (streams) with device or origin data to clean (<see cref="ObjectMetadata.Icc"/>).</param>
     /// <param name="FontNotices">Font programs with copyright, licence or other free texts (<see cref="CleanupItems.Notices"/>).</param>
     /// <param name="IccNotices">Colour profiles with description or copyright text (<see cref="CleanupItems.Notices"/>).</param>
     internal readonly record struct Counts(int Jpeg, int Jpx, int Icc, int FontNotices, int IccNotices);
 
-    /// <summary>At most this many objects are looked at for the window; streams larger than this are not decoded (profiles).</summary>
+    /// <summary>
+    /// At most this many objects are looked at for the window; profile streams larger than the largest profile the display reads are not decoded
+    /// (32 MB, as <see cref="IccProfile"/>; before 4 MB, and a larger profile the display used kept its device data — No. 1133).
+    /// </summary>
     private const int MaxObjects = 200_000;
-    private const int MaxProfile = 4 << 20;
+    private const int MaxProfile = 32 << 20;
 
     /// <summary>The stream without the metadata in its data, or null if it has none (or is not such a stream).</summary>
     /// <param name="stream">The stream as it is written.</param>
     /// <param name="doc">The document it comes from.</param>
     /// <param name="items">The chosen items: <see cref="CleanupItems.Metadata"/> and/or <see cref="CleanupItems.Notices"/>.</param>
+    /// <param name="number">Its object number in <paramref name="doc"/> (0: unknown) — a profile is also found by its use (<see cref="IsProfile"/>).</param>
     /// <returns>A replacement with the same dictionary (and filter), or null.</returns>
-    public static PdfStream? Clean(PdfStream stream, PdfDocument doc, CleanupItems items)
+    public static PdfStream? Clean(PdfStream stream, PdfDocument doc, CleanupItems items, int number = 0)
     {
         var metadata = items.HasFlag(CleanupItems.Metadata);
         var notices = items.HasFlag(CleanupItems.Notices);
@@ -47,7 +54,7 @@ internal static class ObjectMetadata
                     return WithRaw(stream, jpeg);
                 case "JPXDecode" when metadata && Jpx(doc.GetRawStreamData(stream)) is { } jpx:
                     return WithRaw(stream, jpx);
-                case null or "FlateDecode" or "LZWDecode" or "ASCIIHexDecode" or "ASCII85Decode" when MaybeProfile(stream) && (metadata || notices):
+                case null or "FlateDecode" or "LZWDecode" or "ASCIIHexDecode" or "ASCII85Decode" when (metadata || notices) && IsProfile(stream, doc, number):
                     var data = doc.GetStreamData(stream);
                     var profile = metadata ? Icc(data) ?? data : data;
                     if (notices && IccNotices(profile) is { } blank) profile = blank;
@@ -81,7 +88,7 @@ internal static class ObjectMetadata
                     case "JPXDecode" when stream.DataLength < 256 << 20 && Jpx(doc.GetRawStreamData(stream)) is not null:
                         jpx++;
                         break;
-                    case null or "FlateDecode" or "LZWDecode" or "ASCIIHexDecode" or "ASCII85Decode" when MaybeProfile(stream):
+                    case null or "FlateDecode" or "LZWDecode" or "ASCIIHexDecode" or "ASCII85Decode" when IsProfile(stream, doc, n):
                         var profile = doc.GetStreamData(stream);
                         if (Icc(profile) is not null) icc++;
                         if (IccNotices(profile) is not null) iccNotices++;
@@ -107,9 +114,62 @@ internal static class ObjectMetadata
         _ => null,
     };
 
-    /// <summary>An ICC profile stream has /N (1, 3 or 4) and is not an image or form.</summary>
-    private static bool MaybeProfile(PdfStream stream) =>
-        stream.Dictionary.GetInteger(PdfName.N) is 1 or 3 or 4 && stream.Dictionary.GetName(PdfName.Subtype) is null && stream.DataLength <= MaxProfile;
+    /// <summary>
+    /// An ICC profile stream is not an image or form and has /N (1, 3 or 4) — or, whatever its /N, is named as a profile: by an ICCBased space
+    /// or as the /DestOutputProfile of an output intent (<see cref="NamedProfiles"/>). Before, a profile without /N was not looked at, and its
+    /// device data stayed (docs/FEHLERGEDAECHTNIS.md, No. 1133).
+    /// </summary>
+    private static bool IsProfile(PdfStream stream, PdfDocument doc, int number) =>
+        stream.Dictionary.GetName(PdfName.Subtype) is null && stream.DataLength <= MaxProfile &&
+        (stream.Dictionary.GetInteger(PdfName.N) is 1 or 3 or 4 || number > 0 && Named(doc).Contains(number));
+
+    /// <summary>Per document the numbers of the streams named as profiles, collected once.</summary>
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<PdfDocument, HashSet<int>> NamedProfiles = new();
+
+    private static HashSet<int> Named(PdfDocument doc) => NamedProfiles.GetValue(doc, CollectNamed);
+
+    /// <summary>
+    /// The numbers of the streams that an [/ICCBased n 0 R] names or a /DestOutputProfile refers to, anywhere in the objects of the document —
+    /// colour space resources and their bases and alternates (Indexed, Separation, DeviceN), default spaces, group /CS, images, shadings,
+    /// output intents: every place keeps the space as an array in an object, so a walk through the objects finds them without decoding any
+    /// content stream. At most <see cref="MaxObjects"/> objects, 32 levels deep, 10 000 elements per array.
+    /// </summary>
+    private static HashSet<int> CollectNamed(PdfDocument doc)
+    {
+        var found = new HashSet<int>();
+        for (var n = 1; n <= Math.Min(doc.ObjectCount, MaxObjects); n++)
+        {
+            try
+            {
+                var obj = doc.GetObject(n);
+                Walk(obj is PdfStream stream ? stream.Dictionary : obj, found, 0);
+            }
+            catch (Exception e) when (e is PdfException or InvalidDataException or ArgumentException or IndexOutOfRangeException)
+            {
+            }
+        }
+        return found;
+
+        static void Walk(PdfObject? obj, HashSet<int> found, int depth)
+        {
+            if (depth > 32) return;
+            switch (obj)
+            {
+                case PdfArray array:
+                    if (array.Count >= 2 && array[0] is PdfName { Value: "ICCBased" } && array[1] is PdfReference profile) found.Add(profile.Id.Number);
+                    for (var i = 0; i < Math.Min(array.Count, 10_000); i++)
+                        if (array[i] is PdfArray or PdfDictionary) Walk(array[i], found, depth + 1);
+                    break;
+                case PdfDictionary dict:
+                    foreach (var (key, value) in dict.Entries)
+                    {
+                        if (key.Value == "DestOutputProfile" && value is PdfReference intent) found.Add(intent.Id.Number);
+                        else if (value is PdfArray or PdfDictionary) Walk(value, found, depth + 1);
+                    }
+                    break;
+            }
+        }
+    }
 
     /// <summary>A font program (FontFile, FontFile2, FontFile3): it has /Length1 or a font subtype.</summary>
     private static bool MaybeFont(PdfStream stream) =>
@@ -150,6 +210,7 @@ internal static class ObjectMetadata
     {
         if (data.Length < 4 || data[0] != 0xFF || data[1] != 0xD8) return null;
         var drop = new List<(int Start, int End, byte[] Replacement)>();
+        var profileParts = new List<(int Start, int End, int Number, int Count)>();
         var at = 2;
         while (at + 4 <= data.Length)
         {
@@ -183,9 +244,12 @@ internal static class ObjectMetadata
             // a cropped photo can show whole in it — the segment keeps its fields with a preview of 0 × 0 (docs/FEHLERGEDAECHTNIS.md, No. 960)
             else if (marker == 0xE0 && body.Length > 14)
                 drop.Add((at, at + 2 + length, [0xFF, 0xE0, 0x00, 0x10, .. body[..12], 0x00, 0x00]));
+            else if (marker == 0xE2 && body.Length >= 14) profileParts.Add((at, at + 2 + length, body[12], body[13]));
             at += 2 + length;
         }
+        JpegProfile(data, profileParts, drop);
         if (drop.Count == 0) return null;
+        drop.Sort((a, b) => a.Start.CompareTo(b.Start));
         var result = new byte[data.Length - drop.Sum(d => d.End - d.Start - d.Replacement.Length)];
         var written = 0;
         var from = 0;
@@ -201,6 +265,47 @@ internal static class ObjectMetadata
         return result;
     }
 
+    /// <summary>The most profile bytes an APP2 segment carries: a length field of 65 535 less itself, „ICC_PROFILE\0“, number and count.</summary>
+    private const int ProfileChunk = 65535 - 2 - 14;
+
+    /// <summary>
+    /// The colour profile of a JPEG cleaned (<see cref="Icc"/>): the segments put together in the order of their numbers (ICC.1, B.4; T.872,
+    /// 6.5.1), cleaned, and written in place of the first one as numbered segments again, the others dropped — before, the segments stayed as
+    /// they were (No. 1133). Segments whose numbers do not make one profile (a number twice or missing, counts that differ), or whose bytes
+    /// together are no profile, give no reader a profile — PDF-Knead's decoder does not read them, the image is drawn in the colour space of the
+    /// PDF —, so they can only carry data: they are removed (before, they stayed as they were).
+    /// </summary>
+    private static void JpegProfile(ReadOnlySpan<byte> data, List<(int Start, int End, int Number, int Count)> parts,
+        List<(int Start, int End, byte[] Replacement)> drop)
+    {
+        if (parts.Count == 0) return;
+        if (parts.Any(p => p.Count != parts.Count) || !parts.Select(p => p.Number).Order().SequenceEqual(Enumerable.Range(1, parts.Count)))
+        {
+            foreach (var (start, end, _, _) in parts) drop.Add((start, end, []));
+            return;
+        }
+        var profile = new List<byte>();
+        foreach (var (start, end, _, _) in parts.OrderBy(p => p.Number)) profile.AddRange(data[(start + 18)..end]);
+        byte[] whole = [.. profile];
+        if (whole.Length < 132 || !whole.AsSpan(36, 4).SequenceEqual("acsp"u8))
+        {
+            foreach (var (start, end, _, _) in parts) drop.Add((start, end, []));
+            return;
+        }
+        if (Icc(whole) is not { } clean) return;
+        var count = (clean.Length + ProfileChunk - 1) / ProfileChunk;
+        if (count > 255) return;
+        var segments = new List<byte>();
+        for (var i = 0; i < count; i++)
+        {
+            var part = clean.AsSpan(i * ProfileChunk, Math.Min(ProfileChunk, clean.Length - i * ProfileChunk));
+            var length = part.Length + 16;
+            segments.AddRange([0xFF, 0xE2, (byte)(length >> 8), (byte)length, .. "ICC_PROFILE\0"u8, (byte)(i + 1), (byte)count, .. part]);
+        }
+        var first = parts.MinBy(p => p.Start);
+        foreach (var (start, end, _, _) in parts) drop.Add((start, end, start == first.Start ? [.. segments] : []));
+    }
+
     // ------------------------------------------------------------ JPEG 2000
 
     /// <summary>
@@ -208,19 +313,21 @@ internal static class ObjectMetadata
     /// property rights at any level of the box structure — the top level and the superboxes —, and the comment segments of a contiguous
     /// codestream (main header and tile-part headers). The lengths of the boxes around a removed part, the Psot of its tile-part and its entry
     /// in TLM shrink with it. Before only the top level was cleaned; rights, comments and metadata inside
-    /// superboxes stayed (decided on 23.11.2026, L45 brought forward).
+    /// superboxes stayed (decided on 23.11.2026, L45 brought forward). The colour profile of a colour box is cleaned (<see cref="Icc"/>), its box
+    /// and the boxes around it shrink with it (No. 1133).
     /// </summary>
     internal static byte[]? Jpx(ReadOnlySpan<byte> data)
     {
         var drop = new List<(int Start, int End)>();
+        var replace = new List<(int Start, int End, byte[] With)>();
         var fields = new List<(int Position, int Size, int Start, int End)>();
         // a bare codestream (ISO 32000-2, 7.4.9 allows one in a JPXDecode stream): its comment segments all the same — before only a JP2/JPX
         // file was cleaned, and the comments of a bare codestream stayed (23.11.2026)
         var bare = data.Length >= 2 && data[0] == 0xFF && data[1] == 0x4F;
         if (bare) CodestreamComments(data, 0, data.Length, drop, fields);
         else if (data.Length < 12 || BinaryPrimitives.ReadUInt32BigEndian(data) != 12 || !data.Slice(4, 4).SequenceEqual("jP  "u8)
-                 || !MetadataParts(data, 0, data.Length, 0, drop, fields)) return null;
-        if (drop.Count == 0) return null;
+                 || !MetadataParts(data, 0, data.Length, 0, drop, replace, fields)) return null;
+        if (drop.Count + replace.Count == 0) return null;
         // the fragments of a Fragment Table or Cross-Reference box lie at offsets from the start of the file (ISO/IEC 15444-2, M.11.3, M.11.4):
         // a part a fragment points into stays, and every offset behind a removed part moves back by its length — before the boxes were cut out
         // and the fragments pointed at the wrong bytes, the image was destroyed (M2, T.800 I.7, 23.11.2026)
@@ -233,24 +340,29 @@ internal static class ObjectMetadata
                 var offset = BinaryPrimitives.ReadUInt64BigEndian(data[entry..]);
                 var end = offset + BinaryPrimitives.ReadUInt32BigEndian(data[(entry + 8)..]);
                 drop.RemoveAll(d => offset < (ulong)d.End && end > (ulong)d.Start);
+                replace.RemoveAll(d => offset < (ulong)d.End && end > (ulong)d.Start);
             }
-        if (drop.Count == 0) return null;
-        drop.Sort();
-        var result = new byte[data.Length - drop.Sum(d => d.End - d.Start)];
+        // removed parts and replaced ones (a cleaned colour profile, No. 1133) together, in order; each shortens the file by what it gives up
+        var cuts = drop.Select(d => (d.Start, d.End, With: Array.Empty<byte>())).Concat(replace).OrderBy(d => d.Start).ToList();
+        if (cuts.Count == 0) return null;
+        static long Removed((int Start, int End, byte[] With) d) => d.End - d.Start - d.With.Length;
+        var result = new byte[data.Length - cuts.Sum(Removed)];
         var written = 0;
         var from = 0;
-        foreach (var (start, end) in drop)
+        foreach (var (start, end, with) in cuts)
         {
             data[from..start].CopyTo(result.AsSpan(written));
             written += start - from;
+            with.CopyTo(result, written);
+            written += with.Length;
             from = end;
         }
         data[from..].CopyTo(result.AsSpan(written));
-        long Before(long position) => drop.Where(d => d.End <= position).Sum(d => (long)(d.End - d.Start));
+        long Before(long position) => cuts.Where(d => d.End <= position).Sum(Removed);
         // the length of every box (and the Psot of every tile-part) around a removed part shrinks by what was removed inside it
         foreach (var (position, size, start, end) in fields)
         {
-            var inside = drop.Where(d => d.Start >= start && d.End <= end).Sum(d => (long)(d.End - d.Start));
+            var inside = cuts.Where(d => d.Start >= start && d.End <= end).Sum(Removed);
             if (inside == 0) continue;
             var at = (int)(position - Before(position));
             if (size == 8) BinaryPrimitives.WriteUInt64BigEndian(result.AsSpan(at), BinaryPrimitives.ReadUInt64BigEndian(data[position..]) - (ulong)inside);
@@ -273,10 +385,11 @@ internal static class ObjectMetadata
 
     /// <summary>
     /// The metadata parts of the boxes from <paramref name="s"/> to <paramref name="e"/> (through the superboxes, at most eight deep, and into
-    /// a contiguous codestream), and the length fields of the boxes walked into; false if the structure is damaged.
+    /// a contiguous codestream), the colour profiles of colour boxes with their cleaned replacement (method 2 or 3, ISO/IEC 15444-1 I.5.3.3,
+    /// 15444-2 M.11.7.2; <see cref="Icc"/>), and the length fields of the boxes walked into; false if the structure is damaged.
     /// </summary>
     private static bool MetadataParts(ReadOnlySpan<byte> data, int s, int e, int depth, List<(int Start, int End)> drop,
-        List<(int Position, int Size, int Start, int End)> fields)
+        List<(int Start, int End, byte[] With)> replace, List<(int Position, int Size, int Start, int End)> fields)
     {
         for (var at = s; at + 8 <= e;)
         {
@@ -303,7 +416,14 @@ internal static class ObjectMetadata
             else if ((Superboxes.Contains(type) || type == "res ") && depth < 8)
             {
                 if (field is { } f) fields.Add((f.Position, f.Size, at, ce));
-                if (!MetadataParts(data, cs, ce, depth + 1, drop, fields)) return false;
+                if (!MetadataParts(data, cs, ce, depth + 1, drop, replace, fields)) return false;
+            }
+            // the profile of a colour box (method, precedence, approximation, then the profile to the end of the box): cleaned like a profile
+            // stream, the box shrinks with it — before, it stayed as it was (No. 1133)
+            else if (type == "colr" && ce - cs > 3 + 132 && data[cs] is 2 or 3 && Icc(data[(cs + 3)..ce].ToArray()) is { } clean)
+            {
+                if (field is { } f) fields.Add((f.Position, f.Size, at, ce));
+                replace.Add((cs + 3, ce, clean));
             }
             else if (type == "jp2c")
             {
@@ -428,19 +548,76 @@ internal static class ObjectMetadata
 
     // ------------------------------------------------------------ ICC
 
-    /// <summary>Tags that describe the device or carry free metadata: device maker and model description, the metadata dictionary.</summary>
-    private static readonly HashSet<string> IccMetadataTags = ["dmnd", "dmdd", "meta"];
+    // A profile tells where it comes from in its header and in tags that do not take part in converting colours. Cleaning removes all of it,
+    // wherever the profile stands (ICCBased and output intent streams, JPEG APP2 segments, JPEG 2000 colour boxes), and keeps what converts
+    // colours: the colours stay exactly the same. Before, only the tags dmnd, dmdd and meta went, and only from profile streams up to 4 MB
+    // (docs/FEHLERGEDAECHTNIS.md, No. 1133).
 
     /// <summary>
-    /// An ICC profile without the tags in <see cref="IccMetadataTags"/>, the data of the others packed anew (shared data stays shared), the
-    /// profile ID set to 0 (it is a checksum of the old profile); null if the profile has none of these tags or is not readable.
+    /// Tags removed from every profile: device maker and model description (ICC.1:2022, 9.2.23, 9.2.24), the metadata dictionary (9.2.35), the
+    /// profile sequence with the device descriptions of the profiles it was made of (9.2.44, 10.19) and their identifiers (9.2.45, 10.20), the
+    /// date of calibration (9.2.13, a date of the device like the date of creation).
+    /// </summary>
+    private static readonly HashSet<string> IccMetadataTags = ["dmnd", "dmdd", "meta", "pseq", "psid", "calt"];
+
+    /// <summary>
+    /// The tag signatures ICC.1:2022 registers (9.2), and of earlier versions those that take part in converting colours: the media black point
+    /// (black point compensation of version-2 profiles) and the named colours of version 2. Every other signature is private (7.3.1) — the
+    /// localised description of a platform, a video card table, the device settings and PostScript data of version 2 — and goes from profiles of
+    /// versions 2 to 4.
+    /// </summary>
+    private static readonly HashSet<string> IccRegisteredTags =
+    [
+        "A2B0", "A2B1", "A2B2", "bXYZ", "bTRC", "B2A0", "B2A1", "B2A2", "B2D0", "B2D1", "B2D2", "B2D3", "calt", "targ", "chad", "chrm", "cicp",
+        "clro", "clrt", "clot", "ciis", "cprt", "dmnd", "dmdd", "D2B0", "D2B1", "D2B2", "D2B3", "gamt", "kTRC", "gXYZ", "gTRC", "lumi", "meas",
+        "meta", "wtpt", "ncl2", "resp", "rig0", "pre0", "pre1", "pre2", "desc", "pseq", "psid", "rXYZ", "rTRC", "rig2", "tech", "vued", "view",
+        "bkpt", "ncol",
+    ];
+
+    /// <summary>Tag types of ICC.1 (clause 10, and textDescriptionType and namedColorType of version 2): their bytes 4–7 are reserved and zero.</summary>
+    private static readonly HashSet<string> IccKnownTypes =
+    [
+        "chrm", "cicp", "clro", "clrt", "curv", "data", "dtim", "dict", "mft2", "mft1", "mAB ", "mBA ", "meas", "mluc", "mpet", "ncl2", "para",
+        "pseq", "psid", "rcs2", "sf32", "sig ", "text", "uf32", "ui16", "ui32", "ui64", "ui08", "view", "XYZ ", "desc", "ncol",
+    ];
+
+    /// <summary>
+    /// An ICC profile cleaned of where it comes from; null if there is nothing to clean or it is no profile (no „acsp“). In the header the date
+    /// of creation becomes the fixed date of the own profiles (a valid date stays, ICC.1 7.2.8), device maker, model and creator become zero
+    /// (7.2.12, 7.2.13, 7.2.17), of the device attributes the vendor bits 32–63 go while the bits that describe the medium stay (7.2.14: they
+    /// say what the profile was made for — reflective or transparent, glossy or matte —, not which device), the reserved bytes 100–127 become
+    /// zero (7.2.19). The tags of <see cref="IccMetadataTags"/> and all private tags go, the data of the others are packed anew (shared data stay
+    /// shared), bytes 4–7 of a tag of a known type become zero (10.1). A profile of version 4 or later gets its profile ID computed afresh
+    /// (7.2.18, <see cref="IccProfile.ComputedId"/>), one of version 2 zeros there (it has no ID). Of a profile of another layout than ICC.1
+    /// (versions from 5 on) only the header fields and the tags of <see cref="IccMetadataTags"/> are cleaned; of a profile whose tag table is
+    /// damaged, only the header.
     /// </summary>
     internal static byte[]? Icc(byte[] profile)
     {
         if (profile.Length < 132 || !profile.AsSpan(36, 4).SequenceEqual("acsp"u8)) return null;
-        var count = (int)BinaryPrimitives.ReadUInt32BigEndian(profile.AsSpan(128));
-        if (count is < 0 or > 1000 || 132 + count * 12 > profile.Length) return null;
-        var tags = new List<(string Signature, int Offset, int Size)>(count);
+        var layout = profile[8] is >= 2 and <= 4;
+        var result = IccTags(profile, layout) ?? (byte[])profile.Clone();
+        CalibratedProfile.WriteCreated(result);
+        result.AsSpan(48, 12).Clear();   // device maker, model, vendor attributes
+        result.AsSpan(80, 4).Clear();    // creator
+        if (layout) result.AsSpan(100, 28).Clear();
+        WriteProfileId(result);
+        return result.AsSpan().SequenceEqual(profile) ? null : result;
+    }
+
+    /// <summary>The profile ID of a changed profile: computed afresh from version 4 on (ICC.1 7.2.18), zero before (a reserved field there).</summary>
+    private static void WriteProfileId(byte[] profile)
+    {
+        profile.AsSpan(84, 16).Clear();
+        if (profile[8] >= 4) IccProfile.ComputedId(profile).CopyTo(profile, 84);
+    }
+
+    /// <summary>The tag entries of a profile; null if the table does not fit the data.</summary>
+    private static List<(string Signature, int Offset, int Size)>? IccEntries(byte[] profile)
+    {
+        var count = BinaryPrimitives.ReadUInt32BigEndian(profile.AsSpan(128));
+        if (count > 1000 || 132 + count * 12 > profile.Length) return null;
+        var tags = new List<(string Signature, int Offset, int Size)>((int)count);
         for (var i = 0; i < count; i++)
         {
             var entry = profile.AsSpan(132 + i * 12);
@@ -449,13 +626,30 @@ internal static class ObjectMetadata
             if (offset > profile.Length || size > profile.Length - offset) return null;
             tags.Add((System.Text.Encoding.ASCII.GetString(entry[..4]), (int)offset, (int)size));
         }
-        if (!tags.Any(t => IccMetadataTags.Contains(t.Signature))) return null;
-        var kept = tags.Where(t => !IccMetadataTags.Contains(t.Signature)).ToList();
+        return tags;
+    }
+
+    /// <summary>A copy of the profile without the tags to remove, the reserved bytes of the kept tags zero; null if the tag table is damaged.</summary>
+    private static byte[]? IccTags(byte[] profile, bool layout)
+    {
+        if (IccEntries(profile) is not { } tags) return null;
+        var kept = tags.Where(t => !IccMetadataTags.Contains(t.Signature) && (!layout || IccRegisteredTags.Contains(t.Signature))).ToList();
+        byte[] result;
+        if (kept.Count == tags.Count) result = (byte[])profile.Clone();
         // tags whose data overlap in part (ICC.1, 7.3.1 forbids it) would be copied once each: up to 1 000 times the profile (a crafted profile of
         // 4 MB gave 4 GB). Where packing anew would make the profile larger than it is, it stays as it is — only the entries of the removed tags
         // go and their bytes are cleared where no kept tag uses them (docs/FEHLERGEDAECHTNIS.md, No. 1122)
-        if (kept.DistinctBy(t => (t.Offset, t.Size)).Sum(t => (long)t.Size + 3) + 132 + 12L * kept.Count > profile.Length)
-            return IccWithoutTagsInPlace(profile, tags, kept);
+        else if (kept.DistinctBy(t => (t.Offset, t.Size)).Sum(t => (long)t.Size + 3) + 132 + 12L * kept.Count > profile.Length)
+            result = IccWithoutTagsInPlace(profile, tags, kept);
+        else
+            result = IccPacked(profile, kept);
+        if (IccEntries(result) is { } written) ClearReservedBytes(result, written);
+        return result;
+    }
+
+    /// <summary>The profile with the header of <paramref name="profile"/> and the kept tags packed anew, each data once, at multiples of four.</summary>
+    private static byte[] IccPacked(byte[] profile, List<(string Signature, int Offset, int Size)> kept)
+    {
         var output = new MemoryStream();
         output.Write(profile.AsSpan(0, 128));
         output.Write(new byte[4 + kept.Count * 12]);
@@ -475,7 +669,43 @@ internal static class ObjectMetadata
         while (output.Length % 4 != 0) output.WriteByte(0);
         var result = output.ToArray();
         BinaryPrimitives.WriteUInt32BigEndian(result, (uint)result.Length);
-        result.AsSpan(84, 16).Clear();   // profile ID
+        WriteTable(result, table, kept.Count);
+        return result;
+    }
+
+    /// <summary>
+    /// The profile as it is, without the entries of the removed tags; their bytes cleared where no kept tag lies on them (the kept ranges merged
+    /// first: one pass over the data, whatever the number of overlapping entries — before, every byte was compared with every kept tag).
+    /// </summary>
+    private static byte[] IccWithoutTagsInPlace(byte[] profile, List<(string Signature, int Offset, int Size)> tags,
+        List<(string Signature, int Offset, int Size)> kept)
+    {
+        var result = (byte[])profile.Clone();
+        var cover = new bool[profile.Length + 1];
+        foreach (var (start, end) in Merged(kept.Select(k => (k.Offset, k.Offset + k.Size)))) cover.AsSpan(start, end - start).Fill(true);
+        // never the header and the tag table, even where a crafted entry points into them
+        var table = 132 + 12 * tags.Count;
+        foreach (var (start, end) in Merged(tags.Except(kept).Select(t => (t.Offset, t.Offset + t.Size))))
+            for (var at = Math.Max(start, table); at < end; at++)
+                if (!cover[at]) result[at] = 0;
+        WriteTable(result, kept, tags.Count);
+        return result;
+    }
+
+    /// <summary>Ranges [start, end) merged where they overlap or touch, in order.</summary>
+    private static List<(int Start, int End)> Merged(IEnumerable<(int Start, int End)> ranges)
+    {
+        var merged = new List<(int Start, int End)>();
+        foreach (var (start, end) in ranges.Where(r => r.End > r.Start).OrderBy(r => r.Start))
+            if (merged.Count > 0 && start <= merged[^1].End) merged[^1] = (merged[^1].Start, Math.Max(merged[^1].End, end));
+            else merged.Add((start, end));
+        return merged;
+    }
+
+    /// <summary>The tag table: count and entries, the room of <paramref name="before"/> entries cleared first.</summary>
+    private static void WriteTable(byte[] result, List<(string Signature, int Offset, int Size)> table, int before)
+    {
+        result.AsSpan(128, 4 + 12 * before).Clear();
         BinaryPrimitives.WriteUInt32BigEndian(result.AsSpan(128), (uint)table.Count);
         for (var i = 0; i < table.Count; i++)
         {
@@ -484,7 +714,21 @@ internal static class ObjectMetadata
             BinaryPrimitives.WriteUInt32BigEndian(entry[4..], (uint)table[i].Offset);
             BinaryPrimitives.WriteUInt32BigEndian(entry[8..], (uint)table[i].Size);
         }
-        return result;
+    }
+
+    /// <summary>
+    /// Bytes 4–7 of the tags of a known type as zero (ICC.1, 10.1: reserved) — not where another tag's data, starting elsewhere, lie on them
+    /// (overlapping tags of a crafted profile: their data stay as they are).
+    /// </summary>
+    private static void ClearReservedBytes(byte[] profile, List<(string Signature, int Offset, int Size)> tags)
+    {
+        var starts = tags.Where(t => t.Size >= 8).Select(t => (t.Offset, t.Size)).Distinct().OrderBy(t => t.Offset).ToList();
+        foreach (var (offset, _) in starts)
+        {
+            if (!IccKnownTypes.Contains(System.Text.Encoding.ASCII.GetString(profile, offset, 4))) continue;
+            // another tag starting before and reaching into bytes 4–7, or starting inside them
+            if (!starts.Any(t => t.Offset != offset && t.Offset < offset + 8 && t.Offset + t.Size > offset + 4)) profile.AsSpan(offset + 4, 4).Clear();
+        }
     }
 
     // ------------------------------------------------------------ Copyright and licence texts (CleanupItems.Notices)
@@ -493,35 +737,13 @@ internal static class ObjectMetadata
     // with spaces of the same length: every length, offset and count stays valid, the font and the profile work as before, only the
     // text is gone. Not chosen in advance: many font licences require their notices to stay.
 
-    /// <summary>Profile tags with free text: description, copyright, Apple's localised description.</summary>
-    private static readonly HashSet<string> IccNoticeTags = ["desc", "cprt", "dscm"];
+    /// <summary>
+    /// Profile tags with free text: description, copyright, the description of the viewing conditions (ICC.1, 9.2.50; before, it stayed —
+    /// No. 1133), Apple's localised description.
+    /// </summary>
+    private static readonly HashSet<string> IccNoticeTags = ["desc", "cprt", "vued", "dscm"];
 
     /// <summary>The profile with the texts of <see cref="IccNoticeTags"/> as spaces; null if there is no such text (or it is spaces already).</summary>
-    /// <summary>The profile as it is, without the entries of the removed tags; their bytes cleared where no kept tag lies on them.</summary>
-    private static byte[] IccWithoutTagsInPlace(byte[] profile, List<(string Signature, int Offset, int Size)> tags,
-        List<(string Signature, int Offset, int Size)> kept)
-    {
-        var result = (byte[])profile.Clone();
-        foreach (var (signature, offset, size) in tags)
-        {
-            if (!IccMetadataTags.Contains(signature)) continue;
-            for (var at = offset; at < offset + size; at++)
-                if (!kept.Any(k => at >= k.Offset && at < k.Offset + k.Size)) result[at] = 0;
-        }
-        result.AsSpan(84, 16).Clear();   // profile ID
-        var table = result.AsSpan(128, 4 + 12 * tags.Count);
-        table.Clear();
-        BinaryPrimitives.WriteUInt32BigEndian(result.AsSpan(128), (uint)kept.Count);
-        for (var i = 0; i < kept.Count; i++)
-        {
-            var entry = result.AsSpan(132 + i * 12);
-            System.Text.Encoding.ASCII.GetBytes(kept[i].Signature, entry[..4]);
-            BinaryPrimitives.WriteUInt32BigEndian(entry[4..], (uint)kept[i].Offset);
-            BinaryPrimitives.WriteUInt32BigEndian(entry[8..], (uint)kept[i].Size);
-        }
-        return result;
-    }
-
     internal static byte[]? IccNotices(byte[] profile)
     {
         if (profile.Length < 132 || !profile.AsSpan(36, 4).SequenceEqual("acsp"u8)) return null;
@@ -571,7 +793,7 @@ internal static class ObjectMetadata
             }
         }
         if (!changed) return null;
-        result.AsSpan(84, 16).Clear();   // profile ID: a checksum of the old profile
+        WriteProfileId(result);   // a checksum of the profile: computed afresh (version 4), before set to 0 (No. 1133)
         return result;
     }
 

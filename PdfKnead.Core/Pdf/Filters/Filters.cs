@@ -43,6 +43,10 @@ public static class StreamFilters
     {
         var result = new List<(string, PdfDictionary?)>();
         var filter = dict.Get(PdfName.Filter);
+        // the abbreviation of inline images (8.9.7) in a stream dictionary: /F with a name or an array of names is read as /Filter, as /DP
+        // and the abbreviated names are below, as by two reference readers; an /F that is a file specification (a string or dictionary, 7.3.8.2)
+        // names no filter (docs/normabgleich/sonderregeln.md S-A A181; docs/FEHLERGEDAECHTNIS.md, No. 1134)
+        if (filter is PdfNull && dict.Get(PdfName.Get("F")) is var abbreviated and (PdfName or PdfArray)) filter = abbreviated;
         // an entry whose reference leads nowhere counts as absent (7.3.9; S-A A67, docs/FEHLERGEDAECHTNIS.md, No. 948)
         var parms = dict.Get(PdfName.DecodeParms) is not PdfNull and var full ? full : dict.Get(PdfName.DP);
         switch (filter)

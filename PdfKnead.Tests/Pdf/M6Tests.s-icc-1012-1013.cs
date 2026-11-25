@@ -116,12 +116,13 @@ public sealed partial class M6NormTests
     // ------------------------------------------------------------ 10.12.1
 
     /// <summary>
-    /// ICC.1, 10.12.1 sentences 8–13 (behaviour of today, design decision pending): an mAB without any element (all offsets 0) and one with
+    /// ICC.1, 10.12.1 sentences 8–13 (read leniently as the three reference readers, docs/normabgleich/sonderregeln.md S-A A186): an mAB
+    /// without any element (all offsets 0) and one with
     /// the sequence A, M, B (no CLUT, no matrix) are still read — the reader checks neither the minimum nor the allowed sequences; without
     /// elements the device values count as PCS (grey 0.5 gives XYZ about 1.0).
     /// </summary>
     [Fact]
-    public void Icc10_12_1_NoElementOrSequenceAMB_ReadToday()
+    public void Icc10_12_1_NoElementOrSequenceAMB_ReadLeniently()
     {
         var empty = IccS_Profile(IccProfile.RgbSpace, IccS_Mab(3, 3, null, null, null, null, null));
         Assert.NotNull(IccProfile.Parse(empty));
@@ -182,11 +183,11 @@ public sealed partial class M6NormTests
     // ------------------------------------------------------------ 10.12.2–10.12.5
 
     /// <summary>
-    /// ICC.1, 10.12.2 sentence 2 (behaviour of today, design decision pending): A curves without a CLUT are still read and applied (gamma 2:
+    /// ICC.1, 10.12.2 sentence 2 (read leniently as the three reference readers, S-A A186): A curves without a CLUT are still read and applied (gamma 2:
     /// 0.5 gives 0.25).
     /// </summary>
     [Fact]
-    public void Icc10_12_2_ACurvesWithoutClut_ReadToday()
+    public void Icc10_12_2_ACurvesWithoutClut_ReadLeniently()
     {
         var gamma = IccS_Curves(IccO_Gamma(2), IccO_Gamma(2), IccO_Gamma(2));
         var profile = IccS_Profile(IccProfile.RgbSpace, IccS_Mab(3, 3, IccS_Identity3(), null, null, null, gamma));
@@ -267,11 +268,11 @@ public sealed partial class M6NormTests
     }
 
     /// <summary>
-    /// ICC.1, 10.12.4 sentence 6 (behaviour of today, design decision pending): M curves without a matrix are still read and applied (gamma 2:
+    /// ICC.1, 10.12.4 sentence 6 (read leniently as the three reference readers, S-A A186): M curves without a matrix are still read and applied (gamma 2:
     /// 0.5 gives 0.25).
     /// </summary>
     [Fact]
-    public void Icc10_12_4_MCurvesWithoutMatrix_ReadToday()
+    public void Icc10_12_4_MCurvesWithoutMatrix_ReadLeniently()
     {
         var gamma = IccS_Curves(IccO_Gamma(2), IccO_Gamma(2), IccO_Gamma(2));
         var profile = IccS_Profile(IccProfile.RgbSpace, IccS_Mab(3, 3, IccS_Identity3(), null, gamma, null, null));

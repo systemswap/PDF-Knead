@@ -171,29 +171,20 @@ cjk_fonts() {
   cp -a "$source" "$dest/Schriften-CJK"
 }
 
-# Lizenzierte Handschriften (nicht im Programm, Wunsch vom 22.10.2026) als Schriften-Unterschrift neben das Programm bzw. die AppImage.
-# Schriften/Handschriften-lizenziert liegt nur lokal (.gitignore, seit 16.11.2026 nicht im Repository); fehlt der Ordner, kommt nichts
-# mit. Die Pakete zum Weitergeben baut der Workflow auf GitHub, wo der Ordner fehlt. In denselben Ordner importiert das Programm eigene Schriften
-# (Datei -> Schrift importieren): die bleiben bei jedem Bau stehen (Fehlergedächtnis 96). Welche Dateien mitgeliefert sind, steht in
-# Schriften-Unterschrift/.mitgeliefert; nur davon entfernt ein Bau, was es im Repository nicht mehr gibt, und nur sie kommen ins Paket.
-SIGNATURE_SOURCE="$PROJECT_DIR/Schriften/Handschriften-lizenziert"
+# Schriften-Unterschrift neben dem Programm bzw. der AppImage: dorthin importiert das Programm eigene Schriften (Datei -> Schrift
+# importieren); sie bleiben bei jedem Bau stehen (Fehlergedächtnis 96) und kommen nie ins Paket. Lizenzierte Handschriften liefert PDF-Knead
+# nicht mehr mit (seit 25.11.2026): was ein früherer Bau mitgeliefert hat (Schriften-Unterschrift/.mitgeliefert), entfernt ein neuer Bau.
 signature_fonts() {
-  local target="$1/Schriften-Unterschrift" font name
+  local target="$1/Schriften-Unterschrift" name
   local manifest="$target/.mitgeliefert"
   if [ -f "$manifest" ]; then
     while IFS= read -r name; do
       case "$name" in ''|*/*) continue ;; esac
-      [ -f "$SIGNATURE_SOURCE/$name" ] || rm -f -- "$target/$name"
+      rm -f -- "$target/$name"
     done < "$manifest"
     rm -f -- "$manifest"
   fi
-  for font in "$SIGNATURE_SOURCE/"*.ttf "$SIGNATURE_SOURCE/"*.otf; do
-    [ -f "$font" ] || continue
-    mkdir -p "$target"
-    install -m 0644 "$font" "$target/"
-    basename "$font" >> "$manifest"
-  done
-  [ -d "$target" ] && rmdir "$target" 2>/dev/null || true   # leer (nichts mitgeliefert, nichts importiert): weg
+  [ -d "$target" ] && rmdir "$target" 2>/dev/null || true   # leer (nichts importiert): weg
 }
 
 # Modelle der Texterkennung und des Feld-Erkenners (PP-OCRv6 small und medium, FFDetr; Festlegung 13.11.2026: im Paket,

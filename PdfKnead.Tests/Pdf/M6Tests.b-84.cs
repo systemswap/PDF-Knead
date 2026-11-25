@@ -405,8 +405,9 @@ public sealed partial class M6NormTests
     }
 
     /// <summary>
-    /// 8.4.3.2 sentences 9–10: lines of width 0 should not be used — today's behaviour: the mark of a redaction not yet applied draws its hatching
-    /// and border with „0 w“ (deliberately, FG 191); a square annotation with /BS /W 0 gets an appearance without any stroke.
+    /// 8.4.3.2 sentences 9–10: lines of width 0 should not be used — a reasoned deviation (docs/normabgleich/sonderregeln.md S-B B56): the mark
+    /// of a redaction not yet applied draws its hatching and border with „0 w“ (FG 191: a hairline at every zoom); a square annotation with
+    /// /BS /W 0 gets an appearance without any stroke.
     /// </summary>
     [Fact]
     public void B84_WidthZero_OnlyInTheRedactionMark()

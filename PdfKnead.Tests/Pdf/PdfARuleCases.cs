@@ -187,13 +187,18 @@ internal static class PdfARuleCases
     private static byte[] Cmyk => Core.Pdf.Graphics.Icc.CmykProfile.Bytes();
 
     /// <summary>
-    /// Writes an ID into the header as a test file of the reference validator does (ISO 19005-4, 6.2.4.2, test 3, fail e): the MD5 of the
-    /// profile without ID — the same profile as its copy without ID (docs/FEHLERGEDAECHTNIS.md, No. 517).
+    /// Writes an ID into the header as a test file of the reference validator does (ISO 19005-4, 6.2.4.2, test 3, fail e): the ID ICC.1 7.2.18
+    /// defines, the MD5 with flags, rendering intent and ID taken as zero — the same profile as its copy without ID (docs/FEHLERGEDAECHTNIS.md,
+    /// No. 517). In the test file flags and intent are zero; the bundled CMYK profile has the intent 1, which the ID does not include (No. 1133;
+    /// before, the MD5 here kept the intent, an ID no conforming writer gives).
     /// </summary>
     private static void WriteProfileId(byte[] profile)
     {
-        profile.AsSpan(84, 16).Clear();
-        System.Security.Cryptography.MD5.HashData(profile).CopyTo(profile.AsSpan(84));
+        var copy = (byte[])profile.Clone();
+        copy.AsSpan(44, 4).Clear();
+        copy.AsSpan(64, 4).Clear();
+        copy.AsSpan(84, 16).Clear();
+        System.Security.Cryptography.MD5.HashData(copy).CopyTo(profile.AsSpan(84));
     }
 
     /// <summary>A page whose content uses a graphics state /GS0 (given as text) before the rectangle.</summary>
@@ -528,8 +533,10 @@ internal static class PdfARuleCases
                 "/DestOutputProfileRef<</URLs[(https://example.org/p.icc)]>>>>]", more: Profile(5, Srgb, 3))), PdfAConformance.A4,
                 Note: "Ausgabebedingung einer Seite mit Verweis auf ein Profil außerhalb (PDF 2.0, Fehlergedächtnis 520)")],
         ["IccProfileValid"] = [new(WithColourSpace("[/ICCBased 5 0 R]", "0 0 1", Stream(5, "/N 3", "kein Profil")), Note: "Profil, das niemand lesen kann: wie die Anzeige als DeviceRGB"),
+                               // since docs/FEHLERGEDAECHTNIS.md, No. 1134 the display does not use a profile of such a class (as the reference readers):
+                               // the copy keeps what the display shows, as for an unreadable profile (before, refused: colours would have changed)
                                new(WithColourSpace("[/ICCBased 5 0 R]", "0 0 1", Profile(5, Srgb, 3, b => "abst"u8.CopyTo(b.AsSpan(12)))),
-                                   Outcome: RuleOutcome.Refused, Note: "lesbares Profil einer Klasse, die PDF/A nicht zulässt: Farben würden sich ändern")],
+                                   Note: "Profil einer Klasse, die PDF/A nicht zulässt (Abstract): wie die Anzeige als DeviceRGB")],
         ["OverprintMode"] = [new(() => Raw(Page(content: "/GS0 gs /CS0 cs 0 0 1 0 sc " + "72 600 200 100 re f",
             resources: "/ExtGState<</GS0<</OP true/op true/OPM 1>>>>/ColorSpace<</CS0[/ICCBased 5 0 R]>>", more: Profile(5, Cmyk, 4))), Note: "Überdrucken mit Modus 1 und ICC-CMYK")],
         ["IccNotIntent"] = [new(() => Raw(Page(content: "/CS0 cs 0 0 1 0 sc 72 600 200 100 re f", catalogue: "/OutputIntents[<</Type/OutputIntent/S/GTS_PDFA1/OutputConditionIdentifier(c)/DestOutputProfile 5 0 R>>]",

@@ -17,6 +17,7 @@ public sealed partial class M6NormTests
     private static IEnumerable<(string Name, byte[] Data)> IccN_WrittenProfiles()
     {
         foreach (var own in IccL_OwnProfiles()) yield return own;
+        yield return ("Srgb4", CalibratedProfile.Srgb(version4: true));
         yield return ("AsVersion2", CalibratedProfile.AsVersion2(PdfARuleCases.Version4Rgb())!);
         // a description of 13 bytes (not a multiple of four) and the device description that cleaning removes
         byte[] odd = [.. "text"u8, 0, 0, 0, 0, .. "abcd"u8, 0];
@@ -79,14 +80,13 @@ public sealed partial class M6NormTests
 
     /// <summary>
     /// ICC.1 7.2.1 sentence 45T and 7.2.19 sentence 1 (bytes 100–127 reserved), 7.2.3 sentences 1–4 (preferred CMM, 4–7), 7.2.10 sentences 1–3
-    /// (platform, 40–43), 7.2.11 sentences 1–8 (flags, 44–47: bit 1 "only with the embedded data" is 0; bit 0 is 0 today, design decision pending),
-    /// 7.2.12 and 7.2.13 sentences 1–3 (maker and model, 48–55), 7.2.14 sentences 1–4, 5T–20T (device attributes, 56–63), 7.2.17 sentences 1–3
-    /// (creator, 80–83): fields PDF-Knead does not fill are zero in all its own profiles.
+    /// (platform, 40–43), 7.2.12 and 7.2.13 sentences 1–3 (maker and model, 48–55), 7.2.14 sentences 1–4, 5T–20T (device attributes, 56–63),
+    /// 7.2.17 sentences 1–3 (creator, 80–83): fields PDF-Knead does not fill are zero in all its own profiles. (Flags, 44–47:
+    /// <see cref="IccOwnProfiles_Flags_EmbeddedOnly"/>.)
     /// </summary>
     [Theory]
     [InlineData(4, 8)]
     [InlineData(40, 44)]
-    [InlineData(44, 48)]
     [InlineData(48, 52)]
     [InlineData(52, 56)]
     [InlineData(56, 64)]
@@ -96,6 +96,18 @@ public sealed partial class M6NormTests
     {
         foreach (var (name, p) in IccL_OwnProfiles())
             Assert.True(p.AsSpan(from, to - from).IndexOfAnyExcept((byte)0) < 0, $"{name}: bytes {from}–{to - 1}");
+    }
+
+    /// <summary>
+    /// ICC.1 7.2.11 sentences 1–8 (docs/FEHLERGEDAECHTNIS.md, No. 1133): PDF-Knead writes its own profiles only into files (PDF, PNG, TIFF, JPEG),
+    /// so bit 0 „embedded“ of the flags is 1; bit 1 „only with the embedded data“ and the vendor bits are 0 — also in the sRGB profile of
+    /// version 4. Before, all flags were 0.
+    /// </summary>
+    [Fact]
+    public void IccOwnProfiles_Flags_EmbeddedOnly()
+    {
+        foreach (var (name, p) in IccL_OwnProfiles().Append(("Srgb4", CalibratedProfile.Srgb(version4: true))))
+            Assert.True(BinaryPrimitives.ReadUInt32BigEndian(p.AsSpan(44)) == 1, name);
     }
 
     /// <summary>
@@ -120,11 +132,12 @@ public sealed partial class M6NormTests
     }
 
     /// <summary>
-    /// ICC.1 7.2.4 sentences 8–13 (records today's behaviour; design decision on read tolerances pending): a major version above 4 is not refused — a
+    /// ICC.1 7.2.4 sentences 8–13 (read leniently as the three reference readers, docs/normabgleich/sonderregeln.md S-A A185): a major version
+    /// above 4 is not refused — a
     /// profile with byte 8 = 5 is read with the same colours as the same profile of version 4.
     /// </summary>
     [Fact]
-    public void IccMajorVersion5_ReadLikeVersion4_TodaysBehaviour()
+    public void IccMajorVersion5_ReadLikeVersion4()
     {
         var v4 = IccL_Profile("RGB ", "XYZ ", IccL_AdobeTags(), version: 4);
         var v5 = (byte[])v4.Clone();
@@ -135,20 +148,23 @@ public sealed partial class M6NormTests
     }
 
     /// <summary>
-    /// ICC.1 7.2.5 sentences 1–5, 6T–9T (reader; records today's behaviour; design decision on read tolerances pending): the reader does not look at the
-    /// profile class — a profile of the class DeviceLink ('link') or Abstract ('abst') with PCS XYZ and matrix tags is used by an ICCBased space
-    /// like a device profile, its /Alternate does not apply.
+    /// ICC.1 7.2.5 sentences 1–5, 6T–9T (reader; as the reference readers read it, docs/normabgleich/sonderregeln.md S-A A188): a profile of the
+    /// class DeviceLink ('link'), Abstract ('abst') or NamedColor ('nmcl') describes no colour space of a device (ISO 32000-2, 8.6.5.5 allows
+    /// input, display, output and colour space profiles) — even with PCS XYZ and matrix tags it is not used, the /Alternate of the ICCBased
+    /// space applies (before, such a profile was used like a device profile, against two reference readers; docs/FEHLERGEDAECHTNIS.md,
+    /// No. 1134). The same profile with a device class is read.
     /// </summary>
     [Theory]
     [InlineData("link")]
     [InlineData("abst")]
-    public void IccDeviceLinkAndAbstractClass_UsedAsDeviceProfile_TodaysBehaviour(string deviceClass)
+    [InlineData("nmcl")]
+    public void IccDeviceLinkAbstractOrNamedColourClass_AlternateApplies(string deviceClass)
     {
         var data = IccL_Profile("RGB ", "XYZ ", IccL_AdobeTags(), deviceClass: deviceClass);
-        Assert.NotNull(IccProfile.Parse(data));
-        var space = IccL_Space(data, 3, "DeviceGray");
-        Assert.NotSame(ColorSpace.DeviceGray, space);
-        Assert.Equal(3, space.Components);
+        Assert.Null(IccProfile.Parse(data));
+        Assert.Same(ColorSpace.DeviceGray, IccL_Space(data, 3, "DeviceGray"));
+        foreach (var device in new[] { "scnr", "mntr", "prtr", "spac" })
+            Assert.NotNull(IccProfile.Parse(IccL_Profile("RGB ", "XYZ ", IccL_AdobeTags(), deviceClass: device)));
     }
 
     /// <summary>ICC.1 7.2.6 sentences 1–3: a data colour space signature not in Table 19 ('ABCD') makes the profile unreadable; /Alternate applies.</summary>

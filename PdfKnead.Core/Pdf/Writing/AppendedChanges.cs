@@ -128,7 +128,9 @@ public static class AppendedChanges
     {
         // The pages written anew, only to find what changed: compared with the original, the changed parts are appended
         using var buffer = SaveBuffer.Create(main.FileSize);
-        PdfWriter.Write(main, pages, buffer, options with { ObjectStreams = false }, cancel);
+        // the content of the file as stored: an appearance only the repairs of saving changed would count as changed and be appended — the
+        // update carries what is new, new content of its own is written as the version asks (docs/FEHLERGEDAECHTNIS.md, No. 1131)
+        PdfWriter.Write(main, pages, buffer, options with { ObjectStreams = false, ContentAsStored = true }, cancel);
         using var rewritten = PdfDocument.Open(SaveBuffer.Source(buffer));
         if (rewritten.PageCount != main.PageCount) throw NotAppendable();
         var update = new IncrementalUpdate(main);

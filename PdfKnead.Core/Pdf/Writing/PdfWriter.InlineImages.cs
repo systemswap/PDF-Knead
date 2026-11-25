@@ -18,7 +18,7 @@ public static partial class PdfWriter
         /// </summary>
         private (PdfObject Contents, PdfObject Resources)? PageInlineImages(PageItem item, PdfDictionary page, Source source)
         {
-            if (PageInlineImageContent(page, source) is not var (content, images)) return null;
+            if (PageInlineImageContent(page, source, Pdf20) is not var (content, images)) return null;
             var resources = page.Get(PdfName.Resources) as PdfDictionary ?? InheritedValue(page, PdfName.Resources) as PdfDictionary;
             var kept = resources is null ? new PdfDictionary() : UsedOnly(item, resources);
             var written = new PdfDictionary();
@@ -37,8 +37,9 @@ public static partial class PdfWriter
         /// <summary>
         /// The joined contents of a page with each inline image that <see cref="InlineImageConformance.Breaks"/> replaced by <c>/Name Do</c>, and
         /// the XObjects under those names (names free in the page's resources); null where the page holds no such image or a part cannot be read.
+        /// As PDF 2.0 (<paramref name="pdf20"/>) also an image of more than 4 096 bytes, and the images left inline get /L (No. 1131).
         /// </summary>
-        private static (byte[] Content, List<(PdfName Name, PdfStream Image)> Images)? PageInlineImageContent(PdfDictionary page, Source source)
+        private static (byte[] Content, List<(PdfName Name, PdfStream Image)> Images)? PageInlineImageContent(PdfDictionary page, Source source, bool pdf20)
         {
             var parts = page.Get(PdfName.Contents) switch
             {
@@ -91,8 +92,8 @@ public static partial class PdfWriter
                 var name = InlineImageConformance.FreeName(n => known?.ContainsKey(n) == true || images.Any(x => x.Name == n));
                 images.Add((name, InlineImageConformance.AsXObject(image, resources)));
                 return name;
-            });
-            return rewritten is null ? null : (ContentConformance.CanonicalSyntax(rewritten) ?? rewritten, images);
+            }, pdf20);
+            return rewritten is null ? null : (ContentConformance.CanonicalSyntax(rewritten, pdf20) ?? rewritten, images);
         }
 
         /// <summary>
@@ -152,7 +153,7 @@ public static partial class PdfWriter
                     var name = InlineImageConformance.FreeName(n => known?.ContainsKey(n) == true || images.Any(x => x.Name == n));
                     images.Add((name, InlineImageConformance.AsXObject(image, resources)));
                     return name;
-                });
+                }, Pdf20);
             }
             if (rewritten is null) return null;
             var written = resources is null ? new PdfDictionary() : CloneWithResolver(resources);
@@ -161,7 +162,7 @@ public static partial class PdfWriter
                 foreach (var (key, value) in before.Entries) xobjects.Set(key, value);
             foreach (var (name, image) in images) xobjects.Set(name, image);
             written.Set(XObject, xobjects);
-            return (ContentConformance.CanonicalSyntax(rewritten) ?? rewritten, Rebase(written, source));
+            return (ContentConformance.CanonicalSyntax(rewritten, Pdf20) ?? rewritten, Rebase(written, source));
         }
     }
 }

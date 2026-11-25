@@ -1,10 +1,13 @@
+using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
 using PdfKnead.Core.Imaging;
+using PdfKnead.Core.Localization;
 using PdfKnead.Core.Pdf.Content;
 using PdfKnead.Core.Pdf.Document;
 using PdfKnead.Core.Pdf.Editing;
 using PdfKnead.Core.Pdf.Objects;
+using PdfKnead.Core.Pdf.Text;
 using PdfKnead.Core.Pdf.Writing;
 using PdfKnead.Rendering;
 using SkiaSharp;
@@ -579,18 +582,229 @@ public sealed partial class M6NormTests
     }
 
     /// <summary>
-    /// 8.11.4.5 sentences 21 and 23, today's behaviour (design decision pending): printing starts from /D, not from the state shown — a layer on in
-    /// /D that a /View application dictionary turns off (/ViewState /OFF, no /Print dictionary) is hidden on the screen but printed
-    /// (<c>OptionalContent.For</c> with the use Print).
+    /// 8.11.4.5 sentences 21 and 23: printing applies the /Print application dictionaries over the current states, exporting the /Export ones.
+    /// PDF-Knead changes no layer state by hand (no layer panel, no Set-OCG-State action), so the current state is the one shown: /D with the
+    /// /View application dictionaries of /AS. Layer A, on in /D and turned off by a /View dictionary without a /Print or /Export dictionary,
+    /// stays off on the screen, in print, in the print PDF (<c>OptionalContent.ForPrintConfig</c>: in its /OFF) and in a page image; layer B,
+    /// turned off by /View as well but on by a /Print dictionary (/PrintState /ON), is printed (<c>OptionalContent</c> constructor).
     /// </summary>
     [Fact]
-    public void Layers_PrintStartsFromTheDefaultConfiguration_TodaysBehaviour()
+    public void Layers_PrintAndExportStartFromTheStateShown()
     {
-        var file = K811_File("/OCProperties << /OCGs [5 0 R] /D << /AS [<< /Event /View /OCGs [5 0 R] /Category [/View] >>] >> >>",
-            "/Properties << /L 5 0 R >>", "/OC /L BDC 0 0 50 50 re f EMC", "",
-            "<< /Type /OCG /Name (Nur Druck?) /Usage << /View << /ViewState /OFF >> >> >>");
-        using (var screen = K811_Render(file)) Assert.False(K811_Painted(screen, 25, 25));
-        using var printed = K811_Render(file, forPrint: true);
-        Assert.True(K811_Painted(printed, 25, 25));
+        var file = K811_File("/OCProperties << /OCGs [5 0 R 6 0 R] /D << /AS [<< /Event /View /OCGs [5 0 R 6 0 R] /Category [/View] >> " +
+                             "<< /Event /Print /OCGs [6 0 R] /Category [/Print] >>] >> >>",
+            "/Properties << /A 5 0 R /B 6 0 R >>", "/OC /A BDC 0 0 50 50 re f EMC /OC /B BDC 100 100 50 50 re f EMC", "",
+            "<< /Type /OCG /Name (Nur Bildschirm aus) /Usage << /View << /ViewState /OFF >> >> >>",
+            "<< /Type /OCG /Name (Nur Papier) /Usage << /View << /ViewState /OFF >> /Print << /PrintState /ON >> >> >>");
+        using (var screen = K811_Render(file))
+        {
+            Assert.False(K811_Painted(screen, 25, 25));
+            Assert.False(K811_Painted(screen, 125, 125));
+        }
+        using (var printed = K811_Render(file, forPrint: true))
+        {
+            Assert.False(K811_Painted(printed, 25, 25));
+            Assert.True(K811_Painted(printed, 125, 125));
+        }
+        using var doc = PdfDocument.Open(file);
+        Assert.True(K811_Hidden(doc, 5, OptionalContentUse.Export));
+        var off = OptionalContent.ForPrintConfig(doc)!.GetDictionary(PdfName.Get("D"))!.GetArray(PdfName.Get("OFF"))!;
+        Assert.Equal(5, Assert.IsType<PdfReference>(Assert.Single(off)).Id.Number);
+        var folder = Directory.CreateTempSubdirectory("pdf-knead-m6-export-").FullName;
+        try
+        {
+            var written = Assert.Single(RasterExport.WriteImages(PageItem.From(doc), folder, "Seite", new PageImageSettings(PageImageFormat.Png, Dpi: 72)));
+            using var image = SKBitmap.Decode(written);
+            Assert.True(image.GetPixel(25, image.Height - 1 - 25) is { Red: > 245 });
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
+    // ---- layers outside /OCGs (8.11.2.1 sentences 5–8, 8.11.3.2 sentence 6)
+
+    /// <summary>
+    /// 8.11.3.2 sentence 6, 8.11.2.1 sentences 5–8: content is optional only through a layer listed in /OCProperties /OCGs that is one (/Type
+    /// /OCG), or through a membership dictionary; the layers a membership dictionary names count only as such layers too. Under /BaseState
+    /// /OFF: the listed layer 3 is hidden; layer 4 (/Type /OCG, not listed) and dictionary 5 (listed, without /Type) are visible; a membership
+    /// with /P /AllOff over 4 only, and one with the expression [/Not 4], have no effect (visible); one with /AnyOn over 3 and 4 counts 3 only
+    /// (hidden) (<c>OptionalContent.GroupState</c>).
+    /// </summary>
+    [Fact]
+    public void Layers_OnlyListedGroupsWithTypeCount()
+    {
+        using var doc = K811_Layers("<< /OCGs [3 0 R 5 0 R] /D << /BaseState /OFF >> >>",
+            "<< /Type /OCG /Name (Gelistet) >>", "<< /Type /OCG /Name (Nicht gelistet) >>", "<< /Name (Ohne Typ) >>",
+            "<< /Type /OCMD /OCGs [4 0 R] /P /AllOff >>", "<< /Type /OCMD /VE [/Not 4 0 R] >>", "<< /Type /OCMD /OCGs [3 0 R 4 0 R] /P /AnyOn >>");
+        Assert.True(K811_Hidden(doc, 3));
+        Assert.False(K811_Hidden(doc, 4));
+        Assert.False(K811_Hidden(doc, 5));
+        Assert.False(K811_Hidden(doc, 6));
+        Assert.False(K811_Hidden(doc, 7));
+        Assert.True(K811_Hidden(doc, 8));
+        Assert.False(K811_Hidden(doc, 4, OptionalContentUse.Print));
+    }
+
+    /// <summary>A page whose text and square lie on layer 6 (/Type /OCG, not in /OCGs) under /D /BaseState /OFF, with listed layer 5.</summary>
+    private static byte[] K811_UnlistedLayerFile(string layer = "<< /Type /OCG /Name (Ausserhalb) >>", string config = "/BaseState /OFF", string listed = "5 0 R") =>
+        K811_File($"/OCProperties << /OCGs [{listed}] /D << {config} >> >>",
+            "/Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> >> /Properties << /G 5 0 R /X 6 0 R >>",
+            "/OC /X BDC 0 0 50 50 re f BT /F1 12 Tf 60 20 Td (Kontostand 4711) Tj ET EMC", "",
+            "<< /Type /OCG /Name (Gelistet) >>", layer);
+
+    /// <summary>
+    /// 8.11.3.2 sentence 6: the content of a layer outside /OCGs is not optional, so it is visible everywhere alike — on the screen, in print,
+    /// in the text read out, and „Dokument bereinigen“ names only the listed layer under „Inhalte ausgeblendeter Ebenen“; removing hidden
+    /// content (also as a copy without layers, <c>screenLayers</c>) leaves it. Before, /BaseState /OFF hid it, and both removed it.
+    /// </summary>
+    [Fact]
+    public void Layers_UnlistedLayer_ShownEverywhereAlike()
+    {
+        var file = K811_UnlistedLayerFile();
+        using (var screen = K811_Render(file)) Assert.True(K811_Painted(screen, 25, 25));
+        using (var printed = K811_Render(file, forPrint: true)) Assert.True(K811_Painted(printed, 25, 25));
+        using var doc = PdfDocument.Open(file);
+        Assert.Contains("Kontostand 4711", PageText.Create(PageInterpreter.BuildText(doc, doc.Pages[0]), 0).Text);
+        Assert.Equal("Gelistet", Assert.Single(DocumentCleanup.Inspect(doc, PageItem.From(doc)), f => f.Item == CleanupItems.HiddenLayers).Detail);
+        Assert.Null(Redactor.RemoveHidden(doc, doc.Pages[0], layers: true, invisibleText: false));
+        Assert.Null(Redactor.RemoveHidden(doc, doc.Pages[0], layers: true, invisibleText: false, screenLayers: true));
+    }
+
+    /// <summary>
+    /// 8.11.3.2 sentence 6, 8.11.2.1 sentences 5–8, 8.11.4.3: saved — also with „Inhalte ausgeblendeter Ebenen“ removed — the content of a
+    /// layer outside /OCGs stays and does not lie hidden in the file either: the layer is entered in /OCGs, and on in the default configuration
+    /// (in /ON under /BaseState /OFF, out of /OFF and of the application dictionaries of /AS), so that every reader shows it as PDF-Knead does —
+    /// as 2.0, where only listed layers count, and as 1.7, whose readers may count unlisted ones. A dictionary without /Type gets /Type /OCG,
+    /// one without /Name a name (<c>PdfWriter</c>, unlisted layers).
+    /// </summary>
+    [Theory]
+    [InlineData("2.0", "<< /Type /OCG /Name (Ausserhalb) >>", "/BaseState /OFF")]
+    [InlineData("1.7", "<< /Type /OCG /Name (Ausserhalb) >>", "/BaseState /OFF")]
+    [InlineData("2.0", "<< /Type /OCG /Name (Ausserhalb) >>", "/OFF [6 0 R] /AS [<< /Event /View /OCGs [6 0 R] /Category [/View] >>]")]
+    [InlineData("2.0", "<< /Type /OCG >>", "/BaseState /OFF")]
+    [InlineData("2.0", "<< /Name (Ohne Typ) >>", "/BaseState /OFF", "5 0 R 6 0 R")]
+    [InlineData("1.7", "<< /Name (Ohne Typ) >>", "/OFF [6 0 R]", "5 0 R 6 0 R")]
+    public void Layers_UnlistedLayer_SavedListedAndOn(string version, string layer, string config, string listed = "5 0 R")
+    {
+        var file = K811_UnlistedLayerFile(layer.Replace(">>", "/Usage << /View << /ViewState /OFF >> >> >>"), config, listed);
+        using var doc = PdfDocument.Open(file);
+        using var output = new MemoryStream();
+        PdfWriter.Write(doc, output, new PdfSaveOptions { Version = version, Cleanup = CleanupItems.HiddenLayers });
+        using var saved = PdfDocument.Open(output.ToArray());
+        Assert.Contains("Kontostand 4711", RedactionTests.Everything(saved));
+        Assert.Contains("Kontostand 4711", PageText.Create(PageInterpreter.BuildText(saved, saved.Pages[0]), 0).Text);
+        var properties = saved.Catalog!.GetDictionary(PdfName.Get("OCProperties"))!;
+        var x = saved.Pages[0].Resources!.GetDictionary(PdfName.Get("Properties"))!.GetDictionary(PdfName.Get("X"))!;
+        var groups = properties.GetArray(PdfName.Get("OCGs"))!;
+        Assert.Contains(Enumerable.Range(0, groups.Count), i => ReferenceEquals(groups.Get(i), x));
+        Assert.Equal("OCG", x.GetName(PdfName.Type)?.Value);
+        Assert.False(string.IsNullOrEmpty(x.GetString(PdfName.Get("Name"))?.ToText()));
+        var standard = properties.GetDictionary(PdfName.Get("D"))!;
+        bool In(PdfArray? list) => list is not null && Enumerable.Range(0, list.Count).Any(i => ReferenceEquals(list.Get(i), x));
+        Assert.False(In(standard.GetArray(PdfName.Get("OFF"))));
+        if (standard.GetName(PdfName.Get("BaseState"))?.Value == "OFF") Assert.True(In(standard.GetArray(PdfName.Get("ON"))));
+        if (standard.GetArray(PdfName.Get("AS")) is { } usages)
+            for (var i = 0; i < usages.Count; i++) Assert.False(In(usages.Get(i)?.AsDictionary()?.GetArray(PdfName.Get("OCGs"))));
+        Assert.False(OptionalContent.For(saved).IsHidden(x, null));
+        Assert.False(OptionalContent.For(saved, print: true).IsHidden(x, null));
+        using var screen = K811_Render(output.ToArray());
+        Assert.True(K811_Painted(screen, 25, 25));
+    }
+
+    /// <summary>
+    /// 8.11.3.2 sentence 6, 8.11.4.3: merged into another file, a layer outside the /OCGs of the inserted file is entered in the merged /OCGs
+    /// as well and is not put in /OFF; its square stays visible (<c>PdfWriter.EnterUnlistedLayers</c> for inserted files).
+    /// </summary>
+    [Fact]
+    public void Layers_UnlistedLayer_MergedListed()
+    {
+        using var source = PdfDocument.Open(K811_UnlistedLayerFile());
+        using var target = BlankPage.CreateDocument(200, 200, 1);
+        using var output = new MemoryStream();
+        PdfWriter.Write(target, [.. PageItem.From(target), .. PageItem.From(source)], output);
+        using var merged = PdfDocument.Open(output.ToArray());
+        var x = merged.Pages[1].Resources!.GetDictionary(PdfName.Get("Properties"))!.GetDictionary(PdfName.Get("X"))!;
+        var groups = merged.Catalog!.GetDictionary(PdfName.Get("OCProperties"))!.GetArray(PdfName.Get("OCGs"))!;
+        Assert.Contains(Enumerable.Range(0, groups.Count), i => ReferenceEquals(groups.Get(i), x));
+        Assert.False(OptionalContent.For(merged).IsHidden(x, null));
+        var page = merged.Pages[1];
+        using var bitmap = SkiaRenderer.RenderPage(PageInterpreter.Build(merged, page), merged, page, 1, new ImageCache());
+        Assert.True(K811_Painted(bitmap, 25, 25));
+    }
+
+    /// <summary>
+    /// 8.11.3.2 sentence 6: what the content of a layer outside /OCGs looks like does not change on saving, also where it is named in a
+    /// membership dictionary — such a layer is not entered (in /OCGs and on it would count for the membership and change what it shows):
+    /// the image with /OC of the membership [/Not X] stays visible; the dictionary is written as it was.
+    /// </summary>
+    [Fact]
+    public void Layers_UnlistedLayerInMembership_NotEntered()
+    {
+        var file = K811_File("/OCProperties << /OCGs [5 0 R] /D << /BaseState /OFF >> >>", "/Properties << /M 7 0 R >>",
+            "/OC /M BDC 0 0 50 50 re f EMC", "", "<< /Type /OCG /Name (Gelistet) >>", "<< /Type /OCG /Name (Ausserhalb) >>",
+            "<< /Type /OCMD /OCGs [6 0 R] /P /AllOff >>");
+        using var saved = DocumentStructureNormTests.Saved(file, new PdfSaveOptions { Version = "2.0" });
+        var groups = saved.Catalog!.GetDictionary(PdfName.Get("OCProperties"))!.GetArray(PdfName.Get("OCGs"))!;
+        Assert.Equal(1, groups.Count);
+        var page = saved.Pages[0];
+        using var bitmap = SkiaRenderer.RenderPage(PageInterpreter.Build(saved, page), saved, page, 1, new ImageCache());
+        Assert.True(K811_Painted(bitmap, 25, 25));
+    }
+
+    // ---- /Language after the language of the program (8.11.4.4 sentences 16–27, 68–76)
+
+    /// <summary>
+    /// 8.11.4.4 sentences 16–27: /Language compares with the language of the program (BCP 47 with region). PDF-Knead's language has no region:
+    /// where the system's language is the same, its region is taken (de with de-AT → de-AT), otherwise the usual region of the language
+    /// (en with a German system → en-US, de with an English system → de-DE) (<c>OptionalContent.ProgramLanguage</c>).
+    /// </summary>
+    [Theory]
+    [InlineData("de", "de-AT", "de-AT")]
+    [InlineData("de", "en-US", "de-DE")]
+    [InlineData("en", "de-DE", "en-US")]
+    [InlineData("en", "en-GB", "en-GB")]
+    [InlineData("fr", "fr", "fr-FR")]
+    public void Usage_Language_ProgramLanguageWithRegion(string program, string system, string expected) =>
+        Assert.Equal(expected, OptionalContent.ProgramLanguage(program, CultureInfo.GetCultureInfo(system)));
+}
+
+/// <summary>
+/// 8.11.4.4 sentences 16–27 and 68–76: without a language given, /Language is evaluated after the language chosen in PDF-Knead, not after
+/// the system's (they switch the language of the program, hence in the collection of the UI tests).
+/// </summary>
+[Collection(nameof(Ui.UiCollection))]
+public sealed class M6LayerLanguageTests : IDisposable
+{
+    public void Dispose() => Tr.Use(Language.German);
+
+    /// <summary>
+    /// Two layers under /AS /View /Language: de-DE and en-US. With PDF-Knead in English on a German system the English layer is shown; in German
+    /// on an English system the German one (<c>OptionalContent.For</c> without a language). Before, the system's language decided.
+    /// </summary>
+    [Theory]
+    [InlineData("en", "de-DE", false)]
+    [InlineData("de", "en-US", true)]
+    public void Language_FollowsTheProgram(string program, string system, bool germanShown)
+    {
+        var before = CultureInfo.CurrentUICulture;
+        try
+        {
+            Tr.Use(program == "en" ? Language.EnglishLanguage : Language.German);
+            CultureInfo.CurrentUICulture = CultureInfo.GetCultureInfo(system);
+            using var doc = PdfDocument.Open(DocumentStructureNormTests.FileOf([
+                "<< /Type /Catalog /Pages 2 0 R /OCProperties << /OCGs [3 0 R 4 0 R] /D << /AS [<< /Event /View /OCGs [3 0 R 4 0 R] /Category [/Language] >>] >> >> >>",
+                "<< /Type /Pages /Kids [] /Count 0 >>",
+                "<< /Type /OCG /Name (Deutsch) /Usage << /Language << /Lang (de-DE) >> >> >>",
+                "<< /Type /OCG /Name (Englisch) /Usage << /Language << /Lang (en-US) >> >> >>"]));
+            var layers = OptionalContent.For(doc);
+            Assert.Equal(germanShown, !layers.IsHidden(doc.GetObject(3), null));
+            Assert.Equal(!germanShown, !layers.IsHidden(doc.GetObject(4), null));
+        }
+        finally
+        {
+            CultureInfo.CurrentUICulture = before;
+        }
     }
 }

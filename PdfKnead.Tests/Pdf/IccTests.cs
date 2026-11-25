@@ -359,11 +359,11 @@ public sealed class IccTests
     }
 
     /// <summary>Perceptual: cyan and magenta swapped; relative colorimetric: the plain formula.</summary>
-    private static readonly Lazy<byte[]> SwappedAndPlain = new(() => TwoIntents(
+    internal static readonly Lazy<byte[]> SwappedAndPlain = new(() => TwoIntents(
         CmykProfile.Bake((c, m, y, k) => ((1 - m) * (1 - k), (1 - c) * (1 - k), (1 - y) * (1 - k))), NaiveCmyk.Value));
 
     /// <summary>A CMYK profile whose black is only a dark grey (20 %): black point compensation pulls it down to black.</summary>
-    private static readonly Lazy<byte[]> LightBlack = new(() =>
+    internal static readonly Lazy<byte[]> LightBlack = new(() =>
         CmykProfile.Bake((c, m, y, k) => (0.2 + 0.8 * (1 - c) * (1 - k), 0.2 + 0.8 * (1 - m) * (1 - k), 0.2 + 0.8 * (1 - y) * (1 - k))));
 
     private static ColorSpace IccCmyk(byte[] profile)
@@ -525,7 +525,8 @@ public sealed class IccTests
 
     /// <summary>
     /// E-14: a shading pattern whose /ExtGState sets /RI /Perceptual, /LW 50 and /ca 0.2: the intent applies to the shading (cyan instead of
-    /// magenta), line width and opacity do not (ISO 32000-2, 11.6.7, Table 75; docs/FEHLERGEDAECHTNIS.md, No. 574) — the fill is opaque, a
+    /// magenta), and so does the opacity — it acts on painting the shading (ISO 32000-2, 8.7.4.1, 11.6.7 sentence 7; docs/FEHLERGEDAECHTNIS.md,
+    /// No. 574, 1130: before, the opacity was left out) —, the line width does not (11.6.7 sentence 9): fill and stroke a light cyan of 20 %, the
     /// stroke with the pattern stays 2 wide.
     /// </summary>
     [Fact]
@@ -544,8 +545,10 @@ public sealed class IccTests
         using (doc)
         {
             using var b = PdfKnead.Rendering.SkiaRenderer.RenderPage(list, doc, doc.Pages[0], 1, new PdfKnead.Rendering.ImageCache());
-            Assert.True(IsCyan(PixelAt(b, 50, 100)), $"Fläche {PixelAt(b, 50, 100)}");
-            Assert.True(IsCyan(PixelAt(b, 150, 20)), $"Linie {PixelAt(b, 150, 20)}");
+            // cyan at 20 % over white: red 255 − 0.2 · 255 = 204, green and blue white (magenta would leave green at 204)
+            static bool LightCyan(Rgb c) => c is { R: >= 198 and <= 210, G: > 250, B: > 250 };
+            Assert.True(LightCyan(PixelAt(b, 50, 100)), $"Fläche {PixelAt(b, 50, 100)}");
+            Assert.True(LightCyan(PixelAt(b, 150, 20)), $"Linie {PixelAt(b, 150, 20)}");
             Assert.Equal(new Rgb(255, 255, 255), PixelAt(b, 150, 40));   // 20 above the line: a width of 50 would reach here
         }
     }

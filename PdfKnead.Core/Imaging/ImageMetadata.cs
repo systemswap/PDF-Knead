@@ -394,8 +394,9 @@ public sealed record ImageMetadata
 
     /// <summary>Reads the description of an ICC profile (tag "desc": as text in version 2, as "mluc" in version 4).</summary>
     /// <param name="profile">The ICC profile data.</param>
+    /// <param name="language">The language of a multilingual description, as „de“ or „de-CH“; null = the program language.</param>
     /// <returns>The cleaned-up description (see <see cref="Clean"/>), or null if there is none.</returns>
-    public static string? IccName(ReadOnlySpan<byte> profile)
+    public static string? IccName(ReadOnlySpan<byte> profile, string? language = null)
     {
         if (profile.Length < 132) return null;
         var count = BinaryPrimitives.ReadUInt32BigEndian(profile[128..]);
@@ -415,14 +416,12 @@ public sealed record ImageMetadata
             }
             // only with at least one record: the count comes first (ICC.1 10.15; before, the bytes after the header were read as a record
             // even with none — docs/FEHLERGEDAECHTNIS.md, No. 1126)
+            // the record of the program language, else of the same language without the region, else the first (ICC.1 10.15 sentences 15–16;
+            // before, always the first — No. 1133)
             if (tag.StartsWith("mluc"u8) && tag.Length >= 28 && BinaryPrimitives.ReadUInt32BigEndian(tag[8..]) > 0)
-            {
-                var length = BinaryPrimitives.ReadUInt32BigEndian(tag[20..]);
-                var start = BinaryPrimitives.ReadUInt32BigEndian(tag[24..]);
-                return start + (long)length <= tag.Length && length > 0
-                    ? Clean(Encoding.BigEndianUnicode.GetString(tag.Slice((int)start, (int)length & ~1)).TrimEnd('\0'))
+                return Pdf.Graphics.Icc.CalibratedProfile.MlucRecord(tag, language) is var (start, length) && length > 0
+                    ? Clean(Encoding.BigEndianUnicode.GetString(tag.Slice(start, length & ~1)).TrimEnd('\0'))
                     : null;
-            }
             return null;
         }
         return null;

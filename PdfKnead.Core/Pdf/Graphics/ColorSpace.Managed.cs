@@ -35,28 +35,30 @@ public abstract partial class ColorSpace
 
     /// <summary>
     /// This colour space for a rendering intent and black point compensation (ISO 32000-2, 8.6.5.8, 8.6.5.9): ICC-based spaces take the
-    /// table of the intent and compensate the black point unless /UseBlackPtComp is OFF or the intent is absolute colorimetric; DeviceCMYK
-    /// through its profile likewise; /Indexed and /Separation, /DeviceN pass it on to their base or alternate space. Device, Cal and Lab spaces
-    /// are themselves (no table, no black point). Relative colorimetric with Default or ON is this space as before. Variants are shared per
-    /// space (docs/FEHLERGEDAECHTNIS.md, No. 572).
+    /// table of the intent and compensate the black point after ISO 18619 unless /UseBlackPtComp is OFF or the intent is absolute
+    /// colorimetric, which instead renders the media white of the profile (the paper tone); DeviceCMYK through its profile likewise; CalGray,
+    /// CalRGB and Lab map their /BlackPoint onto the black of the display unless OFF or absolute, and with absolute colorimetric take their
+    /// XYZ without adapting their white point; /Indexed and /Separation, /DeviceN pass it on to their base or alternate space. Device spaces
+    /// are themselves. Relative colorimetric with Default or ON is this space as before. Variants are shared per space
+    /// (docs/FEHLERGEDAECHTNIS.md, No. 572, No. 1129).
     /// </summary>
     /// <param name="intent">One of <see cref="Perceptual"/> … <see cref="AbsoluteColorimetric"/>.</param>
     /// <param name="bpc">One of <see cref="BpcDefault"/>, <see cref="BpcOn"/>, <see cref="BpcOff"/>.</param>
     /// <returns>This space or its variant.</returns>
     public ColorSpace WithRendering(byte intent, byte bpc)
     {
-        var table = intent is Perceptual or Saturation ? intent : RelativeColorimetric;
+        if (intent > AbsoluteColorimetric) intent = RelativeColorimetric;
         var compensate = bpc != BpcOff && intent != AbsoluteColorimetric;
-        if (table == RelativeColorimetric && compensate || !DependsOnRendering) return this;
+        if (intent == RelativeColorimetric && compensate || !DependsOnRendering) return this;
         var renderings = _renderings ?? System.Threading.Interlocked.CompareExchange(ref _renderings, new(), null) ?? _renderings!;
-        return renderings.GetOrAdd(table * 2 + (compensate ? 1 : 0), _ => Rendered(table, compensate));
+        return renderings.GetOrAdd(intent * 2 + (compensate ? 1 : 0), _ => Rendered(intent, compensate));
     }
 
     /// <summary>Whether <see cref="WithRendering"/> can give anything but this space.</summary>
     private protected virtual bool DependsOnRendering => false;
 
-    /// <summary>The variant for a table (0 perceptual, 1 relative, 2 saturation) and black point compensation.</summary>
-    private protected virtual ColorSpace Rendered(byte table, bool compensate) => this;
+    /// <summary>The variant for a rendering intent (0 perceptual … 3 absolute colorimetric) and black point compensation.</summary>
+    private protected virtual ColorSpace Rendered(byte intent, bool compensate) => this;
 
     /// <summary>Can convert whole 8-bit rows quickly (tables instead of a calculation per pixel).</summary>
     internal virtual bool HasRow8 => false;
@@ -221,7 +223,7 @@ public abstract partial class ColorSpace
         var key = System.Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(data)) + ":" + components + (deviceCmyk ? "k" : "");
         return doc.ProfileSpaces.GetOrAdd(key, _ =>
             IccProfile.Parse(data) is not { } profile || profile.Channels != components || !doc.ReserveIccTables(profile.TableEntries) ? null
-            : !deviceCmyk && IsSrgb(profile) ? DeviceRgb : new IccSpace(Shared(profile), deviceCmyk, profile));
+            : !deviceCmyk && IsSrgb(profile) && profile.AbsoluteScale is null ? DeviceRgb : new IccSpace(Shared(profile), deviceCmyk, profile));
     }
 
     // Some producers attach the same profile as a separate copy to every image: share the transform (tables up to 1 MB, caches) by
@@ -232,18 +234,18 @@ public abstract partial class ColorSpace
     /// <summary>Most table entries of a profile whose transform is shared across documents (1 Mi entries, 4 MB).</summary>
     private const long SharedTableEntries = 1L << 20;
 
-    private static IccTransform Shared(IccProfile profile, int table = RelativeColorimetric, bool compensate = true)
+    private static IccTransform Shared(IccProfile profile, int intent = RelativeColorimetric, bool compensate = true)
     {
-        if (profile.TableEntries > SharedTableEntries) return new IccTransform(profile.ForIntent(table), compensate);
-        var key = System.Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(profile.Data)) + ":" + table + (compensate ? "+" : "-");
+        if (profile.TableEntries > SharedTableEntries) return new IccTransform(profile, compensate, intent);
+        var key = System.Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(profile.Data)) + ":" + intent + (compensate ? "+" : "-");
         if (SharedTransforms.TryGetValue(key, out var shared)) return shared;
         if (SharedTransforms.Count >= 32) SharedTransforms.Clear();
-        return SharedTransforms.GetOrAdd(key, _ => new IccTransform(profile.ForIntent(table), compensate));
+        return SharedTransforms.GetOrAdd(key, _ => new IccTransform(profile, compensate, intent));
     }
 
-    /// <summary>A variant of an ICC transform's profile for a table and black point compensation (used by the bundled DeviceCMYK as well).</summary>
-    private static ColorSpace RenderedIcc(IccProfile profile, bool deviceCmyk, byte table, bool compensate) =>
-        new IccSpace(Shared(profile, table, compensate), deviceCmyk, profile);
+    /// <summary>A variant of an ICC transform's profile for a rendering intent and black point compensation (DeviceCMYK through an output profile as well).</summary>
+    private static ColorSpace RenderedIcc(IccProfile profile, bool deviceCmyk, byte intent, bool compensate) =>
+        new IccSpace(Shared(profile, intent, compensate), deviceCmyk, profile);
 
     private static ColorSpace IccBased(PdfObject stream, PdfDictionary? resources, PdfDocument doc, int depth)
     {
@@ -270,7 +272,8 @@ public abstract partial class ColorSpace
                     && Enumerable.Range(0, n).All(i => range[2 * i] < range[2 * i + 1])
                     && Enumerable.Range(0, n).Any(i => range[2 * i] != 0 || range[2 * i + 1] != 1))
                     return new IccSpace(Shared(profile), deviceCmyk: false, profile) { Range = range[..(2 * n)] };
-                return IsSrgb(profile) ? DeviceRgb : new IccSpace(Shared(profile), deviceCmyk: false, profile);
+                // sRGB as DeviceRGB only where absolute colorimetric gives the same (No. 1129)
+                return IsSrgb(profile) && profile.AbsoluteScale is null ? DeviceRgb : new IccSpace(Shared(profile), deviceCmyk: false, profile);
             }
         }
         // profile unreadable: alternate colour space
@@ -303,15 +306,15 @@ public abstract partial class ColorSpace
 
     private sealed class IccSpace(IccTransform transform, bool deviceCmyk, IccProfile source) : ColorSpace
     {
-        private readonly MatrixShaper? _shaper = MatrixShaper.From(transform.Profile);
+        private readonly MatrixShaper? _shaper = MatrixShaper.From(transform);
 
         // the profile as read (all tables), from which the variants are built
         private protected override bool DependsOnRendering => true;
 
-        private protected override ColorSpace Rendered(byte table, bool compensate) =>
-            Range is { } range && RenderedIcc(source, deviceCmyk, table, compensate) is IccSpace other
+        private protected override ColorSpace Rendered(byte intent, bool compensate) =>
+            Range is { } range && RenderedIcc(source, deviceCmyk, intent, compensate) is IccSpace other
                 ? new IccSpace(other.transform, deviceCmyk, source) { Range = range }
-                : RenderedIcc(source, deviceCmyk, table, compensate);
+                : RenderedIcc(source, deviceCmyk, intent, compensate);
 
         // the /Range of the ICCBased dictionary where it is not 0…1: the values are clamped to it (8.6.5.5)
         internal double[]? Range { get; init; }
@@ -362,30 +365,49 @@ public abstract partial class ColorSpace
 
     // ------------------------------------------------------------ CIE-based
 
-    /// <summary>CalGray (8.6.5.2): Y = A^Gamma under its own white point.</summary>
-    private sealed class CalGraySpace(PdfDictionary? dict) : ColorSpace
+    /// <summary>CalGray (8.6.5.2): Y = A^Gamma under its own white point; /BlackPoint and the rendering intent as <see cref="CieMapping"/> says.</summary>
+    private sealed class CalGraySpace : ColorSpace
     {
-        private readonly float[] _white = WhitePoint(dict);
-        private readonly float _gamma = (float)(dict?.GetNumber(PdfName.Get("Gamma")) ?? 1);
+        private readonly PdfDictionary? _dict;
+        private readonly float[] _white;
+        private readonly float _gamma;
+        private readonly CieMapping _mapping;
+
+        public CalGraySpace(PdfDictionary? dict, byte intent = RelativeColorimetric, bool compensate = true)
+        {
+            _dict = dict;
+            _white = WhitePoint(dict);
+            _gamma = (float)(dict?.GetNumber(PdfName.Get("Gamma")) ?? 1);
+            _mapping = CieMapping.For(_white, BlackPoint(dict), intent, compensate);
+        }
 
         public override int Components => 1;
+
+        private protected override bool DependsOnRendering => true;
+
+        private protected override ColorSpace Rendered(byte intent, bool compensate) =>
+            CieMapping.For(_white, BlackPoint(_dict), intent, compensate).Same(_mapping) ? this : new CalGraySpace(_dict, intent, compensate);
 
         public override Rgb ToRgb(ReadOnlySpan<double> c)
         {
             var y = MathF.Pow(Math.Clamp(c.Length > 0 ? (float)c[0] : 0, 0, 1), _gamma);
             Span<float> xyz = [_white[0] * y, _white[1] * y, _white[2] * y];
-            return FromXyz(_white, xyz);
+            return _mapping.ToRgb(_white, xyz);
         }
     }
 
     /// <summary>CalRGB (8.6.5.3): XYZ = Matrix · (A^Gr, B^Gg, C^Gb) under its own white point; 8-bit images through tables.</summary>
     private sealed class CalRgbSpace : ColorSpace
     {
+        private readonly PdfDictionary? _dict;
+        private readonly CieMapping _mapping;
         private readonly MatrixShaper _shaper;
 
-        public CalRgbSpace(PdfDictionary? dict)
+        public CalRgbSpace(PdfDictionary? dict, byte intent = RelativeColorimetric, bool compensate = true)
         {
+            _dict = dict;
             var white = WhitePoint(dict);
+            _mapping = CieMapping.For(white, BlackPoint(dict), intent, compensate);
             var gamma = Numbers(dict?.GetArray(PdfName.Get("Gamma"))) is { Length: 3 } g ? g : [1.0, 1.0, 1.0];
             // /Matrix: XA YA ZA XB YB ZB XC YC ZC (column by column, per component)
             var given = Numbers(dict?.GetArray(PdfName.Get("Matrix"))) is { Length: 9 } mm ? mm : [1.0, 0, 0, 0, 1, 0, 0, 0, 1];
@@ -393,18 +415,24 @@ public abstract partial class ColorSpace
             for (var row = 0; row < 3; row++)
             for (var col = 0; col < 3; col++)
                 matrix[row * 3 + col] = (float)given[col * 3 + row];
-            // fold the adaptation of the white point to D50 (Bradford) into the matrix
+            // fold the linear part of the mapping into the PCS (the Bradford adaptation of the white point to D50 and the factors of the black
+            // point, or for absolute colorimetric the XYZ as they are) into the matrix, the offset of the black point into the shaper
             for (var col = 0; col < 3; col++)
             {
                 Span<float> v = [matrix[col], matrix[3 + col], matrix[6 + col]];
-                IccColor.AdaptToD50(white, v);
+                _mapping.Linear(white, v);
                 (matrix[col], matrix[3 + col], matrix[6 + col]) = (v[0], v[1], v[2]);
             }
             var curves = gamma.Select(x => IccCurve.Gamma((float)x)).ToArray();
-            _shaper = new MatrixShaper(curves, matrix);
+            _shaper = new MatrixShaper(curves, matrix, default, _mapping.Offset);
         }
 
         public override int Components => 3;
+
+        private protected override bool DependsOnRendering => true;
+
+        private protected override ColorSpace Rendered(byte intent, bool compensate) =>
+            CieMapping.For(WhitePoint(_dict), BlackPoint(_dict), intent, compensate).Same(_mapping) ? this : new CalRgbSpace(_dict, intent, compensate);
 
         public override Rgb ToRgb(ReadOnlySpan<double> c) => _shaper.ToRgb(c);
 
@@ -418,13 +446,100 @@ public abstract partial class ColorSpace
             ? [(float)wp[0], (float)wp[1], (float)wp[2]]
             : [IccProfile.WhiteX, IccProfile.WhiteY, IccProfile.WhiteZ];
 
-    /// <summary>XYZ under <paramref name="white"/> → sRGB.</summary>
+    /// <summary>
+    /// /BlackPoint of CalGray, CalRGB, Lab (8.6.5.2–8.6.5.4): three numbers, none negative; anything else is passed over as before (the default
+    /// [0 0 0]). Null for the default.
+    /// </summary>
+    private static float[]? BlackPoint(PdfDictionary? dict)
+    {
+        if (dict?.GetArray(PdfName.Get("BlackPoint")) is not { Count: 3 } array) return null;
+        var bp = new float[3];
+        for (var i = 0; i < 3; i++)
+        {
+            if (array.GetNumber(i) is not { } v || !double.IsFinite(v) || v < 0) return null;
+            bp[i] = (float)v;
+        }
+        return bp[0] == 0 && bp[1] == 0 && bp[2] == 0 ? null : bp;
+    }
+
+    /// <summary>XYZ under <paramref name="white"/> → sRGB (relative colorimetric: the white point adapted to D50 by Bradford).</summary>
     private static Rgb FromXyz(ReadOnlySpan<float> white, Span<float> xyz)
     {
         IccColor.AdaptToD50(white, xyz);
         Span<float> rgb = stackalloc float[3];
         IccColor.XyzToSrgb(xyz[0], xyz[1], xyz[2], rgb);
         return Rgb.FromUnit(rgb[0], rgb[1], rgb[2]);
+    }
+
+    /// <summary>
+    /// How the XYZ of a CIE-based space (CalGray, CalRGB, Lab) under its white point enter the PCS (D50, whose white the display shows as its
+    /// white) for a rendering intent (docs/FEHLERGEDAECHTNIS.md, No. 1129):
+    /// <list type="bullet">
+    /// <item>relative colorimetric, perceptual, saturation (no tables, all three alike): the white point adapted to D50 by Bradford, so that it
+    /// is the display's white (8.6.5.3 sentences 22–28); with black point compensation (Default, ON) the /BlackPoint, adapted the same way,
+    /// is then moved onto the display's black by a linear scaling in XYZ that keeps the white — per component X′ = (X − Xk) · Xw / (Xw − Xk),
+    /// as ISO 18619 scales; a black point not darker than the white in every component is passed over;</item>
+    /// <item>absolute colorimetric: the XYZ as they are, with no correction for the white point (8.6.5.8, Table 69) and without black point
+    /// (8.6.5.9 sentence 6) — a white point other than D50 shows as a tint (D65 bluish); a Y of the white point other than 1.0 (8.6.5.2: shall
+    /// be 1.0) is divided out.</item>
+    /// </list>
+    /// </summary>
+    private sealed class CieMapping
+    {
+        private readonly bool _absolute;
+        private readonly float[]? _black;   // the black point in the PCS, where it is compensated
+
+        private CieMapping(bool absolute, float[]? black) => (_absolute, _black) = (absolute, black);
+
+        /// <summary>The offset in linear sRGB that the black point adds (null without one).</summary>
+        public float[]? Offset { get; private init; }
+
+        public static CieMapping For(float[] white, float[]? blackPoint, byte intent, bool compensate)
+        {
+            if (intent == AbsoluteColorimetric) return new CieMapping(true, null);
+            if (!compensate || blackPoint is null) return new CieMapping(false, null);
+            Span<float> bp = [blackPoint[0], blackPoint[1], blackPoint[2]];
+            IccColor.AdaptToD50(white, bp);
+            if (!(bp[0] is >= 0 and < IccProfile.WhiteX && bp[1] is >= 0 and < IccProfile.WhiteY && bp[2] is >= 0 and < IccProfile.WhiteZ))
+                return new CieMapping(false, null);
+            float[] black = [bp[0], bp[1], bp[2]];
+            Span<float> offset = stackalloc float[3];
+            IccColor.XyzToSrgbLinear(-black[0] * Factor(black, 0), -black[1] * Factor(black, 1), -black[2] * Factor(black, 2), offset);
+            return new CieMapping(false, black) { Offset = [offset[0], offset[1], offset[2]] };
+        }
+
+        private static float White(int i) => i switch { 0 => IccProfile.WhiteX, 1 => IccProfile.WhiteY, _ => IccProfile.WhiteZ };
+
+        private static float Factor(float[] black, int i) => White(i) / (White(i) - black[i]);
+
+        /// <summary>The same mapping (then a variant would equal its space).</summary>
+        public bool Same(CieMapping other) =>
+            _absolute == other._absolute && (_black is null ? other._black is null : other._black is not null && _black.AsSpan().SequenceEqual(other._black));
+
+        /// <summary>The linear part (without the offset of the black point), in place: XYZ under <paramref name="white"/> → PCS.</summary>
+        public void Linear(ReadOnlySpan<float> white, Span<float> xyz)
+        {
+            if (_absolute)
+            {
+                for (var i = 0; i < 3; i++) xyz[i] /= white[1];
+                return;
+            }
+            IccColor.AdaptToD50(white, xyz);
+            if (_black is null) return;
+            for (var i = 0; i < 3; i++) xyz[i] *= Factor(_black, i);
+        }
+
+        /// <summary>XYZ under <paramref name="white"/> → sRGB.</summary>
+        public Rgb ToRgb(ReadOnlySpan<float> white, Span<float> xyz)
+        {
+            if (!_absolute && _black is null) return FromXyz(white, xyz);
+            Linear(white, xyz);
+            if (_black is not null)
+                for (var i = 0; i < 3; i++) xyz[i] -= _black[i] * Factor(_black, i);
+            Span<float> rgb = stackalloc float[3];
+            IccColor.XyzToSrgb(xyz[0], xyz[1], xyz[2], rgb);
+            return Rgb.FromUnit(rgb[0], rgb[1], rgb[2]);
+        }
     }
 
     /// <summary>
@@ -435,21 +550,28 @@ public abstract partial class ColorSpace
     {
         private readonly IccCurve[] _curves;
         private readonly float[] _toLinear = new float[9];
+        private readonly float _o0, _o1, _o2;
         private readonly float[][] _linear;
         private static readonly byte[] EncodeTable = BuildEncode();
 
-        public MatrixShaper(IccCurve[] curves, float[] xyzMatrix)
+        /// <param name="curves">The tone curves.</param>
+        /// <param name="xyzMatrix">Curves → XYZ (D50), row by row.</param>
+        /// <param name="pcsScale">Factors applied to X, Y, Z after the matrix (empty: none) — ICC-absolute colorimetry.</param>
+        /// <param name="linearOffset">An offset in linear sRGB added after the matrix (null: none) — black point compensation.</param>
+        public MatrixShaper(IccCurve[] curves, float[] xyzMatrix, ReadOnlySpan<float> pcsScale = default, float[]? linearOffset = null)
         {
             _curves = curves;
-            // XYZ (D50) → linear sRGB, combined with the matrix of the profile
+            // XYZ (D50) → linear sRGB, combined with the matrix of the profile and the factors after it
             Span<float> column = stackalloc float[3];
             for (var c = 0; c < 3; c++)
             {
-                IccColor.XyzToSrgbLinear(xyzMatrix[c], xyzMatrix[3 + c], xyzMatrix[6 + c], column);
+                if (pcsScale.IsEmpty) IccColor.XyzToSrgbLinear(xyzMatrix[c], xyzMatrix[3 + c], xyzMatrix[6 + c], column);
+                else IccColor.XyzToSrgbLinear(xyzMatrix[c] * pcsScale[0], xyzMatrix[3 + c] * pcsScale[1], xyzMatrix[6 + c] * pcsScale[2], column);
                 _toLinear[c] = column[0];
                 _toLinear[3 + c] = column[1];
                 _toLinear[6 + c] = column[2];
             }
+            if (linearOffset is not null) (_o0, _o1, _o2) = (linearOffset[0], linearOffset[1], linearOffset[2]);
             _linear = new float[3][];
             for (var c = 0; c < 3; c++)
             {
@@ -458,8 +580,22 @@ public abstract partial class ColorSpace
             }
         }
 
-        public static MatrixShaper? From(IccProfile profile) =>
-            profile.IsMatrixShaper && profile.Matrix is { } m && profile.Curves is { } c ? new MatrixShaper(c, m) : null;
+        /// <summary>The shaper of a matrix profile's transform, with its affine map in the PCS (black point compensation, ICC-absolute).</summary>
+        public static MatrixShaper? From(IccTransform transform)
+        {
+            var profile = transform.Profile;
+            if (!profile.IsMatrixShaper || profile.Matrix is not { } m || profile.Curves is not { } c) return null;
+            var o = transform.PcsOffset;
+            float[]? offset = null;
+            if (o[0] != 0 || o[1] != 0 || o[2] != 0)
+            {
+                Span<float> linear = stackalloc float[3];
+                IccColor.XyzToSrgbLinear(o[0], o[1], o[2], linear);
+                offset = [linear[0], linear[1], linear[2]];
+            }
+            var s = transform.PcsScale;
+            return new MatrixShaper(c, m, s[0] == 1 && s[1] == 1 && s[2] == 1 ? default : s, offset);
+        }
 
         private static byte[] BuildEncode()
         {
@@ -473,8 +609,8 @@ public abstract partial class ColorSpace
             if (c.Length < 3) return Rgb.Black;
             float a = _curves[0].Evaluate((float)c[0]), b = _curves[1].Evaluate((float)c[1]), d = _curves[2].Evaluate((float)c[2]);
             var m = _toLinear;
-            return Rgb.FromUnit(IccColor.Encode(m[0] * a + m[1] * b + m[2] * d), IccColor.Encode(m[3] * a + m[4] * b + m[5] * d),
-                IccColor.Encode(m[6] * a + m[7] * b + m[8] * d));
+            return Rgb.FromUnit(IccColor.Encode(m[0] * a + m[1] * b + m[2] * d + _o0), IccColor.Encode(m[3] * a + m[4] * b + m[5] * d + _o1),
+                IccColor.Encode(m[6] * a + m[7] * b + m[8] * d + _o2));
         }
 
         public void Row8(ReadOnlySpan<byte> row, int width, Span<byte> rgba)
@@ -490,9 +626,9 @@ public abstract partial class ColorSpace
                     continue;
                 }
                 float a = l0[row[s]], b = l1[row[s + 1]], c = l2[row[s + 2]];
-                rgba[d] = Encode(m[0] * a + m[1] * b + m[2] * c);
-                rgba[d + 1] = Encode(m[3] * a + m[4] * b + m[5] * c);
-                rgba[d + 2] = Encode(m[6] * a + m[7] * b + m[8] * c);
+                rgba[d] = Encode(m[0] * a + m[1] * b + m[2] * c + _o0);
+                rgba[d + 1] = Encode(m[3] * a + m[4] * b + m[5] * c + _o1);
+                rgba[d + 2] = Encode(m[6] * a + m[7] * b + m[8] * c + _o2);
                 rgba[d + 3] = 255;
             }
         }

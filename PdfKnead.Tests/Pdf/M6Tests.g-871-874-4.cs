@@ -228,8 +228,8 @@ public sealed partial class M6NormTests
     }
 
     /// <summary>
-    /// 8.7.3.1 sentences 26–33 (/TilingType 2 only; types 1 and 3 await a design decision): with type 2 the step may vary by a pixel but is
-    /// right on average — a step of 10.3 at scale 1 puts cell 10 at 103–108 and cell 19 at 195.7–200.7 (a step rounded to 10 would put it at
+    /// 8.7.3.1 sentences 26–33 (/TilingType 2; types 1 and 3 in TilingType1And3_StepInWholeDevicePixels): with type 2 the step may vary by a
+    /// pixel but is right on average — a step of 10.3 at scale 1 puts cell 10 at 103–108 and cell 19 at 195.7–200.7 (a step rounded to 10 would put it at
     /// 190–195).
     /// </summary>
     [Fact]
@@ -303,11 +303,12 @@ public sealed partial class M6NormTests
     }
 
     /// <summary>
-    /// 8.7.3.3 sentences 2–5 (reader, behaviour of today): an uncoloured cell must not paint an ordinary image; one that does (RGB 1 × 1 red over the
-    /// lower left of a cell of 20) acts as a full stencil — the area it covers appears in the colour from „scn“ (blue), the rest of the cell stays empty.
+    /// 8.7.3.3 sentences 2–5 and 8.6.8 sentence 104T (reader): an uncoloured cell must not paint an ordinary image; one that does (RGB 1 × 1 red over
+    /// the lower left of a cell of 20) is passed over as in a d1 glyph — the cell paints nothing. Before, the image acted as a full stencil in the
+    /// colour from „scn“ (docs/FEHLERGEDAECHTNIS.md, No. 1130).
     /// </summary>
     [Fact]
-    public void UncolouredCell_WithAnImage_ActsAsAStencil_Today()
+    public void UncolouredCell_WithAnImage_PassesItOver()
     {
         using var b = G874_Render("/CS cs 0 0 1 /P scn 0 0 200 200 re f", G874_With(pdf =>
         {
@@ -315,9 +316,7 @@ public sealed partial class M6NormTests
                 ("Height", PdfInteger.Of(1)), ("ColorSpace", TestPdf.N("DeviceRGB")), ("BitsPerComponent", PdfInteger.Of(8))), [255, 0, 0]));
             return G874_Tiling("q 10 0 0 10 0 0 cm /I Do Q", 20, [0, 0, 20, 20], 2, resources: TestPdf.Dict(("XObject", TestPdf.Dict(("I", TestPdf.Ref(image))))));
         }, G874_UncolouredRgb()));
-        Assert.True(G874_Blue(G874_At(b, 5, 5)), $"{G874_At(b, 5, 5)}");
-        Assert.True(G874_Blue(G874_At(b, 25, 5)), $"{G874_At(b, 25, 5)}");
-        Assert.True(G874_White(G874_At(b, 15, 15)), $"{G874_At(b, 15, 15)}");
+        foreach (var (x, y) in new[] { (5, 5), (25, 5), (15, 15) }) Assert.True(G874_White(G874_At(b, x, y)), $"({x}, {y}): {G874_At(b, x, y)}");
     }
 
     /// <summary>
@@ -571,12 +570,13 @@ public sealed partial class M6NormTests
     }
 
     /// <summary>
-    /// 8.7.4.4 sentence 32 (reader, behaviour of today) and 8.7.4.5.3 sentence 5 (reader): Indexed must not be used with a function; an axial shading
+    /// 8.7.4.4 sentence 32 and 8.7.4.5.3 sentence 5 (reader; read leniently, docs/normabgleich/sonderregeln.md S-A A182, as one reference reader):
+    /// Indexed must not be used with a function; an axial shading
     /// in [/Indexed /DeviceRGB 1 &lt;FF0000 0000FF&gt;] with a function 0 → 1 is read leniently, one palette entry per value — red up to half way, blue
     /// beyond, no crash.
     /// </summary>
     [Fact]
-    public void IndexedAxialWithFunction_PaletteEntryPerValue_Today()
+    public void IndexedAxialWithFunction_PaletteEntryPerValue()
     {
         var indexed = new PdfArray([TestPdf.N("Indexed"), TestPdf.N("DeviceRGB"), PdfInteger.Of(1), new PdfString([0xFF, 0, 0, 0, 0, 0xFF])]);
         using var b = G874_Render("/Sh sh", G874_Sh(G874_Axial(0, 200, true, G874_Exponential([0], [1]), indexed)));

@@ -9,17 +9,29 @@ namespace PdfKnead.Core.Pdf.Graphics.Icc;
 /// a grey tone curve, or three tone curves with a matrix to XYZ. An exported image keeps its raw values and carries the profile, so that
 /// it shows the colours the PDF means. White point adapted to D50 with Bradford, exactly as these colour spaces are drawn. Also sRGB
 /// (IEC 61966-2.1) built the same way from its published definition, as the output profile of PDF/A files (KONZEPT.md, section 5.21).
+/// For a file of PDF 2.0 the sRGB profile is written as version 4.3 (ICC.1:2010, the version ISO 32000-2, Table 66 names): description and
+/// copyright as multiLocalizedUnicodeType, the chromatic adaptation in chad, the profile ID set — with exactly the same colours; for PDF/A-1 and
+/// the versions before 2.0, and for exported images, as version 2.1 (docs/FEHLERGEDAECHTNIS.md, No. 1133).
 /// </summary>
 internal static class CalibratedProfile
 {
     private const string Description = "Calibrated color space from PDF";
+
+    private const string Copyright = "No copyright, use freely";
+
+    /// <summary>The white of sRGB (D65, IEC 61966-2.1: x 0.3127, y 0.3290) as XYZ.</summary>
+    private static readonly double[] D65 = [0.3127 / 0.3290, 1, (1 - 0.3127 - 0.3290) / 0.3290];
 
     /// <summary>The registry name of sRGB, used as the description of <see cref="Srgb"/> and as the output condition of PDF/A files.</summary>
     public const string SrgbName = "sRGB IEC61966-2.1";
 
     private const int SrgbPoints = 1024;
 
-    private static readonly Lazy<byte[]> SrgbBytes = new(() =>
+    private static readonly Lazy<byte[]> SrgbBytes = new(() => SrgbProfile(version4: false));
+
+    private static readonly Lazy<byte[]> Srgb4Bytes = new(() => SrgbProfile(version4: true));
+
+    private static byte[] SrgbProfile(bool version4)
     {
         // the primaries of IEC 61966-2.1 under D65, adapted to D50 with Bradford (the colorants of the published profile)
         var curve = SrgbCurve();
@@ -29,12 +41,16 @@ internal static class CalibratedProfile
             ("gXYZ", Xyz(0.3850649f, 0.7168786f, 0.0971045f)),
             ("bXYZ", Xyz(0.1430804f, 0.0606169f, 0.7141733f)),
             ("rTRC", curve), ("gTRC", curve), ("bTRC", curve),
-        ], SrgbName);
-    });
+        ], SrgbName, version4, D65);
+    }
 
-    /// <summary>An sRGB profile: the three primaries and the sRGB tone curve as a table of 1024 points. Own data, no profile file of another party.</summary>
+    /// <summary>
+    /// An sRGB profile: the three primaries and the sRGB tone curve as a table of 1024 points. Own data, no profile file of another party.
+    /// </summary>
+    /// <param name="version4">As version 4.3 for a file of PDF 2.0 (ISO 32000-2, Table 66: ICC.1:2010); else version 2.1 (PDF/A-1, files
+    /// before 2.0, exported images).</param>
     /// <returns>A new copy of the profile.</returns>
-    public static byte[] Srgb() => (byte[])SrgbBytes.Value.Clone();
+    public static byte[] Srgb(bool version4 = false) => (byte[])(version4 ? Srgb4Bytes : SrgbBytes).Value.Clone();
 
     public const string SrgbGrayName = "Grey with the sRGB tone curve";
 
@@ -206,8 +222,10 @@ internal static class CalibratedProfile
     /// version 2. Null for any other profile (a table-based one, another version than 4, damaged).
     /// </summary>
     /// <param name="data">The profile.</param>
+    /// <param name="language">The language whose record of a multilingual description or copyright is written (<see cref="MlucRecord"/>);
+    /// null = the program language.</param>
     /// <returns>The profile of version 2.1; null if it cannot be written so.</returns>
-    public static byte[]? AsVersion2(byte[] data)
+    public static byte[]? AsVersion2(byte[] data, string? language = null)
     {
         if (data.Length < 132 || data[8] != 4 || BinaryPrimitives.ReadUInt32BigEndian(data.AsSpan(20)) != 0x58595A20) return null;   // PCS XYZ
         var space = BinaryPrimitives.ReadUInt32BigEndian(data.AsSpan(16));
@@ -232,6 +250,7 @@ internal static class CalibratedProfile
             {
                 if ((copied += size) > data.Length) return null;
                 copies[(offset, size)] = bytes = data.AsSpan((int)offset, (int)size).ToArray();
+                bytes.AsSpan(4, 4).Clear();   // reserved in every type written here (ICC.1, 10.1; before, copied as they were — No. 1133)
             }
             read[signature] = bytes;
         }
@@ -239,8 +258,8 @@ internal static class CalibratedProfile
         if (needed.Length == 0 || needed.Any(n => !read.ContainsKey(n))) return null;
         var tags = new List<(string Signature, byte[] Data)>
         {
-            ("desc", Desc(Ascii(TextOf(read.GetValueOrDefault("desc")) ?? "Profile"))),
-            ("cprt", Text(Ascii(TextOf(read.GetValueOrDefault("cprt")) ?? ""))),
+            ("desc", Desc(Ascii(TextOf(read.GetValueOrDefault("desc"), language) ?? "Profile"))),
+            ("cprt", Text(Ascii(TextOf(read.GetValueOrDefault("cprt"), language) ?? ""))),
         };
         foreach (var signature in (ReadOnlySpan<string>)["wtpt", "bkpt", "rXYZ", "gXYZ", "bXYZ"])
             if (read.TryGetValue(signature, out var xyz))
@@ -248,6 +267,8 @@ internal static class CalibratedProfile
                 if (!xyz.AsSpan().StartsWith("XYZ "u8)) return null;
                 tags.Add((signature, xyz));
             }
+            // the media white point is required (ICC.1, 8.2): D50, which the display takes without it — before, it was left out (No. 1133)
+            else if (signature == "wtpt") tags.Add(("wtpt", Xyz(IccProfile.WhiteX, IccProfile.WhiteY, IccProfile.WhiteZ)));
         foreach (var signature in (ReadOnlySpan<string>)["kTRC", "rTRC", "gTRC", "bTRC"])
             if (read.TryGetValue(signature, out var curve))
             {
@@ -259,17 +280,100 @@ internal static class CalibratedProfile
         var header = data.AsSpan(0, 128).ToArray();
         BinaryPrimitives.WriteUInt32BigEndian(header.AsSpan(8), 0x02100000);
         header.AsSpan(84, 16).Clear();   // the profile ID is a field of version 4
+        header.AsSpan(100, 28).Clear();  // reserved in both versions (ICC.1, 7.2.19; before, copied as they were — No. 1133)
         // a date that is none (month or day 0, hours beyond 23 …) becomes the fixed one of the own profiles (ICC.1 4.2, 7.2.8; before, copied as
         // it was — the PDF/A-1 way could write a profile with month 0; docs/FEHLERGEDAECHTNIS.md, No. 1128)
         if (!ValidCreated(header)) WriteCreated(header);
         return Assemble(header, tags);
     }
 
-    /// <summary>The fixed date of creation of the own profiles (ICC.1, 7.2.8: a valid dateTimeNumber in UTC; No. 1124).</summary>
-    private static void WriteCreated(Span<byte> header)
+    /// <summary>The fixed date of creation of the own profiles (ICC.1, 7.2.8: a valid dateTimeNumber in UTC; No. 1124), also of cleaned ones.</summary>
+    internal static void WriteCreated(Span<byte> header)
     {
         ReadOnlySpan<ushort> created = [2026, 11, 24, 0, 0, 0];
         for (var i = 0; i < created.Length; i++) BinaryPrimitives.WriteUInt16BigEndian(header[(24 + 2 * i)..], created[i]);
+    }
+
+    /// <summary>The tags every profile but a DeviceLink carries (ICC.1, 8.2): description, copyright, media white point.</summary>
+    private static readonly string[] RequiredTags = ["desc", "cprt", "wtpt"];
+
+    /// <summary>The signatures of the tag table; null if the table does not fit the data.</summary>
+    private static HashSet<string>? TagSignatures(ReadOnlySpan<byte> data)
+    {
+        if (data.Length < 132) return null;
+        var count = BinaryPrimitives.ReadUInt32BigEndian(data[128..]);
+        if (count > 1000 || 132 + count * 12 > data.Length) return null;
+        var signatures = new HashSet<string>(StringComparer.Ordinal);
+        for (var i = 0; i < count; i++) signatures.Add(Encoding.ASCII.GetString(data.Slice(132 + 12 * i, 4)));
+        return signatures;
+    }
+
+    /// <summary>
+    /// The tags ICC.1 8.2 requires that a profile lacks (desc, cprt, wtpt; none for a DeviceLink); empty where it has them or where its tag
+    /// table cannot be read (that is reported as an unreadable profile).
+    /// </summary>
+    /// <param name="data">The profile.</param>
+    internal static string[] MissingRequiredTags(ReadOnlySpan<byte> data)
+    {
+        if (data.Length < 132 || data.Slice(12, 4).SequenceEqual("link"u8) || TagSignatures(data) is not { } signatures) return [];
+        return [.. RequiredTags.Where(t => !signatures.Contains(t))];
+    }
+
+    /// <summary>
+    /// The profile with the tags ICC.1 8.2 requires added where they are missing, without changing a colour: the media white point D50 (the
+    /// white the display takes without it, also for the absolute intent), a neutral description („ICC profile“) and copyright („No copyright
+    /// information“, no rights made up), as the types of its version (2: textDescriptionType and textType; from 4 on multiLocalizedUnicodeType,
+    /// the profile ID then computed afresh, ICC.1 7.2.18). The tag table grows by the new entries, the data behind it move by as much, the new
+    /// tags follow at the end. Null where nothing is missing, or where the profile cannot be completed so (an entry pointing into the header or
+    /// the table, data larger than the profile).
+    /// </summary>
+    /// <param name="data">The profile.</param>
+    internal static byte[]? WithRequiredTags(byte[] data)
+    {
+        var missing = MissingRequiredTags(data);
+        if (missing.Length == 0) return null;
+        var count = (int)BinaryPrimitives.ReadUInt32BigEndian(data.AsSpan(128));
+        var tableEnd = 132 + 12 * count;
+        var version4 = data[8] >= 4;
+        var shift = 12 * missing.Length;
+        for (var i = 0; i < count; i++)
+        {
+            var offset = BinaryPrimitives.ReadUInt32BigEndian(data.AsSpan(136 + 12 * i));
+            var size = BinaryPrimitives.ReadUInt32BigEndian(data.AsSpan(140 + 12 * i));
+            if (offset < tableEnd || offset + (long)size > data.Length) return null;
+        }
+        var added = missing.Select(sig => (Signature: sig, Data: sig switch
+        {
+            "desc" => version4 ? Mluc("ICC profile") : Desc("ICC profile"),
+            "cprt" => version4 ? Mluc("No copyright information") : Text("No copyright information"),
+            _ => Xyz(IccProfile.WhiteX, IccProfile.WhiteY, IccProfile.WhiteZ),
+        })).ToList();
+        var body = (data.Length - tableEnd + 3) & ~3;   // the old tag data, padded to four bytes
+        var length = tableEnd + shift + body + added.Sum(a => (a.Data.Length + 3) & ~3);
+        var result = new byte[length];
+        data.AsSpan(0, 128).CopyTo(result);
+        BinaryPrimitives.WriteUInt32BigEndian(result, (uint)length);
+        BinaryPrimitives.WriteUInt32BigEndian(result.AsSpan(128), (uint)(count + added.Count));
+        for (var i = 0; i < count; i++)
+        {
+            data.AsSpan(132 + 12 * i, 12).CopyTo(result.AsSpan(132 + 12 * i));
+            var offset = BinaryPrimitives.ReadUInt32BigEndian(data.AsSpan(136 + 12 * i));
+            BinaryPrimitives.WriteUInt32BigEndian(result.AsSpan(136 + 12 * i), (uint)(offset + shift));
+        }
+        data.AsSpan(tableEnd).CopyTo(result.AsSpan(tableEnd + shift));
+        var at = tableEnd + shift + body;
+        for (var k = 0; k < added.Count; k++)
+        {
+            var entry = result.AsSpan(132 + 12 * (count + k), 12);
+            Encoding.ASCII.GetBytes(added[k].Signature, entry);
+            BinaryPrimitives.WriteUInt32BigEndian(entry[4..], (uint)at);
+            BinaryPrimitives.WriteUInt32BigEndian(entry[8..], (uint)added[k].Data.Length);
+            added[k].Data.CopyTo(result, at);
+            at += (added[k].Data.Length + 3) & ~3;
+        }
+        result.AsSpan(84, 16).Clear();
+        if (version4) IccProfile.ComputedId(result).CopyTo(result, 84);
+        return result;
     }
 
     /// <summary>Whether bytes 24–35 of a header are a date and time (ICC.1, 4.2).</summary>
@@ -280,8 +384,11 @@ internal static class CalibratedProfile
         return year >= 1 && month is >= 1 and <= 12 && day >= 1 && day <= DateTime.DaysInMonth(year, month) && hour <= 23 && minute <= 59 && second <= 59;
     }
 
-    /// <summary>The text of a description or copyright tag: the first entry of multiLocalizedUnicodeType, textType, textDescriptionType.</summary>
-    private static string? TextOf(byte[]? tag)
+    /// <summary>
+    /// The text of a description or copyright tag: of a multiLocalizedUnicodeType the record of the language asked for (<see cref="MlucRecord"/>;
+    /// before, always the first — No. 1133), textType, textDescriptionType.
+    /// </summary>
+    private static string? TextOf(byte[]? tag, string? language)
     {
         if (tag is null || tag.Length < 12) return null;
         switch (Encoding.ASCII.GetString(tag, 0, 4))
@@ -289,9 +396,7 @@ internal static class CalibratedProfile
             // length and offset unsigned: as int, a value from 2^31 on passed the check and the decoding threw — saving as PDF/A-1 failed
             // (docs/FEHLERGEDAECHTNIS.md, No. 1122); no record at all: no text
             case "mluc" when tag.Length >= 28 && BinaryPrimitives.ReadUInt32BigEndian(tag.AsSpan(8)) > 0:
-                var length = BinaryPrimitives.ReadUInt32BigEndian(tag.AsSpan(20));
-                var offset = BinaryPrimitives.ReadUInt32BigEndian(tag.AsSpan(24));
-                return offset + (long)length <= tag.Length ? Encoding.BigEndianUnicode.GetString(tag, (int)offset, (int)length).TrimEnd('\0') : null;
+                return MlucRecord(tag, language) is var (offset, length) ? Encoding.BigEndianUnicode.GetString(tag, offset, length).TrimEnd('\0') : null;
             case "text":
                 return Encoding.Latin1.GetString(tag, 8, tag.Length - 8).TrimEnd('\0');
             case "desc":
@@ -339,27 +444,113 @@ internal static class CalibratedProfile
             ? [(float)wp[0], (float)wp[1], (float)wp[2]]
             : [IccProfile.WhiteX, IccProfile.WhiteY, IccProfile.WhiteZ];
 
-    private static byte[] Build(uint space, List<(string Signature, byte[] Data)> own, string description = Description)
+    /// <summary>
+    /// An own display profile: description, media white (D50), copyright and the tags given. Version 2.1: the texts as textDescriptionType and
+    /// textType. Version 4.3 (ICC.1:2010, 8.2, 9.2.15, 7.2.18): the texts as multiLocalizedUnicodeType (en/US), the chromatic adaptation from
+    /// <paramref name="adoptedWhite"/> to D50 (Bradford, as the colorants were adapted) in chad where that white is not D50, the profile ID set.
+    /// Both carry the flag „embedded“ (ICC.1, 7.2.11 bit 0): PDF-Knead writes its profiles only into files (PDF, PNG, TIFF, JPEG) —
+    /// before, the flags were 0.
+    /// </summary>
+    private static byte[] Build(uint space, List<(string Signature, byte[] Data)> own, string description = Description, bool version4 = false,
+        double[]? adoptedWhite = null)
     {
         List<(string Signature, byte[] Data)> tags =
         [
-            ("desc", Desc(description)),
+            ("desc", version4 ? Mluc(description) : Desc(description)),
             ("wtpt", Xyz(IccProfile.WhiteX, IccProfile.WhiteY, IccProfile.WhiteZ)),
-            ("cprt", Text("No copyright, use freely")),
+            ("cprt", version4 ? Mluc(Copyright) : Text(Copyright)),
             .. own,
         ];
+        double[] d50 = [IccProfile.WhiteX, IccProfile.WhiteY, IccProfile.WhiteZ];
+        if (version4 && adoptedWhite is { } white && !white.SequenceEqual(d50)) tags.Add(("chad", Sf32(Bradford(white, d50))));
         var header = new byte[128];
         var h = header.AsSpan();
-        BinaryPrimitives.WriteUInt32BigEndian(h[8..], 0x02100000);
+        BinaryPrimitives.WriteUInt32BigEndian(h[8..], version4 ? 0x04300000u : 0x02100000u);
         "mntr"u8.CopyTo(h[12..]);
         BinaryPrimitives.WriteUInt32BigEndian(h[16..], space);
         "XYZ "u8.CopyTo(h[20..]);
         "acsp"u8.CopyTo(h[36..]);
+        BinaryPrimitives.WriteUInt32BigEndian(h[44..], 1);   // embedded in a file (No. 1133)
         // the date of creation (ICC.1, 7.2.8: a valid dateTimeNumber in UTC) — fixed, the same profile always has the same bytes; before,
         // all zero, month 0 and day 0 are no date (docs/FEHLERGEDAECHTNIS.md, No. 1124)
         WriteCreated(h);
         Xyz(IccProfile.WhiteX, IccProfile.WhiteY, IccProfile.WhiteZ).AsSpan(8, 12).CopyTo(h[68..]);   // illuminant of the PCS
-        return Assemble(header, tags);
+        var profile = Assemble(header, tags);
+        if (version4) IccProfile.ComputedId(profile).CopyTo(profile, 84);
+        return profile;
+    }
+
+    /// <summary>multiLocalizedUnicodeType (ICC.1, 10.15) with one record en/US of size 12: the text in UTF-16BE without a final zero.</summary>
+    private static byte[] Mluc(string text)
+    {
+        var utf16 = Encoding.BigEndianUnicode.GetBytes(text);
+        var data = new byte[28 + utf16.Length];
+        "mluc"u8.CopyTo(data);
+        BinaryPrimitives.WriteUInt32BigEndian(data.AsSpan(8), 1);
+        BinaryPrimitives.WriteUInt32BigEndian(data.AsSpan(12), 12);
+        "enUS"u8.CopyTo(data.AsSpan(16));
+        BinaryPrimitives.WriteUInt32BigEndian(data.AsSpan(20), (uint)utf16.Length);
+        BinaryPrimitives.WriteUInt32BigEndian(data.AsSpan(24), 28);
+        utf16.CopyTo(data, 28);
+        return data;
+    }
+
+    /// <summary>s15Fixed16ArrayType (ICC.1, 10.22) of a 3 × 3 matrix, row by row (the layout of chad, 9.2.15).</summary>
+    private static byte[] Sf32(double[,] m)
+    {
+        var data = new byte[8 + 36];
+        "sf32"u8.CopyTo(data);
+        for (var i = 0; i < 9; i++) BinaryPrimitives.WriteInt32BigEndian(data.AsSpan(8 + 4 * i), (int)Math.Round(m[i / 3, i % 3] * 65536.0));
+        return data;
+    }
+
+    /// <summary>
+    /// The record of a multiLocalizedUnicodeType to show (ICC.1, 10.15 sentences 15–16): the one of the language and region asked for, else
+    /// the first of the same language, else the first record; null where the tag has no record or the chosen one lies outside the tag.
+    /// </summary>
+    /// <param name="tag">The tag data, from its type signature „mluc“ on.</param>
+    /// <param name="language">The language asked for as „de“, „de-CH“ or „de_CH“; null = the program language (<see cref="Localization.Tr.Current"/>)
+    /// with the region of the system culture where that culture has the same language.</param>
+    /// <returns>Offset and length of the chosen text in the tag.</returns>
+    internal static (int Offset, int Length)? MlucRecord(ReadOnlySpan<byte> tag, string? language = null)
+    {
+        if (tag.Length < 16 || !tag.StartsWith("mluc"u8)) return null;
+        var count = BinaryPrimitives.ReadUInt32BigEndian(tag[8..]);
+        var size = BinaryPrimitives.ReadUInt32BigEndian(tag[12..]);
+        if (count == 0 || size < 12) return null;
+        var (wanted, region) = Wanted(language);
+        long chosen = -1, sameLanguage = -1;
+        // records only as far as the tag reaches (the count is a uInt32; size and count in long, as for cleaning, No. 1122)
+        for (long r = 0; r < count && 16 + r * size + 12 <= tag.Length; r++)
+        {
+            var record = tag[(int)(16 + r * size)..];
+            var code = Encoding.ASCII.GetString(record[..2]);
+            if (!code.Equals(wanted, StringComparison.OrdinalIgnoreCase)) continue;
+            if (region is not null && Encoding.ASCII.GetString(record.Slice(2, 2)).Equals(region, StringComparison.OrdinalIgnoreCase))
+            {
+                chosen = r;
+                break;
+            }
+            if (sameLanguage < 0) sameLanguage = r;
+        }
+        if (chosen < 0) chosen = sameLanguage >= 0 ? sameLanguage : 0;
+        if (16 + chosen * size + 12 > tag.Length) return null;
+        var at = tag[(int)(16 + chosen * size)..];
+        var length = BinaryPrimitives.ReadUInt32BigEndian(at[4..]);
+        var offset = BinaryPrimitives.ReadUInt32BigEndian(at[8..]);
+        return offset + (long)length <= tag.Length ? ((int)offset, (int)length) : null;
+    }
+
+    /// <summary>The language (two letters, lower case) and the region (or null) asked for.</summary>
+    private static (string Language, string? Region) Wanted(string? language)
+    {
+        var parts = (language ?? Localization.Tr.Current.Code).Split('-', '_');
+        var wanted = parts[0].ToLowerInvariant();
+        if (parts.Length > 1) return (wanted, parts[^1]);
+        if (language is not null) return (wanted, null);
+        // the program language names no region: that of the system culture, where it speaks the same language (de-AT → AT)
+        var culture = System.Globalization.CultureInfo.CurrentCulture;
+        return culture.TwoLetterISOLanguageName == wanted && culture.Name.Split('-') is [_, .., { Length: 2 } region] ? (wanted, region) : (wanted, null);
     }
 
     /// <summary>A profile of a header (its size set here) and tags, each tag at a multiple of four bytes.</summary>

@@ -185,11 +185,13 @@ public sealed record MeshFill(float[] Points, uint[] Colors, Matrix ToPage) : Sh
 }
 
 /// <summary>
-/// Function-based shading (type 1) as a small image: <see cref="Samples"/> × <see cref="Samples"/> function values at the
-/// grid points of /Domain (<paramref name="X0"/>…<paramref name="X1"/>, <paramref name="Y0"/>…<paramref name="Y1"/>),
-/// drawn with bilinear smoothing and clipped to /Domain, as in widely used readers (instead of 8,192 triangles per shading).
-/// <paramref name="Matrix"/>: /Matrix of the shading (/Domain space → shading space); <paramref name="ToPage"/> as for all shadings
-/// (replaced for each place, hence kept separate).
+/// Function-based shading (type 1) as an image: <see cref="Samples"/> × <see cref="Samples"/> function values at the grid points of /Domain
+/// (<paramref name="X0"/>…<paramref name="X1"/>, <paramref name="Y0"/>…<paramref name="Y1"/>) as a coarse version; the renderer samples
+/// the visible part anew at the resolution of the device (<see cref="Resample"/>, at most <see cref="MaxResampleEdge"/> per axis and
+/// <see cref="MaxResampleSamples"/> in all), drawn with bilinear smoothing and clipped to /Domain — the function need be neither smooth
+/// nor continuous (ISO 32000-2, 8.7.4.5.2), a jump stays within a pixel (docs/FEHLERGEDAECHTNIS.md, No. 1130; before, 65 × 65 samples
+/// over /Domain blurred it). <paramref name="Matrix"/>: /Matrix of the shading (/Domain space → shading space); <paramref name="ToPage"/>
+/// as for all shadings (replaced for each place, hence kept separate).
 /// </summary>
 /// <param name="Pixels">Opaque ARGB values, row by row from <paramref name="Y0"/>, <see cref="Samples"/> per row.</param>
 /// <param name="X0">Start of /Domain in x.</param>
@@ -200,8 +202,21 @@ public sealed record MeshFill(float[] Points, uint[] Colors, Matrix ToPage) : Sh
 /// <param name="ToPage">Shading space → page.</param>
 public sealed record ImageFill(uint[] Pixels, double X0, double X1, double Y0, double Y1, Matrix Matrix, Matrix ToPage) : ShadingFill(ToPage)
 {
-    /// <summary>Samples per axis.</summary>
+    /// <summary>Samples per axis of the coarse version (<see cref="Pixels"/>).</summary>
     public const int Samples = 65;
+
+    /// <summary>At most this many samples per axis when sampling by device pixels.</summary>
+    public const int MaxResampleEdge = 2048;
+
+    /// <summary>At most this many samples in all when sampling by device pixels (4 MB of colours; a visible screen tile needs far fewer).</summary>
+    public const int MaxResampleSamples = 1 << 20;
+
+    /// <summary>
+    /// Samples the function anew: <c>(x0, x1, y0, y1, nx, ny, cancel)</c> gives <c>nx × ny</c> opaque ARGB values at the grid points of
+    /// [x0, x1] × [y0, y1] in /Domain space, row by row from y0 (both counts at least 2, within the limits above). Null: only
+    /// <see cref="Pixels"/>. Safe to call from several threads.
+    /// </summary>
+    public Func<double, double, double, double, int, int, CancellationToken, uint[]>? Resample { get; init; }
 
     /// <inheritdoc/>
     public override long EstimatedBytes => 64 + Pixels.Length * 4L;
@@ -229,6 +244,12 @@ public sealed record ImageFill(uint[] Pixels, double X0, double X1, double Y0, d
 /// <param name="ToPage">Pattern space → page.</param>
 public sealed record TilingFill(DisplayList Cell, RectD Box, double XStep, double YStep, uint? Color, Matrix ToPage) : ShadingFill(ToPage)
 {
+    /// <summary>
+    /// /TilingType 1 or 3: the cells are spaced by whole device pixels, the cell distorted by up to a pixel for it (ISO 32000-2, 8.7.3.1);
+    /// false for type 2 and for a missing or unknown type (the exact spacing, no distortion).
+    /// </summary>
+    public bool WholePixels { get; init; }
+
     /// <inheritdoc/>
     public override long EstimatedBytes => 128 + Cell.EstimatedBytes;
 
@@ -337,13 +358,24 @@ public static class Shadings
         }
     }
 
-    /// <summary>Colour from components or (with a function) from the parameter t or (x, y).</summary>
+    /// <summary>
+    /// Colour from components or (with a function) from the parameter t or (x, y). An /Indexed space without a function: the values read are
+    /// taken into the base at once (<see cref="Values"/>) and blended there, never in the indices (ISO 32000-2, 8.7.4.4) — with a device base the
+    /// finished colours, with a CIE-based or other base its components (docs/FEHLERGEDAECHTNIS.md, No. 595, 1130).
+    /// </summary>
     private sealed class Colorizer(ColorSpace space, PdfFunction? function)
     {
         public int Inputs => function is null ? Math.Max(space.Components, 1) : 1;
 
+        // the base of an indexed space without a function: the space the values are blended and converted in
+        private readonly ColorSpace? _base = function is null && space.IsIndexed ? space.IndexedBase : null;
+
+        /// <summary>The values of a vertex or corner as read (the index of an indexed space) in the space they are blended in.</summary>
+        public double[] Values(double[] read) => _base is not null && read.Length > 0 ? space.IndexedComponents(read[0]) ?? read : read;
+
         public uint FromComponents(ReadOnlySpan<double> c)
         {
+            if (_base is not null) return _base.ToRgb(c).ToArgb(1);
             if (function is null) return space.ToRgb(c).ToArgb(1);
             Span<double> output = stackalloc double[Math.Clamp(function.Outputs, 1, 32)];
             function.Evaluate(c, output);
@@ -358,10 +390,15 @@ public static class Shadings
         /// other non-linear spaces the conversion comes after it (docs/FEHLERGEDAECHTNIS.md, No. 569). An /Indexed space too: its values are
         /// entries of a palette, the colours between two of them are blended, not the entries in between (No. 595).
         /// </summary>
-        public bool Linear { get; } = function is null
-            && (ReferenceEquals(space, ColorSpace.DeviceGray) || ReferenceEquals(space, ColorSpace.DeviceRgb) || space.IsDeviceCmyk || space.IsIndexed);
+        public bool Linear { get; } = function is null && (space.IsIndexed && space.IndexedBase is { } b ? Device(b) : Device(space));
 
-        public MeshVertex Vertex((float X, float Y) p, double[] c) => new(p, c, FromComponents(c));
+        private static bool Device(ColorSpace s) => ReferenceEquals(s, ColorSpace.DeviceGray) || ReferenceEquals(s, ColorSpace.DeviceRgb) || s.IsDeviceCmyk;
+
+        public MeshVertex Vertex((float X, float Y) p, double[] c)
+        {
+            c = Values(c);
+            return new(p, c, FromComponents(c));
+        }
 
         public MeshVertex Middle(in MeshVertex a, in MeshVertex b)
         {
@@ -444,14 +481,27 @@ public static class Shadings
         var domain = PdfFunction.Numbers(dict.GetArray(PdfName.Get("Domain"))) is [var x0, var x1, var y0, var y1] ? (x0, x1, y0, y1) : (0.0, 1.0, 0.0, 1.0);
         var matrix = Matrix.FromArray(dict.GetArray(PdfName.Get("Matrix"))) ?? Matrix.Identity;
         const int Size = ImageFill.Samples;
-        var pixels = new uint[Size * Size];
-        for (var j = 0; j < Size; j++)
-        for (var i = 0; i < Size; i++)
+        var pixels = Sample(colors, domain.Item1, domain.Item2, domain.Item3, domain.Item4, Size, Size, CancellationToken.None);
+        return new ImageFill(pixels, domain.Item1, domain.Item2, domain.Item3, domain.Item4, matrix, toPage)
         {
-            double x = domain.Item1 + (domain.Item2 - domain.Item1) * i / (Size - 1), y = domain.Item3 + (domain.Item4 - domain.Item3) * j / (Size - 1);
-            pixels[j * Size + i] = colors.FromComponents([x, y]);
+            Resample = (x0, x1, y0, y1, nx, ny, cancel) => Sample(colors, x0, x1, y0, y1, nx, ny, cancel),
+        };
+    }
+
+    /// <summary>The colours at the <paramref name="nx"/> × <paramref name="ny"/> grid points of [x0, x1] × [y0, y1], row by row from y0.</summary>
+    private static uint[] Sample(Colorizer colors, double x0, double x1, double y0, double y1, int nx, int ny, CancellationToken cancel)
+    {
+        nx = Math.Clamp(nx, 2, ImageFill.MaxResampleEdge);
+        ny = Math.Clamp(ny, 2, ImageFill.MaxResampleEdge);
+        if ((long)nx * ny > ImageFill.MaxResampleSamples) ny = Math.Max(2, ImageFill.MaxResampleSamples / nx);
+        var pixels = new uint[nx * ny];
+        for (var j = 0; j < ny; j++)
+        {
+            if ((j & 15) == 0) cancel.ThrowIfCancellationRequested();
+            var y = y0 + (y1 - y0) * j / (ny - 1);
+            for (var i = 0; i < nx; i++) pixels[j * nx + i] = colors.FromComponents([x0 + (x1 - x0) * i / (nx - 1), y]);
         }
-        return new ImageFill(pixels, domain.Item1, domain.Item2, domain.Item3, domain.Item4, matrix, toPage);
+        return pixels;
     }
 
     // ------------------------------------------------------------ Meshes from bits (types 4 to 7)
@@ -628,7 +678,7 @@ public static class Shadings
                 for (var i = start; i < 12; i++) boundary[i] = reader.Point();
                 if (tensor)
                     for (var i = 0; i < 4; i++) interior[i] = reader.Point();
-                for (var i = start == 0 ? 0 : 2; i < 4; i++) corner[i] = reader.Components();
+                for (var i = start == 0 ? 0 : 2; i < 4; i++) corner[i] = colors.Values(reader.Components());
                 reader.Align();
                 first = false;
                 Tessellate(mesh, boundary, tensor ? interior : null, corner, colors, pageScale);

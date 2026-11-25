@@ -386,15 +386,19 @@ public sealed partial class M6NormTests
     }
 
     /// <summary>
-    /// 8.6.5.2 sentences 20T–23T (today's behaviour, /BlackPoint: design decision pending): CalGray with /BlackPoint [0.1 0.1 0.1] gives the same
-    /// colours as without — A 0 black, A 0.5 the same grey.
+    /// 8.6.5.2 sentences 20T–23T with 8.6.5.3 sentences 22T–28T: the diffuse black point of CalGray is mapped onto the black of the display, by a
+    /// linear scaling in XYZ that keeps the white (docs/FEHLERGEDAECHTNIS.md, No. 1129). Under D50 with /BlackPoint 0.1 · D50 (gamma 1): A 0.1
+    /// (Y = the black point) is black 0/0/0 — without the entry sRGB grey 88–90 —, A 0.55 is Y′ = (0.55 − 0.1) / 0.9 = 0.5, grey 187–189; A 0
+    /// stays black.
     /// </summary>
     [Fact]
-    public void CalGray_BlackPoint_TodayWithoutEffect()
+    public void CalGray_BlackPoint_MappedToDeviceBlack()
     {
-        const string with = $"[/CalGray << {D_D50} /BlackPoint [0.1 0.1 0.1] >>]";
+        const string with = $"[/CalGray << {D_D50} /BlackPoint [0.09642 0.1 0.08249] >>]";
+        D_Grey(D_In(with, "0.1"), 0, 1);
+        D_Grey(D_In($"[/CalGray << {D_D50} >>]", "0.1"), 88, 90);
+        D_Grey(D_In(with, "0.55"), 187, 189);
         Assert.Equal(((byte)0, (byte)0, (byte)0), D_In(with, "0"));
-        Assert.Equal(D_In($"[/CalGray << {D_D50} >>]", "0.5"), D_In(with, "0.5"));
     }
 
     /// <summary>8.6.5.2 sentences 24T–27T: without /Gamma the gamma is 1 — CalGray (D50) at A 0.5 is Y 0.5, sRGB 187–189.</summary>
@@ -410,18 +414,35 @@ public sealed partial class M6NormTests
     }
 
     /// <summary>
-    /// 8.6.5.3 sentences 12T–14T and 22T–28T (today's behaviour, /BlackPoint: design decision pending): CalRGB with /BlackPoint [0.05 0.05 0.05]
-    /// gives the same colours as without — the black point is not mapped.
+    /// 8.6.5.3 sentences 12T–14T and 22T–28T: the diffuse black point of CalRGB is mapped onto the black of the display, white kept
+    /// (docs/FEHLERGEDAECHTNIS.md, No. 1129). sRGB-like matrix under D65, gamma 1, /BlackPoint 0.05 · D65: „0.05 0.05 0.05“ (XYZ = the black
+    /// point) is black — without the entry grey 62–64 —, „0.525 0.525 0.525“ is linear 0.5, grey 187–189; white stays white. An 8-bit image in the
+    /// space (its rows through the shaper's tables) gives the colours of the fills within one step.
     /// </summary>
     [Fact]
-    public void CalRgb_BlackPoint_TodayWithoutEffect()
+    public void CalRgb_BlackPoint_MappedToDeviceBlack()
     {
         const string matrix = "/Matrix [0.4124 0.2126 0.0193 0.3576 0.7152 0.1192 0.1805 0.0722 0.9505]";
-        const string with = $"[/CalRGB << {D_D65} {matrix} /BlackPoint [0.05 0.05 0.05] >>]";
+        const string with = $"[/CalRGB << {D_D65} {matrix} /BlackPoint [0.047525 0.05 0.05445] >>]";
         const string without = $"[/CalRGB << {D_D65} {matrix} >>]";
-        foreach (var values in new[] { "0 0 0", "0.2 0.4 0.6" })
-            Assert.Equal(D_In(without, values), D_In(with, values));
-        Assert.Equal(((byte)0, (byte)0, (byte)0), D_In(with, "0 0 0"));
+        D_Grey(D_In(with, "0.05 0.05 0.05"), 0, 1);
+        D_Grey(D_In(without, "0.05 0.05 0.05"), 62, 64);
+        D_Grey(D_In(with, "0.525 0.525 0.525"), 187, 189);
+        D_Grey(D_In(with, "1 1 1"), 254, 255);
+        using var doc = PdfDocument.Open(TestPdf.Simple(1).Build());
+        var space = ColorSpace.Create(new PdfArray([TestPdf.N("CalRGB"), TestPdf.Dict(("WhitePoint", TestPdf.Box(0.9505, 1, 1.089)),
+            ("Matrix", TestPdf.Box(0.4124, 0.2126, 0.0193, 0.3576, 0.7152, 0.1192, 0.1805, 0.0722, 0.9505)), ("BlackPoint", TestPdf.Box(0.047525, 0.05, 0.05445)))]),
+            null, doc);
+        byte[] row = [13, 13, 13, 134, 134, 134, 200, 90, 30];
+        var rgba = new byte[12];
+        space.ConvertRow8(row, 3, rgba);
+        for (var i = 0; i < 3; i++)
+        {
+            var flat = space.ToRgb([row[3 * i] / 255.0, row[3 * i + 1] / 255.0, row[3 * i + 2] / 255.0]);
+            Assert.InRange(rgba[4 * i] - flat.R, -1, 1);
+            Assert.InRange(rgba[4 * i + 1] - flat.G, -1, 1);
+            Assert.InRange(rgba[4 * i + 2] - flat.B, -1, 1);
+        }
     }
 
     /// <summary>
@@ -475,14 +496,18 @@ public sealed partial class M6NormTests
     }
 
     /// <summary>
-    /// 8.6.5.4 sentences 29T–31T (today's behaviour, /BlackPoint: design decision pending): Lab (D50) with /BlackPoint [0.05 0.05 0.05] — „0 0 0“
-    /// is black as without.
+    /// 8.6.5.4 sentences 29T–31T: the diffuse black point of Lab is mapped onto the black of the display, white kept (docs/FEHLERGEDAECHTNIS.md,
+    /// No. 1129). Lab (D50) with /BlackPoint 0.05 · D50: L* 26.74 (Y = 0.05) is black — without the entry grey 62–64 —, L* 100 stays white,
+    /// „0 0 0“ black.
     /// </summary>
     [Fact]
-    public void Lab_BlackPoint_TodayWithoutEffect()
+    public void Lab_BlackPoint_MappedToDeviceBlack()
     {
-        Assert.Equal(((byte)0, (byte)0, (byte)0), D_In($"[/Lab << {D_D50} /BlackPoint [0.05 0.05 0.05] >>]", "0 0 0"));
-        Assert.Equal(D_In($"[/Lab << {D_D50} >>]", "40 10 10"), D_In($"[/Lab << {D_D50} /BlackPoint [0.05 0.05 0.05] >>]", "40 10 10"));
+        const string with = $"[/Lab << {D_D50} /BlackPoint [0.04821 0.05 0.041245] >>]";
+        D_Grey(D_In(with, "26.74 0 0"), 0, 1);
+        D_Grey(D_In($"[/Lab << {D_D50} >>]", "26.74 0 0"), 62, 64);
+        D_Grey(D_In(with, "100 0 0"), 254, 255);
+        Assert.Equal(((byte)0, (byte)0, (byte)0), D_In(with, "0 0 0"));
     }
 
     // ------------------------------------------------------------ 8.6.5.5 ICCBased
@@ -573,19 +598,22 @@ public sealed partial class M6NormTests
     }
 
     /// <summary>
-    /// 8.6.5.5 sentence 78T (reader, today's lenient reading): a profile of the class DeviceLink (link) or Abstract (abst) is read like the others —
-    /// its table gives the colour (magenta for 0 1 0 0).
+    /// 8.6.5.5 sentence 78T (reader; S-A A188): a profile of the class DeviceLink (link) or Abstract (abst) is not used as the colour space of
+    /// an ICCBased space, its /Alternate applies, as with the reference readers — 1 0 0 0 stays cyan (DeviceCMYK); with the class of an output
+    /// profile the swapped table gives magenta (before, link and abst were read like it; docs/FEHLERGEDAECHTNIS.md, No. 1134).
     /// </summary>
     [Theory]
     [InlineData(0x6C696E6Bu)]
     [InlineData(0x61627374u)]
-    public void ProfileOfClassLinkOrAbstract_ReadToday(uint deviceClass)
+    public void ProfileOfClassLinkOrAbstract_AlternateApplies(uint deviceClass)
     {
         var profile = (byte[])D_SwappedCmyk.Value.Clone();
         BinaryPrimitives.WriteUInt32BigEndian(profile.AsSpan(12), deviceClass);
-        Assert.NotNull(IccProfile.Parse(profile));
-        var c = D_In("[/ICCBased 5 0 R]", "1 0 0 0", D_Stream("/N 4", profile));   // the swapped table: cyan comes out magenta
-        Assert.True(c is { R: > 230, G: < 25, B: > 230 }, $"{c}");
+        Assert.Null(IccProfile.Parse(profile));
+        var c = D_In("[/ICCBased 5 0 R]", "1 0 0 0", D_Stream("/N 4 /Alternate /DeviceCMYK", profile));
+        Assert.True(c is { R: < 80, B: > 180 }, $"{c}");
+        var output = D_In("[/ICCBased 5 0 R]", "1 0 0 0", D_Stream("/N 4 /Alternate /DeviceCMYK", D_SwappedCmyk.Value));
+        Assert.True(output is { R: > 230, G: < 25, B: > 230 }, $"{output}");
     }
 
     /// <summary>

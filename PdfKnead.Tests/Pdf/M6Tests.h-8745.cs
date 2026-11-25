@@ -194,11 +194,11 @@ public sealed partial class M6NormTests
     // ---------------------------------------------------------------- 8.7.4.5.2: type 1
 
     /// <summary>
-    /// 8.7.4.5.2 sentence 5 (behaviour of today): type 1 must not be used with Indexed; one in [/Indexed /DeviceRGB 1 &lt;FF0000 0000FF&gt;] with
+    /// 8.7.4.5.2 sentence 5 (read leniently, S-A A182): type 1 must not be used with Indexed; one in [/Indexed /DeviceRGB 1 &lt;FF0000 0000FF&gt;] with
     /// { pop } over the page is read leniently through the palette — red on the left, blue on the right, no crash.
     /// </summary>
     [Fact]
-    public void FunctionBased_Indexed_ReadThroughThePalette_Today()
+    public void FunctionBased_Indexed_ReadThroughThePalette()
     {
         using var b = H8745_Render("/Sh sh", H8745_Sh(pdf => H8745_Type1(H8745_PostScript(pdf, "{ pop }", [0, 1, 0, 1], [0, 1]), H8745_Indexed,
             [0, 1, 0, 1], [200, 0, 0, 200, 0, 0])));
@@ -351,20 +351,20 @@ public sealed partial class M6NormTests
     // ---------------------------------------------------------------- 8.7.4.5.4: type 3
 
     /// <summary>
-    /// 8.7.4.5.4 sentence 4 (behaviour of today): type 3 must not be used with Indexed; one in [/Indexed /DeviceRGB 1 &lt;FF0000 0000FF&gt;] with a
+    /// 8.7.4.5.4 sentence 4 (read leniently, S-A A182): type 3 must not be used with Indexed; one in [/Indexed /DeviceRGB 1 &lt;FF0000 0000FF&gt;] with a
     /// function 0 → 1 is read through the palette — red in the middle, blue at the edge, no crash.
     /// </summary>
     [Fact]
-    public void Radial_Indexed_ReadThroughThePalette_Today()
+    public void Radial_Indexed_ReadThroughThePalette()
     {
         using var b = H8745_Render("/Sh sh", H8745_Sh(_ => H8745_Radial([100, 100, 0, 100, 100, 80], H8745_Exponential([0], [1]), colorSpace: H8745_Indexed)));
         Assert.True(H8745_Red(H8745_At(b, 100, 100)), $"{H8745_At(b, 100, 100)}");
         Assert.True(H8745_Blue(H8745_At(b, 176, 100)), $"{H8745_At(b, 176, 100)}");
     }
 
-    /// <summary>8.7.4.5.4 sentences 5–9 (tolerance of today): a negative radius r0 −10 is taken as 0 — the same pixels as with r0 0, red in the middle.</summary>
+    /// <summary>8.7.4.5.4 sentences 5–9 (read leniently, S-A A184, as two reference readers): a negative radius r0 −10 is taken as 0 — the same pixels as with r0 0, red in the middle.</summary>
     [Fact]
-    public void Radial_NegativeRadius_AsZero_Today()
+    public void Radial_NegativeRadius_AsZero()
     {
         using var negative = H8745_Render("/Sh sh", H8745_Sh(_ => H8745_Radial([100, 100, -10, 100, 100, 80], H8745_RedToBlue())));
         using var zero = H8745_Render("/Sh sh", H8745_Sh(_ => H8745_Radial([100, 100, 0, 100, 100, 80], H8745_RedToBlue())));
@@ -455,9 +455,9 @@ public sealed partial class M6NormTests
         Assert.False(cut.ContainsKey(PdfName.Get("Function")));
     }
 
-    /// <summary>8.7.4.5.5 sentences 5–9 (reader, tolerance of today): 5 bits per coordinate are not among the allowed values, but are read — the triangle lies where 5-bit values put it.</summary>
+    /// <summary>8.7.4.5.5 sentences 5–9 (reader; read leniently, S-A A184): 5 bits per coordinate are not among the allowed values, but are read — the triangle lies where 5-bit values put it.</summary>
     [Fact]
-    public void FreeForm_FiveBitCoordinates_ReadLeniently_Today()
+    public void FreeForm_FiveBitCoordinates_ReadLeniently()
     {
         var data = new H8745_Bits();
         foreach (var (x, y) in new[] { (0, 0), (31, 0), (0, 31) }) data.Bytes(0).Put((ulong)x, 5).Put((ulong)y, 5).Bytes(255, 0, 0).Align();
@@ -499,9 +499,9 @@ public sealed partial class M6NormTests
         Assert.True(H8745_Red(H8745_At(b, 20, 20)), $"{H8745_At(b, 20, 20)}");
     }
 
-    /// <summary>8.7.4.5.5 sentences 13–17 (/BitsPerFlag 0, reading of today): no flag bits — every flag counts as 0, every three vertices form a triangle of their own.</summary>
+    /// <summary>8.7.4.5.5 sentences 13–17 (/BitsPerFlag 0, read leniently, S-A A184): no flag bits — every flag counts as 0, every three vertices form a triangle of their own.</summary>
     [Fact]
-    public void FreeForm_NoFlagBits_EveryThreeVerticesATriangle_Today()
+    public void FreeForm_NoFlagBits_EveryThreeVerticesATriangle()
     {
         var data = new H8745_Bits();
         foreach (var (x, y) in new[] { (0, 0), (200, 0), (0, 200), (200, 200), (100, 200), (200, 100) }) data.Bytes(x, y, 255, 0, 0);
@@ -527,7 +527,7 @@ public sealed partial class M6NormTests
     }
 
     /// <summary>
-    /// 8.7.4.5.5 sentences 22–29, 8.7.4.5.6 sentences 23–31 and 8.7.4.5.7 sentences 41–50 (reading of today): a mesh with a function must not be
+    /// 8.7.4.5.5 sentences 22–29, 8.7.4.5.6 sentences 23–31 and 8.7.4.5.7 sentences 41–50 (read leniently, S-A A182): a mesh with a function must not be
     /// Indexed; one in [/Indexed /DeviceRGB 1 &lt;FF0000 0000FF&gt;] with t from 0 (bottom) to 1 (top) is read through the palette — red at the bottom,
     /// blue at the top, for types 4, 5 and 6.
     /// </summary>
@@ -535,7 +535,7 @@ public sealed partial class M6NormTests
     [InlineData(4)]
     [InlineData(5)]
     [InlineData(6)]
-    public void Mesh_IndexedWithFunction_ReadThroughThePalette_Today(int type)
+    public void Mesh_IndexedWithFunction_ReadThroughThePalette(int type)
     {
         var dict = H8745_MeshDict(type, 8, 8, [0, 255, 0, 255, 0, 1], H8745_Indexed);
         dict.Set(TestPdf.N("Function"), H8745_Exponential([0], [1]));

@@ -246,7 +246,8 @@ public static class ImageExport
             return new Setup(Kind.Jpeg2000, width, height, bpc, n, (int)rowBytes, dict, space, decode, false, null, null, null, mask, false,
                 !file ? ".j2k" : Jp2Compatible(head) ? ".jp2" : ".jpf");
         }
-        if (bpc is not (1 or 2 or 4 or 8 or 16)) throw new PdfException(Tr.T("Bilder mit {0} Bit je Farbe lassen sich nicht speichern.", bpc));
+        // a depth between the allowed ones is read leniently (1–16 bits, S-A A192) and saved converted as displayed (docs/FEHLERGEDAECHTNIS.md, No. 1134)
+        if (!ImageDepth.Readable(bpc)) throw new PdfException(Tr.T("Bilder mit {0} Bit je Farbe lassen sich nicht speichern.", bpc));
         // a mask of another size cannot become the alpha channel without resampling: it is saved beside the image
         if (stencil) return new Setup(Kind.Stencil, width, height, 1, 1, (int)rowBytes, dict, space, decode, false, null, null, null, null, false, ".png");
 
@@ -257,7 +258,7 @@ public static class ImageExport
         var invertedGray = n == 1 && decode is [1, 0];
         var kind = Kind.Converted;
         (byte[] Rgb, bool Converted, byte[]? Profile)? palette = null;
-        switch (family)
+        switch (ImageDepth.Allowed(bpc) ? family : null)
         {
             case "DeviceGray" or "CalGray" or "ICCBased" when n == 1 && (plainDecode || invertedGray) && (profile is null || profileSpace == "GRAY"):
                 kind = Kind.Gray;

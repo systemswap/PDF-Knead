@@ -207,7 +207,7 @@ public static partial class PdfWriter
         private PdfArray? _srgbSpace;
 
         /// <summary>An ICC-based sRGB space (the own profile), for images written as the display decodes them.</summary>
-        private PdfArray SrgbSpace() => _pdfA!.Rgb ?? (_srgbSpace ??= new PdfArray([IccBased, Fresh(IccStream(CalibratedProfile.Srgb(), 3))]));
+        private PdfArray SrgbSpace() => _pdfA!.Rgb ?? (_srgbSpace ??= new PdfArray([IccBased, Fresh(IccStream(CalibratedProfile.Srgb(Pdf20), 3))]));
 
         private (PdfDictionary Dict, byte[] Data, bool Compress)? PdfAStream(PdfStream stream, Source source, PdfDictionary dict)
         {
@@ -243,7 +243,8 @@ public static partial class PdfWriter
                 }
             // resources it is drawn with but does not have itself (6.2.2): none of its own, or the font the display draws text with whose font
             // the resources lack
-            var borrowed = usage.Borrowed.TryGetValue(stream.Dictionary, out var resources) ? resources : null;
+            // (a form never drawn: those of the first page that names it, V10; docs/FEHLERGEDAECHTNIS.md, No. 1131)
+            var borrowed = usage.Borrowed.TryGetValue(stream.Dictionary, out var resources) ? resources : _pdfAUndrawn.GetValueOrDefault(stream.Dictionary);
             var missing = usage.Missing.GetValueOrDefault(stream);
             if (missing is not null && WithMissingFonts(borrowed ?? stream.Dictionary.GetDictionary(PdfName.Resources), missing) is { } withFonts) borrowed = withFonts;
             // data in another file (6.1.7.1): the display does not read it either — the data in this file stay, the reference goes
@@ -275,9 +276,17 @@ public static partial class PdfWriter
                 // a form, pattern or appearance nested too deep: what moves into forms of its own gets them in its resources
                 var drawnWith = borrowed ?? stream.Dictionary.GetDictionary(PdfName.Resources) ?? usage.PageResources.GetValueOrDefault(stream);
                 var nests = usage.Deep.Contains(stream) && stream.Dictionary.ContainsKey(PdfName.Get("BBox")) ? new List<(PdfName, byte[])>() : null;
-                var data = ContentConformance.Rewrite(decoded.Data, RewriteOptions(drawnWith, source.Doc, missing, nests, MarksFor(stream, null), ArtifactsFor(stream, null)));
-                if (nests is { Count: > 0 }) result.Set(PdfName.Resources, NestedResources(drawnWith, source, nests));
-                return (result, data, true);
+                // PDF/A-4: inline images over 4 096 bytes become image XObjects in the resources the stream draws with, now its own — a glyph
+                // procedure's go where its plan says (the font's resources or its own; docs/FEHLERGEDAECHTNIS.md, No. 1131)
+                var glyph = GlyphPlanOf(source.Doc, stream);
+                // (only a form or a tiling pattern, whose resources these are: a page's content goes through PdfAContent, a glyph procedure
+                // through its plan — given resources of its own, it would no longer draw with the font's)
+                var placed = _pdfA.Part.Part() == 4 && glyph is null &&
+                             (stream.Dictionary.GetName(PdfName.Subtype)?.Value == "Form" || stream.Dictionary.ContainsKey(PdfName.Get("PatternType")))
+                    ? new List<(PdfName Name, PdfStream Image)>() : null;
+                var data = ContentConformance.Rewrite(decoded.Data, RewriteOptions(drawnWith, source.Doc, missing, nests, MarksFor(stream, null), ArtifactsFor(stream, null),
+                    placed, glyph));
+                if (nests is { Count: > 0 } || placed is { Count: > 0 }) result.Set(PdfName.Resources, NestedResources(drawnWith, source, nests ?? [], placed));                return (result, data, true);
             }
             catch (PdfException) when (rewrite)
             {
@@ -309,7 +318,8 @@ public static partial class PdfWriter
         /// The content of a page made of several streams as one stream written anew (<see cref="ContentConformance.Rewrite"/>): joined as the
         /// display joins them (a line end between the parts; a part it cannot read is left out), so that an operator split from its operands
         /// across two parts stays whole. A page of one stream only when it is nested too deep (<see cref="PdfACheck.Usage.Deep"/>): what moves into
-        /// forms of its own needs them in the page's resources. Null if the page has no parts or one that needs nothing of this.
+        /// forms of its own needs them in the page's resources — and for PDF/A-4 when it holds an inline image, which may become an image XObject
+        /// of the page (8.9.7; docs/FEHLERGEDAECHTNIS.md, No. 1131). Null if the page has no parts or one that needs nothing of this.
         /// </summary>
         /// <param name="page">The page as read.</param>
         /// <param name="resources">Its resources as read (inherited ones too).</param>
@@ -321,7 +331,7 @@ public static partial class PdfWriter
             var parts = page.Get(PdfName.Contents) switch
             {
                 PdfArray array => array,
-                PdfStream single when _pdfA!.Usage.Deep.Contains(single) => new PdfArray([single]),
+                PdfStream single when _pdfA!.Usage.Deep.Contains(single) || _pdfA.Part.Part() == 4 && MayHoldInline(single, source) => new PdfArray([single]),
                 _ => null,
             };
             if (parts is null) return null;
@@ -344,9 +354,10 @@ public static partial class PdfWriter
                 if (_pdfA!.Usage.Missing.GetValueOrDefault(part) is { } names) missing.UnionWith(names);
             }
             var nests = new List<(PdfName, byte[])>();
+            var placed = _pdfA!.Part.Part() == 4 ? new List<(PdfName Name, PdfStream Image)>() : null;
             var data = ContentConformance.Rewrite(all.ToArray(), RewriteOptions(resources, source.Doc, missing.Count > 0 ? missing : null, nests, MarksFor(null, page),
-                ArtifactsFor(null, page)));
-            if (nests.Count > 0) nestedResources = NestedResources(resources, source, nests);
+                ArtifactsFor(null, page), placed));
+            if (nests.Count > 0 || placed is { Count: > 0 }) nestedResources = NestedResources(resources, source, nests, placed);
             var dict = new PdfDictionary();
             dict.Set(PdfName.Filter, PdfName.Get("FlateDecode"));
             return Fresh(new PdfStream(dict, Flate.Encode(data)));
@@ -359,10 +370,13 @@ public static partial class PdfWriter
         /// <summary>
         /// What <see cref="ContentConformance.Rewrite"/> observes for a content drawn with <paramref name="resources"/> (as read): the limits of the
         /// part, the names they lack, where the codes of their fonts end (to split long strings), and — given <paramref name="nests"/> — where
-        /// content nested too deep goes (a form under a name the resources do not have yet).
+        /// content nested too deep goes (a form under a name the resources do not have yet). PDF/A-4: given <paramref name="placed"/>, an inline
+        /// image over 4 096 bytes becomes an image XObject under a name the resources do not have yet; given <paramref name="glyph"/>, the plan of
+        /// a glyph procedure names those that do (docs/FEHLERGEDAECHTNIS.md, No. 1131).
         /// </summary>
         private ContentRewrite RewriteOptions(PdfDictionary? resources, PdfDocument doc, HashSet<(string Category, PdfName Name)>? missing,
-            List<(PdfName Name, byte[] Content)>? nests, PdfATagging.PageMarks? marks = null, IReadOnlySet<int>? artifacts = null)
+            List<(PdfName Name, byte[] Content)>? nests, PdfATagging.PageMarks? marks = null, IReadOnlySet<int>? artifacts = null,
+            List<(PdfName Name, PdfStream Image)>? placed = null, Type3GlyphPlan? glyph = null)
         {
             var part = _pdfA!.Part;
             var taken = resources?.GetDictionary(XObject);
@@ -384,11 +398,53 @@ public static partial class PdfWriter
                 Language = part.Accessible() ? given => PdfACheck.LanguageTag(given, part.Part()) ? given : PdfATagging.CleanLanguage(given, part.Part()) : null,
                 Nest = nests is null ? null : content =>
                 {
-                    var name = ContentNesting.FreeName(nests.Count + 1, n => taken?.ContainsKey(n) == true || nests.Any(x => x.Name == n));
+                    var name = ContentNesting.FreeName(nests.Count + 1, n => taken?.ContainsKey(n) == true || nests.Any(x => x.Name == n) ||
+                                                                            placed?.Any(x => x.Name == n) == true);
                     nests.Add((name, content));
                     return name;
                 },
+                PlaceImage = part.Part() != 4 ? null
+                    : glyph is not null ? (_, ordinal) => glyph.Ordinals.GetValueOrDefault(ordinal)
+                    : placed is null ? null
+                    : (image, _) =>
+                    {
+                        if (PlacedImage(image, resources) is not { } xobject) return null;
+                        var name = InlineImageConformance.FreeName(n => taken?.ContainsKey(n) == true || nests?.Any(x => x.Name == n) == true ||
+                                                                        placed.Any(x => x.Name == n));
+                        placed.Add((name, xobject));
+                        return name;
+                    },
             };
+        }
+
+        /// <summary>
+        /// The image XObject a PDF/A-4 copy makes of an inline image (<see cref="InlineImageConformance.AsXObject"/>, a colour space named in
+        /// <paramref name="resources"/> as the space itself), noted to be written the way of every image of the copy (<see cref="_pdfAPlaced"/>);
+        /// null where its colour space is a name the resources do not give (it stays inline, as the display reads it).
+        /// </summary>
+        private PdfStream? PlacedImage(InlineImage image, PdfDictionary? resources)
+        {
+            var xobject = InlineImageConformance.AsXObject(image, resources);
+            if (xobject.Dictionary.Get(PdfName.Get("ColorSpace")) is PdfName { Value: not ("DeviceGray" or "DeviceRGB" or "DeviceCMYK") }) return null;
+            _pdfAPlaced.Add(xobject);
+            return xobject;
+        }
+
+        /// <summary>Inline images of PDF/A-4 made image XObjects (<see cref="PlacedImage"/>): written through <see cref="WriteStream"/> with their
+        /// source, so that they go the way of every image of the copy (<see cref="PdfAStream"/>: colours, filters, bit depths).</summary>
+        private readonly HashSet<PdfStream> _pdfAPlaced = new(ReferenceEqualityComparer.Instance);
+
+        /// <summary>Whether a content stream may hold an inline image (<see cref="InlineImageConformance.MayHold"/>); false where it cannot be read.</summary>
+        private static bool MayHoldInline(PdfStream stream, Source source)
+        {
+            try
+            {
+                return InlineImageConformance.MayHold(source.Doc.DecodeStream(stream).Data);
+            }
+            catch (PdfException)
+            {
+                return false;
+            }
         }
 
         /// <summary>
@@ -461,7 +517,8 @@ public static partial class PdfWriter
         /// Resources (as read) with the forms deep content moved into (<see cref="ContentNesting"/>) under their names, written: one dictionary
         /// for the content and its forms (a form's content can move further), the values as read.
         /// </summary>
-        private PdfObject NestedResources(PdfDictionary? resources, Source source, List<(PdfName Name, byte[] Content)> nests)
+        private PdfObject NestedResources(PdfDictionary? resources, Source source, List<(PdfName Name, byte[] Content)> nests,
+            List<(PdfName Name, PdfStream Image)>? placed = null)
         {
             var shared = new PdfDictionary();
             if (resources is not null)
@@ -471,6 +528,9 @@ public static partial class PdfWriter
             if (resources?.GetDictionary(XObject) is { } known)
                 foreach (var (key, value) in known.Entries) xobjects.Set(key, value);
             foreach (var (name, content) in nests) xobjects.Set(name, ContentNesting.Form(content, shared));
+            // the inline images made image XObjects (PDF/A-4, No. 1131)
+            if (placed is not null)
+                foreach (var (name, image) in placed) xobjects.Set(name, image);
             shared.Set(XObject, xobjects);
             return Rebase(shared, source);
         }

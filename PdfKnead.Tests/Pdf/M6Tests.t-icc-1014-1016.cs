@@ -139,11 +139,12 @@ public sealed partial class M6NormTests
     }
 
     /// <summary>
-    /// ICC.1, 10.15 sentence 5: PDF-Knead writes no mluc (whose record size should be 12) — its own profiles carry no tag of that type, the
-    /// description is a textDescriptionType.
+    /// ICC.1, 10.15 sentence 5 (docs/FEHLERGEDAECHTNIS.md, No. 1133): the own profiles of version 2.1 carry no mluc, their description is a
+    /// textDescriptionType; the sRGB profile of version 4.3 (for PDF 2.0) writes description and copyright as mluc with one record of the record
+    /// size 12.
     /// </summary>
     [Fact]
-    public void OwnProfiles_NoMluc_DescriptionAsTextDescription()
+    public void OwnProfiles_MlucOnlyInVersion4_RecordSize12()
     {
         foreach (var profile in new[] { CalibratedProfile.Srgb(), CalibratedProfile.Gray(null), CalibratedProfile.Rgb(null) })
         {
@@ -154,6 +155,14 @@ public sealed partial class M6NormTests
                 Assert.False(profile.AsSpan(offset, 4).SequenceEqual("mluc"u8), Encoding.ASCII.GetString(profile, 132 + 12 * i, 4));
             }
             Assert.True(TIcc_Tag(profile, "desc")!.AsSpan().StartsWith("desc"u8));
+        }
+        var v4 = CalibratedProfile.Srgb(version4: true);
+        foreach (var sig in new[] { "desc", "cprt" })
+        {
+            var tag = TIcc_Tag(v4, sig)!;
+            Assert.True(tag.AsSpan().StartsWith("mluc"u8), sig);
+            Assert.Equal(1u, BinaryPrimitives.ReadUInt32BigEndian(tag.AsSpan(8)));
+            Assert.Equal(12u, BinaryPrimitives.ReadUInt32BigEndian(tag.AsSpan(12)));
         }
     }
 
@@ -205,14 +214,22 @@ public sealed partial class M6NormTests
     }
 
     /// <summary>
-    /// ICC.1, 10.15 sentence 15 (today's behaviour; the choice by language: design decision pending): records deDE „Grün“, enUS „Green“, deCH
-    /// „Grüezi“ — no record is chosen by language or region, the description read is the first one, „Grün“.
+    /// ICC.1, 10.15 sentences 15–16 (docs/FEHLERGEDAECHTNIS.md, No. 1133): the text of an mluc is chosen by the program language — records deDE
+    /// „Grün“, enUS „Green“, deCH „Grüezi“, enGB „Colour“: language and region give „Grüezi“ for de-CH and „Colour“ for en-GB; without the
+    /// region asked for, the record of the same language („Grün“ for de-AT, „Green“ for en); without the language, the first record („Grün“ for
+    /// fr). The description read and the one rewritten as 2.1 follow the same choice.
     /// </summary>
-    [Fact]
-    public void Mluc_LanguageNotChosen_FirstRecordToday()
+    [Theory]
+    [InlineData("de-CH", "Grüezi")]
+    [InlineData("en-GB", "Colour")]
+    [InlineData("de-AT", "Grün")]
+    [InlineData("en", "Green")]
+    [InlineData("fr", "Grün")]
+    public void Mluc_ProgramLanguage_LanguageAndRegionThenLanguageThenFirst(string language, string expected)
     {
-        var profile = TIcc_V4WithDesc(TIcc_Mluc(("deDE", "Grün"), ("enUS", "Green"), ("deCH", "Grüezi")));
-        Assert.Equal("Grün", ImageMetadata.IccName(profile));
+        var profile = TIcc_V4WithDesc(TIcc_Mluc(("deDE", "Grün"), ("enUS", "Green"), ("deCH", "Grüezi"), ("enGB", "Colour")));
+        Assert.Equal(expected, ImageMetadata.IccName(profile, language));
+        Assert.Equal(expected.Replace('ü', '?'), TIcc_DescText(TIcc_Tag(CalibratedProfile.AsVersion2(profile, language)!, "desc")!));
     }
 
     /// <summary>
@@ -223,8 +240,8 @@ public sealed partial class M6NormTests
     public void Mluc_NoWantedLanguage_FirstRecord()
     {
         var profile = TIcc_V4WithDesc(TIcc_Mluc(("deDE", "Erster"), ("enUS", "Zweiter")));
-        Assert.Equal("Erster", ImageMetadata.IccName(profile));
-        Assert.Equal("Erster", TIcc_DescText(TIcc_Tag(CalibratedProfile.AsVersion2(profile)!, "desc")!));
+        Assert.Equal("Erster", ImageMetadata.IccName(profile, "it"));
+        Assert.Equal("Erster", TIcc_DescText(TIcc_Tag(CalibratedProfile.AsVersion2(profile, "it")!, "desc")!));
     }
 
     /// <summary>

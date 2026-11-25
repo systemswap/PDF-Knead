@@ -115,6 +115,9 @@ public static partial class PdfACheck
                                 Add(PdfARules.IccProfileValid, Tr.T("Die Zahl der Farben (/N) eines ICC-Profils passt nicht zu seinem Farbraum."));
                             if (!IccProfileHeaderValid(profileData, _part.Limits().IccMajor))
                                 Add(PdfARules.IccProfileValid, Tr.T("Das Profil eines ICC-Farbraums ist kein gültiges Eingabe-, Bildschirm-, Ausgabe- oder Farbraumprofil (Version unter 5)."));
+                            // description, copyright and media white point are required (ICC.1, 8.2; docs/FEHLERGEDAECHTNIS.md, No. 1133)
+                            else if (Graphics.Icc.CalibratedProfile.MissingRequiredTags(profileData).Length > 0)
+                                Add(PdfARules.IccProfileValid, Tr.T("Dem Profil eines ICC-Farbraums fehlt eine Pflichtangabe (Beschreibung, Urheberrecht oder Medienweiß)."));
                             // part 4: not the output intent's CMYK profile, nor the blending space's (6.2.4.2)
                             // (on a page with an output intent of its own that one is the current one, PDF 2.0; No. 520)
                             if (components == 4 && SameProfile(profile, profileData, _pageIntentProfile ?? _intentProfile))

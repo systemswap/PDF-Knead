@@ -1,8 +1,8 @@
-PDF-Knead-Lizenz (quelloffen, kostenlos, nicht für kommerzielle Zwecke), Fassung 3.0
-Entwurf vom 21.11.2026 – vor der Veröffentlichung rechtlich zu prüfen
+PDF-Knead-Lizenz (quelloffen, kostenlos, nicht für kommerzielle Zwecke), Fassung 3.1
 
-Rechteinhaber: der Urheber von PDF-Knead, Inhaber des GitHub-Kontos „systemswap“, im Folgenden „Rechteinhaber“. Ändert sich der
-Name des Kontos, ist der Inhaber des Kontos unter seinem jeweiligen Namen gemeint.
+Rechteinhaber: der Urheber von PDF-Knead, Inhaber des GitHub-Kontos „systemswap“, oder derjenige, dem er die ausschließlichen
+Nutzungsrechte an PDF-Knead überträgt oder einräumt (Rechtsnachfolger), im Folgenden „Rechteinhaber“. Ändert sich der Name des
+Kontos, ist der Inhaber des Kontos unter seinem jeweiligen Namen gemeint.
 
 Der Quellcode von PDF-Knead ist offen einsehbar. PDF-Knead ist für jeden kostenlos, mit allen Funktionen, für private Zwecke ebenso
 wie in Firmen, Behörden, Schulen und Vereinen. Nicht erlaubt ist nur, mit der Software selbst Geld zu verdienen, also sie oder Teile
@@ -124,10 +124,11 @@ keine Rechte an der Software.
 
 § 13 Spätere Fassungen
 
-(1) Neue Versionen der Software können unter einer geänderten Lizenz erscheinen. Für eine bereits erhaltene Version gilt weiter
-    die Lizenz, mit der sie erhalten wurde.
-(2) Für Versionen, die unter Fassung 1.0 oder 2.0 dieser Lizenz erhalten wurden, darf stattdessen auch diese Fassung angewendet
-    werden.
+(1) Diese Lizenz gilt für die Version der Software, der sie beiliegt. Neue Versionen können unter einer geänderten Lizenz
+    erscheinen; ihre Bedingungen legt der Rechteinhaber fest. Für eine bereits erhaltene Version gilt weiter die Lizenz, mit der
+    sie erhalten wurde.
+(2) Für Versionen, die unter Fassung 1.0, 2.0 oder 3.0 dieser Lizenz erhalten wurden, darf stattdessen auch diese Fassung
+    angewendet werden.
 
 
 § 14 Schlussbestimmungen
@@ -144,12 +145,12 @@ SPDX-License-Identifier: LicenseRef-PDF-Knead
 
 ===============================================================================================================================
 
-PDF-Knead License (source available, free of charge, not for commercial purposes), Version 3.0
-Draft of 21 November 2026 – to be reviewed legally before publication
+PDF-Knead License (source available, free of charge, not for commercial purposes), Version 3.1
 English translation for information; the German version above is binding.
 
-Licensor: the author of PDF-Knead, owner of the GitHub account “systemswap”, hereinafter “Licensor”. If the account is renamed, this
-means its owner under the current name.
+Licensor: the author of PDF-Knead, owner of the GitHub account “systemswap”, or the person to whom he transfers or grants the
+exclusive rights of use in PDF-Knead (legal successor), hereinafter “Licensor”. If the account is renamed, this means its owner
+under the current name.
 
 The source code of PDF-Knead is openly available to read. PDF-Knead is free of charge for everyone, with all features, for private
 purposes as well as in companies, authorities, schools and associations. The only thing not permitted is earning money with the
@@ -267,9 +268,10 @@ rights in the Software.
 
 13 Later versions
 
-(1) New versions of the Software may be released under a changed license. A version already received remains under the license
-    with which it was received.
-(2) For versions received under version 1.0 or 2.0 of this license, this version may be applied instead.
+(1) This license applies to the version of the Software it accompanies. New versions of the Software may be released under a
+    changed license; the Licensor sets their terms. A version already received remains under the license with which it was
+    received.
+(2) For versions received under version 1.0, 2.0 or 3.0 of this license, this version may be applied instead.
 
 
 14 Final provisions

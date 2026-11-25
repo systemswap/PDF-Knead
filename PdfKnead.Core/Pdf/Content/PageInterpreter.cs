@@ -55,6 +55,7 @@ public sealed partial class PageInterpreter
     private readonly List<PathVerb> _verbs = new(64);
     private readonly List<float> _points = new(128);
     private double _cx, _cy, _sx, _sy;   // current point and start of the subpath
+    private bool _hasPoint;              // a path operator set a point in this content (before it, a segment has no point to begin at)
     private bool? _pendingClipEvenOdd;
 
     // Optional content: for each nested BDC/BMC, whether it is hidden
@@ -439,14 +440,16 @@ public sealed partial class PageInterpreter
     /// the last ones (<see cref="ContentParser.Next"/>, No. 912). One table for the display and the
     /// redaction, which does not write such an operator again (docs/FEHLERGEDAECHTNIS.md, No. 416). Marked content and Type 3 glyph
     /// operators are not listed: the display follows them with any number of operands (the nesting of BDC … EMC must stay).
+    /// With each count, which of the operands must be numbers (bit i for operand i; Annex A, Table 58 and the tables of the operators).
     /// </summary>
-    private static readonly Dictionary<string, int> MinimumOperands = new(StringComparer.Ordinal)
+    private static readonly Dictionary<string, (int Count, int Numbers)> MinimumOperands = new(StringComparer.Ordinal)
     {
-        ["w"] = 1, ["J"] = 1, ["j"] = 1, ["M"] = 1, ["d"] = 2, ["ri"] = 1, ["i"] = 1, ["gs"] = 1, ["cm"] = 6,
-        ["m"] = 2, ["l"] = 2, ["c"] = 6, ["v"] = 4, ["y"] = 4, ["re"] = 4,
-        ["CS"] = 1, ["cs"] = 1, ["G"] = 1, ["g"] = 1, ["RG"] = 3, ["rg"] = 3, ["K"] = 4, ["k"] = 4, ["sh"] = 1, ["Do"] = 1,
-        ["Tc"] = 1, ["Tw"] = 1, ["Tz"] = 1, ["TL"] = 1, ["Tf"] = 2, ["Tr"] = 1, ["Ts"] = 1, ["Td"] = 2, ["TD"] = 2, ["Tm"] = 6,
-        ["Tj"] = 1, ["TJ"] = 1, ["'"] = 1, ["\""] = 3,
+        ["w"] = (1, 1), ["J"] = (1, 1), ["j"] = (1, 1), ["M"] = (1, 1), ["d"] = (2, 2), ["ri"] = (1, 0), ["i"] = (1, 1), ["gs"] = (1, 0),
+        ["cm"] = (6, 63), ["m"] = (2, 3), ["l"] = (2, 3), ["c"] = (6, 63), ["v"] = (4, 15), ["y"] = (4, 15), ["re"] = (4, 15),
+        ["CS"] = (1, 0), ["cs"] = (1, 0), ["G"] = (1, 1), ["g"] = (1, 1), ["RG"] = (3, 7), ["rg"] = (3, 7), ["K"] = (4, 15), ["k"] = (4, 15),
+        ["sh"] = (1, 0), ["Do"] = (1, 0),
+        ["Tc"] = (1, 1), ["Tw"] = (1, 1), ["Tz"] = (1, 1), ["TL"] = (1, 1), ["Tf"] = (2, 2), ["Tr"] = (1, 1), ["Ts"] = (1, 1), ["Td"] = (2, 3),
+        ["TD"] = (2, 3), ["Tm"] = (6, 63), ["Tj"] = (1, 0), ["TJ"] = (1, 0), ["'"] = (1, 0), ["\""] = (3, 3),
     };
 
     /// <summary>
@@ -461,11 +464,22 @@ public sealed partial class PageInterpreter
     ];
 
     /// <summary>The number of operands of an operator of fixed arity (<see cref="MinimumOperands"/>); null for the others.</summary>
-    internal static int? Arity(string op) => MinimumOperands.TryGetValue(op, out var count) ? count : null;
+    internal static int? Arity(string op) => MinimumOperands.TryGetValue(op, out var arity) ? arity.Count : null;
 
-    /// <summary>Whether the display ignores <paramref name="op"/> because it has fewer operands than it needs (<see cref="MinimumOperands"/>).</summary>
-    internal static bool LacksOperands(string op, IReadOnlyList<Operand> operands) =>
-        MinimumOperands.TryGetValue(op, out var least) && operands.Count < least;
+    /// <summary>
+    /// Whether the display ignores <paramref name="op"/> because it has fewer operands than it needs, or one that must be a number is another
+    /// object (<see cref="MinimumOperands"/>) — passed over, as the reference readers do; before, such an operand counted as 0 and invented a
+    /// point, a colour or a width (docs/normabgleich/sonderregeln.md S-A A172; docs/FEHLERGEDAECHTNIS.md, No. 1134). The redaction and the
+    /// writer leave such an operator out as well.
+    /// </summary>
+    internal static bool LacksOperands(string op, IReadOnlyList<Operand> operands)
+    {
+        if (!MinimumOperands.TryGetValue(op, out var arity)) return false;
+        if (operands.Count < arity.Count) return true;
+        for (var i = 0; i < arity.Count; i++)
+            if ((arity.Numbers >> i & 1) != 0 && !operands[i].IsNumber) return true;
+        return false;
+    }
 
     private void Operator(string op, ContentParser parser, PdfDictionary? resources)
     {
@@ -476,8 +490,9 @@ public sealed partial class PageInterpreter
         // operator changes them (q/Q bring their own valid values).
         if (PaintOperators.Contains(op)) _gs.PaintIndex = -1;
         else if (op == "cm") _gs.MatrixIndex = -1;
-        // Type 3 glyph with d1: a form without its own colour, so colour operators are ignored (ISO 32000-2, 9.6.4)
-        if (_uncolored && ColorOperators.Contains(op)) return;
+        // a Type 3 glyph with d1 or the cell of an uncoloured pattern, with everything they call: colour operators, "ri" and "sh" are passed
+        // over (ISO 32000-2, 8.6.8, PDF 2.0; before, "ri" and "sh" took effect — docs/FEHLERGEDAECHTNIS.md, No. 1130)
+        if (_uncolored && UncolouredSkipped.Contains(op)) return;
         if (_textOnly && GraphicsOnlyOperators.Contains(op)) return;
         switch (op)
         {
@@ -528,6 +543,7 @@ public sealed partial class PageInterpreter
                 CurveTo(o[0].Number, o[1].Number, o[2].Number, o[3].Number, o[4].Number, o[5].Number);
                 break;
             case "v" when o.Count >= 4:
+                if (_verbs.Count == 0) StartAtCurrentPoint(o[0].Number, o[1].Number);   // v takes the start as its first control point
                 CurveTo(_cx, _cy, o[0].Number, o[1].Number, o[2].Number, o[3].Number);
                 break;
             case "y" when o.Count >= 4:
@@ -627,7 +643,8 @@ public sealed partial class PageInterpreter
             case "BI" when parser.InlineImage is { } inline:
                 if (_observer is { } inlineObserver) ReportClip(inlineObserver);
                 _observer?.Image(_op, _gs.Ctm, null, inline, resources, Hidden);
-                if (!Hidden) Image(new ImageSource(null, inline, resources, IsStencil(inline.Dictionary), 0));
+                // in a d1 glyph or an uncoloured cell only an image mask paints (8.6.8, PDF 2.0; No. 1130)
+                if (!Hidden && !(_uncolored && !IsStencil(inline.Dictionary))) Image(new ImageSource(null, inline, resources, IsStencil(inline.Dictionary), 0));
                 break;
             case "sh" when o.Count >= 1 && o[0].Name is { } shName:
                 // the clip of a shading as of every other painting operator: the observer would keep the one of what came before
@@ -674,7 +691,8 @@ public sealed partial class PageInterpreter
     private static readonly HashSet<string> PaintOperators =
         ["w", "J", "j", "M", "d", "gs", "ri", "CS", "cs", "SC", "SCN", "sc", "scn", "G", "g", "RG", "rg", "K", "k"];
 
-    private static readonly HashSet<string> ColorOperators = ["CS", "cs", "SC", "SCN", "sc", "scn", "G", "g", "RG", "rg", "K", "k"];
+    /// <summary>Operators passed over in a d1 glyph and in the cell of an uncoloured pattern (ISO 32000-2, 8.6.8, Table 73): the colour operators, ri and sh.</summary>
+    private static readonly HashSet<string> UncolouredSkipped = ["CS", "cs", "SC", "SCN", "sc", "scn", "G", "g", "RG", "rg", "K", "k", "ri", "sh"];
 
     /// <summary>Operators without any effect on text (paths, painting, clipping, shadings, inline images); skipped in text-only mode.</summary>
     private static readonly HashSet<string> GraphicsOnlyOperators =
@@ -781,7 +799,8 @@ public sealed partial class PageInterpreter
         if (d.GetInteger(PdfName.Get("OPM")) is { } opm) _gs.OverprintMode = (int)opm;
         // rendering intent and black point compensation (ISO 32000-2, 8.6.5.8, 8.6.5.9; docs/FEHLERGEDAECHTNIS.md, No. 572)
         if (d.Get(PdfName.Get("RI")) is PdfName ri) _gs.Intent = ColorSpace.IntentFrom(ri);
-        if (d.Get(PdfName.Get("UseBlackPtComp")) is PdfName bpc) _gs.Bpc = ColorSpace.BpcFrom(bpc);
+        // passed over in a d1 glyph and an uncoloured cell (8.6.8, PDF 2.0; No. 1130)
+        if (!_uncolored && d.Get(PdfName.Get("UseBlackPtComp")) is PdfName bpc) _gs.Bpc = ColorSpace.BpcFrom(bpc);
     }
 
     /// <summary>A colour space as the graphics state renders it: its variant for the rendering intent and black point compensation.</summary>
@@ -805,18 +824,26 @@ public sealed partial class PageInterpreter
         }
         _cx = _sx = x;
         _cy = _sy = y;
+        _hasPoint = true;
     }
 
-    /// <summary>A path begun without m starts at the current point; a rewriter is told where (<see cref="IContentObserver.PathStart"/>).</summary>
-    private void StartAtCurrentPoint()
+    /// <summary>
+    /// A path begun without m starts at the current point, the last point of the content (a read tolerance: after a painting operator the
+    /// point is undefined, ISO 32000-2, 8.5.2.1); where no point has been set yet, at the segment's first pair of coordinates
+    /// (<paramref name="x"/>, <paramref name="y"/>) — no point is invented (before, the origin of the page: a line no reference reader draws;
+    /// docs/normabgleich/sonderregeln.md S-A A171; docs/FEHLERGEDAECHTNIS.md, No. 1134). A rewriter is told where
+    /// (<see cref="IContentObserver.PathStart"/>), so that every reader of its copy starts there.
+    /// </summary>
+    private void StartAtCurrentPoint(double x, double y)
     {
+        if (!_hasPoint) (_cx, _cy) = (x, y);
         if (_observer is { WantsPathStart: true } observer) observer.PathStart(_op, _cx, _cy);
         MoveTo(_cx, _cy);
     }
 
     private void LineTo(double x, double y)
     {
-        if (_verbs.Count == 0) StartAtCurrentPoint();
+        if (_verbs.Count == 0) StartAtCurrentPoint(x, y);
         _verbs.Add(PathVerb.Line);
         _points.Add((float)x);
         _points.Add((float)y);
@@ -826,7 +853,7 @@ public sealed partial class PageInterpreter
 
     private void CurveTo(double x1, double y1, double x2, double y2, double x3, double y3)
     {
-        if (_verbs.Count == 0) StartAtCurrentPoint();
+        if (_verbs.Count == 0) StartAtCurrentPoint(x1, y1);
         _verbs.Add(PathVerb.Cubic);
         _points.Add((float)x1); _points.Add((float)y1);
         _points.Add((float)x2); _points.Add((float)y2);
@@ -905,7 +932,9 @@ public sealed partial class PageInterpreter
                     path = AddCurrentPath();
                     var itemBounds = effective == DisplayItemKind.Fill ? bounds : bounds.Inflate(StrokeExtent(HasJoins()));
                     EnsureMask();
+                    var patternGroup = BeginPatternGroup(paintsFill, paintsStroke);
                     _builder.Add(effective, evenOdd, path.Value, CurrentMatrix(), CurrentPaint(), _gs.Clip, -1, itemBounds);
+                    EndPatternGroup(patternGroup);
                 }
             }
 
@@ -952,6 +981,7 @@ public sealed partial class PageInterpreter
         _serialPause++;   // a build draws pattern cells with an interpreter of their own
         var saved = _gs.Clone();
         var savedPatternBase = _patternBase;
+        var savedStreamStart = _streamStart;
         var savedStack = _stack.Count;
         var savedFloor = _stackFloor;
         _stackFloor = savedStack;
@@ -960,9 +990,15 @@ public sealed partial class PageInterpreter
         _cellDepth++;
         try
         {
-            _gs.Ctm = cellToPage;
-            _gs.MatrixIndex = -1;
-            _gs.PaintIndex = -1;
+            // the state the display starts the cell from (the beginning of the parent stream, 8.7.3.1 step b; before, the current state —
+            // docs/FEHLERGEDAECHTNIS.md, No. 1130); the clip and the transparency of the painting stay, they act on the pattern as a whole
+            var start = CellStart.Of(_streamStart).State;
+            start.Ctm = cellToPage;
+            var cell = start;
+            (cell.Clip, cell.FillAlpha, cell.StrokeAlpha, cell.BlendMode, cell.SoftMask) =
+                (saved.Clip, saved.FillAlpha, saved.StrokeAlpha, saved.BlendMode, saved.SoftMask);
+            _gs = cell;
+            _streamStart = start;
             _patternBase = cellToPage;
             ExecuteShared(pattern, dict.GetDictionary(PdfName.Resources) ?? _pageResources);
         }
@@ -976,6 +1012,7 @@ public sealed partial class PageInterpreter
                 if (_hiddenStack.Pop()) _hiddenDepth--;
             _gs = saved;
             _patternBase = savedPatternBase;
+            _streamStart = savedStreamStart;
             (_tm, _tlm, _op, _showElement, _textClipPending) = (tm, tlm, op, element, pending);
             _verbs.Clear();
             _points.Clear();
@@ -1135,8 +1172,37 @@ public sealed partial class PageInterpreter
             (float)_gs.LineWidth, _gs.LineCap, _gs.LineJoin, (float)_gs.MiterLimit,
             _gs.Dash is { } d ? _builder.AddDash(d) : -1, _gs.BlendMode,
             Math.Max(fillPattern, -1), Math.Max(strokePattern, -1),
-            (byte)((Overprints(_gs.FillOverprint, _gs.FillSpace, _gs.FillColor) ? 1 : 0) | (Overprints(_gs.StrokeOverprint, _gs.StrokeSpace, _gs.StrokeColor) ? 2 : 0))));
+            (byte)((PaintOverprints(_gs.FillOverprint, _gs.FillSpace, _gs.FillColor, _gs.FillPattern) ? 1 : 0)
+                   | (PaintOverprints(_gs.StrokeOverprint, _gs.StrokeSpace, _gs.StrokeColor, _gs.StrokePattern) ? 2 : 0)),
+            (byte)(ReplacedPlates(_gs.FillSpace, _gs.FillColor) | ReplacedPlates(_gs.StrokeSpace, _gs.StrokeColor) << 4)));
     }
+
+    /// <summary>
+    /// Whether painting with the current colour overprints: a colour as in <see cref="Overprints"/>; a pattern by the colorants it paints
+    /// (ISO 32000-2, 8.6.7 sentences 5–6) — an uncoloured tiling pattern those of its underlying space, a shading pattern those of its shading's
+    /// space, like „sh“, also when its /ExtGState turns overprint on (8.7.4.1, 11.6.7); a coloured tiling pattern carries its own in the cell.
+    /// Before, a pattern never overprinted (docs/FEHLERGEDAECHTNIS.md, No. 1130).
+    /// </summary>
+    private bool PaintOverprints(bool enabled, ColorSpace space, double[] color, PdfObject? pattern)
+    {
+        if (!space.IsPattern) return Overprints(enabled, space, color);
+        if (pattern is PdfStream tiling)
+            return enabled && tiling.Dictionary.GetInteger(PdfName.Get("PaintType")) == 2 && space.PatternUnderlying is { IsColorant: true };
+        if (pattern?.AsDictionary() is not { } dict || dict.GetInteger(PdfName.Get("PatternType")) != 2 || dict.Get(PdfName.Get("Shading"))?.AsDictionary() is not { } shading)
+            return false;
+        var state = dict.GetDictionary(PdfName.Get("ExtGState"));
+        var on = enabled || (state?.GetBoolean(PdfName.Get("op")) ?? state?.GetBoolean(PdfName.Get("OP"))) == true;
+        return on && OverprintsIn(shading.Get(PdfName.Get("ColorSpace")), null);
+    }
+
+    /// <summary>
+    /// Overprint mode 1 with a DeviceCMYK colour (8.6.7 sentences 21–22): the plates a component other than 0 replaces — bit 1 cyan, 2 magenta,
+    /// 4 yellow, which the RGB preview carries in its red, green and blue channel (<see cref="Paint.OverprintReplace"/>); 0 otherwise.
+    /// </summary>
+    private byte ReplacedPlates(ColorSpace space, double[] color) =>
+        space.IsDeviceCmyk && _gs.OverprintMode == 1 && color.Length >= 4
+            ? (byte)((color[0] != 0 ? 1 : 0) | (color[1] != 0 ? 2 : 0) | (color[2] != 0 ? 4 : 0))
+            : (byte)0;
 
     /// <summary>
     /// Result of <see cref="PatternIndex"/>: a tiling pattern that paints nothing — without a valid step or BBox, or one that contains
@@ -1177,6 +1243,58 @@ public sealed partial class PageInterpreter
     // page, or the form or annotation at the time it is invoked
     private Matrix _patternBase = Matrix.Identity;
 
+    // The graphics state at the beginning of the content stream being run (ISO 32000-2, 8.7.3.1 step b, 8.7.4.1, 11.6.7): the initial state for
+    // the page, the state when it is invoked for a form or annotation, the cell's start for a pattern cell — what its patterns start from
+    private GraphicsState _streamStart = new();
+
+    /// <summary>
+    /// The graphics state a pattern cell starts from (ISO 32000-2, 8.7.3.1 step b; 11.6.7): the one at the beginning of the pattern's parent content
+    /// stream, its transparency parameters (blend mode, soft mask, opacity) at their defaults, matrix and clip the cell's own. Compared by value: a
+    /// cell is built once per pattern and start (docs/FEHLERGEDAECHTNIS.md, No. 1130; before, always the initial state of the page).
+    /// </summary>
+    private readonly struct CellStart : IEquatable<CellStart>
+    {
+        /// <summary>The state: identity matrix, no clip, transparency at the defaults.</summary>
+        public readonly GraphicsState State;
+
+        private CellStart(GraphicsState state) => State = state;
+
+        /// <param name="gs">The state at the beginning of the parent stream.</param>
+        /// <param name="uncoloured">For an uncoloured pattern: its colour comes from outside, the colours of the state do not count (one cell for all).</param>
+        public static CellStart Of(in GraphicsState gs, bool uncoloured = false) => uncoloured ? Of(gs with
+        {
+            FillSpace = ColorSpace.DeviceGray, StrokeSpace = ColorSpace.DeviceGray, FillColor = [0], StrokeColor = [0], FillPattern = null,
+            StrokePattern = null, FillPatternUnset = false, StrokePatternUnset = false,
+        }) : new(new GraphicsState
+        {
+            FillSpace = gs.FillSpace, StrokeSpace = gs.StrokeSpace, FillColor = gs.FillColor, StrokeColor = gs.StrokeColor,
+            FillPattern = gs.FillPattern, StrokePattern = gs.StrokePattern, FillPatternUnset = gs.FillPatternUnset, StrokePatternUnset = gs.StrokePatternUnset,
+            LineWidth = gs.LineWidth, LineCap = gs.LineCap, LineJoin = gs.LineJoin, MiterLimit = gs.MiterLimit, Dash = gs.Dash,
+            StrokeOverprint = gs.StrokeOverprint, FillOverprint = gs.FillOverprint, OverprintMode = gs.OverprintMode,
+            CharSpacing = gs.CharSpacing, WordSpacing = gs.WordSpacing, HorizontalScale = gs.HorizontalScale, Leading = gs.Leading,
+            Font = gs.Font, FontSize = gs.FontSize, TextMode = gs.TextMode, Rise = gs.Rise, Intent = gs.Intent, Bpc = gs.Bpc,
+        });
+
+        public bool Equals(CellStart other)
+        {
+            var (a, b) = (State, other.State);
+            return ReferenceEquals(a.FillSpace, b.FillSpace) && ReferenceEquals(a.StrokeSpace, b.StrokeSpace)
+                && a.FillColor.AsSpan().SequenceEqual(b.FillColor) && a.StrokeColor.AsSpan().SequenceEqual(b.StrokeColor)
+                && ReferenceEquals(a.FillPattern, b.FillPattern) && ReferenceEquals(a.StrokePattern, b.StrokePattern)
+                && a.FillPatternUnset == b.FillPatternUnset && a.StrokePatternUnset == b.StrokePatternUnset
+                && a.LineWidth.Equals(b.LineWidth) && a.LineCap == b.LineCap && a.LineJoin == b.LineJoin && a.MiterLimit.Equals(b.MiterLimit)
+                && Equals(a.Dash, b.Dash) && a.StrokeOverprint == b.StrokeOverprint && a.FillOverprint == b.FillOverprint && a.OverprintMode == b.OverprintMode
+                && a.CharSpacing.Equals(b.CharSpacing) && a.WordSpacing.Equals(b.WordSpacing) && a.HorizontalScale.Equals(b.HorizontalScale)
+                && a.Leading.Equals(b.Leading) && ReferenceEquals(a.Font, b.Font) && a.FontSize.Equals(b.FontSize) && a.TextMode == b.TextMode
+                && a.Rise.Equals(b.Rise) && a.Intent == b.Intent && a.Bpc == b.Bpc;
+        }
+
+        public override bool Equals(object? obj) => obj is CellStart other && Equals(other);
+
+        public override int GetHashCode() => HashCode.Combine(State.FillSpace, State.FillColor.Length > 0 ? State.FillColor[0] : 0, State.LineWidth,
+            State.Font, State.TextMode, State.Intent);
+    }
+
     // Built shadings per (shading, matrix, opacity, background): a shading is often used many times
     private readonly Dictionary<(PdfObject Shading, Matrix ToPage, double Alpha, uint? Background, byte Intent, byte Bpc), int> _shadingIndex = [];
 
@@ -1194,13 +1312,17 @@ public sealed partial class PageInterpreter
         var toPage = (Matrix.FromArray(dict.GetArray(PdfName.Get("Matrix"))) ?? Matrix.Identity) * _patternBase;
         if (dict.Get(PdfName.Get("Shading")) is not { } shading || shading is PdfNull) return -1;
         if (shading.AsDictionary() is { } shadingDict && ShadingMarksNothing(shadingDict, null)) return NoPattern;
-        // the pattern's /ExtGState: only what acts on painting the shading — rendering intent and black point compensation (ISO 32000-2,
-        // 11.6.7, Table 75); line style, opacity, blend mode, soft mask and font do not apply (docs/FEHLERGEDAECHTNIS.md, No. 574)
+        // the pattern's /ExtGState: what acts on painting the shading (ISO 32000-2, 8.7.4.1 Table 75, 11.6.7) — rendering intent and black point
+        // compensation here, what it does not give from the state at the beginning of the parent stream (before, from the current one), its
+        // opacity /ca on top of that of the painting; overprint in CurrentPaint, blend mode and soft mask in BeginPatternGroup; line style and
+        // font do not apply (docs/FEHLERGEDAECHTNIS.md, No. 574, 1130)
         var (intent, bpc) = (_gs.Intent, _gs.Bpc);
+        (_gs.Intent, _gs.Bpc) = (_streamStart.Intent, _streamStart.Bpc);
         if (dict.GetDictionary(PdfName.Get("ExtGState")) is { } state)
         {
             if (state.Get(PdfName.Get("RI")) is PdfName ri) _gs.Intent = ColorSpace.IntentFrom(ri);
             if (state.Get(PdfName.Get("UseBlackPtComp")) is PdfName usebpc) _gs.Bpc = ColorSpace.BpcFrom(usebpc);
+            if (state.GetNumber(PdfName.Get("ca")) is { } ca && double.IsFinite(ca)) alpha *= Math.Clamp(ca, 0, 1);
         }
         try
         {
@@ -1210,6 +1332,51 @@ public sealed partial class PageInterpreter
         {
             (_gs.Intent, _gs.Bpc) = (intent, bpc);
         }
+    }
+
+    /// <summary>The /ExtGState of a shading pattern; null for anything else.</summary>
+    private static PdfDictionary? ShadingPatternState(PdfObject? pattern) =>
+        pattern is not PdfStream && pattern?.AsDictionary() is { } dict && dict.GetInteger(PdfName.Get("PatternType")) == 2
+            ? dict.GetDictionary(PdfName.Get("ExtGState"))
+            : null;
+
+    /// <summary>
+    /// The blend mode and soft mask of a shading pattern's /ExtGState (ISO 32000-2, 8.7.4.1, 11.6.7): they act while the shading is painted, inside
+    /// the pattern's implicit non-isolated group — for the one object painted with it as a group of its own around that object, with that blend
+    /// mode and the mask placed in pattern space. Opens that group for an entry that fills (<paramref name="fill"/>) or strokes with such a pattern
+    /// and returns it; −1 when none is needed (docs/FEHLERGEDAECHTNIS.md, No. 1130).
+    /// </summary>
+    private int BeginPatternGroup(bool fill, bool stroke)
+    {
+        if (_textOnly || !(fill && _gs.FillSpace.IsPattern || stroke && _gs.StrokeSpace.IsPattern)) return -1;
+        var pattern = fill && _gs.FillSpace.IsPattern && !_gs.FillPatternUnset ? _gs.FillPattern : null;
+        if (ShadingPatternState(pattern) is null) pattern = stroke && _gs.StrokeSpace.IsPattern && !_gs.StrokePatternUnset ? _gs.StrokePattern : null;
+        if (ShadingPatternState(pattern) is not { } state) return -1;
+        var blend = state.Get(PdfName.Get("BM")) is { } bm and not PdfNull ? BlendModes.From(bm) : (byte)0;
+        var mask = -1;
+        if (state.Get(PdfName.Get("SMask")) is { } softMask && softMask.AsDictionary() is not null)
+        {
+            var ctm = _gs.Ctm;
+            _gs.Ctm = (Matrix.FromArray(pattern!.AsDictionary()!.GetArray(PdfName.Get("Matrix"))) ?? Matrix.Identity) * _patternBase;
+            try
+            {
+                mask = SoftMaskIndex(softMask, _pageResources);
+            }
+            finally
+            {
+                _gs.Ctm = ctm;
+            }
+        }
+        if (blend == 0 && mask < 0) return -1;
+        return _group = _builder.BeginGroup(_group, 1, blend, false, false, mask);
+    }
+
+    /// <summary>Closes a group of <see cref="BeginPatternGroup"/>.</summary>
+    private void EndPatternGroup(int group)
+    {
+        if (group < 0) return;
+        _builder.EndGroup(group);
+        _group = _builder.Group(group).Parent;
     }
 
     /// <summary>A shading in the colorant /None (or DeviceN of /None only): it never marks, with „sh“ or as a pattern (8.6.6.4; No. 1123).</summary>
@@ -1257,8 +1424,9 @@ public sealed partial class PageInterpreter
 
     // Cells per pattern stream, shared with the interpreters of nested cells (a cell does not depend on where it is placed).
     // Null = broken or being built, so a pattern that uses itself finds itself empty.
-    private Dictionary<PdfStream, DisplayList?> _tilingCells = new(ReferenceEqualityComparer.Instance);
-    private readonly Dictionary<(PdfStream Pattern, Matrix ToPage, uint Color, double Alpha), int> _tilingIndex = [];
+    // Per start state as well (CellStart): a pattern of a form invoked in two states has two cells.
+    private Dictionary<(PdfStream Pattern, CellStart Start), DisplayList?> _tilingCells = [];
+    private readonly Dictionary<(PdfStream Pattern, Matrix ToPage, uint Color, double Alpha, CellStart Start), int> _tilingIndex = [];
 
     /// <summary>
     /// Tiling pattern as a fill: the cell is built once, each place adds only matrix and colour. Uncoloured patterns (PaintType 2) take
@@ -1275,27 +1443,34 @@ public sealed partial class PageInterpreter
             color = Rendered(space).ToRgb(components).ToArgb(alpha);
         }
         var toPage = (Matrix.FromArray(dict.GetArray(PdfName.Get("Matrix"))) ?? Matrix.Identity) * _patternBase;
-        var key = (pattern, toPage, color ?? 0u, alpha);
+        var start = CellStart.Of(_streamStart, uncoloured: color is not null);
+        var key = (pattern, toPage, color ?? 0u, alpha, start);
         if (_tilingIndex.TryGetValue(key, out var index)) return index;
         index = NoPattern;
         var xStep = dict.GetNumber(PdfName.Get("XStep")) ?? 0;
         var yStep = dict.GetNumber(PdfName.Get("YStep")) ?? 0;
         if (xStep != 0 && yStep != 0 && double.IsFinite(xStep) && double.IsFinite(yStep)
-            && PdfKnead.Core.Pdf.Document.PdfRectangle.From(dict.Get(PdfName.Get("BBox"))) is { } box && TilingCell(pattern, box) is { } cell)
+            && PdfKnead.Core.Pdf.Document.PdfRectangle.From(dict.Get(PdfName.Get("BBox"))) is { } box && TilingCell(pattern, box, start) is { } cell)
             index = _builder.AddShading(new TilingFill(cell, RectD.FromLtrb(box.Left, box.Bottom, box.Right, box.Top), Math.Abs(xStep), Math.Abs(yStep),
-                color, toPage) { Alpha = (byte)Math.Round(Math.Clamp(alpha, 0, 1) * 255) });
+                color, toPage)
+            {
+                Alpha = (byte)Math.Round(Math.Clamp(alpha, 0, 1) * 255),
+                // types 1 and 3 by whole device pixels (8.7.3.1; before, every type with the exact step — docs/FEHLERGEDAECHTNIS.md, No. 1130)
+                WholePixels = dict.GetInteger(PdfName.Get("TilingType")) is 1 or 3,
+            });
         return _tilingIndex[key] = index;
     }
 
     /// <summary>
-    /// Cell of a tiling pattern as a display list of its own in pattern space, clipped to /BBox, starting from the initial graphics state.
-    /// Built by a separate interpreter whose work counts towards the work limit of this build.
+    /// Cell of a tiling pattern as a display list of its own in pattern space, clipped to /BBox, starting from <paramref name="start"/> (the state at
+    /// the beginning of the pattern's parent content stream). Built by a separate interpreter whose work counts towards the work limit of this
+    /// build. The cell of an uncoloured pattern is run as a d1 glyph is (8.6.8: colour operators, ri, sh and images other than masks passed over).
     /// </summary>
-    private DisplayList? TilingCell(PdfStream pattern, PdfKnead.Core.Pdf.Document.PdfRectangle box)
+    private DisplayList? TilingCell(PdfStream pattern, PdfKnead.Core.Pdf.Document.PdfRectangle box, CellStart start)
     {
-        if (_tilingCells.TryGetValue(pattern, out var cell)) return cell;
+        if (_tilingCells.TryGetValue((pattern, start), out var cell)) return cell;
         if (_patternDepth >= MaxPatternDepth) return null;
-        _tilingCells[pattern] = null;   // being built
+        _tilingCells[(pattern, start)] = null;   // being built
         var bounds = RectD.FromLtrb(box.Left, box.Bottom, box.Right, box.Top);
         // the cell for the same use as the page — printed, its layers in their print state too (docs/FEHLERGEDAECHTNIS.md, No. 767)
         var inner = new PageInterpreter(_doc, _forPrint, _forExport)
@@ -1305,6 +1480,8 @@ public sealed partial class PageInterpreter
             _withoutCellGlyphs = _withoutCellGlyphs, _cellPattern = pattern, _pageResources = _pageResources,
             // the page's output intent and the group's device spaces hold in the cell too (No. 593)
             _pageCmyk = _pageCmyk, _groupDevice = _groupDevice,
+            _gs = start.State, _streamStart = start.State,
+            _uncolored = pattern.Dictionary.GetInteger(PdfName.Get("PaintType")) == 2,
         };
         try
         {
@@ -1322,7 +1499,7 @@ public sealed partial class PageInterpreter
         {
             _operations += inner._operations + inner._builder.ShadingWork;
         }
-        return _tilingCells[pattern] = cell;
+        return _tilingCells[(pattern, start)] = cell;
     }
 
     // ------------------------------------------------------------ XObjects and images
@@ -1340,7 +1517,8 @@ public sealed partial class PageInterpreter
         {
             // ISO 32000-2, 8.9.5.4 c): an image hidden by its /OC shows the first of its /Alternates without /OC or with one that is on;
             // none: nothing (docs/FEHLERGEDAECHTNIS.md, No. 763)
-            if (dict.GetName(PdfName.Subtype)?.Value == "Image" && !Hidden && !_textOnly && Alternate(dict, resources, printing: false, out _) is { } shown)
+            if (dict.GetName(PdfName.Subtype)?.Value == "Image" && !Hidden && !_textOnly && Alternate(dict, resources, printing: false, out _) is { } shown
+                && !(_uncolored && !IsStencil(shown.Dictionary)))
                 Image(new ImageSource(shown, null, resources, IsStencil(shown.Dictionary), 0));
             return;
         }
@@ -1356,6 +1534,8 @@ public sealed partial class PageInterpreter
                     if (printed is null) break;
                     image = printed;
                 }
+                // in a d1 glyph or an uncoloured cell only an image mask paints (8.6.8, PDF 2.0; No. 1130)
+                if (_uncolored && !IsStencil(image.Dictionary)) break;
                 Image(new ImageSource(image, null, resources, IsStencil(image.Dictionary), 0));
                 break;
             case "Form":
@@ -1527,7 +1707,8 @@ public sealed partial class PageInterpreter
             // an inline image's dictionary has its abbreviations expanded (ContentParser), /ColorSpace stands there
             var overprints = OverprintsIn(dict.Get(PdfName.Get("ColorSpace")), image.Resources);
             var style = _builder.PaintAt(paint);
-            paint = _builder.AddPaint(style with { Overprint = (byte)((style.Overprint & ~1) | (overprints ? 1 : 0)) });
+            // overprint mode 1 never applies to images (8.6.7 sentence 32): the plates of the fill colour do not count
+            paint = _builder.AddPaint(style with { Overprint = (byte)((style.Overprint & ~1) | (overprints ? 1 : 0)), OverprintReplace = (byte)(style.OverprintReplace & 0xF0) });
         }
         // A mask of the image's own (/SMask, /Mask as stream or colour key, JPX with /SMaskInData) replaces the soft mask of the graphics
         // state for this image — one mask per composition; stencil masks stay under it (ISO 32000-2, 11.6.4.3; docs/FEHLERGEDAECHTNIS.md, No. 562)
@@ -1546,7 +1727,9 @@ public sealed partial class PageInterpreter
             if (_gs.BlendMode == 0 && _gs.FillAlpha >= 1 && !_gs.FillOverprint && _gs.SoftMask < 0 && _builder.ClipIsRectangular(_gs.Clip))
                 _builder.HidePreviousUnder(covered, index, _gs.Ctm, _gs.Clip);
         }
+        var patternGroup = image.IsStencil ? BeginPatternGroup(fill: true, stroke: false) : -1;
         _builder.Add(DisplayItemKind.Image, false, -1, _builder.AddMatrix(_gs.Ctm), paint, _gs.Clip, index, bounds);
+        EndPatternGroup(patternGroup);
         _gs.SoftMask = stateMask;
     }
 
@@ -1556,6 +1739,7 @@ public sealed partial class PageInterpreter
         if (_formDepth >= MaxFormDepth || !_activeForms.Add(stream)) return;   // recursion
         var saved = _gs.Clone();
         var savedPatternBase = _patternBase;
+        var savedStreamStart = _streamStart;
         var savedStack = _stack.Count;
         var savedFloor = _stackFloor;
         _stackFloor = savedStack;
@@ -1570,6 +1754,7 @@ public sealed partial class PageInterpreter
             _gs.Ctm = matrix * extra * _gs.Ctm;
             _gs.MatrixIndex = -1;
             _patternBase = _gs.Ctm;
+            _streamStart = _gs;   // what the form's patterns start from (8.7.3.1 step b, 11.6.7; No. 1130)
             if (_gs.FillSpace.IsPattern || _gs.StrokeSpace.IsPattern) _gs.PaintIndex = -1;   // inherited pattern: here relative to the form
             var bboxObject = dict.Get(PdfName.Get("BBox"));
             // BBox of valid numbers but without area ([0 0 0 0]) clips everything away, as in common PDF
@@ -1605,6 +1790,7 @@ public sealed partial class PageInterpreter
                 if (_hiddenStack.Pop()) _hiddenDepth--;
             _gs = saved;
             _patternBase = savedPatternBase;
+            _streamStart = savedStreamStart;
             _verbs.Clear();
             _points.Clear();
         }

@@ -160,15 +160,28 @@ public sealed partial class M6NormTests
     }
 
     /// <summary>
-    /// 8.5.2.1 sentences 10–12: today's behaviour (a tolerance without a special rule; design decision pending): a segment without a current point is no error —
-    /// at the start of the page „100 100 l S“ draws a line from (0, 0).
+    /// 8.5.2.1 sentences 10–12 (read leniently, docs/normabgleich/sonderregeln.md S-A A171): a segment without a current point is no error, and
+    /// no point is invented — where none has been set yet (the start of the content) the segment begins at its first pair of coordinates:
+    /// „100 100 l 180 100 l S“ draws from (100, 100) to (180, 100), nothing from the origin, which no reference reader draws (before, a line ran
+    /// from (0, 0); docs/FEHLERGEDAECHTNIS.md, No. 1134); after a painting operator the last point of the stream stays the start: the second
+    /// „l“ of „30 30 m 90 30 l S 150 150 l S“ draws from (90, 30).
     /// </summary>
     [Fact]
-    public void C85_SegmentWithoutCurrentPoint_StartsAtTheOrigin_Today()
+    public void C85_SegmentWithoutCurrentPoint_NoPointInvented_LastPointAfterPainting()
     {
-        using var b = B84_Render("0 0 1 RG 4 w 100 100 l S");
-        Assert.True(B84_Blue(b, 50, 50));
-        Assert.True(B84_White(b, 150, 150));
+        using (var b = B84_Render("0 0 1 RG 4 w 100 100 l 180 100 l S"))
+        {
+            Assert.True(B84_Blue(b, 140, 100));
+            Assert.True(B84_White(b, 50, 50));
+        }
+        using (var b = B84_Render("0 0 1 RG 4 w 30 30 m 90 30 l S 150 150 l S"))
+            Assert.True(B84_Blue(b, 120, 90));
+        // a curve: from its first control point, as a rewritten „x1 y1 m“ before it gives every reader
+        using (var b = B84_Render("0 0 1 RG 4 w 20 100 20 100 180 100 c S"))
+        {
+            Assert.True(B84_Blue(b, 100, 100));
+            Assert.True(B84_White(b, 10, 50));
+        }
     }
 
     /// <summary>8.5.2.1 sentences 13–16: m begins a subpath without a line; m after m replaces it without a trace.</summary>
@@ -281,15 +294,26 @@ public sealed partial class M6NormTests
     }
 
     /// <summary>
-    /// 8.5.2.1 sentences 44–45: all operands of the path operators are numbers — a path operator with an operand that is not a number is passed
-    /// over, nothing fails: „/N 10 m“ sets no point (10 as y with the name as 0).
+    /// 8.5.2.1 sentences 44–45 (read leniently, S-A A172): all operands of the path operators are numbers — an operator with an operand of
+    /// another kind is passed over, as the reference readers do (before, the operand counted as 0 and invented a point;
+    /// docs/FEHLERGEDAECHTNIS.md, No. 1134): „/N 150 m“ sets no point at (0, 150), the path begins at its first segment; the same for the other
+    /// operators of fixed arity: „0 /X 1 rg“ leaves the red fill, „(x) w“ the width 20.
     /// </summary>
-    [Fact(Skip = "Design decision pending (read tolerance): an operand that is not a number counts as 0 today")]
+    [Fact]
     public void C85_PathOperandNotANumber_IsPassedOver()
     {
-        var (verbs, points) = C85_OnlyPath("/N 10 m 50 50 l S");
-        Assert.Equal(PathVerb.Move, verbs[0]);
-        Assert.NotEqual((0f, 10f), (points[0], points[1]));
+        using (var b = B84_Render("0 0 1 RG 8 w /N 150 m 190 150 l 190 20 l S"))
+        {
+            Assert.True(B84_White(b, 100, 150));
+            Assert.True(B84_Blue(b, 190, 80));
+        }
+        using (var b = B84_Render("1 0 0 rg 0 /X 1 rg 20 20 160 60 re f 0 0 1 RG 20 w (x) w 20 150 m 180 150 l S"))
+        {
+            Assert.True(B84_Red(b, 100, 50));
+            Assert.True(B84_Blue(b, 100, 157));
+        }
+        Assert.True(PageInterpreter.LacksOperands("m", [new Operand(PdfName.Get("N")), new Operand(150)]));
+        Assert.False(PageInterpreter.LacksOperands("Tf", [new Operand(PdfName.Get("F1")), new Operand(12)]));
     }
 
     // ------------------------------------------------------------------ 8.5.3

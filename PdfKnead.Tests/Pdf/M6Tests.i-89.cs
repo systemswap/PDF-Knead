@@ -220,16 +220,26 @@ public sealed partial class M6NormTests
     // ---- 8.9.5.1 image dictionaries
 
     /// <summary>
-    /// 8.9.5.1 sentence 3 and sentences 20, 29–31: /BitsPerComponent is 1, 2, 4, 8 or 16; an image with another depth (3, 12) and no filter is
-    /// an error — the display draws the placeholder colour (E6 E8 EC) in place of the image, without an exception (<c>DecodeCore</c>,
-    /// <c>DrawImage</c>).
+    /// 8.9.5.1 sentence 3 and sentences 20, 29–31: /BitsPerComponent is 1, 2, 4, 8 or 16; an image with another depth from 1 to 16 (3, 12) and
+    /// no filter is read leniently at its depth (docs/normabgleich/sonderregeln.md S-A A192; before, the placeholder — docs/FEHLERGEDAECHTNIS.md,
+    /// No. 1134): black, then white; a depth above 16 (17) or 0 still draws the placeholder colour (E6 E8 EC), without an exception
+    /// (<c>DecodeCore</c>, <c>DrawImage</c>).
     /// </summary>
     [Theory]
     [InlineData(3)]
     [InlineData(12)]
-    public void Image_BitsPerComponentNotAllowed_DrawsThePlaceholder(int bits)
+    [InlineData(17)]
+    [InlineData(0)]
+    public void Image_BitsPerComponentNotAllowed_ReadAtItsDepthUpTo16(int bits)
     {
-        using var bitmap = I89_FullImage(I89_Image($"/Width 2 /Height 1 /ColorSpace /DeviceGray /BitsPerComponent {bits}", "\x00\x40\x80\xC0"));
+        var data = bits is >= 1 and <= 16 ? Tol_Pack(bits, 0, (1 << bits) - 1) : " @À @À ";
+        using var bitmap = I89_FullImage(I89_Image($"/Width 2 /Height 1 /ColorSpace /DeviceGray /BitsPerComponent {bits}", data));
+        if (bits is >= 1 and <= 16)
+        {
+            Assert.True(I89_At(bitmap, 50, 100) is { Red: < 10 }, I89_At(bitmap, 50, 100).ToString());
+            Assert.True(I89_White(I89_At(bitmap, 150, 100)), I89_At(bitmap, 150, 100).ToString());
+            return;
+        }
         var c = I89_At(bitmap, 100, 100);
         Assert.True(Math.Abs(c.Red - 0xE6) <= 1 && Math.Abs(c.Green - 0xE8) <= 1 && Math.Abs(c.Blue - 0xEC) <= 1, c.ToString());
     }
@@ -802,16 +812,30 @@ public sealed partial class M6NormTests
     // ---- 8.9.7 inline images
 
     /// <summary>
-    /// 8.9.7 sentences 3 and 25, today's behaviour (design decision pending): an inline image of more than 4 096 bytes stays inline when the page
-    /// is saved (<c>InlineImageConformance.Breaks</c> has no size limit).
+    /// 8.9.7 sentences 3 and 25: inline images only for small images, their data at most 4 096 bytes. Saved as 2.0, an inline image of 5 000
+    /// bytes becomes an image XObject with the same samples, one of exactly 4 096 bytes stays inline (with /L); the page looks the same. Saved
+    /// as 1.7 both stay inline (<c>InlineImageConformance.Breaks</c>; before, no size counted — docs/FEHLERGEDAECHTNIS.md, No. 1131).
     /// </summary>
     [Fact]
-    public void InlineImage_Over4096Bytes_StaysInline_TodaysBehaviour()
+    public void InlineImage_Over4096Bytes_BecomesXObjectAs20_StaysInlineAs17()
     {
-        var data = new string('\x80', 5000);
-        using var saved = DocumentStructureNormTests.Saved(I89_File("", "", $"q 200 0 0 100 0 50 cm BI /W 100 /H 50 /CS /G /BPC 8 ID {data} EI Q"));
-        Assert.Contains("BI", I89_Content(saved));
-        Assert.Empty(I89_Images(saved));
+        var large = string.Concat(Enumerable.Range(0, 5000).Select(i => (char)(0x40 + i % 128)));
+        var file = I89_File("", "", $"q 200 0 0 100 0 100 cm BI /W 100 /H 50 /CS /G /BPC 8 ID {large} EI Q " +
+            $"q 200 0 0 100 0 0 cm BI /W 64 /H 64 /CS /G /BPC 8 ID {new string('\x80', 4096)} EI Q");
+        var as20 = E3_Save(file, new PdfSaveOptions { Version = "2.0" });
+        E3_LooksTheSame(file, as20);
+        using (var saved = PdfDocument.Open(as20))
+        {
+            var image = Assert.Single(I89_Images(saved));
+            Assert.Equal(Encoding.Latin1.GetBytes(large), saved.DecodeStream(image).Data);
+            Assert.Equal(100, image.Dictionary.GetInteger(PdfName.Get("Width")));
+            var content = I89_Content(saved);
+            Assert.Single(System.Text.RegularExpressions.Regex.Matches(content, @"\bBI\b"));
+            Assert.Contains("/L 4096", content);
+        }
+        using var as17 = DocumentStructureNormTests.Saved(file, new PdfSaveOptions { Version = "1.7" });
+        Assert.Equal(2, System.Text.RegularExpressions.Regex.Matches(I89_Content(as17), @"\bBI\b").Count);
+        Assert.Empty(I89_Images(as17));
     }
 
     /// <summary>
@@ -829,31 +853,34 @@ public sealed partial class M6NormTests
     }
 
     /// <summary>
-    /// 8.9.7 sentence 23: other entries of an inline image are passed over — /Mask is none of its entries (Table 91). A grey inline image of
-    /// 2 × 1 (0, 255) with /Mask [0 0]: both samples are painted, the left one black.
+    /// 8.9.7 sentence 23 (read leniently, docs/normabgleich/sonderregeln.md S-A A183): other entries of an inline image are passed over, but
+    /// /Mask (a colour key, not in Table 91) applies, as with all three reference readers (measured with
+    /// tools/normabgleich/proben/lesetoleranzen_m6.py, T11): a grey inline image of 2 × 1 (0, 255) with /Mask [0 0] over red leaves its left
+    /// sample out — red shows there, the right sample is white.
     /// </summary>
-    [Fact(Skip = "Design decision pending (read tolerance): /Mask of an inline image applies today")]
-    public void InlineImage_ColourKey_PassedOver()
+    [Fact]
+    public void InlineImage_ColourKey_AppliesAsWithTheReferenceReaders()
     {
-        using var bitmap = I89_Render(I89_File("", "", "q 200 0 0 200 0 0 cm BI /W 2 /H 1 /CS /G /BPC 8 /Mask [0 0] ID \x00\xff EI Q"));
-        Assert.InRange(I89_At(bitmap, 50, 100).Red, 0, 10);
+        using var bitmap = I89_Render(I89_File("", "", "1 0 0 rg 0 0 200 200 re f q 200 0 0 200 0 0 cm BI /W 2 /H 1 /CS /G /BPC 8 /Mask [0 0] ID \x00\xff EI Q"));
+        Assert.True(I89_Red(I89_At(bitmap, 50, 100)));
+        Assert.True(I89_At(bitmap, 150, 100) is { Red: > 240, Green: > 240, Blue: > 240 });
     }
 
     /// <summary>
-    /// 8.9.7 sentence 24, today's behaviour (design decision pending): saved as PDF 2.0 without PDF/A an inline image without /L stays without it
-    /// (<c>ContentConformance.WriteInlineImage</c> adds it only for PDF/A-4).
+    /// 8.9.7 sentence 30 (read leniently, docs/normabgleich/sonderregeln.md S-A A181): the abbreviations belong to inline images, an image
+    /// XObject that uses them is read all the same, as by two reference readers (T10 of tools/normabgleich/proben/lesetoleranzen_m6.py) — its
+    /// filter under /F too: an image of 2 × 1 with /W /H /CS /RGB /BPC and /F /AHx shows red and blue (before, the hexadecimal digits were taken
+    /// as samples; docs/FEHLERGEDAECHTNIS.md, No. 1134). An /F that is a file specification (a string) names no filter.
     /// </summary>
     [Fact]
-    public void InlineImage_SavedAs20_NoLengthAdded_TodaysBehaviour()
+    public void ImageXObject_AbbreviationsAndFilterUnderF_ReadLeniently()
     {
-        using var saved = DocumentStructureNormTests.Saved(I89_File("", "", "q 200 0 0 200 0 0 cm BI /W 1 /H 1 /CS /G /BPC 8 ID \x80 EI Q"),
-            new PdfSaveOptions { Version = "2.0" });
-        var content = I89_Content(saved);
-        var at = content.IndexOf("BI", StringComparison.Ordinal);
-        Assert.True(at >= 0, content);
-        var dictionary = content[at..content.IndexOf("ID", at, StringComparison.Ordinal)];
-        Assert.DoesNotContain("/L ", dictionary.Replace("/L\n", "/L "));
-        Assert.DoesNotContain("/Length", dictionary);
+        using var bitmap = I89_FullImage("<< /Type /XObject /Subtype /Image /W 2 /H 1 /CS /RGB /BPC 8 /F /AHx /Length 13 >>\nstream\nFF00000000FF>\nendstream");
+        Assert.True(I89_Red(I89_At(bitmap, 50, 100)));
+        Assert.True(I89_Blue(I89_At(bitmap, 150, 100)));
+        var external = new PdfDictionary();
+        external.Set(PdfName.Get("F"), new PdfString("data.bin"u8.ToArray()));
+        Assert.Empty(PdfKnead.Core.Pdf.Filters.StreamFilters.Chain(external));
     }
 
     /// <summary>
@@ -916,11 +943,11 @@ public sealed partial class M6NormTests
     }
 
     /// <summary>
-    /// 8.9.7 sentences 62–63 (reader), today's reading: an inline image without /CS and without /IM is read as grey — the sample 0x80 shows mid
-    /// grey (<c>PdfImageDecoder.DecodeCore</c>).
+    /// 8.9.7 sentences 62–63 (reader; read leniently, docs/normabgleich/sonderregeln.md S-A A180): an inline image without /CS and without /IM
+    /// is read as grey — the sample 0x80 shows mid grey (<c>PdfImageDecoder.DecodeCore</c>).
     /// </summary>
     [Fact]
-    public void InlineImage_WithoutColourSpace_ReadAsGrey_TodaysReading()
+    public void InlineImage_WithoutColourSpace_ReadAsGrey()
     {
         using var bitmap = I89_Render(I89_File("", "", "q 200 0 0 200 0 0 cm BI /W 1 /H 1 /BPC 8 ID \x80 EI Q"));
         var c = I89_At(bitmap, 100, 100);

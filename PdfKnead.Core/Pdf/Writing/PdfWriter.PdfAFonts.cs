@@ -627,7 +627,10 @@ public static partial class PdfWriter
                     };
                     data = head is null ? [.. System.Text.Encoding.ASCII.GetBytes(width + " 0 d0\n"), .. original] : [.. System.Text.Encoding.ASCII.GetBytes(head + "\n"), .. rest];
                 }
-                data = ContentConformance.Rewrite(data, RewriteOptions(shown?.Dictionary.GetDictionary(PdfName.Resources) ?? dict.GetDictionary(PdfName.Resources), doc, null, null));
+                // PDF/A-4: an inline image over 4 096 bytes becomes an image XObject in the font's resources, which the glyph draws with (8.9.7;
+                // docs/FEHLERGEDAECHTNIS.md, No. 1131)
+                data = ContentConformance.Rewrite(data, RewriteOptions(shown?.Dictionary.GetDictionary(PdfName.Resources) ?? dict.GetDictionary(PdfName.Resources), doc, null, null,
+                    placed: _pdfA!.Part.Part() == 4 ? FontImages(dict) : null));
                 var procDict = new PdfDictionary();
                 if (shown?.Dictionary.GetRaw(PdfName.Resources) is { } procResources) procDict.Set(PdfName.Resources, procResources);
                 newProcs.Set(name, Fresh(new PdfStream(procDict, data)));

@@ -240,7 +240,7 @@ public static class PdfImageDecoder
             var height = (int)(Get(dict, "Height", "H").AsNumber() ?? 0);
             if (width <= 0 || height <= 0 || width > MaxSide || height > MaxSide || (long)width * height > MaxPixels) return null;
             var bpc = stencil ? 1 : (int)(Get(dict, "BitsPerComponent", "BPC").AsNumber() ?? 8);
-            if (bpc is not (1 or 2 or 4 or 8 or 16) || !stencil && Get(dict, "Mask", "Mask") is PdfArray) return null;
+            if (!ImageDepth.Readable(bpc) || !stencil && Get(dict, "Mask", "Mask") is PdfArray) return null;
             var decodeArray = PdfFunction.Numbers(Get(dict, "Decode", "D") as PdfArray);
             var spaceObj = Get(dict, "ColorSpace", "CS");
             var space = stencil || spaceObj is PdfNull ? ColorSpace.DeviceGray : ColorSpace.Create(spaceObj, resources, doc);
@@ -352,7 +352,7 @@ public static class PdfImageDecoder
 
         byte[] rgba;
         // large: row by row and reduced (a colour key per raw pixel on the way)
-        if ((long)width * height > limits.Full && stream is not null && bpc is 1 or 2 or 4 or 8 or 16
+        if ((long)width * height > limits.Full && stream is not null && ImageDepth.Readable(bpc)
             && ImageRows.Open(doc, stream, rowBytes) is { } rows)
         {
             using (rows)
@@ -452,7 +452,8 @@ public static class PdfImageDecoder
             }
             else
             {
-                if (bpc is not (1 or 2 or 4 or 8 or 16)) return null;
+                // any depth from 1 to 16 bits, also between the allowed ones (S-A A192; docs/FEHLERGEDAECHTNIS.md, No. 1134; before, a placeholder)
+                if (!ImageDepth.Readable(bpc)) return null;
                 var converter = new RowConverter(space, bpc, decodeArray);
                 var gray = opaque && converter.IsGray;
                 if ((long)width * height > limits.Full)
@@ -937,10 +938,7 @@ public static class PdfImageDecoder
             var i = (int)(bit >> 3);
             return i + 1 < data.Length ? (data[i] << 8 | data[i + 1]) : 0;
         }
-        var byteIndex = bit >> 3;
-        if (byteIndex >= data.Length) return 0;
-        var shift = 8 - (int)(bit & 7) - bpc;
-        return (data[(int)byteIndex] >> shift) & ((1 << bpc) - 1);
+        return ImageDepth.Read(data, bit, bpc);   // 1, 2, 4 within a byte; other depths across byte boundaries (No. 1134)
     }
 
     /// <summary>The codec already returned RGB or grey: only expand to RGBA (RGBA: unchanged, without a copy).</summary>
@@ -1200,8 +1198,8 @@ public static class PdfImageDecoder
         var gray = stencil || spaceObj is PdfNull || spaceObj is PdfName { Value: "DeviceGray" or "G" or "CalGray" };
         var rowBytes = (int)(((long)mw * Math.Clamp(bpc, 1, 16) + 7) / 8);
 
-        IRowSource? rows = gray && bpc is 1 or 2 or 4 or 8 or 16 ? ImageRows.Open(doc, mask, rowBytes) : null;
-        if (rows is null && gray && bpc is 1 or 2 or 4 or 8 or 16)
+        IRowSource? rows = gray && ImageDepth.Readable(bpc) ? ImageRows.Open(doc, mask, rowBytes) : null;
+        if (rows is null && gray && ImageDepth.Readable(bpc))
         {
             var decoded = doc.DecodeStream(mask, (int)Math.Min(int.MaxValue / 2, (long)rowBytes * mh));
             // JBIG2 (scanned plans: masks with hundreds of millions of pixels) stays packed instead of one byte per pixel through Alpha()

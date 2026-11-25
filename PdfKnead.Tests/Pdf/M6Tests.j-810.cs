@@ -80,10 +80,11 @@ public sealed partial class M6NormTests
 
     /// <summary>
     /// 8.10.2 sentences 4–6: /Type of a form is XObject if given. The forms PDF-Knead writes for its own elements carry /Type /XObject
-    /// (<c>ElementAppearance.FormStream</c>); a foreign form with /Type /Pattern keeps it when saved (today's behaviour: not corrected).
+    /// (<c>ElementAppearance.FormStream</c>); a foreign form with /Type /Pattern is saved with /Type /XObject — the display never reads /Type of a
+    /// form, the meaning stays (<c>VersionKeys.Filter</c>; before, kept as it was — docs/FEHLERGEDAECHTNIS.md, No. 1131).
     /// </summary>
     [Fact]
-    public void Form_Type_OwnFormsXObject_ForeignKeptAsItIs()
+    public void Form_Type_OwnFormsXObject_ForeignCorrected()
     {
         var own = ElementAppearance.For(new ShapeElement { Kind = ShapeKind.Rectangle, Rect = new PdfRectangle(10, 10, 60, 40), FillColor = 0xC00000 }).Form;
         Assert.Equal("XObject", own.Dictionary.GetName(PdfName.Type)?.Value);
@@ -91,7 +92,7 @@ public sealed partial class M6NormTests
 
         using var saved = DocumentStructureNormTests.Saved(J810_File("/XObject << /Fm0 5 0 R >>", "/Fm0 Do",
             "<< /Type /Pattern /Subtype /Form /BBox [0 0 50 50] /Resources << >> /Length 21 >>\nstream\n1 0 0 rg 0 0 50 50 re f\nendstream"));
-        Assert.Equal("Pattern", Assert.Single(J810_XObjects(saved, "Form")).Dictionary.GetName(PdfName.Type)?.Value);
+        Assert.Equal("XObject", Assert.Single(J810_XObjects(saved, "Form")).Dictionary.GetName(PdfName.Type)?.Value);
     }
 
     /// <summary>

@@ -81,11 +81,14 @@ internal static class ImageCut
         if (w <= 0 || h <= 0 || dict.Get(SMaskInData) is PdfInteger { Value: not 0 }) return null;
         var stencil = dict.Get(ImageMask) is PdfBoolean { Value: true };
         var bpc = stencil ? 1 : (int)(dict.GetInteger(Bpc) ?? 0);
-        if (bpc is not (1 or 2 or 4 or 8 or 16)) return null;
+        if (!Graphics.ImageDepth.Readable(bpc)) return null;
         int components;
+        var indexed = false;
         try
         {
-            components = stencil ? 1 : dict.Get(ColorSpace) is { } space ? Graphics.ColorSpace.Create(space, resources, doc).Components : 0;
+            var colourSpace = stencil || dict.Get(ColorSpace) is not { } space ? null : Graphics.ColorSpace.Create(space, resources, doc);
+            components = stencil ? 1 : colourSpace?.Components ?? 0;
+            indexed = colourSpace is { IsIndexed: true };
         }
         catch (PdfException)
         {
@@ -130,6 +133,14 @@ internal static class ImageCut
                 if (Cut(doc, mask, resources, left, top, right, bottom, isMask: true) is not { } cutMask) return null;
                 result.Set(maskKey, cutMask);
             }
+        // a depth between the allowed ones (read leniently, S-A A192): the part written with 8 or 16 bits, the same appearance
+        // (docs/FEHLERGEDAECHTNIS.md, No. 1134)
+        if (!Graphics.ImageDepth.Allowed(bpc))
+        {
+            samples = Graphics.ImageDepth.Widen(samples, cw, ch, components, bpc, indexed);
+            Graphics.ImageDepth.Describe(result, bpc, indexed);
+            return new PdfStream(result, samples);
+        }
         // one bit of one component (scans, stencil masks): G4 as for the compression, decoding to the same samples
         if (bitsPerPixel == 1)
         {

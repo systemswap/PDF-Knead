@@ -89,7 +89,8 @@ public sealed class IccCraftedProfileTests
     /// <summary>
     /// Removing the device description from a profile whose 500 tags overlap in part (each one starts 4 bytes later and runs to the end; ICC.1,
     /// 7.3.1 forbids it): the profile does not grow, the description's bytes are gone — before, each tag was copied on its own, 500 times most of
-    /// the profile.
+    /// the profile. The 500 entries carry a registered signature (the characterisation target), so that cleaning keeps them (private tags go
+    /// since No. 1133).
     /// </summary>
     [Fact]
     public void Metadata_OverlappingTags_ProfileDoesNotGrow()
@@ -108,7 +109,7 @@ public sealed class IccCraftedProfileTests
             BinaryPrimitives.WriteUInt32BigEndian(grown.AsSpan(136 + 12 * i), BinaryPrimitives.ReadUInt32BigEndian(grown.AsSpan(136 + 12 * i)) + 6000);
         for (var i = 0; i < 500; i++)
         {
-            Encoding.ASCII.GetBytes($"z{i:000}", grown.AsSpan(132 + 12 * (8 + i)));
+            Encoding.ASCII.GetBytes("targ", grown.AsSpan(132 + 12 * (8 + i)));
             BinaryPrimitives.WriteUInt32BigEndian(grown.AsSpan(136 + 12 * (8 + i)), (uint)(at + 6000 + 4 * i));
             BinaryPrimitives.WriteUInt32BigEndian(grown.AsSpan(140 + 12 * (8 + i)), (uint)(block.Length - 4 * i));
         }

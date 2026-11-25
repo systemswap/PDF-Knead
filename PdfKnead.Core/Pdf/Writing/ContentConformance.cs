@@ -223,18 +223,22 @@ internal static class ContentConformance
     /// A content stream with what the display reads in a form ISO 32000-2 allows, each part as the display reads it: a number not written as
     /// 7.3.3 allows in that form, with the value the display reads (S-A A01, docs/FEHLERGEDAECHTNIS.md, No. 930); an array or dictionary that
     /// an operator ends before its closing bracket left out, as the display passes over it (S-A A02, No. 931). The page looks the same in
-    /// PDF-Knead, and other readers no longer read such content each their own way (one reads „--24“ as −24, others drop the operator). All
-    /// else stays byte for byte; inline image data is not looked into.
+    /// PDF-Knead, and other readers no longer read such content each their own way (one reads „--24“ as −24, others drop the operator). Repairs
+    /// that keep the meaning, in every version: the obsolete „F“ as „f“ (8.5.3.1), an empty dash array with a phase other than 0 with phase 0
+    /// (8.4.3.6: the line is solid either way); as PDF 2.0, an inline image without its length, or with a wrong one, gets /L (8.9.7) — its data
+    /// stay byte for byte (docs/FEHLERGEDAECHTNIS.md, No. 1131). All else stays byte for byte; inline image data is not looked into.
     /// </summary>
     /// <param name="data">The decoded content.</param>
+    /// <param name="pdf20">Written as PDF 2.0: inline images state their length.</param>
     /// <returns>The new content; null where there is nothing to repair.</returns>
-    public static byte[]? CanonicalSyntax(byte[] data) => CanonicalSyntax(data, data.Length);
+    public static byte[]? CanonicalSyntax(byte[] data, bool pdf20 = false) => CanonicalSyntax(data, data.Length, pdf20);
 
-    /// <summary>As <see cref="CanonicalSyntax(byte[])"/>, over the first <paramref name="length"/> bytes of a rented buffer.</summary>
+    /// <summary>As <see cref="CanonicalSyntax(byte[], bool)"/>, over the first <paramref name="length"/> bytes of a rented buffer.</summary>
     /// <param name="data">The buffer holding the decoded content.</param>
     /// <param name="length">Number of valid bytes.</param>
+    /// <param name="pdf20">Written as PDF 2.0: inline images state their length.</param>
     /// <returns>The new content; null where there is nothing to repair.</returns>
-    public static byte[]? CanonicalSyntax(byte[] data, int length)
+    public static byte[]? CanonicalSyntax(byte[] data, int length, bool pdf20 = false)
     {
         length = Math.Clamp(length, 0, data.Length);
         if (!Suspect(data, length)) return null;
@@ -244,6 +248,25 @@ internal static class ContentConformance
         var before = 0;
         while (parser.Next() is { } op)
         {
+            // an inline image without its length (or with one its data do not have) as PDF 2.0: with /L, the data as they are (not one the
+            // content ends in before its data: nothing to state the length of)
+            if (pdf20 && op == "BI" && parser.InlineImage is { Data.Length: > 0 } inline && parser.Discarded is null &&
+                inline.Dictionary.GetInteger(PdfName.Get("Length")) != inline.Data.Length && InlineStart(data, before, parser.Position) is { } begin)
+            {
+                found.Add((begin, parser.Position, WithLength(inline)));
+                before = parser.Position;
+                continue;
+            }
+            // an empty dash array with a phase other than 0: with phase 0, the line as solid as before — written with only the operands it
+            // takes (operands left over before it the display passes over as well)
+            if (op == "d" && EmptyDashWithPhase(parser.Operands) && parser.Discarded is null)
+            {
+                found.Add((before, parser.Position, " [] 0 d"u8.ToArray()));
+                before = parser.Position;
+                continue;
+            }
+            // the obsolete „F“: the operator ends where the parser stands, the bytes before it stay
+            if (op == "F" && parser.Position > 0 && data[parser.Position - 1] == 'F') found.Add((parser.Position - 1, parser.Position, "f"u8.ToArray()));
             var discarded = parser.Discarded;
             if (discarded is not null && Without(op, parser.Operands) is { } instead)
             {
@@ -293,7 +316,52 @@ internal static class ContentConformance
     }
 
     /// <summary>
-    /// Whether the content may hold what <see cref="CanonicalSyntax(byte[], int)"/> repairs — without the parser, more than it finds, never
+    /// The operands of „d“ are an empty dash array and a phase other than 0: ISO 32000-2, 8.4.3.6 asks for phase 0 there — the line is solid
+    /// whatever the phase (<see cref="PageInterpreter"/> reads an empty array as no dashes), so phase 0 means the same.
+    /// </summary>
+    internal static bool EmptyDashWithPhase(IReadOnlyList<Operand> operands) =>
+        operands.Count == 2 && operands[0].Object is PdfArray { Count: 0 } && operands[1].IsNumber && operands[1].Number != 0;
+
+    /// <summary>Where the „BI“ of an inline image read from <paramref name="before"/> to <paramref name="end"/> begins (after white-space and
+    /// comments); null if it does not stand there.</summary>
+    private static int? InlineStart(byte[] data, int before, int end)
+    {
+        var pos = before;
+        while (pos < end)
+        {
+            if (data[pos] is 0 or 9 or 10 or 12 or 13 or 32) pos++;
+            else if (data[pos] == '%')
+                while (pos < end && data[pos] is not (10 or 13)) pos++;
+            else break;
+        }
+        return pos + 2 <= end && data[pos] == 'B' && data[pos + 1] == 'I' ? pos : null;
+    }
+
+    /// <summary>
+    /// An inline image written with /L, the length of its data (ISO 32000-2, 8.9.7): its entries as read — each abbreviation once, a full key
+    /// the parser added left out, an old /L or /Length replaced —, then the data byte for byte; a reader that takes /L ends the image there.
+    /// </summary>
+    private static byte[] WithLength(InlineImage image)
+    {
+        var dict = image.Dictionary;
+        var output = new MemoryStream(image.Data.Length + 128);
+        output.Write("BI"u8);
+        foreach (var (key, value) in dict.Entries)
+        {
+            if (key.Value is "L" or "Length" || InlineImage.ExpandedKey(dict, key)) continue;
+            output.WriteByte((byte)' ');
+            PdfSerializer.Write(key, output);
+            output.WriteByte((byte)' ');
+            PdfSerializer.Write(value, output);
+        }
+        output.Write(Encoding.ASCII.GetBytes(FormattableString.Invariant($" /L {image.Data.Length} ID ")));
+        output.Write(image.Data);
+        output.Write("\nEI"u8);
+        return output.ToArray();
+    }
+
+    /// <summary>
+    /// Whether the content may hold what <see cref="CanonicalSyntax(byte[], int, bool)"/> repairs — without the parser, more than it finds, never
     /// less, so that most content is passed by without parsing it (docs/FEHLERGEDAECHTNIS.md, No. 936):
     /// <list type="bullet">
     /// <item>a run of regular characters at a token boundary that looks like a number but is not well-formed; literal and hexadecimal strings,
@@ -301,12 +369,17 @@ internal static class ContentConformance
     /// <item>opening and closing brackets of arrays and dictionaries not as many — counted over everything, as before, and outside the
     /// strings: unequal in either count sends the content through the parser. An array an operator ends whose bracket closes later („[(a) TJ
     /// (b) ] Tj“) keeps the counts equal and is not found here: the display reads it alike, only the copy keeps the bytes;</item>
-    /// <item>an inline image (its data can hold anything; the parser reads it as a whole).</item>
+    /// <item>an inline image (its data can hold anything; the parser reads it as a whole);</item>
+    /// <item>the operator „F“, and „d“ after an empty array and a number other than 0 (No. 1131).</item>
     /// </list>
     /// </summary>
     internal static bool Suspect(byte[] data, int length)
     {
         int arrays = 0, dictionaries = 0;
+        // an empty dash array with its phase: 1 after „[ ]“, 2 after a number other than 0 that follows it
+        var dash = 0;
+        var inArray = false;
+        var arrayEmpty = false;
         for (var i = 0; i < length; i++)
             switch (data[i])
             {
@@ -330,6 +403,7 @@ internal static class ContentConformance
                     continue;
                 case (byte)'(':
                     // as PdfLexer.ReadLiteralString: nested brackets, a backslash takes the next byte; not closed: up to the end
+                    (dash, arrayEmpty) = (0, false);
                     pos++;
                     for (var depth = 1; pos < length && depth > 0; pos++)
                         if (data[pos] == '\\') pos++;
@@ -338,10 +412,12 @@ internal static class ContentConformance
                     continue;
                 case (byte)'<' when pos + 1 < length && data[pos + 1] == '<':
                     dictionaries++;
+                    (dash, arrayEmpty) = (0, false);
                     pos += 2;
                     continue;
                 case (byte)'<':
                     // as PdfLexer.ReadHexString: up to „>“ or the end
+                    (dash, arrayEmpty) = (0, false);
                     pos++;
                     while (pos < length && data[pos] != '>') pos++;
                     pos++;
@@ -352,14 +428,18 @@ internal static class ContentConformance
                     continue;
                 case (byte)'[':
                     arrays++;
+                    (dash, inArray, arrayEmpty) = (0, true, true);
                     pos++;
                     continue;
                 case (byte)']':
                     arrays--;
+                    dash = inArray && arrayEmpty ? 1 : 0;
+                    inArray = false;
                     pos++;
                     continue;
                 case (byte)'/':
                     // a name: the regular characters after the solidus
+                    (dash, arrayEmpty) = (0, false);
                     pos++;
                     while (pos < length && PdfLexer.IsRegular(data[pos])) pos++;
                     continue;
@@ -372,8 +452,12 @@ internal static class ContentConformance
             var start = pos;
             while (pos < length && PdfLexer.IsRegular(data[pos])) pos++;
             var token = data.AsSpan(start, pos - start);
-            if (token.SequenceEqual("BI"u8)) return true;
-            if (c is (byte)'+' or (byte)'-' or (byte)'.' or >= (byte)'0' and <= (byte)'9' && !WellFormed(token)) return true;
+            if (token.SequenceEqual("BI"u8) || token.SequenceEqual("F"u8)) return true;
+            var number = c is (byte)'+' or (byte)'-' or (byte)'.' or >= (byte)'0' and <= (byte)'9';
+            if (number && !WellFormed(token)) return true;
+            if (dash == 2 && token.SequenceEqual("d"u8)) return true;
+            dash = dash == 1 && number && double.TryParse(token, NumberStyles.Float, CultureInfo.InvariantCulture, out var phase) && phase != 0 ? 2 : 0;
+            arrayEmpty = false;
         }
         return arrays != 0 || dictionaries != 0;
     }
@@ -442,6 +526,7 @@ internal static class ContentConformance
         var saved = new Stack<(PdfName?, ColourChange?, ColourChange?)>();
         var marks = options.Marks;
         var index = -1;
+        var inlineOrdinal = 0;
         string? op;
         while ((op = parser.Next()) is not null)
         {
@@ -486,19 +571,28 @@ internal static class ContentConformance
                 output.Write(recoloured);
                 continue;
             }
-            if (op == "BI" && options.Colours is { } inlineColours && parser.InlineImage is { } image && Recoloured(image, inlineColours) is { } converted)
+            if (op == "BI")
             {
-                WriteInlineImage(output, converted, options.InlineLength);
+                if (parser.InlineImage is not { } inline) continue;
+                var ordinal = inlineOrdinal++;
+                // in a colour space whose values change: its samples changed; then repacked where the part does not allow its filters
+                var shownImage = options.Colours is { } inlineColours && Recoloured(inline, inlineColours) is { } converted ? converted : inline;
+                // what cannot be unpacked the display cannot draw either: left out
+                if (Conformed(shownImage) is not var (inlineDict, inlineData)) continue;
+                // data of more than 4 096 bytes as written (8.9.7): an image XObject where the copy places one — the image as read, which then
+                // goes the way of every image of the copy (docs/FEHLERGEDAECHTNIS.md, No. 1131)
+                if (options.PlaceImage is { } place && inlineData.Length > InlineImageConformance.MaxInlineData && place(inline, ordinal) is { } placedName)
+                {
+                    PdfSerializer.Write(placedName, output);
+                    output.Write(" Do\n"u8);
+                    continue;
+                }
+                EmitInlineImage(output, inlineDict, inlineData, options.InlineLength);
                 continue;
             }
             if (op is "Tj" or "'" or "\"" or "TJ" && Shown(op, parser.Operands, font, options, Recoded(op, parser.Operands, font, options.Codes)) is { } shown)
             {
                 output.Write(shown);
-                continue;
-            }
-            if (op == "BI")
-            {
-                if (parser.InlineImage is { } inline) WriteInlineImage(output, inline, options.InlineLength);
                 continue;
             }
             var operands = parser.Operands;
@@ -521,6 +615,12 @@ internal static class ContentConformance
                         output.Write(Encoding.ASCII.GetBytes(op == "scn" ? "0.784314 0.784314 0.784314 rg\n" : "0.784314 0.784314 0.784314 RG\n"));
                         break;
                 }
+                continue;
+            }
+            // an empty dash array with a phase other than 0: phase 0, the line as solid as before (as CanonicalSyntax; No. 1131)
+            if (op == "d" && EmptyDashWithPhase(operands))
+            {
+                output.Write("[] 0 d\n"u8);
                 continue;
             }
             // a rendering intent ISO 32000 does not know: the display draws as with the default (6.2.6)
@@ -561,7 +661,8 @@ internal static class ContentConformance
                 WriteOperand(output, operand, realLimit);
                 output.WriteByte((byte)' ');
             }
-            output.Write(Encoding.ASCII.GetBytes(op));
+            // the obsolete „F“ as „f“, which means the same (8.5.3.1; No. 1131)
+            output.Write(Encoding.ASCII.GetBytes(op == "F" ? "f" : op));
             output.WriteByte((byte)'\n');
         }
         if (marks is not null && marks.After.TryGetValue(index, out var last))
@@ -656,7 +757,7 @@ internal static class ContentConformance
         var width = (int)(dict.GetInteger(PdfName.Get("W")) ?? dict.GetInteger(PdfName.Get("Width")) ?? 0);
         var height = (int)(dict.GetInteger(PdfName.Get("H")) ?? dict.GetInteger(PdfName.Get("Height")) ?? 0);
         var bits = (int)(dict.GetInteger(PdfName.Get("BPC")) ?? dict.GetInteger(PdfName.Get("BitsPerComponent")) ?? 8);
-        if (width <= 0 || height <= 0 || (long)width * height > 1 << 24 || bits is not (1 or 2 or 4 or 8 or 16)) return null;
+        if (width <= 0 || height <= 0 || (long)width * height > 1 << 24 || !Graphics.ImageDepth.Readable(bits)) return null;   // 1–16 bits (S-A A192)
         byte[] samples;
         try
         {
@@ -683,14 +784,7 @@ internal static class ContentConformance
             {
                 for (var c = 0; c < n; c++)
                 {
-                    var bit = (long)(x * n + c) * bits;
-                    var at = (int)(y * row + bit / 8);
-                    var raw = bits switch
-                    {
-                        16 => samples[at] << 8 | samples[at + 1],
-                        8 => samples[at],
-                        _ => samples[at] >> (8 - bits - (int)(bit % 8)) & max,
-                    };
+                    var raw = Graphics.ImageDepth.Read(samples, y * row * 8 + (long)(x * n + c) * bits, bits);
                     var (low, high) = decode is { } dd && dd.Length >= 2 * n ? (dd[2 * c], dd[2 * c + 1]) : (0.0, 1.0);
                     input[c] = low + raw * (high - low) / max;
                 }
@@ -833,7 +927,19 @@ internal static class ContentConformance
             _ => false,
         };
 
-    private static void WriteInlineImage(MemoryStream output, InlineImage inline, bool withLength = false)
+    /// <summary>
+    /// The length of an inline image's data as <see cref="Rewrite"/> would write it — its samples changed where <paramref name="colours"/>
+    /// changes its colour space, repacked, as hexadecimal digits where they hold „EI“; null where it would not be written (unreadable).
+    /// </summary>
+    internal static int? WrittenInlineLength(InlineImage inline, Func<PdfName, ColourChange?>? colours) =>
+        Conformed(colours is not null && Recoloured(inline, colours) is { } converted ? converted : inline) is var (_, data) ? data.Length : null;
+
+    /// <summary>
+    /// An inline image as the copy writes it: with a filter ISO 19005-2, 6.1.10 does not allow inline unpacked and packed with Flate (a JPEG
+    /// or CCITT image filter stays), as hexadecimal digits where its data hold „EI“; null where it cannot be unpacked — the display cannot draw
+    /// it either.
+    /// </summary>
+    private static (PdfDictionary Dict, byte[] Data)? Conformed(InlineImage inline)
     {
         var dict = inline.Dictionary;
         var data = inline.Data;
@@ -843,7 +949,7 @@ internal static class ContentConformance
             try
             {
                 var decoded = StreamFilters.Decode(data, dict);
-                if (decoded.ImageFilter is { Value: not ("DCTDecode" or "CCITTFaxDecode") }) return;
+                if (decoded.ImageFilter is { Value: not ("DCTDecode" or "CCITTFaxDecode") }) return null;
                 var flate = Flate.Encode(decoded.Data);
                 var repacked = new PdfDictionary();
                 foreach (var (key, value) in dict.Entries)
@@ -858,10 +964,16 @@ internal static class ContentConformance
             }
             catch (PdfException)
             {
-                return;
+                return null;
             }
         }
         if (EndsEarly(data)) (dict, data) = AsHex(dict, data);
+        return (dict, data);
+    }
+
+    /// <summary>Writes an inline image as <see cref="Conformed"/> gives it: its entries (see below), /L where asked, its data.</summary>
+    private static void EmitInlineImage(MemoryStream output, PdfDictionary dict, byte[] data, bool withLength)
+    {
         output.Write("BI\n"u8);
         foreach (var (key, value) in dict.Entries)
         {
@@ -980,6 +1092,13 @@ internal sealed class ContentRewrite
 
     /// <summary>Makes a form of content and returns its name (<see cref="ContentNesting.Reduce"/>); null: nothing moves into a form.</summary>
     public Func<byte[], PdfName>? Nest { get; init; }
+
+    /// <summary>
+    /// An inline image whose data as written exceed 4 096 bytes (ISO 32000-2, 8.9.7; PDF/A-4), given as read with its number among the inline
+    /// images of the content (from 0): the name of the image XObject it becomes, which the caller keeps for the resources; null: it stays inline
+    /// (docs/FEHLERGEDAECHTNIS.md, No. 1131). Null: none becomes an XObject.
+    /// </summary>
+    public Func<InlineImage, int, PdfName?>? PlaceImage { get; init; }
 
     /// <summary>Marked content to write in (level a, a structure made for the copy): before and after operators by their number in the content.</summary>
     public PdfATagging.PageMarks? Marks { get; init; }
