@@ -5,7 +5,7 @@
          haengt der Hook beim naechsten Commit wieder -beta an (docs/ENTSCHEIDUNGEN.md, Versionen).
          Erscheint in der Titelleiste. -->
     <PropertyGroup>
-        <Version>1.2.405-beta</Version>
+        <Version>1.2.406-beta</Version>
     </PropertyGroup>
 
     <!-- Brotli-Lücke CVE-2026-111497: Der Brotli-Decoder der .NET-Laufzeit bis 10.0.13 schreibt bei präparierten Daten außerhalb des

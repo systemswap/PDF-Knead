@@ -107,6 +107,12 @@ internal sealed class LayoutTable
     private readonly int _extensionType;
     private readonly Lookup?[] _cache;
 
+    /// <summary>The lookups read, by the position of their table (several LookupList entries can name one table).</summary>
+    private readonly Dictionary<int, Lookup> _byOffset = [];
+
+    /// <summary>Subtable offsets read so far, against <see cref="TableData.Length"/> / 2.</summary>
+    private long _subtablesRead;
+
     /// <param name="data">The table data.</param>
     /// <param name="extensionType">Lookup type of extension lookups: 7 in GSUB, 9 in GPOS.</param>
     public LayoutTable(byte[] data, int extensionType)
@@ -127,10 +133,25 @@ internal sealed class LayoutTable
     {
         if (index < 0 || index >= _cache.Length) return new Lookup(0, 0, [], -1);
         if (_cache[index] is { } cached) return cached;
-        var at = _lookups + T.U16(_lookups + 2 + index * 2);
+        // the shaper of a font is shared between threads
+        lock (_byOffset) return _cache[index] = Read(_lookups + T.U16(_lookups + 2 + index * 2));
+    }
+
+    /// <summary>
+    /// Reads the lookup table at <paramref name="at"/> once. Its subtable offsets must lie in the table, and in a well-formed table the
+    /// offset arrays of different lookups do not overlap, so all lookups together name at most a subtable per two bytes of the table: a
+    /// lookup beyond that is read as empty. Before, each of 65 535 LookupList entries kept its own array of the 65 535 subtables an
+    /// overlapping table claimed for it, 16 GB in all (No. 1137).
+    /// </summary>
+    private Lookup Read(int at)
+    {
+        if (_byOffset.TryGetValue(at, out var shared)) return shared;
         var type = T.U16(at);
         var flag = T.U16(at + 2);
-        var count = T.U16(at + 4);
+        var declared = T.U16(at + 4);
+        var count = Math.Min(declared, Math.Max(0, (T.Length - at - 6) / 2));
+        if (_subtablesRead + count > T.Length / 2) count = 0;
+        _subtablesRead += count;
         var subtables = new int[count];
         // Remembered before the loop: the type is replaced by the real one at the first entry, but all
         // subtables are extensions and each of them must be resolved, not only the first
@@ -146,8 +167,8 @@ internal sealed class LayoutTable
             }
             subtables[i] = sub;
         }
-        var filteringSet = (flag & 0x10) != 0 ? T.U16(at + 6 + count * 2) : -1;
-        return _cache[index] = new Lookup(type, flag, subtables, filteringSet);
+        var filteringSet = (flag & 0x10) != 0 ? T.U16(at + 6 + declared * 2) : -1;
+        return _byOffset[at] = new Lookup(type, flag, subtables, filteringSet);
     }
 
     /// <summary>Language system (LangSys) for a script: the requested script, otherwise "DFLT", otherwise the first one.</summary>
@@ -185,13 +206,20 @@ internal sealed class LayoutTable
         if (requiredIndex != 0xFFFF) indices.Add(requiredIndex);
         for (var i = 0; i < count; i++) indices.Add(T.U16(lang + 6 + i * 2));
         var featureCount = T.U16(_features);
+        // Each feature table once, and together at most as many lookup indices as the table has two-byte places: a language system
+        // naming one feature 65 535 times, or 65 535 records naming overlapping tables of 65 535 indices, made billions of additions
+        // (No. 1137)
+        var read = new HashSet<int>();
+        var budget = (long)T.Length / 2;
         foreach (var index in indices)
         {
             if (index >= featureCount) continue;
             var record = _features + 2 + index * 6;
             if (!features.Contains(T.Tag(record)) && index != requiredIndex) continue;
             var feature = _features + T.U16(record + 4);
-            var n = T.U16(feature + 2);
+            if (!read.Add(feature)) continue;
+            var n = Math.Min(T.U16(feature + 2), Math.Max(0, (T.Length - feature - 4) / 2));
+            if ((budget -= n) < 0) break;
             for (var k = 0; k < n; k++) lookups.Add(T.U16(feature + 4 + k * 2));
         }
         return [.. lookups];
@@ -204,13 +232,19 @@ internal sealed class LayoutTable
         var featureCount = _features == 0 ? 0 : T.U16(_features);
         var scriptCount = T.U16(_scripts);
         var tags = new SortedDictionary<string, SortedSet<int>>(StringComparer.Ordinal);
+        var read = new HashSet<(string, int)>();
+        var budget = (long)T.Length / 2;
         for (var f = 0; f < featureCount; f++)
         {
             var record = _features + 2 + f * 6;
             var tag = T.Tag(record);
             var feature = _features + T.U16(record + 4);
             if (!tags.TryGetValue(tag, out var types)) tags[tag] = types = [];
-            for (var k = 0; k < T.U16(feature + 2); k++) types.Add(Lookup(T.U16(feature + 4 + k * 2)).Type);
+            // bounded like LookupsFor (No. 1137)
+            if (!read.Add((tag, feature))) continue;
+            var n = Math.Min(T.U16(feature + 2), Math.Max(0, (T.Length - feature - 4) / 2));
+            if ((budget -= n) < 0) break;
+            for (var k = 0; k < n; k++) types.Add(Lookup(T.U16(feature + 4 + k * 2)).Type);
         }
         var scripts = new List<string>();
         for (var i = 0; i < scriptCount; i++) scripts.Add(T.Tag(_scripts + 2 + i * 6));

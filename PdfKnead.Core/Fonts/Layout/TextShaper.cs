@@ -44,11 +44,12 @@ public struct ShapedGlyph
 /// where the letter takes that form, <see cref="ArabicJoining"/>; script „arab“; marks on ligatures). Characters → glyphs via the cmap,
 /// then GSUB (ccmp, locl, rlig, liga, clig, calt — contextual forms of connected script fonts)
 /// and GPOS (kern, curs, mark, mkmk, dist) or the legacy kern table. Works like common shaping engines, but only covers what text and
-/// signatures in Latin script need: no reordering, no right-to-left direction.
+/// signatures in these scripts need: no reordering (the line is set right to left by the caller, No. 910).
 /// </summary>
 /// <remarks>
 /// One shaper is shared per <see cref="OpenTypeFont"/>; <see cref="Shape"/> keeps its state per call and is safe to call from
-/// several threads. Not supported: GSUB types 3 and 8, GPOS types 5, 7 and 8, device tables.
+/// several threads. Not supported: GSUB types 3 and 8, GPOS types 7 and 8, device tables; on a ligature a mark takes the last component.
+/// The work per call is bounded (lookup attempts and matching steps, No. 1137).
 /// </remarks>
 public sealed class TextShaper
 {
@@ -143,8 +144,9 @@ public sealed class TextShaper
         }
 
         // Work limit as in common shaping engines (an operation budget): a damaged or malicious font can nest lookups into each
-        // other until shaping hangs; once the limit is reached the rest stays unshaped
-        var work = new Work(Math.Max(16_384, run.Count * 64));
+        // other until shaping hangs; once the limit is reached the rest stays unshaped. Besides the lookup attempts the matching steps
+        // count (see Work), each glyph of the input with a generous share (No. 1137)
+        var work = new Work(Math.Max(16_384, run.Count * 64), Math.Max(1L << 22, run.Count * 4096L));
         if (_gsub is not null && !arabic)
             foreach (var lookup in _gsub.LookupsFor(substitutions))
                 new Substitution(this, run, work).ApplyLookup(lookup);
@@ -178,7 +180,7 @@ public sealed class TextShaper
             kerned = positioning.Contains("kern") && _gpos.LookupsFor(["kern"], script).Length > 0;
             foreach (var lookup in lookups) new Positioning(this, run, work).ApplyLookup(lookup);
         }
-        if (!kerned && positioning.Contains("kern") && _kern is { } kern) LegacyKerning(kern, run);
+        if (!kerned && positioning.Contains("kern") && _kern is { } kern) LegacyKerning(kern, run, work);
         return [.. run];
     }
 
@@ -227,12 +229,31 @@ public sealed class TextShaper
         chain.Add(j);
     }
 
-    /// <summary>Remaining lookup attempts of one <see cref="Shape"/> call (one instance per call, hence thread-safe).</summary>
-    private sealed class Work(int ops)
+    /// <summary>
+    /// Remaining work of one <see cref="Shape"/> call (one instance per call, hence thread-safe): the lookup attempts at a position, and
+    /// the matching steps — each subtable, rule, ligature and substitution record tried, each glyph a context, a ligature or a mark
+    /// passes on its way, and the glyphs moved when the run changes length. Counting the attempts alone let a font whose lookups,
+    /// rule sets and ligature sets are filled up to 65 535 entries make one attempt cost billions of steps, and allocate a position
+    /// array as long as the rule claimed (No. 1137).
+    /// </summary>
+    private sealed class Work(int ops, long steps)
     {
         public int Left = ops;
 
+        private long _steps = steps;
+
         public bool Take() => --Left >= 0;
+
+        /// <summary>Spends matching steps; once they are used up, no further lookup is applied (the rest stays unshaped).</summary>
+        public bool Spend(long n)
+        {
+            if ((_steps -= n) >= 0) return true;
+            Left = 0;
+            return false;
+        }
+
+        /// <summary>Glyphs moved in the run (insertions, removals): cheap block copies, one step per 64.</summary>
+        public bool Move(int glyphs) => Spend(1 + glyphs / 64);
     }
 
     private bool Skips(Lookup lookup, int glyph) => _gdef?.Skips(lookup, glyph) == true;
@@ -252,35 +273,53 @@ public sealed class TextShaper
         return -1;
     }
 
+    /// <summary><see cref="Next(List{ShapedGlyph}, Lookup, int)"/>, the glyphs passed counted as steps; -1 also when the steps are used up.</summary>
+    private int Next(List<ShapedGlyph> run, Lookup lookup, int i, Work work)
+    {
+        var j = Next(run, lookup, i);
+        return work.Spend(j < 0 ? run.Count - i : j - i) ? j : -1;
+    }
+
+    private int Previous(List<ShapedGlyph> run, Lookup lookup, int i, Work work)
+    {
+        var j = Previous(run, lookup, i);
+        return work.Spend(j < 0 ? i + 1 : i - j) ? j : -1;
+    }
+
     /// <summary>
     /// Matches a context (GSUB 5/6): input from <paramref name="start"/>, backtrack (backwards) and
     /// lookahead. The match functions receive the position within their sequence and the glyph.
     /// </summary>
-    private bool MatchContext(List<ShapedGlyph> run, Lookup lookup, int start,
+    private bool MatchContext(Work work, List<ShapedGlyph> run, Lookup lookup, int start,
         int backtrack, Func<int, int, bool> backtrackMatch,
         int input, Func<int, int, bool> inputMatch,
         int lookahead, Func<int, int, bool> lookaheadMatch,
         out int[] positions)
     {
-        positions = new int[Math.Max(1, input)];
+        positions = [];
+        var length = Math.Max(1, input);
+        // A rule can match only glyphs that are there: one whose input and lookahead are longer than the rest of the run, or whose
+        // backtrack is longer than the glyphs before it, never matches — decided before the positions are allocated (No. 1137)
+        if (!work.Spend(1) || length + lookahead > run.Count - start || backtrack > start) return false;
+        positions = new int[length];
         positions[0] = start;
         var j = start;
         for (var k = 1; k < input; k++)
         {
-            j = Next(run, lookup, j);
+            j = Next(run, lookup, j, work);
             if (j < 0 || !inputMatch(k, run[j].Glyph)) return false;
             positions[k] = j;
         }
         var after = j;
         for (var k = 0; k < lookahead; k++)
         {
-            after = Next(run, lookup, after);
+            after = Next(run, lookup, after, work);
             if (after < 0 || !lookaheadMatch(k, run[after].Glyph)) return false;
         }
         var before = start;
         for (var k = 0; k < backtrack; k++)
         {
-            before = Previous(run, lookup, before);
+            before = Previous(run, lookup, before, work);
             if (before < 0 || !backtrackMatch(k, run[before].Glyph)) return false;
         }
         return true;
@@ -310,7 +349,8 @@ public sealed class TextShaper
             next = i + 1;
             if (depth > 8 || !work.Take()) return false;
             foreach (var sub in lookup.Subtables)
-                if (ApplySubtable(lookup, sub, i, depth, out next)) return true;
+                if (!work.Spend(1)) return false;
+                else if (ApplySubtable(lookup, sub, i, depth, out next)) return true;
             return false;
         }
 
@@ -336,11 +376,13 @@ public sealed class TextShaper
                     var seq = sub + t.U16(sub + 6 + c * 2);
                     var count = t.U16(seq);
                     // A count of 0 (deleting the glyph, not allowed by the specification) would otherwise skip the next glyph
-                    if (count == 0 || run.Count + count > MaxGlyphs) return false;
+                    if (count == 0 || run.Count + count > MaxGlyphs || !work.Move(count + run.Count - i)) return false;
                     var original = run[i];
-                    run.RemoveAt(i);
-                    for (var k = 0; k < count; k++)
-                        run.Insert(i + k, original with { Glyph = t.U16(seq + 2 + k * 2), Text = k == 0 ? original.Text : "" });
+                    var glyphs = new ShapedGlyph[count];
+                    for (var k = 0; k < count; k++) glyphs[k] = original with { Glyph = t.U16(seq + 2 + k * 2), Text = k == 0 ? original.Text : "" };
+                    // in one block: inserting glyph by glyph moved the rest of the run once per glyph (No. 1137)
+                    run[i] = glyphs[0];
+                    run.InsertRange(i + 1, glyphs[1..]);
                     next = i + count;
                     return true;
                 }
@@ -371,18 +413,20 @@ public sealed class TextShaper
             var set = sub + t.U16(sub + 6 + c * 2);
             for (var l = 0; l < t.U16(set); l++)
             {
+                if (!work.Spend(1)) return false;
                 var lig = set + t.U16(set + 2 + l * 2);
                 var components = t.U16(lig + 2);
-                if (components == 0) continue;   // damaged: ligature made of nothing
+                // damaged: a ligature made of nothing; one of more glyphs than the rest of the run never matches (No. 1137)
+                if (components == 0 || components > run.Count - i) continue;
                 var positions = new int[components];
                 positions[0] = i;
                 var ok = true;
                 for (var k = 1; k < components && ok; k++)
                 {
-                    positions[k] = shaper.Next(run, lookup, positions[k - 1]);
+                    positions[k] = shaper.Next(run, lookup, positions[k - 1], work);
                     ok = positions[k] >= 0 && run[positions[k]].Glyph == t.U16(lig + 4 + (k - 1) * 2);
                 }
-                if (!ok) continue;
+                if (!ok || !work.Move(components * (run.Count - i))) continue;
                 var text = "";
                 foreach (var p in positions) text += run[p].Text;
                 var first = run[i];
@@ -416,7 +460,7 @@ public sealed class TextShaper
                             var rule = set + t.U16(set + 2 + r * 2);
                             int count = t.U16(rule), subs = t.U16(rule + 2);
                             var tt = t;
-                            if (shaper.MatchContext(run, lookup, i, 0, None, count, (k, g) => g == tt.U16(rule + 4 + (k - 1) * 2), 0, None, out var pos))
+                            if (shaper.MatchContext(work, run, lookup, i, 0, None, count, (k, g) => g == tt.U16(rule + 4 + (k - 1) * 2), 0, None, out var pos))
                                 return Apply(pos, rule + 4 + (count - 1) * 2, subs, depth, out next);
                         }
                         return false;
@@ -433,7 +477,7 @@ public sealed class TextShaper
                             var rule = set + t.U16(set + 2 + r * 2);
                             int count = t.U16(rule), subs = t.U16(rule + 2);
                             var tt = t;
-                            if (shaper.MatchContext(run, lookup, i, 0, None, count, (k, g) => tt.Class(classDef, g) == tt.U16(rule + 4 + (k - 1) * 2), 0, None, out var pos))
+                            if (shaper.MatchContext(work, run, lookup, i, 0, None, count, (k, g) => tt.Class(classDef, g) == tt.U16(rule + 4 + (k - 1) * 2), 0, None, out var pos))
                                 return Apply(pos, rule + 4 + (count - 1) * 2, subs, depth, out next);
                         }
                         return false;
@@ -443,7 +487,7 @@ public sealed class TextShaper
                         int count = t.U16(sub + 2), subs = t.U16(sub + 4);
                         var tt = t;
                         if (count == 0 || t.Coverage(sub + t.U16(sub + 6), glyph) < 0) return false;
-                        if (!shaper.MatchContext(run, lookup, i, 0, None, count, (k, g) => tt.Coverage(sub + tt.U16(sub + 6 + k * 2), g) >= 0, 0, None, out var pos))
+                        if (!shaper.MatchContext(work, run, lookup, i, 0, None, count, (k, g) => tt.Coverage(sub + tt.U16(sub + 6 + k * 2), g) >= 0, 0, None, out var pos))
                             return false;
                         return Apply(pos, sub + 6 + count * 2, subs, depth, out next);
                     }
@@ -464,7 +508,7 @@ public sealed class TextShaper
                         var rule = set + t.U16(set + 2 + r * 2);
                         var (bt, inp, la, records, subs) = ChainParts(rule);
                         var tt = t;
-                        if (shaper.MatchContext(run, lookup, i,
+                        if (shaper.MatchContext(work, run, lookup, i,
                                 tt.U16(rule), (k, g) => g == tt.U16(bt + k * 2),
                                 tt.U16(inp - 2), (k, g) => g == tt.U16(inp + (k - 1) * 2),
                                 tt.U16(la - 2), (k, g) => g == tt.U16(la + k * 2), out var pos))
@@ -484,7 +528,7 @@ public sealed class TextShaper
                         var rule = set + t.U16(set + 2 + r * 2);
                         var (bt, inp, la, records, subs) = ChainParts(rule);
                         var tt = t;
-                        if (shaper.MatchContext(run, lookup, i,
+                        if (shaper.MatchContext(work, run, lookup, i,
                                 tt.U16(rule), (k, g) => tt.Class(backDef, g) == tt.U16(bt + k * 2),
                                 tt.U16(inp - 2), (k, g) => tt.Class(inputDef, g) == tt.U16(inp + (k - 1) * 2),
                                 tt.U16(la - 2), (k, g) => tt.Class(aheadDef, g) == tt.U16(la + k * 2), out var pos))
@@ -502,7 +546,7 @@ public sealed class TextShaper
                     var records = la + 2 + laCount * 2;
                     var tt = t;
                     if (inCount == 0 || t.Coverage(sub + t.U16(inp + 2), glyph) < 0) return false;
-                    if (!shaper.MatchContext(run, lookup, i,
+                    if (!shaper.MatchContext(work, run, lookup, i,
                             btCount, (k, g) => tt.Coverage(sub + tt.U16(sub + 4 + k * 2), g) >= 0,
                             inCount, (k, g) => tt.Coverage(sub + tt.U16(inp + 2 + k * 2), g) >= 0,
                             laCount, (k, g) => tt.Coverage(sub + tt.U16(la + 2 + k * 2), g) >= 0, out var pos))
@@ -533,7 +577,7 @@ public sealed class TextShaper
         private bool Apply(int[] positions, int records, int count, int depth, out int next)
         {
             var end = positions[^1] + 1;
-            for (var r = 0; r < count; r++)
+            for (var r = 0; r < count && work.Spend(1); r++)
             {
                 var seq = T.U16(records + r * 4);
                 var lookupIndex = T.U16(records + r * 4 + 2);
@@ -544,6 +588,7 @@ public sealed class TextShaper
                 if (delta == 0) continue;
                 // Length changed (ligature, multiple substitution): shift the later positions
                 end += delta;
+                work.Spend(positions.Length - seq);
                 for (var k = seq + 1; k < positions.Length; k++) positions[k] = Math.Max(positions[seq], positions[k] + delta);
             }
             next = Math.Max(positions[0] + 1, end);
@@ -585,7 +630,8 @@ public sealed class TextShaper
             next = i + 1;
             if (depth > 8 || !work.Take()) return false;
             foreach (var sub in lookup.Subtables)
-                if (ApplySubtable(lookup, sub, i, depth, out next)) return true;
+                if (!work.Spend(1)) return false;
+                else if (ApplySubtable(lookup, sub, i, depth, out next)) return true;
             return false;
         }
 
@@ -701,6 +747,8 @@ public sealed class TextShaper
             var exitAt = t.U16(sub + 6 + c * 4 + 2);
             var entryAt = t.U16(sub + 6 + cj * 4);
             if (Anchor(exitAt == 0 ? 0 : sub + exitAt) is not { } exit || Anchor(entryAt == 0 ? 0 : sub + entryAt) is not { } entry) return false;
+            // a connected sequence moves as a whole at each join (No. 1137)
+            if (!work.Spend(_chain.Count)) return false;
             Join(run, i, j, exit, entry, (lookup.Flag & RightToLeft) != 0, _chain);
             return true;
         }
@@ -715,7 +763,8 @@ public sealed class TextShaper
             var b = i - 1;
             if (!toMark)
                 while (b >= 0 && shaper._gdef?.GlyphClass(run[b].Glyph) == 3) b--;
-            if (b < 0) return false;
+            // the marks passed and, in Attach, the advances summed (No. 1137)
+            if (b < 0 || !work.Spend(2 * (i - b))) return false;
             var baseIndex = t.Coverage(sub + t.U16(sub + 4), run[b].Glyph);
             if (baseIndex < 0) return false;
             var classCount = t.U16(sub + 6);
@@ -758,7 +807,7 @@ public sealed class TextShaper
             if (markIndex < 0) return false;
             var b = i - 1;
             while (b >= 0 && shaper._gdef?.GlyphClass(run[b].Glyph) == 3) b--;
-            if (b < 0) return false;
+            if (b < 0 || !work.Spend(2 * (i - b))) return false;
             var ligatureIndex = t.Coverage(sub + t.U16(sub + 4), run[b].Glyph);
             if (ligatureIndex < 0) return false;
             var classCount = t.U16(sub + 6);
@@ -778,8 +827,11 @@ public sealed class TextShaper
         }
     }
 
-    /// <summary>Legacy kern table (format 0, horizontal), used when GPOS has no "kern" feature.</summary>
-    private static void LegacyKerning(TableData kern, List<ShapedGlyph> run)
+    /// <summary>
+    /// Legacy kern table (format 0, horizontal), used when GPOS has no "kern" feature. Each subtable passing the run counts as steps: the
+    /// table can hold 65 535 overlapping subtables of six bytes claiming 65 535 pairs each, searched for every pair of glyphs (No. 1137).
+    /// </summary>
+    private static void LegacyKerning(TableData kern, List<ShapedGlyph> run, Work work)
     {
         if (kern.U16(0) != 0) return;   // only the Microsoft version
         var tables = kern.U16(2);
@@ -788,9 +840,12 @@ public sealed class TextShaper
         {
             var length = kern.U16(at + 2);
             var coverage = kern.U16(at + 4);
+            if (!work.Spend(1)) return;
             if ((coverage >> 8) == 0 && (coverage & 1) != 0 && (coverage & 4) == 0)
             {
                 var pairs = kern.U16(at + 6);
+                // a binary search per pair of glyphs
+                if (!work.Spend((long)run.Count * (1 + System.Numerics.BitOperations.Log2((uint)pairs + 1)))) return;
                 for (var i = 0; i + 1 < run.Count; i++)
                 {
                     var key = ((uint)run[i].Glyph << 16) | (uint)run[i + 1].Glyph;
