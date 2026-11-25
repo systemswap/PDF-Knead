@@ -104,6 +104,11 @@ public abstract partial class ColorSpace
             switch (obj)
             {
                 case PdfName name:
+                    // the abbreviations of inline images (G, RGB, CMYK, I) are ordinary names elsewhere: a resource of that name is that
+                    // resource (8.6.8; before, /G [/Indexed …] drew in DeviceGray — docs/FEHLERGEDAECHTNIS.md, No. 1126)
+                    if (name.Value is "G" or "RGB" or "CMYK" or "I"
+                        && resources?.GetDictionary(PdfName.Get("ColorSpace"))?.Get(name) is { } listed and not PdfNull && !ReferenceEquals(listed, obj))
+                        return Create(listed, resources, doc, depth + 1);
                     switch (name.Value)
                     {
                         case "DeviceGray" or "G": return Device(1, resources, doc);

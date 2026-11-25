@@ -30,6 +30,9 @@ internal sealed class IccProfile
 
     // the tables A2B0, A2B1, A2B2 as read (null where missing or unreadable), and the profiles built from them for another intent
     private IStage[]?[] _byIntent = [null, null, null];
+
+    // matrix and curves (or the grey curve) of a table profile without A2B0: perceptual and saturation fall to them (ICC.1 8.10.2 step d)
+    private IStage[]? _shaper;
     private readonly IccProfile?[] _variants = new IccProfile?[3];
 
     private IccProfile(byte[] data, uint space, int channels, IStage[] stages, bool matrixShaper)
@@ -53,8 +56,9 @@ internal sealed class IccProfile
         var slot = intent switch { 0 => 0, 2 => 2, _ => 1 };
         var stages = slot switch
         {
-            0 => _byIntent[0] ?? _stages,
-            2 => _byIntent[2] ?? _byIntent[0] ?? _stages,
+            // without A2B0 to matrix and curves, where the profile has them, not to A2B1 (ICC.1 8.10.2 step d; docs/FEHLERGEDAECHTNIS.md, No. 1126)
+            0 => _byIntent[0] ?? _shaper ?? _stages,
+            2 => _byIntent[2] ?? _byIntent[0] ?? _shaper ?? _stages,
             _ => _stages,
         };
         if (ReferenceEquals(stages, _stages)) return this;
@@ -68,7 +72,7 @@ internal sealed class IccProfile
     /// Entries of the colour tables read (all intents, as floats): what keeping the profile costs beyond its data — up to 4 bytes per byte of
     /// an 8-bit table (docs/FEHLERGEDAECHTNIS.md, No. 759).
     /// </summary>
-    internal long TableEntries => _stages.Concat(_byIntent.Where(s => s is not null).SelectMany(s => s!)).Distinct()
+    internal long TableEntries => _stages.Concat(_byIntent.Where(s => s is not null).SelectMany(s => s!)).Concat(_shaper ?? []).Distinct()
         .Sum(s => s switch { ClutStage c => (long)c.Entries, CurveStage c => c.Entries, _ => 0L });
     public uint Space { get; }
     public int Channels { get; }
@@ -176,8 +180,8 @@ internal sealed class IccProfile
             {
                 byIntent[i] = U32(lut, 0) switch
                 {
-                    0x6D667431 => Lut8(lut, channels, pcs),        // mft1
-                    0x6D667432 => Lut16(lut, channels, pcs),       // mft2
+                    0x6D667431 => Lut8(lut, channels, space, pcs),        // mft1
+                    0x6D667432 => Lut16(lut, channels, space, pcs),       // mft2
                     0x6D414220 => LutAToB(lut, channels, pcs),     // mAB
                     _ => null,
                 };
@@ -190,37 +194,59 @@ internal sealed class IccProfile
             }
         }
         if ((byIntent[1] ?? byIntent[0]) is { } chosen)
-            return new IccProfile(data, space, channels, chosen, matrixShaper: false) { _byIntent = byIntent };
+        {
+            IStage[]? shaper = null;
+            if (byIntent[0] is null)
+                try
+                {
+                    shaper = Shaper(d, tags, channels, pcs, out _, out _);
+                }
+                catch (Exception e) when (e is IccFormatException or IndexOutOfRangeException or ArgumentException or OverflowException)
+                {
+                    // broken matrix or curves beside a table: the table stays for every intent, as before
+                }
+            return new IccProfile(data, space, channels, chosen, matrixShaper: false) { _byIntent = byIntent, _shaper = shaper };
+        }
 
-        // matrix and curves
+        if (Shaper(d, tags, channels, pcs, out var matrix, out var curves) is not { } stages) throw new IccFormatException();
+        return new IccProfile(data, space, channels, stages, matrixShaper: matrix is not null) { Matrix = matrix, Curves = curves };
+    }
+
+    /// <summary>
+    /// The stages of matrix and curves (RGB: rXYZ, gXYZ, bXYZ with rTRC, gTRC, bTRC) or of the grey curve (kTRC); null if the profile has
+    /// neither. Throws <see cref="IccFormatException"/> where they are incomplete.
+    /// </summary>
+    private static IStage[]? Shaper(ReadOnlySpan<byte> d, Dictionary<uint, (int Offset, int Size)> tags, int channels, uint pcs, out float[]? matrix,
+        out IccCurve[]? curves)
+    {
+        matrix = null;
+        curves = null;
         if (channels == 3 && tags.ContainsKey(0x7258595A))   // rXYZ
         {
-            var matrix = new float[9];
+            var m = new float[9];
             var columns = new uint[] { 0x7258595A, 0x6758595A, 0x6258595A };   // rXYZ, gXYZ, bXYZ
             for (var c = 0; c < 3; c++)
             {
                 var (offset, length) = tags.TryGetValue(columns[c], out var x) ? x : throw new IccFormatException();
                 if (length < 20 || U32(d, offset) != 0x58595A20) throw new IccFormatException();
-                for (var r = 0; r < 3; r++) matrix[r * 3 + c] = S15(d, offset + 8 + 4 * r);
+                for (var r = 0; r < 3; r++) m[r * 3 + c] = S15(d, offset + 8 + 4 * r);
             }
-            var curves = new IccCurve[3];
+            var cs = new IccCurve[3];
             var trcs = new uint[] { 0x72545243, 0x67545243, 0x62545243 };   // rTRC, gTRC, bTRC
             for (var c = 0; c < 3; c++)
             {
                 var tc = tags.TryGetValue(trcs[c], out var found) ? found : throw new IccFormatException();
                 // the same bytes once (No. 1122)
-                curves[c] = c > 0 && tags[trcs[c - 1]] == tc ? curves[c - 1] : c > 1 && tags[trcs[0]] == tc ? curves[0] : Curve(d.Slice(tc.Offset, tc.Size), out _);
+                cs[c] = c > 0 && tags[trcs[c - 1]] == tc ? cs[c - 1] : c > 1 && tags[trcs[0]] == tc ? cs[0] : Curve(d.Slice(tc.Offset, tc.Size), out _);
             }
-            return new IccProfile(data, space, 3, [new CurveStage(curves), new MatrixStage(matrix, null)], matrixShaper: true)
-            {
-                Matrix = matrix,
-                Curves = curves,
-            };
+            (matrix, curves) = (m, cs);
+            return [new CurveStage(cs), new MatrixStage(m, null)];
         }
         if (channels == 1 && tags.TryGetValue(0x6B545243, out var k))   // kTRC
-            return new IccProfile(data, space, 1, [new CurveStage([Curve(d.Slice(k.Offset, k.Size), out _)]), new GrayStage(pcs == LabSpace)], matrixShaper: false);
-        throw new IccFormatException();
+            return [new CurveStage([Curve(d.Slice(k.Offset, k.Size), out _)]), new GrayStage(pcs == LabSpace)];
+        return null;
     }
+
 
     private static int ChannelsOf(uint space)
     {
@@ -282,10 +308,10 @@ internal sealed class IccProfile
     }
 
     // lut8 and lut16 (ICC.1:2010, lut8Type and lut16Type): input curves → table → output curves; the matrix applies only to XYZ input
-    private static IStage[] Lut8(ReadOnlySpan<byte> d, int channels, uint pcs)
+    private static IStage[] Lut8(ReadOnlySpan<byte> d, int channels, uint space, uint pcs)
     {
         int inputs = d[8], outputs = d[9], grid = d[10];
-        if (inputs != channels || outputs != 3 || inputs > MaxInputs || grid < 2) throw new IccFormatException();
+        if (inputs != channels || outputs != 3 || inputs > MaxInputs || grid < 2 || d.Length < 48) throw new IccFormatException();
         var at = 48;
         var inCurves = new IccCurve[inputs];
         for (var i = 0; i < inputs; i++, at += 256) inCurves[i] = IccCurve.Table(Bytes8(d, at, 256));
@@ -294,11 +320,11 @@ internal sealed class IccProfile
         at += size;
         var outCurves = new IccCurve[outputs];
         for (var i = 0; i < outputs; i++, at += 256) outCurves[i] = IccCurve.Table(Bytes8(d, at, 256));
-        return [new CurveStage(inCurves), new ClutStage(inputs, outputs, Enumerable.Repeat(grid, inputs).ToArray(), table), new CurveStage(outCurves),
-            new PcsStage(pcs == LabSpace ? PcsEncoding.Lab8 : PcsEncoding.Xyz16)];
+        return [.. InputMatrix(d, space), new CurveStage(inCurves), new ClutStage(inputs, outputs, Enumerable.Repeat(grid, inputs).ToArray(), table),
+            new CurveStage(outCurves), new PcsStage(pcs == LabSpace ? PcsEncoding.Lab8 : PcsEncoding.Xyz16)];
     }
 
-    private static IStage[] Lut16(ReadOnlySpan<byte> d, int channels, uint pcs)
+    private static IStage[] Lut16(ReadOnlySpan<byte> d, int channels, uint space, uint pcs)
     {
         int inputs = d[8], outputs = d[9], grid = d[10];
         if (inputs != channels || outputs != 3 || inputs > MaxInputs || grid < 2 || d.Length < 52) throw new IccFormatException();
@@ -313,8 +339,20 @@ internal sealed class IccProfile
         var outCurves = new IccCurve[outputs];
         for (var i = 0; i < outputs; i++, at += 2 * outEntries) outCurves[i] = IccCurve.Table(Words16(d, at, outEntries));
         // lut16 always uses the legacy Lab encoding (L 100 = 0xFF00), also in version 4
-        return [new CurveStage(inCurves), new ClutStage(inputs, outputs, Enumerable.Repeat(grid, inputs).ToArray(), table), new CurveStage(outCurves),
-            new PcsStage(pcs == LabSpace ? PcsEncoding.LabLegacy16 : PcsEncoding.Xyz16)];
+        return [.. InputMatrix(d, space), new CurveStage(inCurves), new ClutStage(inputs, outputs, Enumerable.Repeat(grid, inputs).ToArray(), table),
+            new CurveStage(outCurves), new PcsStage(pcs == LabSpace ? PcsEncoding.LabLegacy16 : PcsEncoding.Xyz16)];
+    }
+
+    /// <summary>
+    /// The matrix e1–e9 of a lut8 or lut16 (bytes 12–47, row by row) before the input curves: only for XYZ input, otherwise it is the identity
+    /// and passed over (ICC.1 10.10, 10.11; before, passed over for XYZ as well — docs/FEHLERGEDAECHTNIS.md, No. 1126).
+    /// </summary>
+    private static IStage[] InputMatrix(ReadOnlySpan<byte> d, uint space)
+    {
+        if (space != XyzSpace) return [];
+        var m = new float[9];
+        for (var i = 0; i < 9; i++) m[i] = S15(d, 12 + 4 * i);
+        return m.SequenceEqual([1f, 0, 0, 0, 1, 0, 0, 0, 1]) ? [] : [new MatrixStage(m, null)];
     }
 
     // lutAtoB (ICC.1:2010, lutAToBType): A curves → table → M curves → matrix → B curves; each element may be absent
@@ -542,8 +580,9 @@ internal sealed class IccProfile
                     (l, a, b) = (v[0] * 100, v[1] * 255 - 128, v[2] * 255 - 128);
                     break;
                 case PcsEncoding.LabLegacy16:
+                    // FF00h is the largest value, above it clipped (ICC.1 10.10; before, L* up to 100.39 — docs/FEHLERGEDAECHTNIS.md, No. 1126)
                     const float legacy = 65535f / 65280f;
-                    (l, a, b) = (v[0] * legacy * 100, v[1] * legacy * 255 - 128, v[2] * legacy * 255 - 128);
+                    (l, a, b) = (Math.Min(v[0] * legacy, 1) * 100, Math.Min(v[1] * legacy, 1) * 255 - 128, Math.Min(v[2] * legacy, 1) * 255 - 128);
                     break;
                 default:
                     (l, a, b) = (v[0] * 100, v[1] * 255 - 128, v[2] * 255 - 128);

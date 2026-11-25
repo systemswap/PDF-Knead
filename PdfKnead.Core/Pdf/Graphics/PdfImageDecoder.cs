@@ -679,7 +679,10 @@ public static class PdfImageDecoder
         {
             _space = space;
             _bpc = bpc;
-            _exact = exact;
+            // 16 bits in a colour-managed space at their full depth, not first to 8 bits (ICC.1 6.5: 8000h is 32768/65535; before, 128/255 and
+            // then the grid of the 8-bit path — up to 4 steps off; docs/FEHLERGEDAECHTNIS.md, No. 1126)
+            _exact = exact || bpc == 16 && !ReferenceEquals(space, ColorSpace.DeviceRgb) && !ReferenceEquals(space, ColorSpace.DeviceGray) && space.HasRow8;
+            exact = _exact;
             _n = Math.Max(space.Components, 1);
             _max = (1 << bpc) - 1;
             _decode = decodeArray is { } d && d.Length >= 2 * _n ? d : space.DefaultDecode(bpc);

@@ -53,6 +53,19 @@ public sealed class AnnotationAppearanceTests
     }
 
     /// <summary>
+    /// A square or circle with a border colour, border width 0 and no interior colour asks for neither border nor fill: no appearance. Before, a
+    /// path was filled without a colour of its own — a black area (found in the M6 tests of 8.4.3.2; docs/FEHLERGEDAECHTNIS.md, No. 1126).
+    /// </summary>
+    [Theory]
+    [InlineData("Square")]
+    [InlineData("Circle")]
+    public void SquareOrCircle_WidthZeroWithoutInterior_NoAppearance(string kind)
+    {
+        var annot = TestPdf.Dict(("Subtype", TestPdf.N(kind)), ("C", TestPdf.Box(1, 0, 0)), ("BS", TestPdf.Dict(("W", PdfInteger.Of(0)))));
+        Assert.Null(AnnotationAppearance.Build(annot, new PdfRectangle(0, 0, 100, 50)));
+    }
+
+    /// <summary>
     /// issue13447: /Rect does not match the points (another program had rotated the page). The other readers still draw ink,
     /// lines and polylines completely, two of the reference readers also the arrowheads. Clipping to /Rect would cut everything off.
     /// </summary>

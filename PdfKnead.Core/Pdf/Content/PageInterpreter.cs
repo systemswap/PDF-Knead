@@ -563,14 +563,14 @@ public sealed partial class PageInterpreter
             // forgotten, until scn names one nothing is painted (before, the grey of a broken pattern or the old pattern; No. 1123)
             case "CS" when o.Count >= 1 && o[0].Object is { } csStroke:
                 _gs.StrokeSpace = Space(csStroke, resources);
-                _gs.StrokeColor = _gs.StrokeSpace.InitialColor;
+                _gs.StrokeColor = InitialOf(_gs.StrokeSpace, resources);
                 _gs.StrokePattern = null;
                 _gs.StrokePatternUnset = _gs.StrokeSpace.IsPattern;
                 _gs.PaintIndex = -1;
                 break;
             case "cs" when o.Count >= 1 && o[0].Object is { } csFill:
                 _gs.FillSpace = Space(csFill, resources);
-                _gs.FillColor = _gs.FillSpace.InitialColor;
+                _gs.FillColor = InitialOf(_gs.FillSpace, resources);
                 _gs.FillPattern = null;
                 _gs.FillPatternUnset = _gs.FillSpace.IsPattern;
                 _gs.PaintIndex = -1;
@@ -709,15 +709,24 @@ public sealed partial class PageInterpreter
 
     // /DefaultGray … of the resources first (stated for exactly these colours), then the ICC space of the enclosing isolated group or the
     // page group, then the device space itself
+    /// <summary>
+    /// The initial colour after cs/CS: DeviceCMYK starts at 0 0 0 1 also where /DefaultCMYK or the group stands in for it (8.6.8; before, the
+    /// ICC space of /DefaultCMYK started at 0 0 0 0, white — docs/FEHLERGEDAECHTNIS.md, No. 1126).
+    /// </summary>
+    private double[] InitialOf(ColorSpace space, PdfDictionary? resources) =>
+        space.Components == 4 && !space.IsDeviceCmyk && ReferenceEquals(space, DeviceSpace(4, resources)) ? [0, 0, 0, 1] : space.InitialColor;
+
     private ColorSpace GroupOrDevice(int components, PdfDictionary? resources) =>
         _groupDevice?[components] is { } group && !ColorSpace.HasDefault(components, resources) ? group : ColorSpace.Device(components, resources, _doc);
 
     private ColorSpace Space(PdfObject obj, PdfDictionary? resources)
     {
         // do not rebuild the same colour space object every time (separation colours carry functions)
-        if (obj is PdfName { Value: "DeviceGray" or "G" }) return DeviceSpace(1, resources);
-        if (obj is PdfName { Value: "DeviceRGB" or "RGB" }) return DeviceSpace(3, resources);
-        if (obj is PdfName { Value: "DeviceCMYK" or "CMYK" }) return DeviceSpace(4, resources);
+        // the abbreviations G, RGB, CMYK only where the resources do not name a space so (No. 1126)
+        var abbreviation = obj is PdfName { Value: "G" or "RGB" or "CMYK" } a && resources?.GetDictionary(PdfName.Get("ColorSpace"))?.Get(a) is null or PdfNull;
+        if (obj is PdfName { Value: "DeviceGray" } || abbreviation && obj is PdfName { Value: "G" }) return DeviceSpace(1, resources);
+        if (obj is PdfName { Value: "DeviceRGB" } || abbreviation && obj is PdfName { Value: "RGB" }) return DeviceSpace(3, resources);
+        if (obj is PdfName { Value: "DeviceCMYK" } || abbreviation && obj is PdfName { Value: "CMYK" }) return DeviceSpace(4, resources);
         // a name the resources do not list stays the name: a missing entry reads as the null object, and all such names shared one entry of
         // the cache — /Pattern after a name not listed drew in that name's space (docs/FEHLERGEDAECHTNIS.md, No. 1004)
         var key = obj is PdfName n && resources?.GetDictionary(PdfName.Get("ColorSpace"))?.Get(n) is { } listed and not PdfNull ? listed : obj;

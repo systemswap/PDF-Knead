@@ -15,8 +15,9 @@ namespace PdfKnead.Core.Pdf.Writing;
 /// <item>below 2.0: /UseBlackPtComp and /HTO of a graphics state go; /AF, /NS and /Namespaces stay (PDF/A-3 needs associated files, the
 /// namespaces carry what the structure means);</item>
 /// <item>2.0: the deprecated /ProcSet, /Name of fonts (not of Type 3 fonts, No. 812) and XObjects, /CharSet and /CIDSet of font descriptors, /Suspects, /NeedsRendering
-/// and the XFA of a form that has fields of its own go; the document information dictionary stays (deprecated, not forbidden, and what it
-/// says may stand nowhere else).</item>
+/// and the XFA of a form that has fields of its own go; /PS and /Subtype2 leave a form (PostScript XObjects leave the resources in PdfWriter), /TR and /TR2 a
+/// graphics state (not the /TR of a soft mask), /BM as an array becomes the name that counts, CalCMYK becomes DeviceCMYK (No. 1127); the
+/// document information dictionary stays (deprecated, not forbidden, and what it says may stand nowhere else).</item>
 /// </list>
 /// </summary>
 internal static class VersionKeys
@@ -25,7 +26,8 @@ internal static class VersionKeys
         FontDescriptor = PdfName.Get("FontDescriptor"), Ff = PdfName.Get("Ff"), UseBlackPtComp = PdfName.Get("UseBlackPtComp"), Hto = PdfName.Get("HTO"),
         ProcSet = PdfName.Get("ProcSet"), Name = PdfName.Get("Name"), CharSet = PdfName.Get("CharSet"), CidSet = PdfName.Get("CIDSet"),
         Suspects = PdfName.Get("Suspects"), NeedsRendering = PdfName.Get("NeedsRendering"), Xfa = PdfName.Get("XFA"), Fields = PdfName.Get("Fields"),
-        FT = PdfName.Get("FT");
+        FT = PdfName.Get("FT"), Ps = PdfName.Get("PS"), Subtype2 = PdfName.Get("Subtype2"), Tr = PdfName.Get("TR"),
+        Tr2 = PdfName.Get("TR2"), Bm = PdfName.Get("BM"), DeviceCmyk = PdfName.Get("DeviceCMYK");
 
     /// <summary>Field flags (bits 23–27, 1-based) introduced with PDF 1.5 (ISO 32000-2, Tables 228, 230, 232).</summary>
     private const long Flags15 = (1L << 22) | (1L << 23) | (1L << 24) | (1L << 25) | (1L << 26);
@@ -54,6 +56,11 @@ internal static class VersionKeys
                     return Dict(stream.Dictionary, depth) is { } changedDict ? WithDictionary(stream, changedDict) : stream;
                 case PdfDictionary dict:
                     return Dict(dict, depth) ?? dict;
+                // CalCMYK, never more than DeviceCMYK, is not in 2.0 (8.6.5.1; No. 1127)
+                case PdfArray { Count: >= 1 } cal when !below20 && cal[0] is PdfName { Value: "CalCMYK" }:
+                    return DeviceCmyk;
+                case PdfName { Value: "CalCMYK" } when !below20 && depth > 0:
+                    return DeviceCmyk;
                 case PdfArray array:
                     List<PdfObject>? items = null;
                     for (var i = 0; i < array.Count && i < 100_000; i++)
@@ -120,6 +127,19 @@ internal static class VersionKeys
                 }
                 Drop(Suspects);
                 Drop(NeedsRendering);
+                // deprecated or gone in 2.0 (No. 1127): PostScript in forms (8.10.2), transfer functions of a graphics state (Table 57; the /TR
+                // of a soft mask is another thing and stays), a blend mode as an array of choices (11.3.5) — the name the display takes
+                if (subtype == "Form")
+                {
+                    Drop(Ps);
+                    Drop(Subtype2);
+                }
+                if (subtype is null && (type is null or "ExtGState") && !PdfACheck.IsSoftMask(dict))
+                {
+                    Drop(Tr);
+                    Drop(Tr2);
+                }
+                if (dict.GetRaw(Bm) is PdfArray choices) set = (Bm, PdfName.Get(Content.BlendModes.Name(Content.BlendModes.From(choices))));
                 if (dict.ContainsKey(Xfa) && dict.Get(Fields) is PdfArray { Count: > 0 }) Drop(Xfa);
             }
             PdfDictionary? copy = null;

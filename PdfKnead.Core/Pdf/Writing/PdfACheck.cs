@@ -157,7 +157,8 @@ public static partial class PdfACheck
     /// <param name="maxMajor">The highest major version (<see cref="PdfALimits.IccMajor"/>).</param>
     internal static bool IccProfileHeaderValid(byte[] data, int maxMajor)
     {
-        if (data.Length < 132 || data[8] > maxMajor) return false;
+        // the profile signature 'acsp' as well (ICC.1 7.2.9; before, a profile without it passed — docs/FEHLERGEDAECHTNIS.md, No. 1126)
+        if (data.Length < 132 || data[8] > maxMajor || System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(data.AsSpan(36)) != 0x61637370) return false;
         var deviceClass = System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(data.AsSpan(12));
         var space = System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(data.AsSpan(16));
         return deviceClass is 0x70727472 or 0x6D6E7472 or 0x73636E72 or 0x73706163 &&   // prtr, mntr, scnr, spac

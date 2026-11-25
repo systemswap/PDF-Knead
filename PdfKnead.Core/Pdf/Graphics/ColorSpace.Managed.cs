@@ -262,7 +262,16 @@ public abstract partial class ColorSpace
             // the colour tables within the document's budget, else as an unreadable profile (No. 759)
             // matrix and grey profiles too: their curves may hold tables (No. 1122)
             if (IccProfile.Parse(data) is { } profile && profile.Channels == n && doc.ReserveIccTables(profile.TableEntries))
+            {
+                // /Range other than 0…1: the values are clamped to it and, for a Lab or XYZ data colour space, encoded as the profile's tables
+                // expect (8.6.5.5, ICC.1 6.3.4, 10.10/10.11; before, clamped to 0…1 — L* 50 drew white; docs/FEHLERGEDAECHTNIS.md, No. 1126)
+                var range = PdfFunction.Numbers(dict?.GetArray(PdfName.Get("Range")));
+                if (range is not null && range.Length >= 2 * n && range.Take(2 * n).All(double.IsFinite)
+                    && Enumerable.Range(0, n).All(i => range[2 * i] < range[2 * i + 1])
+                    && Enumerable.Range(0, n).Any(i => range[2 * i] != 0 || range[2 * i + 1] != 1))
+                    return new IccSpace(Shared(profile), deviceCmyk: false, profile) { Range = range[..(2 * n)] };
                 return IsSrgb(profile) ? DeviceRgb : new IccSpace(Shared(profile), deviceCmyk: false, profile);
+            }
         }
         // profile unreadable: alternate colour space
         if (dict?.Get(PdfName.Get("Alternate")) is { } alternate and not PdfNull)
@@ -299,19 +308,49 @@ public abstract partial class ColorSpace
         // the profile as read (all tables), from which the variants are built
         private protected override bool DependsOnRendering => true;
 
-        private protected override ColorSpace Rendered(byte table, bool compensate) => RenderedIcc(source, deviceCmyk, table, compensate);
+        private protected override ColorSpace Rendered(byte table, bool compensate) =>
+            Range is { } range && RenderedIcc(source, deviceCmyk, table, compensate) is IccSpace other
+                ? new IccSpace(other.transform, deviceCmyk, source) { Range = range }
+                : RenderedIcc(source, deviceCmyk, table, compensate);
+
+        // the /Range of the ICCBased dictionary where it is not 0…1: the values are clamped to it (8.6.5.5)
+        internal double[]? Range { get; init; }
+
+        // the 8-bit rows go through the tables as bytes / 255: right without /Range, and for Lab with its usual range (bytes 0…255 decode to
+        // L 0…100, a and b −128…127, whose encoding is again bytes / 255)
+        internal override bool HasRow8 => (Range is null || source.Space == IccProfile.LabSpace && Range.SequenceEqual([0.0, 100, -128, 127, -128, 127]))
+            && (_shaper is not null || transform.HasRow8);
+
+        private IccTransform transform { get; } = transform;
+
+        public override double[] DefaultDecode(int bitsPerComponent) => Range is { } r ? (double[])r.Clone() : base.DefaultDecode(bitsPerComponent);
+
+        private ReadOnlySpan<double> Unit(ReadOnlySpan<double> components, Span<double> unit)
+        {
+            if (Range is not { } r) return components;
+            for (var i = 0; i < unit.Length; i++)
+            {
+                var v = i < components.Length ? components[i] : r[2 * i];
+                v = Math.Clamp(double.IsNaN(v) ? r[2 * i] : v, r[2 * i], r[2 * i + 1]);
+                // Lab: L 0…100 and a, b −128…127 onto 0…1 (ICC.1 6.3.4.2); XYZ: 1.0 is 8000h of FFFFh (ICC.1 6.3.4.3); others as they are
+                unit[i] = source.Space == IccProfile.LabSpace ? i == 0 ? v / 100 : (v + 128) / 255
+                    : source.Space == 0x58595A20 ? v * 32768 / 65535 : v;
+            }
+            return unit;
+        }
 
         public override int Components => transform.Channels;
 
         public override bool IsDeviceCmyk => deviceCmyk;
 
-        public override double[] InitialColor => deviceCmyk ? [0, 0, 0, 1] : base.InitialColor;
+        // with /Range: each component 0 or the nearest value of its range (8.6.8; before, 0 even outside it — No. 1126)
+        public override double[] InitialColor => deviceCmyk ? [0, 0, 0, 1]
+            : Range is { } r ? [.. Enumerable.Range(0, transform.Channels).Select(i => Math.Clamp(0, r[2 * i], r[2 * i + 1]))] : base.InitialColor;
 
-        public override Rgb ToRgb(ReadOnlySpan<double> components) => transform.ToRgb(components);
+        public override Rgb ToRgb(ReadOnlySpan<double> components) => transform.ToRgb(Unit(components, stackalloc double[transform.Channels]));
 
-        internal override Rgb ToRgbExact(ReadOnlySpan<double> components) => transform.ToRgbExact(components);
+        internal override Rgb ToRgbExact(ReadOnlySpan<double> components) => transform.ToRgbExact(Unit(components, stackalloc double[transform.Channels]));
 
-        internal override bool HasRow8 => _shaper is not null || transform.HasRow8;
 
         internal override void ConvertRow8(ReadOnlySpan<byte> row, int width, Span<byte> rgba)
         {

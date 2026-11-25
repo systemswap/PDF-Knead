@@ -123,4 +123,46 @@ public sealed class VersionKeysTests
         Assert.Contains("/Tabs/S", text);
         Assert.StartsWith("%PDF-1.4", text);   // nothing raised for it
     }
+
+    /// <summary>
+    /// Saved as 2.0, what 2.0 deprecates or no longer has goes (M6, pass over what is deprecated and gone; docs/FEHLERGEDAECHTNIS.md, No. 1127):
+    /// a PostScript XObject leaves the resources (8.8.2; it draws nothing — the PDF/A way did so already, No. 307), /PS and /Subtype2 leave a form,
+    /// /TR and /TR2 a graphics state (deprecated, Table 57) — not the /TR of a soft mask —, /BM as an array becomes the name that counts
+    /// (11.3.5), CalCMYK becomes DeviceCMYK (8.6.5.1). Saved as 1.7, all of it stays.
+    /// </summary>
+    [Fact]
+    public void As20_DeprecatedGraphicsGo_As17TheyStay()
+    {
+        var file = CraftedFileTests.Build(new Dictionary<int, object>
+        {
+            [1] = "<</Type/Catalog/Pages 2 0 R>>",
+            [2] = "<</Type/Pages/Kids[3 0 R]/Count 1/MediaBox[0 0 200 200]>>",
+            [3] = "<</Type/Page/Parent 2 0 R/Contents 4 0 R/Resources<</XObject<</P0 5 0 R/F0 6 0 R>>" +
+                  "/ExtGState<</G0<</Type/ExtGState/TR/Identity/TR2/Default/BM[/Unbekannt/Multiply/Screen]" +
+                  "/SMask<</Type/Mask/S/Luminosity/G 6 0 R/TR/Identity>>>>>>/ColorSpace<</C0[/CalCMYK<<>>]>>>>>>",
+            [4] = ("", "/G0 gs /P0 Do /F0 Do /C0 cs 0 0 0 1 sc 0 0 10 10 re f"),
+            [5] = ("/Type/XObject/Subtype/PS", "% PostScript für Drucker"),
+            [6] = ("/Type/XObject/Subtype/Form/BBox[0 0 10 10]/Subtype2/PS/PS 5 0 R", "0 0 5 5 re f"),
+        });
+        string Saved(string version)
+        {
+            using var doc = PdfDocument.Open(file);
+            using var output = new MemoryStream();
+            PdfWriter.Write(doc, PageItem.From(doc), output, new PdfSaveOptions { Version = version, CompressStreams = false, ObjectStreams = false });
+            return Encoding.Latin1.GetString(output.ToArray()).Replace(" ", "");
+        }
+        var as20 = Saved("2.0");
+        Assert.DoesNotMatch(@"/P0\d+0R", as20);   // a reference into the void (null), as for any object that is not written (7.3.10)
+        Assert.DoesNotContain("/Subtype/PS", as20);
+        Assert.DoesNotContain("/Subtype2", as20);
+        Assert.DoesNotContain("/TR2", as20);
+        Assert.Contains("/TR/Identity>>", as20);          // the soft mask's own transfer function stays …
+        Assert.Single(System.Text.RegularExpressions.Regex.Matches(as20, "/TR/"));   // … and only it
+        Assert.Contains("/BM/Multiply", as20);
+        Assert.DoesNotContain("CalCMYK", as20);
+        Assert.Contains("/C0/DeviceCMYK", as20);
+        var as17 = Saved("1.7");
+        foreach (var kept in new[] { "/P0", "/Subtype/PS", "/Subtype2/PS", "/TR2/Default", "/BM[/Unbekannt/Multiply/Screen]", "/CalCMYK" })
+            Assert.Contains(kept, as17);
+    }
 }

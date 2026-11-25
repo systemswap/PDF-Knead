@@ -413,7 +413,9 @@ public sealed record ImageMetadata
                 var length = BinaryPrimitives.ReadUInt32BigEndian(tag[8..]);
                 return length > 0 && 12 + length <= tag.Length ? Clean(Encoding.Latin1.GetString(tag.Slice(12, (int)length)).TrimEnd('\0')) : null;
             }
-            if (tag.StartsWith("mluc"u8) && tag.Length >= 28)
+            // only with at least one record: the count comes first (ICC.1 10.15; before, the bytes after the header were read as a record
+            // even with none — docs/FEHLERGEDAECHTNIS.md, No. 1126)
+            if (tag.StartsWith("mluc"u8) && tag.Length >= 28 && BinaryPrimitives.ReadUInt32BigEndian(tag[8..]) > 0)
             {
                 var length = BinaryPrimitives.ReadUInt32BigEndian(tag[20..]);
                 var start = BinaryPrimitives.ReadUInt32BigEndian(tag[24..]);

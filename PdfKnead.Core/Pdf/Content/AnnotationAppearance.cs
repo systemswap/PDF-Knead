@@ -66,8 +66,10 @@ internal static class AnnotationAppearance
             }
             case "Square" or "Circle":
             {
-                if (stroke is null && fill is null) return null;
                 var hasStroke = stroke is not null && width > 0;
+                // neither a border (none or width 0) nor an interior: nothing to draw — before, a path filled without its own colour, black
+                // (docs/FEHLERGEDAECHTNIS.md, No. 1126)
+                if (!hasStroke && fill is null) return null;
                 if (hasStroke) Stroke(sb, stroke!, width, dash);
                 if (fill is not null) sb.Append(fill).Append('\n');
                 var inset = hasStroke ? width / 2 : 0;
