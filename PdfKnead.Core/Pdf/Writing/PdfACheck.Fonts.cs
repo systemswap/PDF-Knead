@@ -319,7 +319,9 @@ public static partial class PdfACheck
                     return null;
                 case PdfName predefined:
                     return PredefinedCMaps.Collection(predefined.Value) is { } ordering ? ("Adobe", ordering, PredefinedCMaps.Supplement(predefined.Value) ?? 99) : null;
-                case PdfStream stream when stream.Dictionary.GetDictionary(PdfName.Get("CIDSystemInfo")) is { } info:
+                // a dictionary, or (older files) an array whose first entry is one — before the array was passed over (No. 1147)
+                case PdfStream stream when (stream.Dictionary.GetDictionary(PdfName.Get("CIDSystemInfo"))
+                                            ?? stream.Dictionary.GetArray(PdfName.Get("CIDSystemInfo"))?.Get(0) as PdfDictionary) is { } info:
                     return info.GetString(PdfName.Get("Registry"))?.ToText() is { } registry && info.GetString(PdfName.Get("Ordering"))?.ToText() is { } order
                         ? (registry, order, info.GetInteger(PdfName.Get("Supplement")) ?? 0)
                         : null;

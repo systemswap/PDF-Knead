@@ -86,7 +86,7 @@ internal sealed partial class SimpleFont
         {
             if (_names[code] is not { } name || name == ".notdef") return 0;
             if (GlyphNames.CodePoint(name) is > 0 and var cp && UnicodeGlyph(ot, cp) is > 0 and var unicode) return unicode;
-            if (Array.IndexOf(FontTables.MacRomanEncoding, name) is >= 0 and var mac && ot.Lookup(1, 0, mac) is > 0 and var roman) return roman;
+            if (FontTables.MacOsRomanCode(name) is >= 0 and var mac && ot.Lookup(1, 0, mac) is > 0 and var roman) return roman;
             if (ot.GlyphByName(name) is > 0 and var byName) return byName;
             return GlyphIndexName(name, ot.GlyphCount);
         }

@@ -59,6 +59,25 @@ public static partial class FontTables
         "thorn", "ydieresis",
     ];
 
+    /// <summary>
+    /// The Standard Latin character set (ISO 32000-2, D.1): the characters of StandardEncoding, WinAnsiEncoding and MacRomanEncoding (D.2)
+    /// as code points; a font with a character outside it is symbolic (9.8.2).
+    /// </summary>
+    public static IReadOnlySet<int> StandardLatin => StandardLatinSet.Value;
+
+    // lazy: the tables it is made of are initialised later in this file
+    private static readonly Lazy<HashSet<int>> StandardLatinSet = new(() => new HashSet<int>(
+        StandardEncoding.Concat(WinAnsiEncoding).Concat(MacRomanEncoding).Where(n => n.Length > 0)
+            .Select(n => GlyphNames.ToUnicode(n)).Where(t => t is { Length: > 0 }).Select(t => char.ConvertToUtf32(t!, 0))));
+
+    /// <summary>
+    /// The code of a glyph name in the Mac OS standard Roman encoding a (1,0) cmap uses (ISO 32000-2, 9.6.5.4): MacRomanEncoding, but the Euro
+    /// at DBh, where MacRomanEncoding has the currency sign — the Euro was not found before (docs/FEHLERGEDAECHTNIS.md, No. 1147).
+    /// </summary>
+    /// <param name="name">The glyph name.</param>
+    /// <returns>The code, or -1.</returns>
+    public static int MacOsRomanCode(string name) => name == "Euro" ? 0xDB : Array.IndexOf(MacRomanEncoding, name);
+
     /// <summary>MacRomanEncoding (ISO 32000-2, D.2).</summary>
     public static readonly string[] MacRomanEncoding =
     [

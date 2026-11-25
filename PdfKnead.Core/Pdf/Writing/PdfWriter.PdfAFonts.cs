@@ -345,8 +345,10 @@ public static partial class PdfWriter
             var registry = info?.GetString(PdfName.Get("Registry"))?.ToText() ?? "Adobe";
             var ordering = info?.GetString(PdfName.Get("Ordering"))?.ToText() ?? "Identity";
             var supplement = info?.GetInteger(PdfName.Get("Supplement")) ?? 0;
-            if (registry.Length == 0 || ordering.Length == 0 || !registry.All(char.IsAsciiLetterOrDigit) || !ordering.All(char.IsAsciiLetterOrDigit) ||
-                supplement is < 0 or > ushort.MaxValue)
+            // letters, digits and the underscore of a registered prefix („ABCD_…“, Adobe TN 5014) — before without the underscore, and such a
+            // collection became Adobe-Identity (No. 1147)
+            static bool Plain(string s) => s.All(c => char.IsAsciiLetterOrDigit(c) || c == '_');
+            if (registry.Length == 0 || ordering.Length == 0 || !Plain(registry) || !Plain(ordering) || supplement is < 0 or > ushort.MaxValue)
                 (registry, ordering, supplement) = ("Adobe", "Identity", 0);
             if (!ownCMap && encoding is PdfName predefined && PredefinedCMaps.Collection(predefined.Value) is { } collection)
             {
@@ -483,7 +485,8 @@ public static partial class PdfWriter
             var without = CloneWithResolver(descriptor);
             foreach (var key in (string[])["FontFile", "FontFile2", "FontFile3", "CIDSet", "CharSet"]) without.Remove(PdfName.Get(key));
             var copy = (PdfDictionary)Rebase(without, source);
-            copy.Set(PdfName.Get("Flags"), PdfInteger.Of(flags));
+            // only the defined bits (ISO 32000-2, Table 121: 1–4, 6, 7, 17–19; the others shall be 0 — before they stayed, No. 1147)
+            copy.Set(PdfName.Get("Flags"), PdfInteger.Of(flags & 0x7006F));
             // the name of the rebuilt font, where it got one of its own: /FontName equals /BaseFont (ISO 32000-2, Table 120; No. 525)
             if (fontName is not null) copy.Set(PdfName.Get("FontName"), PdfName.Get(fontName));
             var file = new PdfDictionary();

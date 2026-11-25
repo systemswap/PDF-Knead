@@ -423,7 +423,7 @@ internal sealed partial class SimpleFont : PdfFont
         if (name is not null)
         {
             if (GlyphNames.CodePoint(name, _dingbats) is > 0 and var cp) Add(ot.GlyphForUnicode(cp));
-            if (Array.IndexOf(FontTables.MacRomanEncoding, name) is >= 0 and var mac) Add(ot.Lookup(1, 0, mac));
+            if (FontTables.MacOsRomanCode(name) is >= 0 and var mac) Add(ot.Lookup(1, 0, mac));
             Add(ot.GlyphByName(name));
         }
         foreach (var prefix in (ReadOnlySpan<int>)[0, 0xF000, 0xF100, 0xF200]) Add(ot.Lookup(3, 0, prefix + c));
@@ -519,7 +519,7 @@ internal sealed partial class SimpleFont : PdfFont
         {
             var cp = GlyphNames.CodePoint(name, _dingbats);
             if (cp > 0 && ot.HasCmap(3, 1) || cp > 0 && ot.HasCmap(0, 3) || cp > 0 && ot.HasCmap(3, 10)) gid = ot.GlyphForUnicode(cp);
-            if (gid <= 0 && ot.HasCmap(1, 0) && Array.IndexOf(FontTables.MacRomanEncoding, name) is >= 0 and var mac) gid = ot.Lookup(1, 0, mac);
+            if (gid <= 0 && ot.HasCmap(1, 0) && FontTables.MacOsRomanCode(name) is >= 0 and var mac) gid = ot.Lookup(1, 0, mac);
             if (gid <= 0) gid = Math.Max(0, ot.GlyphByName(name));
             if (gid <= 0 && !_program.IsEmbedded && _toUnicode?.ToUnicode((uint)code, 1) is { Length: > 0 } text) gid = ot.GlyphForUnicode(char.ConvertToUtf32(text, 0));
         }

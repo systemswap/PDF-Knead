@@ -205,7 +205,10 @@ public sealed class ElementFace
             widths.Add(PdfInteger.Of(used[start]));
             widths.Add(list);
         }
-        return Type0(SubsetTag(used) + "+" + BaseName, subset, widths, ToUnicode(glyphs));
+        // Symbolic (bit 3) when a character lies outside the Standard Latin character set, else Nonsymbolic (bit 6) (ISO 32000-2, 9.8.2) —
+        // before always Nonsymbolic, also for Greek or Chinese text (docs/FEHLERGEDAECHTNIS.md, No. 1147)
+        var symbolic = glyphs.Values.Any(t => t.EnumerateRunes().Any(r => !FontTables.StandardLatin.Contains(r.Value)));
+        return Type0(SubsetTag(used) + "+" + BaseName, subset, widths, ToUnicode(glyphs), symbolic);
     }
 
     /// <summary>Six capital letters derived from the glyphs (9.9.2): the same subset gets the same name.</summary>
@@ -222,7 +225,7 @@ public sealed class ElementFace
         return new string(tag);
     }
 
-    private PdfDictionary Type0(string name, byte[] fontFile, PdfArray widths, PdfStream? toUnicode)
+    private PdfDictionary Type0(string name, byte[] fontFile, PdfArray widths, PdfStream? toUnicode, bool symbolic = false)
     {
         var units = 1000.0 / Font.UnitsPerEm;
         var head = Font.TableData("head");
@@ -245,8 +248,8 @@ public sealed class ElementFace
         var descriptor = new PdfDictionary();
         descriptor.Set(PdfName.Type, PdfName.Get("FontDescriptor"));
         descriptor.Set(PdfName.Get("FontName"), PdfName.Get(name));
-        // 32 = non-symbolic; plus 1 = fixed pitch, 2 = serif, 64 = italic
-        descriptor.Set(PdfName.Get("Flags"), PdfInteger.Of(32 | (_fixedPitch ? 1 : 0) | (_serif ? 2 : 0) | (_italic ? 64 : 0)));
+        // 32 = non-symbolic, 4 = symbolic; plus 1 = fixed pitch, 2 = serif, 64 = italic
+        descriptor.Set(PdfName.Get("Flags"), PdfInteger.Of((symbolic ? 4 : 32) | (_fixedPitch ? 1 : 0) | (_serif ? 2 : 0) | (_italic ? 64 : 0)));
         descriptor.Set(PdfName.Get("FontBBox"), bbox);
         descriptor.Set(PdfName.Get("ItalicAngle"), PdfInteger.Of(_italic ? -12 : 0));
         descriptor.Set(PdfName.Get("Ascent"), PdfInteger.Of((long)Math.Round(Ascent * 1000)));
@@ -273,7 +276,8 @@ public sealed class ElementFace
         var font = new PdfDictionary();
         font.Set(PdfName.Type, PdfName.Get("Font"));
         font.Set(PdfName.Subtype, PdfName.Get("Type0"));
-        font.Set(PdfName.Get("BaseFont"), PdfName.Get(name));
+        // over a CIDFontType0 the name of the CIDFont, a hyphen and the name of the CMap (9.7.6.1; before the CIDFont's name alone, No. 1147)
+        font.Set(PdfName.Get("BaseFont"), PdfName.Get(IsCff ? name + "-Identity-H" : name));
         font.Set(PdfName.Get("Encoding"), PdfName.Get("Identity-H"));
         font.Set(PdfName.Get("DescendantFonts"), new PdfArray([cid]));
         if (toUnicode is not null) font.Set(PdfName.Get("ToUnicode"), toUnicode);
