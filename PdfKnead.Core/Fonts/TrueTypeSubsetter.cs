@@ -370,11 +370,21 @@ public static class TrueTypeSubsetter
         var bodies = new List<byte[]>();
         var bodyOf = new Dictionary<(int Offset, bool Long), int>();
         var records = new List<(int Platform, int Encoding, int Body)>();
-        foreach (var (platform, encoding) in font.CmapSubtables)
+        var data = font.FileData;
+        // sorted by platform, then encoding (OpenType cmap 9.3: required) — before, in the order of the source (No. 1143)
+        foreach (var (platform, encoding) in font.CmapSubtables.OrderBy(r => r.Platform).ThenBy(r => r.Encoding))
         {
             // format 4 holds at most 64 KB (about 8 000 runs); beyond that, and for codes above 0xFFFF, format 12
             var wide = (platform, encoding) is (3, 10) or (0, 4) or (0, 6);
             var source = font.CmapOffset(platform, encoding);
+            var format = source >= 0 && source + 2 <= data.Length ? BinaryPrimitives.ReadUInt16BigEndian(data.AsSpan(source)) : -1;
+            // a subtable of a format the reader does not read (2, 8, 10, 14 …) is left out: written as an empty format 4 it lost every
+            // mapping, and under (0,5) only format 14 is allowed (cmap 9.3.2) (No. 1143)
+            if (format is not (0 or 4 or 6 or 12 or 13)) continue;
+            // a Macintosh subtable keeps its language (cmap 9.4.1: the Macintosh language code plus one, 0 for any language)
+            var language = platform != 1 ? 0 : format is 12 or 13
+                ? source + 12 <= data.Length ? (int)BinaryPrimitives.ReadUInt32BigEndian(data.AsSpan(source + 8)) : 0
+                : source + 6 <= data.Length ? BinaryPrimitives.ReadUInt16BigEndian(data.AsSpan(source + 4)) : 0;
             if (!bodyOf.TryGetValue((source, wide), out var body))
             {
                 var map = new List<(int Code, int Glyph)>();
@@ -386,7 +396,7 @@ public static class TrueTypeSubsetter
                 var runs = Runs(map);
                 var long12 = wide || map.Any(m => m.Code > 0xFFFF) || runs.Count > 8000;
                 bodyOf[(source, wide)] = body = bodies.Count;
-                bodies.Add(long12 ? Format12Of(runs) : Format4Of(runs));
+                bodies.Add(long12 ? Format12Of(runs, language) : Format4Of(runs, language));
             }
             records.Add((platform, encoding, body));
         }
@@ -426,7 +436,7 @@ public static class TrueTypeSubsetter
         return runs;
     }
 
-    private static byte[] Format4Of(List<(int First, int Last, int Glyph)> all)
+    private static byte[] Format4Of(List<(int First, int Last, int Glyph)> all, int language = 0)
     {
         // code 0xFFFF is the closing segment's
         var runs = all.Where(r => r.First < 0xFFFF).Select(r => (r.First, Math.Min(r.Last, 0xFFFE), r.Glyph)).ToList();
@@ -437,6 +447,7 @@ public static class TrueTypeSubsetter
         var body = new byte[16 + segments * 8];
         BinaryPrimitives.WriteUInt16BigEndian(body, 4);
         BinaryPrimitives.WriteUInt16BigEndian(body.AsSpan(2), (ushort)Math.Min(body.Length, 0xFFFF));
+        BinaryPrimitives.WriteUInt16BigEndian(body.AsSpan(4), (ushort)language);
         BinaryPrimitives.WriteUInt16BigEndian(body.AsSpan(6), (ushort)(segments * 2));
         BinaryPrimitives.WriteUInt16BigEndian(body.AsSpan(8), (ushort)searchRange);
         BinaryPrimitives.WriteUInt16BigEndian(body.AsSpan(10), (ushort)entrySelector);
@@ -453,11 +464,12 @@ public static class TrueTypeSubsetter
         return body;
     }
 
-    private static byte[] Format12Of(List<(int First, int Last, int Glyph)> runs)
+    private static byte[] Format12Of(List<(int First, int Last, int Glyph)> runs, int language = 0)
     {
         var body = new byte[16 + runs.Count * 12];
         BinaryPrimitives.WriteUInt16BigEndian(body, 12);
         BinaryPrimitives.WriteUInt32BigEndian(body.AsSpan(4), (uint)body.Length);
+        BinaryPrimitives.WriteUInt32BigEndian(body.AsSpan(8), (uint)language);
         BinaryPrimitives.WriteUInt32BigEndian(body.AsSpan(12), (uint)runs.Count);
         for (var i = 0; i < runs.Count; i++)
         {
@@ -483,6 +495,16 @@ public static class TrueTypeSubsetter
         var data = new Dictionary<string, byte[]>(StringComparer.Ordinal);
         foreach (var (tag, (offset, length)) in ReadDirectory(collection, (int)start))
             if (tag != "DSIG") data[tag] = collection.AsSpan(offset, length).ToArray();
+        // Finish writes head for long loca offsets: short ones become long (OpenType head 23: indexToLocFormat names the loca format) —
+        // before, head and loca disagreed, and the font could not be rebuilt for a PDF/A copy (No. 1143)
+        if (data.TryGetValue("head", out var head) && head.Length >= 54 && BinaryPrimitives.ReadInt16BigEndian(head.AsSpan(50)) == 0 &&
+            data.TryGetValue("loca", out var loca))
+        {
+            var wide = new byte[loca.Length / 2 * 4];
+            for (var i = 0; i + 1 < loca.Length; i += 2)
+                BinaryPrimitives.WriteUInt32BigEndian(wide.AsSpan(i * 2), BinaryPrimitives.ReadUInt16BigEndian(loca.AsSpan(i)) * 2u);
+            data["loca"] = wide;
+        }
         return Finish(data);
     }
 

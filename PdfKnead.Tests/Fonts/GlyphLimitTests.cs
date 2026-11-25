@@ -199,6 +199,51 @@ public sealed class GlyphLimitTests
         Assert.Equal(a, OpenTypeFont.Parse(cleaned).Lookup(4, 63, 'A'));
     }
 
+    /// <summary>
+    /// OpenType head 23: indexToLocFormat names the format of loca. The first font of a collection got a head for long offsets while its
+    /// short loca stayed — the glyph had no outline, and the PDF/A copy could not rebuild the font (docs/FEHLERGEDAECHTNIS.md, No. 1143).
+    /// </summary>
+    [Fact]
+    public void FirstOfCollection_ShortLoca_BecomesLong()
+    {
+        var glyph = SimpleGlyph(3, distinct: true);
+        while (glyph.Count % 4 != 0) glyph.Add(0);
+        var head = new byte[54];
+        head[18] = 0x04;                                  // 1024 units per em, short loca (index 50 stays 0)
+        var maxp = new List<byte> { 0, 0, 0x50, 0 };      // version 0.5 …
+        U16(maxp, 1);                                     // … one glyph
+        var loca = new List<byte>();
+        U16(loca, 0);
+        U16(loca, glyph.Count / 2);
+        var tables = new (string Tag, byte[] Data)[] { ("glyf", [.. glyph]), ("head", head), ("loca", [.. loca]), ("maxp", [.. maxp]) };
+        // a collection of one font: ttcf header (12 bytes and one offset), the font's directory at 16, offsets from the start of the file
+        var file = new List<byte>();
+        file.AddRange("ttcf"u8.ToArray());
+        U32(file, 0x00010000);
+        U32(file, 1);
+        U32(file, 16);
+        file.AddRange([0, 1, 0, 0]);
+        U16(file, tables.Length);
+        file.AddRange(new byte[6]);
+        var at = 16 + 12 + 16 * tables.Length;
+        foreach (var (tag, data) in tables)
+        {
+            file.AddRange(System.Text.Encoding.ASCII.GetBytes(tag));
+            file.AddRange(new byte[4]);
+            U32(file, at);
+            U32(file, data.Length);
+            at += (data.Length + 3) & ~3;
+        }
+        foreach (var (_, data) in tables)
+        {
+            file.AddRange(data);
+            while (file.Count % 4 != 0) file.Add(0);
+        }
+        var first = OpenTypeFont.Parse(TrueTypeSubsetter.FirstOfCollection([.. file]));
+        Assert.True(first.Intact);
+        Assert.False(first.Outline(0).IsEmpty);
+    }
+
     [Fact]
     public void GlyphNumberAtTheLimitOfInt_ReadsAsNoGlyph()
     {

@@ -176,7 +176,9 @@ public sealed class FontFileTests
 internal static class Type1Builder
 {
     /// <param name="a">The charstring of „A“ in place of the triangle with its crossbar.</param>
-    public static byte[] Build(Action<Writer>? a = null)
+    /// <param name="clearExtra">Further definitions of the clear text (after /FontMatrix).</param>
+    /// <param name="privateExtra">Further definitions of the private part (after /lenIV).</param>
+    public static byte[] Build(Action<Writer>? a = null, string clearExtra = "", string privateExtra = "")
     {
         // Subr 0: the crossbar of the A as a separate subpath, then return
         var subr0 = Charstring(w => { w.N(-350); w.N(300); w.Op(21); w.N(300); w.N(0); w.Op(5); w.Op(9); w.Op(11); });
@@ -197,14 +199,14 @@ internal static class Type1Builder
         void Text(string s) => priv.Write(Encoding.Latin1.GetBytes(s));
         void Bin(byte[] b) => priv.Write(b);
         Text("dup /Private 8 dict dup begin /RD{string currentfile exch readstring pop}executeonly def\n");
-        Text("/lenIV 4 def\n/Subrs 1 array\n");
+        Text("/lenIV 4 def\n" + privateExtra + "/Subrs 1 array\n");
         Text($"dup 0 {subr0.Length} RD "); Bin(subr0); Text(" NP\nND\n");
         Text("2 index /CharStrings 2 dict dup begin\n");
         Text($"/.notdef {notdef.Length} RD "); Bin(notdef); Text(" ND\n");
         Text($"/A {glyphA.Length} RD "); Bin(glyphA); Text(" ND\n");
         Text("end end\nmark currentfile closefile\n");
 
-        var clear = "%!PS-AdobeFont-1.0: KneadTest 001\n/FontName /KneadTest def\n/FontMatrix [0.001 0 0 0.001 0 0] readonly def\n"
+        var clear = "%!PS-AdobeFont-1.0: KneadTest 001\n/FontName /KneadTest def\n/FontMatrix [0.001 0 0 0.001 0 0] readonly def\n" + clearExtra
                     + "/Encoding 256 array 0 1 255 {1 index exch /.notdef put} for dup 65 /A put readonly def\ncurrentfile eexec\n";
         return [.. Encoding.Latin1.GetBytes(clear), .. Encrypt(priv.ToArray(), 55665)];
     }

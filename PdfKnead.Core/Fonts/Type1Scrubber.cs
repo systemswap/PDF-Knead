@@ -64,6 +64,7 @@ internal static partial class Type1Scrubber
         if (encrypted.Length >= 4 && encrypted.AsSpan(0, 4).ToArray().All(b => Uri.IsHexDigit((char)b))) encrypted = HexDecode(encrypted);
         var priv = Decrypt(encrypted, EexecKey, 4);
 
+        BlankIdentifiers(priv);
         var text = Encoding.Latin1.GetString(priv);
         var lenIV = LenIVPattern().Match(text) is { Success: true } m && int.TryParse(m.Groups[1].Value, CultureInfo.InvariantCulture, out var iv) ? Math.Clamp(iv, -1, 64) : 4;
         var subrs = Entries(priv, "/Subrs", charStrings: false);
@@ -126,6 +127,7 @@ internal static partial class Type1Scrubber
         // the custom encoding of the clear text without the codes of removed glyphs
         var clear = Encoding.Latin1.GetString(data, 0, start);
         clear = EncodingEntry().Replace(clear, e => keptGlyphs.Contains(e.Groups[1].Value) ? e.Value : "");
+        clear = Identifier().Replace(clear, m => new string(' ', m.Length));
         var clearBytes = Encoding.Latin1.GetBytes(clear);
         var newEncrypted = Encrypt([0, 0, 0, 0, .. newPriv], EexecKey, 4);
         var trailer = data[end..];
@@ -134,6 +136,20 @@ internal static partial class Type1Scrubber
 
     [GeneratedRegex(@"/lenIV\s+(-?\d+)")]
     private static partial Regex LenIVPattern();
+
+    /// <summary>
+    /// /UniqueID and /XUID of the unchanged font: a changed font must not carry them (Type 1 Font Format 2.5) — they become spaces, so
+    /// that no offset moves (No. 1143).
+    /// </summary>
+    [GeneratedRegex(@"/UniqueID\s+-?\d+\s+def|/XUID\s*\[[^\]]*\]\s*(readonly\s+)?def")]
+    private static partial Regex Identifier();
+
+    /// <summary>The identifiers in the decrypted private part as spaces (in place).</summary>
+    private static void BlankIdentifiers(byte[] priv)
+    {
+        foreach (Match m in Identifier().Matches(Encoding.Latin1.GetString(priv)))
+            Array.Fill(priv, (byte)' ', m.Index, m.Length);
+    }
 
     [GeneratedRegex(@"dup\s+\d+\s*/([^\s/\[\]{}()<>]+)\s+put\s*")]
     private static partial Regex EncodingEntry();

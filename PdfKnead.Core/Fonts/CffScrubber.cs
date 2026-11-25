@@ -14,8 +14,9 @@ internal static class CffScrubber
     // BaseFontName, FontName); ROS has two (registry and ordering) before the supplement
     private static readonly int[] StringOperators = [0, 1, 2, 3, 4, 1200, 1221, 1222, 1238];
 
-    // Operators written anew (offsets) or dropped (subroutines are inlined)
-    private static readonly int[] OffsetOperators = [15, 16, 17, 18, 19, 1230, 1236, 1237];
+    // Operators written anew (offsets) or dropped (subroutines are inlined), and the identifiers of the unchanged font — UniqueID, XUID,
+    // UIDBase: a changed font must not carry them (Type 1 Font Format 2.5; CFF takes them over from there) (No. 1143)
+    private static readonly int[] OffsetOperators = [15, 16, 17, 18, 19, 1230, 1236, 1237, 13, 14, 1235];
 
     /// <summary>Scrubs the font.</summary>
     /// <param name="data">The CFF data.</param>

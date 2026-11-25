@@ -305,6 +305,84 @@ public sealed class FontScrubTests
         Assert.Equal(original.Outline("A").Bounds, scrubbed.Outline("A").Bounds);
         Assert.False(scrubbed.HasGlyph("B"));
     }
+
+    /// <summary>
+    /// OpenType cmap 9.3 and 9.4.1: the records of the cleaned cmap sorted by platform and encoding, a subtable of a format the reader does
+    /// not read (here format 14 under (0,5)) left out instead of written as an empty format 4, and a Macintosh subtable with its language
+    /// (here 18, Turkish) (docs/FEHLERGEDAECHTNIS.md, No. 1143).
+    /// </summary>
+    [Fact]
+    public void ScrubbedCmap_SortedWithoutUnreadFormatsAndWithTheMacLanguage()
+    {
+        var ttf = EmbeddedFonts.LoadStandard("LiberationSans-Regular.ttf");
+        var a = OpenTypeFont.Parse(ttf).GlyphForUnicode('A');
+        var cmap = new List<byte>();
+        void U16(int v) => cmap.AddRange([(byte)(v >> 8), (byte)v]);
+        void U32(int v) { U16(v >> 16); U16(v); }
+        const int first = 4 + 3 * 8;
+        U16(0); U16(3);
+        U16(3); U16(1); U32(first);                  // (3,1) format 4 at 28 (32 bytes)
+        U16(1); U16(0); U32(first + 32);             // (1,0) format 6 at 60 (12 bytes)
+        U16(0); U16(5); U32(first + 44);             // (0,5) format 14 at 72 (10 bytes)
+        U16(4); U16(32); U16(0); U16(4); U16(4); U16(1); U16(0);              // format 4, two segments
+        U16(0x41); U16(0xFFFF); U16(0); U16(0x41); U16(0xFFFF);               // ends, pad, starts
+        U16((a - 0x41) & 0xFFFF); U16(1); U16(0); U16(0);                     // deltas, range offsets
+        U16(6); U16(12); U16(18); U16(0x41); U16(1); U16(a);                  // format 6, language 18
+        U16(14); U32(10); U32(0);                                             // format 14, no selectors
+        var font = ColorFontBuilder.WithTables(ttf, new Dictionary<string, byte[]?> { ["cmap"] = [.. cmap] });
+        var cleaned = OpenTypeFont.Parse(TrueTypeSubsetter.Scrub(font, [0, a]));
+        Assert.Equal(new (int, int)[] { (1, 0), (3, 1) }, cleaned.CmapSubtables);
+        Assert.Equal(a, cleaned.Lookup(1, 0, 0x41));
+        Assert.Equal(a, cleaned.Lookup(3, 1, 'A'));
+        var data = cleaned.FileData;
+        var at = cleaned.CmapOffset(1, 0);
+        Assert.Equal(18, data[at + 4] << 8 | data[at + 5]);
+    }
+
+    /// <summary>
+    /// Type 1 Font Format 2.5 (and CFF, TN 5176 Table 9, after it): a changed font must not carry the UniqueID and XUID of the unchanged
+    /// one. Cleaning kept them in the clear text, the private part and the Top DICT (docs/FEHLERGEDAECHTNIS.md, No. 1143).
+    /// </summary>
+    [Fact]
+    public void CleanedPrograms_DropUniqueIdAndXuid()
+    {
+        var type1 = Type1Builder.Build(clearExtra: "/UniqueID 4711815 def\n/XUID [6 4711815] readonly def\n", privateExtra: "/UniqueID 4711815 def\n");
+        var (cleaned, clear, encrypted, _) = Type1Scrubber.Scrub(type1, new HashSet<string> { "A" });
+        var text = System.Text.Encoding.Latin1.GetString(cleaned, 0, clear);
+        Assert.DoesNotContain("/UniqueID", text);
+        Assert.DoesNotContain("/XUID", text);
+        Assert.Equal(600, Type1Font.Parse(cleaned).AdvanceWidth("A"));
+        // the private part, decrypted (eexec, key 55665)
+        var priv = new byte[encrypted];
+        ushort r = 55665;
+        for (var i = 0; i < encrypted; i++)
+        {
+            var c = cleaned[clear + i];
+            priv[i] = (byte)(c ^ (r >> 8));
+            r = (ushort)((c + r) * 52845 + 22719);
+        }
+        Assert.DoesNotContain("4711815", System.Text.Encoding.Latin1.GetString(priv));
+
+        // CFF: UniqueID (13), XUID (14) in the Top DICT
+        byte[] Index(params byte[][] items)
+        {
+            var result = new List<byte> { (byte)(items.Length >> 8), (byte)items.Length, 4 };
+            var offset = 1;
+            void Offset(int v) => result.AddRange([(byte)(v >> 24), (byte)(v >> 16), (byte)(v >> 8), (byte)v]);
+            Offset(offset);
+            foreach (var item in items) Offset(offset += item.Length);
+            foreach (var item in items) result.AddRange(item);
+            return [.. result];
+        }
+        byte[] Top(int charStrings) => [29, 0, 0x47, 0xE5, 0x87, 13, 140, 141, 142, 14, 29, (byte)(charStrings >> 24), (byte)(charStrings >> 16),
+            (byte)(charStrings >> 8), (byte)charStrings, 17];
+        var name = Index("Probe"u8.ToArray());
+        var at = 4 + name.Length + Index(Top(0)).Length + 2 + 2;
+        byte[] cff = [1, 0, 4, 4, .. name, .. Index(Top(at)), 0, 0, 0, 0, .. Index([14], [139, 139, 21, 14])];
+        var (cleanCff, _) = CffScrubber.Scrub(cff, [1]);
+        Assert.False(cleanCff.AsSpan().IndexOf((ReadOnlySpan<byte>)[29, 0, 0x47, 0xE5, 0x87, 13]) >= 0, "UniqueID");
+        Assert.False(cleanCff.AsSpan().IndexOf((ReadOnlySpan<byte>)[140, 141, 142, 14]) >= 0, "XUID");
+    }
 }
 
 /// <summary>A small Type 1 font for tests: glyphs A (through subroutine 4), B and C, encoding A B C at their ASCII codes.</summary>

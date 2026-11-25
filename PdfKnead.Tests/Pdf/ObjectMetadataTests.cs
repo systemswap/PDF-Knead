@@ -200,6 +200,7 @@ public sealed class ObjectMetadataTests
         var clean = Assert.IsType<byte[]>(ObjectMetadata.FontNotices(ttf));
         Assert.Equal(ttf.Length, clean.Length);
         Assert.True(string.IsNullOrWhiteSpace(NameText(clean, 0)), NameText(clean, 0));
+        Assert.Matches(@"^Version \d+\.\d+", NameText(clean, 5));   // OpenType name 30.4: the version number stays (No. 1143)
         Assert.Equal(NameText(ttf, 1), NameText(clean, 1));
         Assert.Equal(OpenTypeFont.Parse(ttf).FamilyName, OpenTypeFont.Parse(clean).FamilyName);
         Assert.Equal(0xB1B0AFBAu, Checksum(clean));
@@ -293,5 +294,34 @@ public sealed class ObjectMetadataTests
         Assert.True(cleaned.AsSpan().IndexOf(profile.AsSpan(half)) > 0);
         foreach (var first in new[] { 1, 2 })
             Assert.Equal(PdfKnead.Core.Pdf.Graphics.Icc.CalibratedProfile.SrgbName, PdfKnead.Core.Imaging.ImageMetadata.FromJpeg(WithProfileInTwoParts(jpeg, profile, first))!.IccProfile);
+    }
+
+    /// <summary>
+    /// OpenType name 30.4: ID 5 begins with „Version n.n“, ID 20 holds only the characters 33–126, and records may share their text.
+    /// Cleaning made the version and ID 20 spaces, and a family name stored at the same bytes as the copyright went with it
+    /// (docs/FEHLERGEDAECHTNIS.md, No. 1143).
+    /// </summary>
+    [Fact]
+    public void FontNotices_KeepVersionNumberId20AndSharedNames()
+    {
+        var ttf = EmbeddedFonts.LoadStandard("LiberationSans-Regular.ttf");
+        // a name table of four Windows records: copyright and family share „Probe“, version with a remark, ID 20
+        static byte[] Utf16(string s) => System.Text.Encoding.BigEndianUnicode.GetBytes(s);
+        var texts = new[] { Utf16("Probe"), Utf16("Version 2.5; erstellt von Muster"), Utf16("Probe-CID") };
+        var name = new List<byte>();
+        void U16(int v) => name.AddRange([(byte)(v >> 8), (byte)v]);
+        U16(0); U16(5); U16(6 + 5 * 12);
+        void Record(int id, int text, int offset) { U16(3); U16(1); U16(0x409); U16(id); U16(texts[text].Length); U16(offset); }
+        Record(0, 0, 0);                                         // copyright „Probe“ …
+        Record(1, 0, 0);                                         // … and the family at the same bytes
+        Record(4, 0, 0);
+        Record(5, 1, texts[0].Length);
+        Record(20, 2, texts[0].Length + texts[1].Length);
+        foreach (var t in texts) name.AddRange(t);
+        var font = PdfKnead.Tests.Fonts.ColorFontBuilder.WithTables(ttf, new Dictionary<string, byte[]?> { ["name"] = [.. name] });
+        var clean = Assert.IsType<byte[]>(ObjectMetadata.FontNotices(font));
+        Assert.Equal("Probe", NameText(clean, 1));
+        Assert.Equal("Version 2.5", NameText(clean, 5)!.TrimEnd());
+        Assert.Equal("Probe-CID", NameText(clean, 20));
     }
 }

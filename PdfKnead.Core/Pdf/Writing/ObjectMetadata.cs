@@ -797,8 +797,11 @@ internal static class ObjectMetadata
         return result;
     }
 
-    /// <summary>Names a font program keeps (family, style, full name, PostScript name, typographic family and style, WWS names, variations).</summary>
-    private static readonly HashSet<int> KeptNames = [1, 2, 4, 6, 16, 17, 21, 22, 25];
+    /// <summary>
+    /// Names a font program keeps (family, style, full name, PostScript name, PostScript CID findfont name, typographic family and style,
+    /// WWS names, variations). ID 20 must hold only the characters 33–126 (OpenType name, 30.4), spaces broke it (No. 1143).
+    /// </summary>
+    private static readonly HashSet<int> KeptNames = [1, 2, 4, 6, 16, 17, 20, 21, 22, 25];
 
     /// <summary>
     /// The font program with its free texts as spaces — TrueType/OpenType: the name table except <see cref="KeptNames"/> (copyright,
@@ -861,20 +864,68 @@ internal static class ObjectMetadata
         if (table.Length < 6) return false;
         int count = BinaryPrimitives.ReadUInt16BigEndian(table[2..]);
         int strings = BinaryPrimitives.ReadUInt16BigEndian(table[4..]);
-        var changed = false;
+        var records = new List<(int Platform, int Name, int Start, int Length)>();
         for (var i = 0; i < count && 6 + i * 12 + 12 <= table.Length; i++)
         {
             var record = table[(6 + i * 12)..];
-            int platform = BinaryPrimitives.ReadUInt16BigEndian(record);
-            int name = BinaryPrimitives.ReadUInt16BigEndian(record[6..]);
+            int start = strings + BinaryPrimitives.ReadUInt16BigEndian(record[10..]);
             int length = BinaryPrimitives.ReadUInt16BigEndian(record[8..]);
-            int offset = BinaryPrimitives.ReadUInt16BigEndian(record[10..]);
-            if (KeptNames.Contains(name) || strings + offset + length > table.Length) continue;
-            var text = table.Slice(strings + offset, length);
-            changed |= platform is 0 or 3 ? BlankUtf16(text) : BlankAscii(text);
+            if (start + length <= table.Length)
+                records.Add((BinaryPrimitives.ReadUInt16BigEndian(record), BinaryPrimitives.ReadUInt16BigEndian(record[6..]), start, length));
+        }
+        // records may share their text: a kept name stays whole even where a cleaned one names the same bytes — before, a family name
+        // stored with the copyright became spaces with it (No. 1143)
+        var kept = new bool[table.Length];
+        foreach (var r in records.Where(r => KeptNames.Contains(r.Name)))
+            Array.Fill(kept, true, r.Start, r.Length);
+        var changed = false;
+        foreach (var (platform, name, start, length) in records)
+        {
+            if (KeptNames.Contains(name)) continue;
+            var wide = platform is 0 or 3;
+            // ID 5 begins with „Version <number>.<number>“ (OpenType name, 30.4): that stays, the rest becomes spaces
+            var from = name == 5 ? VersionPrefix(table.Slice(start, length), wide) : 0;
+            for (var i = from; i < length; i += wide ? 2 : 1)
+            {
+                var at = start + i;
+                if (kept[at] || wide && (at + 1 >= table.Length || kept[at + 1])) continue;
+                if (wide)
+                {
+                    if (table[at] == 0 && table[at + 1] is 0 or (byte)' ') continue;
+                    (table[at], table[at + 1]) = (0, (byte)' ');
+                }
+                else
+                {
+                    if (table[at] is 0 or (byte)' ') continue;
+                    table[at] = (byte)' ';
+                }
+                changed = true;
+            }
         }
         return changed;
     }
+
+    /// <summary>Bytes of „Version“, a space and „number.number“ at the start of a name (0 if it does not begin so).</summary>
+    private static int VersionPrefix(ReadOnlySpan<byte> text, bool wide)
+    {
+        var step = wide ? 2 : 1;
+        var p = 0;
+        foreach (var c in "Version ")
+        {
+            if (At(text, p, wide) != c) return 0;
+            p += step;
+        }
+        var digits = 0;
+        while (char.IsAsciiDigit(At(text, p, wide))) (p, digits) = (p + step, digits + 1);
+        if (digits == 0 || At(text, p, wide) != '.') return 0;
+        p += step;
+        digits = 0;
+        while (char.IsAsciiDigit(At(text, p, wide))) (p, digits) = (p + step, digits + 1);
+        return digits == 0 ? 0 : p;
+    }
+
+    private static char At(ReadOnlySpan<byte> text, int i, bool wide) =>
+        wide ? (i + 1 < text.Length && text[i] == 0 ? (char)text[i + 1] : ' ') : i < text.Length ? (char)text[i] : ' ';
 
     /// <summary>Notice and Copyright of every top DICT of a CFF font, in its string INDEX.</summary>
     private static bool CffNotices(Span<byte> cff)
