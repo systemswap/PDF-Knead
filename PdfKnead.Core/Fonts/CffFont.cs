@@ -20,6 +20,9 @@ public sealed class CffFont
     private readonly CffIndex _charStrings;
     private readonly CffIndex _globalSubrs;
     private readonly PrivateDict[] _privates;
+
+    /// <summary>The Font DICTs of a CIDFont that FDSelect can name: its values are Card8 (Adobe TN 5176, 19).</summary>
+    internal const int MaxFontDicts = 256;
     private readonly byte[]? _fdSelect;          // glyph → Font DICT (CID-keyed fonts)
     private Matrix?[]? _fdRelative;               // Font DICT → its own FontMatrix relative to FontMatrix (null: the same)
     private readonly string[]? _names;           // glyph → name (not CID-keyed)
@@ -195,14 +198,20 @@ public sealed class CffFont
         {
             r.Position = fdArrayOffset;
             var fdArray = CffIndex.Read(data, ref r);
-            privates = new PrivateDict[Math.Max(1, fdArray.Count)];
+            // only the Font DICTs FDSelect can name (a Card8: 256), each Private DICT read once — 65 535 Font DICTs naming the same Private
+            // DICT with 65 535 subroutines held 256 KB each, gigabytes from a font under a megabyte (docs/FEHLERGEDAECHTNIS.md, No. 1136)
+            var fdCount = Math.Min(fdArray.Count, MaxFontDicts);
+            privates = new PrivateDict[Math.Max(1, fdCount)];
+            var read = new Dictionary<(double, double), PrivateDict>();
             // FontMatrix per Font DICT (e.g. the test file text_clip_cff_cid): combined with the Top DICT matrix if the
             // Top DICT has one (as common font engines do); using only the Top DICT matrix draws such glyphs at the wrong size
             var fdMatrices = new Matrix?[privates.Length];
-            for (var i = 0; i < fdArray.Count; i++)
+            for (var i = 0; i < fdCount; i++)
             {
                 var fd = Dict.Parse(fdArray.Item(data, i));
-                privates[i] = PrivateDict.Read(data, fd);
+                var location = fd.Get(18) is { Length: 2 } at ? (at[0], at[1]) : (-1d, -1d);
+                if (!read.TryGetValue(location, out var priv)) read[location] = priv = PrivateDict.Read(data, fd);
+                privates[i] = priv;
                 if (fd.Matrix(1207) is { } sub) fdMatrices[i] = topMatrix is { } t ? sub * t : sub;
             }
             if (fdArray.Count == 0) privates[0] = PrivateDict.Empty;

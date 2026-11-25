@@ -58,4 +58,63 @@ public sealed class CffSubsetterTests
         // Without the bomb the subset succeeds: glyph 0 only
         Assert.NotEmpty(CffSubsetter.Subset(cff, [0]));
     }
+
+    /// <summary>A number as the 5-byte form of a DICT (operator 29), so that sizes are known before positions.</summary>
+    private static byte[] Five(int v) => [29, (byte)(v >> 24), (byte)(v >> 16), (byte)(v >> 8), (byte)v];
+
+    /// <summary>
+    /// Adobe TN 5176, 18 and 19: a CIDFont of about one megabyte whose FDArray holds 65 535 Font DICTs, all naming the same Private DICT with
+    /// 65 535 (empty) subroutines. FDSelect can name only 256 Font DICTs (Card8); reading, subsetting and cleaning keep at most those, and
+    /// read the shared Private DICT once — before, each Font DICT held its own offsets of the subroutines (256 KB), some 16 GB in all
+    /// (docs/FEHLERGEDAECHTNIS.md, No. 1136). The glyphs are drawn and kept as before.
+    /// </summary>
+    [Trait(TestKind.Name, TestKind.Time)]
+    [Fact]
+    public void ManyFontDictsSharingOnePrivate_StayWithinMemory()
+    {
+        const int fonts = 65_535;
+        var name = Index("CidBombe"u8.ToArray());
+        var strings = Index("Adobe"u8.ToArray(), "Identity"u8.ToArray());
+        var global = Index();
+        var charStrings = Index([14], [14]);   // two glyphs, endchar
+        byte[] fdSelect = [3, 0, 1, 0, 0, 0, 0, 2];   // format 3, one range: glyphs 0–1 → Font DICT 0, sentinel 2
+        // Private DICT: Subrs (19) at its own offset + 6; its INDEX: 65 535 empty subroutines with 1-byte offsets
+        byte[] priv = [.. Five(6), 19];
+        var subrs = new List<byte> { 0xFF, 0xFF, 1 };
+        for (var i = 0; i <= fonts; i++) subrs.Add(1);
+        // Top DICT: ROS (12 30), CharStrings (17), FDArray (12 36), FDSelect (12 37) — all offsets 5-byte numbers
+        byte[] Top(int charStringsAt, int fdArrayAt, int fdSelectAt) =>
+            [.. Five(391), .. Five(392), .. Five(0), 12, 30, .. Five(charStringsAt), 17, .. Five(fdArrayAt), 12, 36, .. Five(fdSelectAt), 12, 37];
+        var topSize = Index(Top(0, 0, 0)).Length;
+        var charStringsAt = 4 + name.Length + topSize + strings.Length + global.Length;
+        var fdSelectAt = charStringsAt + charStrings.Length;
+        var fdArrayAt = fdSelectAt + fdSelect.Length;
+        // FDArray: 65 535 Font DICTs of 11 bytes (Private: size, offset), 3-byte offsets
+        const int fdSize = 11;
+        var fdArraySize = 3 + (fonts + 1) * 3 + fonts * fdSize;
+        var privateAt = fdArrayAt + fdArraySize;
+        byte[] fd = [.. Five(priv.Length), .. Five(privateAt), 18];
+        var fdArray = new List<byte>(fdArraySize) { 0xFF, 0xFF, 3 };
+        for (var i = 0; i <= fonts; i++)
+        {
+            var o = 1 + i * fdSize;
+            fdArray.AddRange([(byte)(o >> 16), (byte)(o >> 8), (byte)o]);
+        }
+        for (var i = 0; i < fonts; i++) fdArray.AddRange(fd);
+        byte[] cff = [1, 0, 4, 4, .. name, .. Index(Top(charStringsAt, fdArrayAt, fdSelectAt)), .. strings, .. global, .. charStrings,
+                      .. fdSelect, .. fdArray, .. priv, .. subrs];
+        Assert.True(cff.Length < 1_100_000, $"{cff.Length} Bytes");
+
+        var watch = Stopwatch.StartNew();
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        var font = CffFont.Parse(cff);
+        Assert.Equal(2, font.GlyphCount);
+        Assert.NotEmpty(CffSubsetter.Subset(cff, [1]));
+        var (cleaned, keep) = CffScrubber.Scrub(cff, [1]);
+        Assert.NotEmpty(cleaned);
+        Assert.Contains(1, keep);
+        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.True(allocated < 400_000_000, $"{allocated / 1_000_000} MB angelegt");
+        Assert.True(watch.ElapsedMilliseconds < 5000 * TestKind.Factor, $"{watch.ElapsedMilliseconds} ms");
+    }
 }

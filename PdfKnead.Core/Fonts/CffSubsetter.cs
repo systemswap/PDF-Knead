@@ -45,10 +45,14 @@ internal static class CffSubsetter
         {
             r.Position = fdArrayOffset;
             var fdArray = CffFont.CffIndex.Read(data, ref r);
-            for (var i = 0; i < fdArray.Count; i++)
+            // only the Font DICTs FDSelect can name, each Private DICT read once (docs/FEHLERGEDAECHTNIS.md, No. 1136)
+            var read = new Dictionary<(double, double), (CffFont.Dict, CffFont.CffIndex)>();
+            for (var i = 0; i < Math.Min(fdArray.Count, CffFont.MaxFontDicts); i++)
             {
                 var fd = CffFont.Dict.Parse(fdArray.Item(data, i));
-                var (priv, subrs) = ReadPrivate(data, fd);
+                var location = fd.Get(18) is { Length: 2 } at ? (at[0], at[1]) : (-1d, -1d);
+                if (!read.TryGetValue(location, out var found)) read[location] = found = ReadPrivate(data, fd);
+                var (priv, subrs) = found;
                 fonts.Add((fd, priv, subrs));
             }
         }
