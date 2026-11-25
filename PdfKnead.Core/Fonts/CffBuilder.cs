@@ -24,7 +24,7 @@ internal static class CffBuilder
     {
         var charStrings = new List<byte[]> { CharString(GlyphOutline.Empty, 0) };
         foreach (var glyph in glyphs) charStrings.Add(CharString(glyph.Outline, glyph.Advance));
-        var name = new string(fontName.Where(c => c is > ' ' and < (char)127 and not ('[' or ']' or '(' or ')' or '{' or '}' or '<' or '>' or '/' or '%')).ToArray());
+        var name = new string(fontName.Where(c => c is > ' ' and < (char)127 and not ('[' or ']' or '(' or ')' or '{' or '}' or '<' or '>' or '/' or '%')).Take(127).ToArray());   // at most 127 bytes (TN 5176, 7; No. 1148)
         var names = CffSubsetter.Index([Encoding.ASCII.GetBytes(name.Length > 0 ? name : "Font")]);
         var strings = CffSubsetter.Index([.. glyphs.Select(g => Encoding.ASCII.GetBytes(g.Name))]);
         var globalSubrs = CffSubsetter.Index([]);
@@ -99,7 +99,7 @@ internal static class CffBuilder
     {
         var charStrings = new List<byte[]> { CharString(GlyphOutline.Empty, 0) };
         foreach (var glyph in glyphs) charStrings.Add(CharString(glyph.Outline, glyph.Advance));
-        var name = new string(fontName.Where(c => c is > ' ' and < (char)127 and not ('[' or ']' or '(' or ')' or '{' or '}' or '<' or '>' or '/' or '%')).ToArray());
+        var name = new string(fontName.Where(c => c is > ' ' and < (char)127 and not ('[' or ']' or '(' or ')' or '{' or '}' or '<' or '>' or '/' or '%')).Take(127).ToArray());   // at most 127 bytes (TN 5176, 7; No. 1148)
         var names = CffSubsetter.Index([Encoding.ASCII.GetBytes(name.Length > 0 ? name : "Font")]);
         var strings = CffSubsetter.Index([Encoding.ASCII.GetBytes(registry), Encoding.ASCII.GetBytes(ordering)]);
         var globalSubrs = CffSubsetter.Index([]);
@@ -271,6 +271,8 @@ internal static class CffBuilder
             }
         }
         d.Add(14);   // endchar
+        // a charstring holds at most 65 535 bytes (Adobe TN 5177, Appendix B): a longer outline is not built (No. 1148)
+        if (d.Count > 65535) throw new FontFormatException("CFF: Glyphe zu lang");
         return [.. d];
     }
 

@@ -133,8 +133,13 @@ public sealed class CffFont
     private (GlyphOutline Outline, double Width) Glyph(int glyph)
     {
         if (glyph < 0 || glyph >= GlyphCount) return (GlyphOutline.Empty, 0);
+        // a component of an accented character (seac) not through the cache: one cut at the seac limit was kept there as the glyph itself,
+        // and a glyph naming itself came out empty (Adobe TN 5177, Appendix C; No. 1148)
+        if (CharStringInterpreter.InSeac) return Build(glyph);
         if (_cache.TryGetValue(glyph, out var cached)) return cached;
-        return _cache.GetOrAdd(glyph, g =>
+        return _cache.GetOrAdd(glyph, Build);
+
+        (GlyphOutline Outline, double Width) Build(int g)
         {
             try
             {
@@ -153,7 +158,7 @@ public sealed class CffFont
             {
                 return (GlyphOutline.Empty, PrivateFor(g).DefaultWidth);
             }
-        });
+        }
     }
 
     private PrivateDict PrivateFor(int glyph) =>
@@ -168,7 +173,9 @@ public sealed class CffFont
     public static CffFont Parse(ArraySegment<byte> data)
     {
         var r = new FontReader(data);
-        r.U8();                             // major
+        // a major version other than 1 is a format this reader does not know (TN 5176, 6; CFF2 data in a "CFF " table) — before read as 1
+        // (No. 1148); the minor version may be higher
+        if (r.U8() != 1) throw new FontFormatException("CFF: unbekannte Hauptversion");
         r.U8();                             // minor
         var headerSize = r.U8();
         r.Position = headerSize;
@@ -825,6 +832,9 @@ public sealed class CffFont
 
         [ThreadStatic]
         private static int _seacDepth;
+
+        /// <summary>Whether this thread is drawing a component of an accented character.</summary>
+        internal static bool InSeac => _seacDepth > 0;
 
         private double Arg(int k) => k < _sp ? _stack[k] : 0;
 

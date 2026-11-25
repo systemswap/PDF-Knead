@@ -81,8 +81,9 @@ internal sealed class FontProgram
         {
             // broken header: treat as not embedded (substitute by name), as common PDF readers do
             if (OpenTypeFont.LooksLikeSfnt(data)) return OpenTypeFont.Parse(data) is { Broken: false } ot ? new FontProgram(ot, null, null, embedded) : null;
-            // CFF: version 1, header size 4 (or at least plausibly small)
-            if (data[0] == 1 && data[1] == 0 && data[2] is >= 4 and <= 16) return new FontProgram(null, CffFont.Parse(data), null, embedded);
+            // CFF: major version 1 with any minor version (Adobe TN 5176, 6: a higher minor version stays readable — before only 1.0, and a
+            // CFF 1.1 counted as not embedded, No. 1148), header size 4 (or at least plausibly small)
+            if (data[0] == 1 && data[2] is >= 4 and <= 16) return new FontProgram(null, CffFont.Parse(data), null, embedded);
             if (data[0] == 0x80 || data.AsSpan(0, Math.Min(data.Length, 1024)).IndexOf("%!"u8) >= 0 || data.AsSpan().IndexOf("eexec"u8) >= 0)
                 return new FontProgram(null, null, Type1Font.Parse(data), embedded);
         }
