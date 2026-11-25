@@ -182,6 +182,24 @@ public sealed partial class DocumentStructureNormTests
     /// from Latin-1 (en dash 85h, euro sign A0h, low and high double quotation marks 8Ch, 8Dh); read back to the same text. Written: a UTF-8 text
     /// string of 2.0 saved as 1.7 becomes exactly these bytes, one per character.
     /// </summary>
+    /// <summary>
+    /// Annex D, Table D.2: of the control characters PDFDocEncoding has only TAB, LF and CR; 00h–08h, 0Bh, 0Ch, 0Eh–17h and 7Fh have no
+    /// character. A text with one of them is written as UTF-16BE (before, as that byte), and a password with one is no PDFDocEncoding password
+    /// (docs/FEHLERGEDAECHTNIS.md, No. 1145).
+    /// </summary>
+    [Theory]
+    [InlineData("a\u0001b")]
+    [InlineData("a\u000Bb")]
+    [InlineData("a\u0017b")]
+    [InlineData("a\u007Fb")]
+    public void PdfDocEncoding_ControlCharactersWithoutAnEntry_WrittenAsUtf16(string text)
+    {
+        Assert.Equal([0xFE, 0xFF], PdfTextEncoding.Encode(text)[..2]);
+        Assert.Equal(text, PdfTextEncoding.Decode(PdfTextEncoding.Encode(text)));
+        Assert.Null(PdfTextEncoding.EncodeDocEncoding(text));
+        Assert.Equal(3, PdfTextEncoding.Encode("a\tb").Length);   // TAB, LF and CR stay single bytes
+    }
+
     [Fact]
     public void PdfDocEncoding_OneBytePerCharacter()
     {

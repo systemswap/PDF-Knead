@@ -150,6 +150,25 @@ public sealed class FontFileTests
             $"{bounds.Left} {bounds.Right} {bounds.Top} {bounds.Bottom}");
     }
 
+    /// <summary>
+    /// OpenType name 30.4 (name ID 6): a PostScript name holds the characters 33–126 except [](){}&lt;&gt;/% and at most 63 of them. Names for
+    /// /BaseFont are cleaned so (docs/FEHLERGEDAECHTNIS.md, No. 1145).
+    /// </summary>
+    [Fact]
+    public void PostScriptNames_ForBaseFont_OnlyAllowedCharacters()
+    {
+        // Liberation Sans with name ID 6 „Muster Schrift(1)“ (Windows, UTF-16)
+        var name = new List<byte>();
+        void U16(int v) => name.AddRange([(byte)(v >> 8), (byte)v]);
+        var text = System.Text.Encoding.BigEndianUnicode.GetBytes("Muster Schrift(1)");
+        U16(0); U16(1); U16(6 + 12);
+        U16(3); U16(1); U16(0x409); U16(6); U16(text.Length); U16(0);
+        name.AddRange(text);
+        var font = ColorFontBuilder.WithTables(EmbeddedFonts.LoadStandard("LiberationSans-Regular.ttf"), new Dictionary<string, byte[]?> { ["name"] = [.. name] });
+        var face = PdfKnead.Core.Pdf.Editing.ElementFace.For("probe-1145", () => OpenTypeFont.Parse(font), false, false, false);
+        Assert.Equal("MusterSchrift1", face.BaseName);
+    }
+
     [Fact]
     public void GlyphNames_FollowTheAdobeGlyphList()
     {

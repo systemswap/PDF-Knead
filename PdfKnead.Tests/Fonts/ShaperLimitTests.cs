@@ -42,6 +42,10 @@ public sealed class ShaperLimitTests
     internal static readonly byte[] Liberation = EmbeddedFonts.LoadStandard("LiberationSans-Regular.ttf");
 
     /// <summary>Liberation Sans with the GSUB given and without GPOS, and its glyph of „a“.</summary>
+    /// <summary>Liberation Sans with the GPOS given (under the feature „kern“) and without GSUB and the kern table.</summary>
+    internal static TextShaper WithGpos(byte[] gpos) =>
+        TextShaper.For(OpenTypeFont.Parse(ColorFontBuilder.WithTables(Liberation, new Dictionary<string, byte[]?> { ["GPOS"] = gpos, ["GSUB"] = null, ["kern"] = null })));
+
     internal static (TextShaper Shaper, int A) With(Func<int, byte[]> gsub)
     {
         var a = OpenTypeFont.Parse(Liberation).GlyphForUnicode('a');
@@ -54,17 +58,17 @@ public sealed class ShaperLimitTests
     /// the FeatureList with that feature and the lookup indices given, and the LookupList <paramref name="lookups"/> writes (offsets in it
     /// relative to its start). The parts are placed so that each starts within the 16-bit offsets of the header.
     /// </summary>
-    internal static byte[] Gsub(int langSysEntries, int[] featureLookups, Action<Table> lookups)
+    internal static byte[] Gsub(int langSysEntries, int[] featureLookups, Action<Table> lookups, string feature = "liga")
     {
         var script = new Table().U16(1).Tag("latn").U16(8)                   // one record, script at +8
             .U16(4).U16(0)                                                       // default language system at +4
             .U16(0).U16(0xFFFF).U16(langSysEntries).Repeat(langSysEntries, _ => 0);
-        var feature = new Table().U16(1).Tag("liga").U16(8)                  // one record, feature at +8
+        var featureList = new Table().U16(1).Tag(feature).U16(8)             // one record, feature at +8
             .U16(0).U16(featureLookups.Length).Repeat(featureLookups.Length, i => featureLookups[i]);
         var lookup = new Table();
         lookups(lookup);
         // a long language system goes last, else the ScriptList first
-        Table[] order = script.Length > 0x1000 ? [feature, lookup, script] : [script, feature, lookup];
+        Table[] order = script.Length > 0x1000 ? [featureList, lookup, script] : [script, featureList, lookup];
         var at = new Dictionary<Table, int>();
         var position = 10;
         foreach (var part in order)
@@ -74,7 +78,7 @@ public sealed class ShaperLimitTests
             position += part.Length;
         }
         var gsub = new List<byte>(position);
-        gsub.AddRange(new Table().U16(1).U16(0).U16(at[script]).U16(at[feature]).U16(at[lookup]).ToArray());
+        gsub.AddRange(new Table().U16(1).U16(0).U16(at[script]).U16(at[featureList]).U16(at[lookup]).ToArray());
         foreach (var part in order) gsub.AddRange(part.ToArray());
         return [.. gsub];
     }

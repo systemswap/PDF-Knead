@@ -210,6 +210,19 @@ public sealed class OpenTypeFont
     /// <summary>Glyph numbers 0 to 65 535 and the end of the last glyph.</summary>
     private const int MaxLocaEntries = 65_536;
 
+    /// <summary>
+    /// A name as a PostScript font name for /BaseFont: the characters 33–126 without [](){}&lt;&gt;/% and at most 63 of them (OpenType name,
+    /// 30.4, name ID 6) — a name of the name table, or of a font file, was taken over with spaces, brackets and any length
+    /// (docs/FEHLERGEDAECHTNIS.md, No. 1145).
+    /// </summary>
+    /// <param name="name">The name.</param>
+    /// <returns>The cleaned name; „Font“ if nothing is left.</returns>
+    internal static string PostScriptSafe(string name)
+    {
+        var kept = new string(name.Where(c => c is >= '!' and <= '~' && "[](){}<>/%".IndexOf(c) < 0).Take(63).ToArray());
+        return kept.Length > 0 ? kept : "Font";
+    }
+
     /// <summary>Ascender from hhea in font units.</summary>
     public int Ascent { get; }
 

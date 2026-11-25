@@ -55,7 +55,7 @@ public static partial class PdfTextEncoding
         {
             var c = text[i];
             if (ToDocEncoding.TryGetValue(c, out var b)) doc[i] = b;
-            else if (c <= 0xFF && !DocEncoding.ContainsKey((byte)c) && c is not ('\u009F' or '­')) doc[i] = (byte)c;
+            else if (InDocEncoding(c)) doc[i] = (byte)c;
             else return null;
         }
         return doc;
@@ -74,11 +74,19 @@ public static partial class PdfTextEncoding
         {
             var c = text[i];
             if (ToDocEncoding.TryGetValue(c, out var b)) doc[i] = b;
-            else if (c <= 0xFF && !DocEncoding.ContainsKey((byte)c) && c is not ('\u009F' or '­')) doc[i] = (byte)c;
+            else if (InDocEncoding(c)) doc[i] = (byte)c;
             else return [0xFE, 0xFF, .. Encoding.BigEndianUnicode.GetBytes(text)];
         }
         return doc;
     }
+
+    /// <summary>
+    /// Whether a character up to U+00FF has its own code in PDFDocEncoding (ISO 32000-2, Table D.2): not the codes PDFDocEncoding gives
+    /// other characters, not 9Fh and ADh, and of the control characters only TAB, LF and CR — the others (00h–08h, 0Bh, 0Ch, 0Eh–17h, 7Fh) have
+    /// no character there. Before, they were written as such bytes, which a reader may take for anything (docs/FEHLERGEDAECHTNIS.md, No. 1145).
+    /// </summary>
+    private static bool InDocEncoding(char c) =>
+        c <= 0xFF && !DocEncoding.ContainsKey((byte)c) && c is not ('\u009F' or '­' or '\u007F') && (c >= 0x20 || c is '\t' or '\n' or '\r');
 
     /// <summary>
     /// Removes language markers (ISO 32000-2, 7.9.2.2.2: ESC, a language code of two letters, optionally a country code of two letters, ESC)

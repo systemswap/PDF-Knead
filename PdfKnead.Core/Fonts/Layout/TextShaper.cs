@@ -365,7 +365,8 @@ public sealed class TextShaper
                 case 1:
                 {
                     var c = t.Coverage(sub + t.U16(sub + 2), glyph);
-                    if (c < 0) return false;
+                    // format 2: the coverage index names an entry of the substitute array (GSUB 21.4.2); other formats are not defined
+                    if (c < 0 || format is not (1 or 2) || format == 2 && c >= t.U16(sub + 4)) return false;
                     Replace(i, format == 1 ? (glyph + t.I16(sub + 4)) & 0xFFFF : t.U16(sub + 6 + c * 2));
                     return true;
                 }
@@ -453,12 +454,16 @@ public sealed class TextShaper
                     case 1:
                     {
                         var c = t.Coverage(sub + t.U16(sub + 2), glyph);
-                        if (c < 0 || c >= t.U16(sub + 4)) return false;
+                        // a NULL rule set or rule is none (Common Table Formats 2.8.2), a rule of no glyphs never matches (it holds the
+                        // first one) — before, a NULL offset read the subtable itself as rules, and a count of 0 matched (No. 1144)
+                        if (c < 0 || c >= t.U16(sub + 4) || t.U16(sub + 6 + c * 2) == 0) return false;
                         var set = sub + t.U16(sub + 6 + c * 2);
                         for (var r = 0; r < t.U16(set); r++)
                         {
+                            if (t.U16(set + 2 + r * 2) == 0) continue;
                             var rule = set + t.U16(set + 2 + r * 2);
                             int count = t.U16(rule), subs = t.U16(rule + 2);
+                            if (count == 0) continue;
                             var tt = t;
                             if (shaper.MatchContext(work, run, lookup, i, 0, None, count, (k, g) => g == tt.U16(rule + 4 + (k - 1) * 2), 0, None, out var pos))
                                 return Apply(pos, rule + 4 + (count - 1) * 2, subs, depth, out next);
@@ -468,14 +473,16 @@ public sealed class TextShaper
                     case 2:
                     {
                         if (t.Coverage(sub + t.U16(sub + 2), glyph) < 0) return false;
-                        var classDef = sub + t.U16(sub + 4);
+                        var classDef = ClassDef(sub, sub + 4);
                         var cls = t.Class(classDef, glyph);
                         if (cls >= t.U16(sub + 6) || t.U16(sub + 8 + cls * 2) == 0) return false;
                         var set = sub + t.U16(sub + 8 + cls * 2);
                         for (var r = 0; r < t.U16(set); r++)
                         {
+                            if (t.U16(set + 2 + r * 2) == 0) continue;
                             var rule = set + t.U16(set + 2 + r * 2);
                             int count = t.U16(rule), subs = t.U16(rule + 2);
+                            if (count == 0) continue;
                             var tt = t;
                             if (shaper.MatchContext(work, run, lookup, i, 0, None, count, (k, g) => tt.Class(classDef, g) == tt.U16(rule + 4 + (k - 1) * 2), 0, None, out var pos))
                                 return Apply(pos, rule + 4 + (count - 1) * 2, subs, depth, out next);
@@ -501,12 +508,14 @@ public sealed class TextShaper
                 case 1:
                 {
                     var c = t.Coverage(sub + t.U16(sub + 2), glyph);
-                    if (c < 0 || c >= t.U16(sub + 4)) return false;
+                    if (c < 0 || c >= t.U16(sub + 4) || t.U16(sub + 6 + c * 2) == 0) return false;
                     var set = sub + t.U16(sub + 6 + c * 2);
                     for (var r = 0; r < t.U16(set); r++)
                     {
+                        if (t.U16(set + 2 + r * 2) == 0) continue;
                         var rule = set + t.U16(set + 2 + r * 2);
                         var (bt, inp, la, records, subs) = ChainParts(rule);
+                        if (t.U16(inp - 2) == 0) continue;
                         var tt = t;
                         if (shaper.MatchContext(work, run, lookup, i,
                                 tt.U16(rule), (k, g) => g == tt.U16(bt + k * 2),
@@ -519,14 +528,16 @@ public sealed class TextShaper
                 case 2:
                 {
                     if (t.Coverage(sub + t.U16(sub + 2), glyph) < 0) return false;
-                    int backDef = sub + t.U16(sub + 4), inputDef = sub + t.U16(sub + 6), aheadDef = sub + t.U16(sub + 8);
+                    int backDef = ClassDef(sub, sub + 4), inputDef = ClassDef(sub, sub + 6), aheadDef = ClassDef(sub, sub + 8);
                     var cls = t.Class(inputDef, glyph);
                     if (cls >= t.U16(sub + 10) || t.U16(sub + 12 + cls * 2) == 0) return false;
                     var set = sub + t.U16(sub + 12 + cls * 2);
                     for (var r = 0; r < t.U16(set); r++)
                     {
+                        if (t.U16(set + 2 + r * 2) == 0) continue;
                         var rule = set + t.U16(set + 2 + r * 2);
                         var (bt, inp, la, records, subs) = ChainParts(rule);
+                        if (t.U16(inp - 2) == 0) continue;
                         var tt = t;
                         if (shaper.MatchContext(work, run, lookup, i,
                                 tt.U16(rule), (k, g) => tt.Class(backDef, g) == tt.U16(bt + k * 2),
@@ -557,6 +568,10 @@ public sealed class TextShaper
                     return false;
             }
         }
+
+        /// <summary>A ClassDef from its offset at <paramref name="at"/>: NULL means every glyph is of class 0 (Common Table Formats 2.6) — before,
+        /// the subtable itself was read as one (No. 1144). -1 for NULL (<see cref="TableData.Class"/> reads class 0 there).</summary>
+        private int ClassDef(int sub, int at) => T.U16(at) == 0 ? -1 : sub + T.U16(at);
 
         /// <summary>Chained rule (formats 1/2): start of the backtrack, input (from the second glyph) and lookahead sequences, and the substitution records.</summary>
         private (int Backtrack, int Input, int Lookahead, int Records, int Count) ChainParts(int rule)
@@ -663,7 +678,8 @@ public sealed class TextShaper
                 case 1:
                 {
                     var c = t.Coverage(sub + t.U16(sub + 2), glyph);
-                    if (c < 0) return false;
+                    // format 2: the coverage index names a value record (GPOS 20.4.2) — before, an index beyond them read what follows (No. 1144)
+                    if (c < 0 || format is not (1 or 2) || format == 2 && c >= t.U16(sub + 6)) return false;
                     var valueFormat = t.U16(sub + 4);
                     var value = format == 1 ? sub + 6 : sub + 8 + c * ValueSize(valueFormat);
                     AddValue(i, sub, value, valueFormat);
@@ -703,8 +719,8 @@ public sealed class TextShaper
                     }
                     if (format == 2)
                     {
-                        var class1 = t.Class(sub + t.U16(sub + 8), glyph);
-                        var class2 = t.Class(sub + t.U16(sub + 10), second);
+                        var class1 = t.Class(t.U16(sub + 8) == 0 ? -1 : sub + t.U16(sub + 8), glyph);
+                        var class2 = t.Class(t.U16(sub + 10) == 0 ? -1 : sub + t.U16(sub + 10), second);
                         int count1 = t.U16(sub + 12), count2 = t.U16(sub + 14);
                         if (class1 >= count1 || class2 >= count2) return false;
                         var at = sub + 16 + (class1 * count2 + class2) * (size1 + size2);
@@ -743,7 +759,9 @@ public sealed class TextShaper
             run[i] = g;
         }
 
-        private (int X, int Y)? Anchor(int at) => at == 0 ? null : (T.I16(at + 2), T.I16(at + 4));
+        /// <summary>An anchor (GPOS 20.4.11.2, formats 1–3: x and y; device and contour point data are not used); null for NULL or another format
+        /// (before read as coordinates, No. 1144).</summary>
+        private (int X, int Y)? Anchor(int at) => at == 0 || T.U16(at) is not (1 or 2 or 3) ? null : (T.I16(at + 2), T.I16(at + 4));
 
         /// <summary>
         /// Cursive attachment (lookup type 3, CursivePosFormat1): the exit anchor of the glyph aligned with the entry anchor of the following
@@ -760,7 +778,7 @@ public sealed class TextShaper
             var j = shaper.Next(run, lookup, i);
             if (j < 0) return false;
             var cj = t.Coverage(cov, run[j].Glyph);
-            if (cj < 0) return false;
+            if (cj < 0 || c >= t.U16(sub + 4) || cj >= t.U16(sub + 4)) return false;
             var exitAt = t.U16(sub + 6 + c * 4 + 2);
             var entryAt = t.U16(sub + 6 + cj * 4);
             if (Anchor(exitAt == 0 ? 0 : sub + exitAt) is not { } exit || Anchor(entryAt == 0 ? 0 : sub + entryAt) is not { } entry) return false;
@@ -791,7 +809,7 @@ public sealed class TextShaper
             var markRecord = markArray + 2 + markIndex * 4;
             var cls = t.U16(markRecord);
             if (cls >= classCount) return false;
-            var markAnchor = Anchor(markArray + t.U16(markRecord + 2));
+            var markAnchor = t.U16(markRecord + 2) is var markOffset and > 0 ? Anchor(markArray + markOffset) : null;
             var baseAnchorOffset = t.U16(baseArray + 2 + (baseIndex * classCount + cls) * 2);
             if (markAnchor is not { } m || baseAnchorOffset == 0 || Anchor(baseArray + baseAnchorOffset) is not { } ba) return false;
             Attach(i, b, ba, m);
@@ -838,7 +856,7 @@ public sealed class TextShaper
             var components = t.U16(attach);
             if (components == 0) return false;
             var anchorOffset = t.U16(attach + 2 + ((components - 1) * classCount + cls) * 2);
-            if (Anchor(markArray + t.U16(markRecord + 2)) is not { } m || anchorOffset == 0 || Anchor(attach + anchorOffset) is not { } la) return false;
+            if (t.U16(markRecord + 2) == 0 || Anchor(markArray + t.U16(markRecord + 2)) is not { } m || anchorOffset == 0 || Anchor(attach + anchorOffset) is not { } la) return false;
             Attach(i, b, la, m);
             return true;
         }

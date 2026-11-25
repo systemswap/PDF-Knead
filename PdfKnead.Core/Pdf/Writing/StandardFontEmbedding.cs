@@ -158,7 +158,7 @@ internal static class StandardFontEmbedding
 
         var key = file + ":" + string.Join(',', gids);
         var tag = Tag(key);
-        var fontName = PdfName.Get(tag + "+" + program.PostScriptName);
+        var fontName = PdfName.Get(tag + "+" + OpenTypeFont.PostScriptSafe(program.PostScriptName));
         var result = new PdfDictionary();
         result.Set(PdfName.Type, PdfName.Get("Font"));
         result.Set(PdfName.Subtype, PdfName.Get("TrueType"));
@@ -214,7 +214,7 @@ internal static class StandardFontEmbedding
         }
         var bytes = TrueTypeSubsetter.Rebuild(EmbeddedFonts.LoadStandard(file), advances, appended, cmap);
         var key = file + ":symbolisch:" + string.Join(',', cmap.Select(m => $"{m.Code}={m.Glyph}")) + ":" + string.Join(',', widthsOut.Select(w => w.AsNumber()));
-        var fontName = PdfName.Get(Tag(key) + "+" + program.PostScriptName);
+        var fontName = PdfName.Get(Tag(key) + "+" + OpenTypeFont.PostScriptSafe(program.PostScriptName));
         var result = new PdfDictionary();
         result.Set(PdfName.Type, PdfName.Get("Font"));
         result.Set(PdfName.Subtype, PdfName.Get("TrueType"));

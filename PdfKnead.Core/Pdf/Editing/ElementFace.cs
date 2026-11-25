@@ -34,7 +34,7 @@ public sealed class ElementFace
         var units = (double)Font.UnitsPerEm;
         Ascent = Font.Ascent / units;
         Descent = Font.Descent / units;
-        BaseName = Font.PostScriptName.Length > 0 ? Font.PostScriptName : name;
+        BaseName = OpenTypeFont.PostScriptSafe(Font.PostScriptName.Length > 0 ? Font.PostScriptName : name);
     }
 
     /// <summary>
