@@ -31,8 +31,18 @@ public sealed class CMap
     private RangeIndex? _unicodeIndex;
     private bool _identity;
 
-    /// <summary>Codespace ranges read at most (real CMaps have a handful; they are searched for every character).</summary>
+    /// <summary>Codespace ranges a written CMap has at most (No. 1141).</summary>
     internal const int MaxCodespaceRanges = 64;
+
+    /// <summary>
+    /// Codespace ranges read at most: the format allows any number of sets of 100 (Adobe TN 5014, 5.2; before 64 were read, No. 1154). An own
+    /// bound against prepared files — every code is matched against the ranges its first byte can start (<see cref="_byFirstByte"/>), and
+    /// real CMaps have a handful.
+    /// </summary>
+    internal const int MaxReadCodespaceRanges = 256;
+
+    /// <summary>Per first byte the codespace ranges it can start (built when codes are first read).</summary>
+    private int[][]? _byFirstByte;
 
     /// <summary>
     /// Longest Unicode target of a bfchar/bfrange entry (Adobe Technical Note #5411, ToUnicode Mapping File Tutorial: at most 512 bytes).
@@ -84,8 +94,7 @@ public sealed class CMap
                 case "begincodespacerange":
                     cmap.ReadPairs(ref tokens, "endcodespacerange", (lo, hi) =>
                     {
-                        // real CMaps have a handful of codespace ranges; they are searched for every character
-                        if (cmap._codespace.Count < MaxCodespaceRanges) cmap._codespace.Add((lo.Length, ToCode(lo), ToCode(hi)));
+                        if (cmap._codespace.Count < MaxReadCodespaceRanges) cmap._codespace.Add((lo.Length, ToCode(lo), ToCode(hi)));
                     });
                     break;
                 case "begincidrange":
@@ -160,7 +169,8 @@ public sealed class CMap
     internal void Include(CMap parent)
     {
         _identity |= parent._identity && _cidRanges.Count == 0 && _cidSingles.Count == 0;
-        if (_codespace.Count == 0) _codespace.AddRange(parent._codespace.Take(MaxCodespaceRanges));
+        if (_codespace.Count == 0) _codespace.AddRange(parent._codespace.Take(MaxReadCodespaceRanges));
+        _byFirstByte = null;
         _base = parent;
         foreach (var (k, v) in parent._unicodeSingles) _unicodeSingles.TryAdd(k, v);
         _unicodeRanges.AddRange(parent._unicodeRanges);
@@ -186,18 +196,21 @@ public sealed class CMap
             code = s[pos];
             return 1;
         }
+        var candidates = ByFirstByte()[s[pos]];
         for (var n = 1; n <= 4 && pos + n <= s.Length; n++)
         {
             code = code << 8 | s[pos + n - 1];
-            foreach (var range in _codespace)
-                if (range.Bytes == n && Prefix(range, s, pos, n) == n) return n;
+            foreach (var index in candidates)
+                if (_codespace[index] is var range && range.Bytes == n && Prefix(range, s, pos, n) == n) return n;
         }
         // no range matches (9.7.6.3): the length of the range with the longest partial match — the most leading bytes within its bounds,
         // of equal ones the shortest codes; if the first byte starts no range, the shortest range. Before, always the shortest range: a
         // broken two-byte code was split, and its second byte read as a code of its own (docs/FEHLERGEDAECHTNIS.md, No. 771)
+        // (only the ranges the first byte can start can match a byte at all)
         int length = 0, matched = 0;
-        foreach (var range in _codespace)
+        foreach (var index in candidates)
         {
+            var range = _codespace[index];
             var k = Prefix(range, s, pos, range.Bytes);
             if (k > matched || k == matched && k > 0 && range.Bytes < length) (matched, length) = (k, range.Bytes);
         }
@@ -206,6 +219,21 @@ public sealed class CMap
         code = 0;
         for (var i = 0; i < length; i++) code = code << 8 | s[pos + i];
         return length;
+    }
+
+    /// <summary>Per first byte the indices of the codespace ranges whose first byte bounds include it, in their order.</summary>
+    private int[][] ByFirstByte()
+    {
+        if (_byFirstByte is { } built) return built;
+        var lists = new List<int>[256];
+        for (var b = 0; b < 256; b++) lists[b] = [];
+        for (var i = 0; i < _codespace.Count; i++)
+        {
+            var (bytes, low, high) = _codespace[i];
+            var shift = 8 * (bytes - 1);
+            for (var b = (int)((low >> shift) & 0xFF); b <= (int)((high >> shift) & 0xFF); b++) lists[b].Add(i);
+        }
+        return _byFirstByte = [.. lists.Select(l => l.ToArray())];
     }
 
     /// <summary>
@@ -236,8 +264,8 @@ public sealed class CMap
         if (length is < 1 or > 4) return false;
         Span<byte> bytes = stackalloc byte[length];
         for (var i = 0; i < length; i++) bytes[i] = (byte)(code >> (8 * (length - 1 - i)));
-        foreach (var range in _codespace)
-            if (range.Bytes == length && Prefix(range, bytes, 0, length) == length) return true;
+        foreach (var index in ByFirstByte()[bytes[0]])
+            if (_codespace[index] is var range && range.Bytes == length && Prefix(range, bytes, 0, length) == length) return true;
         return false;
     }
 

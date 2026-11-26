@@ -199,7 +199,7 @@ public sealed partial class M7NormTests
     /// with two sets of 35 two-byte ranges (00xx, 02xx … 8Axx): the codes of the 65th to 70th range (80xx … 8Axx) lie in the codespace and are read
     /// as two-byte codes. The reader keeps 64 ranges (CMap.MaxCodespaceRanges); FG 1141 limited the writer to them, the reader stayed.
     /// </summary>
-    [Fact(Skip = "M7-Befund: der Leser nimmt höchstens 64 Codebereiche (CMap.MaxCodespaceRanges), der Text erlaubt beliebig viele Sätze zu 100")]
+    [Fact]
     public void Cid02_SeventyCodespaceRanges_AreAllRead()
     {
         var sets = new StringBuilder();

@@ -1268,7 +1268,7 @@ public sealed partial class M7NormTests
     /// there, the conditions are to be evaluated. A variable font with GPOS 1.1 whose condition (axis 0 from −1 to +1) includes the default
     /// instance and puts lookup 1 (A +50) in place of lookup 0 (A +10) for „kern“: at the default instance the substitute applies — A +50.
     /// </summary>
-    [Fact(Skip = "M7-Befund: FeatureVariations werden nicht ausgewertet, auch nicht, wenn die Bedingung die Standardinstanz einschließt")]
+    [Fact]
     public void Ot20_FeatureVariationsIncludingTheDefaultInstance_SubstituteApplies()
     {
         var gpos = Ot20Layout([("kern", [0])], [Ot20Lookup(1, Ot20Single1([Ot20G('A')], 4, 10)), Ot20Lookup(1, Ot20Single1([Ot20G('A')], 4, 50))],

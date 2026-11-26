@@ -344,7 +344,7 @@ public sealed partial class M7NormTests
     /// OT 32.5 sentences 1–9: post version 2.5 gives each glyph an offset into the Macintosh order — glyphs 1–3 with offset +35 should be „A“, „B“,
     /// „C“.
     /// </summary>
-    [Fact(Skip = "M7-Befund: post 2.5 (veraltet) wird nicht gelesen, die Glyphen bleiben ohne Namen (OpenTypeFont.PostNames)")]
+    [Fact]
     public void Ot32_PostVersion25_GivesMacintoshNames()
     {
         var count = Ot05Sans.Value.GlyphCount;

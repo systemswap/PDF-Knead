@@ -358,16 +358,17 @@ public sealed partial class M7NormTests
     }
 
     /// <summary>
-    /// OT 1.3 sentences 10–16: Version16Dot16 — a post table of version 2.5 (0x00025000) gives no glyph names and no exception; the PDF/A
-    /// rebuild writes post 3.0 (00 03 00 00); maxp 0.5 (0x00005000) with numGlyphs 3 gives three glyphs.
+    /// OT 1.3 sentences 10–16: Version16Dot16 — a post table of version 2.5 (0x00025000; here over the data of a 2.0 table) is read without
+    /// exception (its names: <c>Ot32_PostVersion25_GivesMacintoshNames</c>, FG 1154); the PDF/A rebuild writes post 3.0 (00 03 00 00); maxp 0.5
+    /// (0x00005000) with numGlyphs 3 gives three glyphs.
     /// </summary>
     [Fact]
     public void Ot01_Version16Dot16_PostAndMaxp()
     {
         var a = Ot02G('A');
         var post25 = OpenTypeFont.Parse(Ot01Patch(Ot01Liberation, "post", 0, 0, 2, 0x50, 0));
-        Assert.Null(post25.GlyphName(a));
-        Assert.Equal(-1, post25.GlyphByName("A"));
+        _ = post25.GlyphName(a);
+        Assert.False(post25.Outline(a).IsEmpty);
         var rebuilt = TrueTypeSubsetter.Rebuild(Ot01Liberation, new Dictionary<int, int> { [a] = 1366 }, [], null);
         Assert.Equal(new byte[] { 0, 3, 0, 0 }, Ot01Table(rebuilt, "post")[..4]);
         var maxp05 = OpenTypeFont.Parse(Ot01With(Ot01Liberation, ("maxp", [0, 0, 0x50, 0, 0, 3])));

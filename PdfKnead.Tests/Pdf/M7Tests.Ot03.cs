@@ -1029,18 +1029,21 @@ public sealed partial class M7NormTests
     }
 
     /// <summary>
-    /// OT 2.10.1 sentences 1–14, 22–34; 2.10.2 sentences 1–11; 2.10.3 sentences 1–6; 2.10.3.1 sentences 1–16; 2.10.4 sentences 1–15
-    /// (today's behaviour): FeatureVariations are not read, the feature tables of the language system apply as in a client without
-    /// support. A record substituting „liga“ (index 1) by a feature table of lookup 1 (a→y) — under an empty ConditionSet, a NULL
-    /// ConditionSet offset (both would match every instance), a condition of the unknown format 9, a format 1 condition over [−0.5, 0.5]
-    /// that holds the default instance (in a font with fvar) — leaves „liga“ with its own lookup: „a“ → „x“.
+    /// OT 2.10 / 21.2 (FG 1154): FeatureVariations count in a variable font, for its default instance (every normalized coordinate 0). A record
+    /// substituting „liga“ (index 1) by a feature table of lookup 1 (a→y): without fvar the language system's own lookup applies („a“ → „x“);
+    /// with fvar an empty ConditionSet, a NULL ConditionSet offset (both match every instance) and a format 1 condition over [−0.5, 0.5] (it
+    /// holds the default instance) substitute („a“ → „y“), a condition of the unknown format 9 does not hold („x“).
     /// </summary>
     [Theory]
-    [InlineData("leer")]
-    [InlineData("NULL")]
-    [InlineData("Format9")]
-    [InlineData("Format1")]
-    public void Ot03_FeatureVariations_AreNotRead_LanguageSystemFeatureApplies(string condition)
+    [InlineData("leer", false, "x")]
+    [InlineData("NULL", false, "x")]
+    [InlineData("Format9", false, "x")]
+    [InlineData("Format1", false, "x")]
+    [InlineData("leer", true, "y")]
+    [InlineData("NULL", true, "y")]
+    [InlineData("Format9", true, "x")]
+    [InlineData("Format1", true, "y")]
+    public void Ot03_FeatureVariations_CountForTheDefaultInstanceOfAVariableFont(string condition, bool variable, string expected)
     {
         var conditionSet = condition switch
         {
@@ -1055,9 +1058,9 @@ public sealed partial class M7NormTests
             ["GSUB"] = Ot03VariedGsub(Ot03FeatureVariations(conditionSet, 1)).Build(),
             ["GPOS"] = null,
             ["GDEF"] = null,
-            ["fvar"] = condition == "Format1" ? fvar : null,
+            ["fvar"] = variable ? fvar : null,
         });
-        Assert.Equal(Ot03Glyphs("x"), Ot03Shape(TextShaper.For(OpenTypeFont.Parse(font)), "a"));
+        Assert.Equal(Ot03Glyphs(expected), Ot03Shape(TextShaper.For(OpenTypeFont.Parse(font)), "a"));
     }
 
     /// <summary>

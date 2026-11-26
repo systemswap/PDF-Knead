@@ -554,6 +554,16 @@ public sealed class OpenTypeFont
                         names[i] = indices[i] < 258 ? FontTables.MacGlyphNames[indices[i]]
                             : indices[i] - 258 < extra.Count ? extra[indices[i] - 258] : "";
                 }
+                else if (format == 0x00025000)
+                {
+                    // version 2.5 (deprecated, OpenType 32.5): per glyph a signed offset into the standard Macintosh order — before not read,
+                    // and the glyphs had no names (docs/FEHLERGEDAECHTNIS.md, No. 1154)
+                    r.Position = post.Offset + 32;
+                    int count = r.U16();
+                    names = new string[count];
+                    for (var i = 0; i < count && r.CanRead(1); i++)
+                        names[i] = i + (sbyte)r.U8() is >= 0 and < 258 and var at ? FontTables.MacGlyphNames[at] : "";
+                }
             }
             catch (FontFormatException)
             {

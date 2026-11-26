@@ -113,9 +113,13 @@ internal sealed class LayoutTable
     /// <summary>Subtable offsets read so far, against <see cref="TableData.Length"/> / 2.</summary>
     private long _subtablesRead;
 
+    /// <summary>Feature tables replaced for the default instance (feature index → absolute offset of the alternate table).</summary>
+    private readonly Dictionary<int, int> _substitutions = [];
+
     /// <param name="data">The table data.</param>
     /// <param name="extensionType">Lookup type of extension lookups: 7 in GSUB, 9 in GPOS.</param>
-    public LayoutTable(byte[] data, int extensionType)
+    /// <param name="variable">Whether the font is a variable font (has fvar): only then its FeatureVariations count.</param>
+    public LayoutTable(byte[] data, int extensionType, bool variable = false)
     {
         T = new TableData(data);
         _extensionType = extensionType;
@@ -123,7 +127,58 @@ internal sealed class LayoutTable
         _features = T.U16(6);
         _lookups = T.U16(8);
         _cache = new Lookup?[LookupCount];
+        if (variable && T.U16(2) >= 1) ReadFeatureVariations((uint)T.U32(10));
     }
+
+    /// <summary>
+    /// FeatureVariations (OpenType 20.3, 21.2; version 1.1): the first record whose conditions the default instance meets — the instance
+    /// drawn — replaces the feature tables it names. Before not read, and a font whose variations include the default instance shaped with
+    /// the wrong tables (docs/FEHLERGEDAECHTNIS.md, No. 1154). In the default instance every normalized axis coordinate is 0: a range
+    /// condition (format 1) holds if its range includes 0; a condition of another format does not hold, and an empty set always does.
+    /// </summary>
+    private void ReadFeatureVariations(uint offset)
+    {
+        if (offset == 0 || offset > T.Length - 8) return;
+        var table = (int)offset;
+        var count = Math.Min((uint)T.U32(table + 4), (uint)(T.Length - table - 8) / 8);
+        for (var i = 0; i < count; i++)
+        {
+            var record = table + 8 + i * 8;
+            var conditions = (uint)T.U32(record);
+            var substitution = (uint)T.U32(record + 4);
+            if (conditions != 0 && !DefaultInstanceMeets(table + (long)conditions)) continue;
+            if (substitution == 0 || table + (long)substitution > T.Length - 6) return;
+            var at = table + (int)substitution;
+            if (T.U16(at) != 1) return;
+            var n = Math.Min(T.U16(at + 4), (T.Length - at - 6) / 6);
+            for (var k = 0; k < n; k++)
+            {
+                var feature = T.U16(at + 6 + k * 6);
+                var alternate = at + (long)(uint)T.U32(at + 8 + k * 6);
+                if (alternate + 4 <= T.Length) _substitutions.TryAdd(feature, (int)alternate);
+            }
+            return;
+        }
+    }
+
+    private bool DefaultInstanceMeets(long set)
+    {
+        if (set + 2 > T.Length) return false;
+        var at = (int)set;
+        var count = Math.Min(T.U16(at), (T.Length - at - 2) / 4);
+        for (var i = 0; i < count; i++)
+        {
+            var condition = at + (long)(uint)T.U32(at + 2 + i * 4);
+            if (condition + 8 > T.Length) return false;
+            var c = (int)condition;
+            // format 1: axis index, minimum and maximum (F2DOT14) — the default instance lies at 0
+            if (T.U16(c) != 1 || T.I16(c + 4) > 0 || T.I16(c + 6) < 0) return false;
+        }
+        return true;
+    }
+
+    /// <summary>The feature table of a feature record: the alternate one for the default instance, else its own.</summary>
+    private int FeatureTable(int index, int record) => _substitutions.TryGetValue(index, out var alternate) ? alternate : _features + T.U16(record + 4);
 
     public TableData T { get; }
 
@@ -219,7 +274,7 @@ internal sealed class LayoutTable
             if (index >= featureCount) continue;
             var record = _features + 2 + index * 6;
             if (!features.Contains(T.Tag(record)) && index != requiredIndex) continue;
-            var feature = _features + T.U16(record + 4);
+            var feature = FeatureTable(index, record);
             if (!read.Add(feature)) continue;
             var n = Math.Min(T.U16(feature + 2), Math.Max(0, (T.Length - feature - 4) / 2));
             if ((budget -= n) < 0) break;
@@ -241,7 +296,7 @@ internal sealed class LayoutTable
         {
             var record = _features + 2 + f * 6;
             var tag = T.Tag(record);
-            var feature = _features + T.U16(record + 4);
+            var feature = FeatureTable(f, record);
             if (!tags.TryGetValue(tag, out var types)) tags[tag] = types = [];
             // bounded like LookupsFor (No. 1137)
             if (!read.Add((tag, feature))) continue;
