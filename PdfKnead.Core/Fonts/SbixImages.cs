@@ -34,6 +34,8 @@ internal sealed class SbixImages : IGlyphImages
         if (font.Table("sbix") is not { Length: >= 8 } table) return null;
         var data = font.FileData;
         var t = new Layout.TableData(data);
+        // version 1 only (OpenType sbix 34.1; a reader does not use a version it does not know, 1.3 — No. 1149)
+        if (t.U16(table.Offset) != 1) return null;
         var (start, end) = (table.Offset, table.Offset + table.Length);
         var strikes = t.U32(start + 4);
         if (strikes <= 0) return null;

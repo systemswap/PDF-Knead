@@ -55,6 +55,8 @@ internal sealed partial class SvgPngImages : IGlyphImages
         if (font.Table("SVG ") is not { Length: >= 10 } table) return null;
         var data = font.FileData;
         var t = new Layout.TableData(data);
+        // version 0 only (OpenType SVG 35.2; No. 1149)
+        if (t.U16(table.Offset) != 0) return null;
         var end = table.Offset + table.Length;
         var list = table.Offset + (long)(uint)t.U32(table.Offset + 2);
         if (list + 2 > end) return null;

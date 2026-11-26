@@ -55,7 +55,7 @@ public sealed class OpenTypeFont
         if (Table("head") is { } head)
         {
             var h = new FontReader(data, head.Offset + 18);
-            if (h.CanRead(2))
+            if (h.CanRead(2) && head.Length >= 20)
             {
                 var units = (int)h.U16();
                 UnitsPerEm = Math.Clamp(units, 16, 16384);
@@ -64,9 +64,11 @@ public sealed class OpenTypeFont
             else Broken = true;
             h.Position = head.Offset + 50;
             // Every value other than 0 means long offsets (as in common font engines; the test file issue2537r has 256)
-            if (h.CanRead(2)) LongLoca = h.I16() != 0;
+            if (h.CanRead(2) && head.Length >= 52) LongLoca = h.I16() != 0;
         }
-        if (Table("maxp") is { } maxp && new FontReader(data, maxp.Offset + 4) is { } m && m.CanRead(2))
+        // the field only when the table holds it: checked against the file alone, a maxp of 5 bytes gave its fifth byte and the padding after
+        // it as the glyph count (docs/FEHLERGEDAECHTNIS.md, No. 1149)
+        if (Table("maxp") is { Length: >= 6 } maxp && new FontReader(data, maxp.Offset + 4) is { } m && m.CanRead(2))
             GlyphCount = m.U16();
 
         if (Table("hhea") is { } hhea && Table("hmtx") is { } hmtx)
@@ -78,7 +80,7 @@ public sealed class OpenTypeFont
                 Descent = hh.I16();
             }
             hh.Position = hhea.Offset + 34;
-            var metrics = hh.CanRead(2) ? hh.U16() : 0;
+            var metrics = hh.CanRead(2) && hhea.Length >= 36 ? hh.U16() : 0;
             metrics = Math.Min(metrics, hmtx.Length / 4);
             if (metrics > 0)
             {
@@ -137,9 +139,9 @@ public sealed class OpenTypeFont
         if (Table("OS/2") is { } os2)
         {
             var o = new FontReader(data, os2.Offset + 4);
-            if (o.CanRead(2)) WeightClass = o.U16();
+            if (o.CanRead(2) && os2.Length >= 6) WeightClass = o.U16();
             o.Position = os2.Offset + 62;
-            if (o.CanRead(2)) Selection = o.U16();
+            if (o.CanRead(2) && os2.Length >= 64) Selection = o.U16();
         }
         FamilyName = ReadName(1) ?? ReadName(4) ?? "";
         PostScriptName = ReadName(6) ?? "";

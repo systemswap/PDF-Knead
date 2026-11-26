@@ -70,9 +70,12 @@ public sealed class TextShaper
     private TextShaper(OpenTypeFont font)
     {
         _font = font;
-        if (font.TableData("GSUB") is { Length: > 10 } gsub) _gsub = new LayoutTable(gsub.ToArray(), 7);
-        if (font.TableData("GPOS") is { Length: > 10 } gpos) _gpos = new LayoutTable(gpos.ToArray(), 9);
-        if (font.TableData("GDEF") is { Length: > 10 } gdef) _gdef = new GlyphDefinitions(gdef.ToArray());
+        // only tables of major version 1: a reader does not use a major version it does not know (OpenType 1.3) — before, GSUB and GPOS of
+        // version 2 were applied (docs/FEHLERGEDAECHTNIS.md, No. 1149)
+        static bool Major1(ReadOnlySpan<byte> t) => t[0] == 0 && t[1] == 1;
+        if (font.TableData("GSUB") is { Length: > 10 } gsub && Major1(gsub)) _gsub = new LayoutTable(gsub.ToArray(), 7);
+        if (font.TableData("GPOS") is { Length: > 10 } gpos && Major1(gpos)) _gpos = new LayoutTable(gpos.ToArray(), 9);
+        if (font.TableData("GDEF") is { Length: > 10 } gdef && Major1(gdef)) _gdef = new GlyphDefinitions(gdef.ToArray());
         if (font.TableData("kern") is { Length: > 8 } kern) _kern = new TableData(kern.ToArray());
     }
 

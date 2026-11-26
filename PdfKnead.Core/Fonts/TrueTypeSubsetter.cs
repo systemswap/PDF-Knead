@@ -567,7 +567,9 @@ public static class TrueTypeSubsetter
             var tag = System.Text.Encoding.ASCII.GetString(font, at, 4);
             var offset = (long)BinaryPrimitives.ReadUInt32BigEndian(font.AsSpan(at + 8));
             var length = (long)BinaryPrimitives.ReadUInt32BigEndian(font.AsSpan(at + 12));
-            if (offset + length <= font.Length) tables[tag] = ((int)offset, (int)length);
+            // of two records with one tag the first, as the display reads it — before the last, and a subset or a cleaned font could take
+            // another table than the one shown (docs/FEHLERGEDAECHTNIS.md, No. 1149)
+            if (offset + length <= font.Length) tables.TryAdd(tag, ((int)offset, (int)length));
         }
         return tables;
     }
