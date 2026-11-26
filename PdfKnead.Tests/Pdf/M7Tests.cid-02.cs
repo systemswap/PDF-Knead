@@ -197,7 +197,7 @@ public sealed partial class M7NormTests
     /// <summary>
     /// CID 5.2 sentences 99–103, 7.4 sentences 43–52: at most 100 codespace ranges per set, as many sets as needed — any number of ranges. A CMap
     /// with two sets of 35 two-byte ranges (00xx, 02xx … 8Axx): the codes of the 65th to 70th range (80xx … 8Axx) lie in the codespace and are read
-    /// as two-byte codes. The reader keeps 64 ranges (CMap.MaxCodespaceRanges); FG 1141 limited the writer to them, the reader stayed.
+    /// as two-byte codes. Since FG 1154 the reader keeps up to 256 ranges (CMap.MaxReadCodespaceRanges); the writer stays at 64 (FG 1141).
     /// </summary>
     [Fact]
     public void Cid02_SeventyCodespaceRanges_AreAllRead()

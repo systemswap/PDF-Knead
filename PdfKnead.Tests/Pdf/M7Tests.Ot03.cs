@@ -1064,6 +1064,29 @@ public sealed partial class M7NormTests
     }
 
     /// <summary>
+    /// OT 2.10.1, 2.10.3.1 and 2.10.4 (FG 1155), in a variable font with one axis: a FeatureVariations table of major version 2 is not read
+    /// („a“ → „x“); a condition on axis 5 does not hold („x“); a first record whose substitution table has version 2 is passed over and the
+    /// second record (empty ConditionSet, „liga“ → lookup 2, a→z) applies („z“).
+    /// </summary>
+    [Fact]
+    public void Ot03_FeatureVariations_VersionsAndAxisIndexChecked()
+    {
+        var fvar = new Ot03Part().U16(1, 0, 16, 2, 1, 20, 0, 8).Tag("wght").U32(0x00640000).U32(0x01900000).U32(0x03840000).U16(0, 256).Build();
+        string Shape(Ot03Part featureVariations) => string.Join(" ", Ot03Shape(TextShaper.For(OpenTypeFont.Parse(ColorFontBuilder.WithTables(
+            ShaperLimitTests.Liberation, new Dictionary<string, byte[]?>
+            {
+                ["GSUB"] = Ot03VariedGsub(featureVariations).Build(), ["GPOS"] = null, ["GDEF"] = null, ["fvar"] = fvar,
+            }))), "a"));
+        Ot03Part Substitution(int version, int lookup) => new Ot03Part().U16(version, 0, 1).U16(1).Off32(new Ot03Part().U16(0, 1, lookup));
+        var x = string.Join(" ", Ot03Glyphs("x"));
+        Assert.Equal(x, Shape(new Ot03Part().U16(2, 0).U32(1).Off32(new Ot03Part().U16(0)).Off32(Substitution(1, 1))));
+        Assert.Equal(x, Shape(new Ot03Part().U16(1, 0).U32(1).Off32(new Ot03Part().U16(1).Off32(new Ot03Part().U16(1, 5, 0xE000, 0x2000)))
+            .Off32(Substitution(1, 1))));
+        Assert.Equal(string.Join(" ", Ot03Glyphs("z")), Shape(new Ot03Part().U16(1, 0).U32(2).Off32(new Ot03Part().U16(0)).Off32(Substitution(2, 1))
+            .Off32(new Ot03Part().U16(0)).Off32(Substitution(1, 2))));
+    }
+
+    /// <summary>
     /// OT 2.10.1 sentences 15–21 (today's behaviour): a FeatureVariations table claiming 0xFFFFFFFF records and cut off after its count
     /// at the end of the GSUB — no exception, the lookups of the language system apply: „a“ → „x“.
     /// </summary>

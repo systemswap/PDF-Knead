@@ -118,8 +118,8 @@ internal sealed class LayoutTable
 
     /// <param name="data">The table data.</param>
     /// <param name="extensionType">Lookup type of extension lookups: 7 in GSUB, 9 in GPOS.</param>
-    /// <param name="variable">Whether the font is a variable font (has fvar): only then its FeatureVariations count.</param>
-    public LayoutTable(byte[] data, int extensionType, bool variable = false)
+    /// <param name="axisCount">The axes of a variable font (fvar), 0 for another font: only in a variable font its FeatureVariations count.</param>
+    public LayoutTable(byte[] data, int extensionType, int axisCount = 0)
     {
         T = new TableData(data);
         _extensionType = extensionType;
@@ -127,8 +127,11 @@ internal sealed class LayoutTable
         _features = T.U16(6);
         _lookups = T.U16(8);
         _cache = new Lookup?[LookupCount];
-        if (variable && T.U16(2) >= 1) ReadFeatureVariations((uint)T.U32(10));
+        _axisCount = axisCount;
+        if (axisCount > 0 && T.U16(2) >= 1) ReadFeatureVariations((uint)T.U32(10));
     }
+
+    private readonly int _axisCount;
 
     /// <summary>
     /// FeatureVariations (OpenType 20.3, 21.2; version 1.1): the first record whose conditions the default instance meets — the instance
@@ -140,6 +143,8 @@ internal sealed class LayoutTable
     {
         if (offset == 0 || offset > T.Length - 8) return;
         var table = (int)offset;
+        // major version 1 only (OpenType 2.10.1; No. 1155)
+        if (T.U16(table) != 1) return;
         var count = Math.Min((uint)T.U32(table + 4), (uint)(T.Length - table - 8) / 8);
         for (var i = 0; i < count; i++)
         {
@@ -149,7 +154,8 @@ internal sealed class LayoutTable
             if (conditions != 0 && !DefaultInstanceMeets(table + (long)conditions)) continue;
             if (substitution == 0 || table + (long)substitution > T.Length - 6) return;
             var at = table + (int)substitution;
-            if (T.U16(at) != 1) return;
+            // a substitution table of a version this reader does not know: its record is passed over (No. 1155; before the search ended)
+            if (T.U16(at) != 1) continue;
             var n = Math.Min(T.U16(at + 4), (T.Length - at - 6) / 6);
             for (var k = 0; k < n; k++)
             {
@@ -171,8 +177,9 @@ internal sealed class LayoutTable
             var condition = at + (long)(uint)T.U32(at + 2 + i * 4);
             if (condition + 8 > T.Length) return false;
             var c = (int)condition;
-            // format 1: axis index, minimum and maximum (F2DOT14) — the default instance lies at 0
-            if (T.U16(c) != 1 || T.I16(c + 4) > 0 || T.I16(c + 6) < 0) return false;
+            // format 1: axis index, minimum and maximum (F2DOT14) — the default instance lies at 0; an axis the font does not have holds no
+            // condition (2.10.4; No. 1155)
+            if (T.U16(c) != 1 || T.U16(c + 2) >= _axisCount || T.I16(c + 4) > 0 || T.I16(c + 6) < 0) return false;
         }
         return true;
     }

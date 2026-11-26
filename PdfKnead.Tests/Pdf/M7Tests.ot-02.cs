@@ -425,11 +425,12 @@ public sealed partial class M7NormTests
 
     /// <summary>
     /// OT 2.1 sentences 18–19, OT 2.2 sentences 11–14, OT 2.3 sentences 25–28 and OT 1.3 sentences 19–22: a GSUB 1.1 whose FeatureVariations
-    /// replace „liga“ (lookup 0, a→b) by lookup 1 (a→c) under a condition that includes the default instance — PDF-Knead chooses no instance and
-    /// reads the 1.0 fields only: the lookups of the feature table itself ([0], as in GSUB 1.0), „a“ becomes b.
+    /// replace „liga“ (lookup 0, a→b) by lookup 1 (a→c) under a condition that includes the default instance — in a font without fvar (not a
+    /// variable font) FeatureVariations do not count (FG 1154): the lookups of the feature table itself ([0], as in GSUB 1.0), „a“ becomes b.
+    /// (In a variable font: <c>Ot03_FeatureVariations_CountForTheDefaultInstanceOfAVariableFont</c>.)
     /// </summary>
     [Fact]
-    public void Ot02_FeatureVariations_AreNotRead_TheFeatureTableApplies()
+    public void Ot02_FeatureVariations_InAFontWithoutFvar_TheFeatureTableApplies()
     {
         int a = Ot02G('a'), b = Ot02G('b'), c = Ot02G('c');
         Ot02Script[] scripts = [new("latn", new Ot02Lang("", [0]))];
