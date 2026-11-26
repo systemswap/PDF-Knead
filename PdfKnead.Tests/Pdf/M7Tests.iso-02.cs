@@ -220,6 +220,55 @@ public sealed partial class M7NormTests
         }
     }
 
+    /// <summary>
+    /// 9.6.4 sentences 38–40 (writer, FG 1166): a Type 3 font in a tagged file has a font descriptor — saving a tagged file whose Type 3 font
+    /// has none adds one, indirect, with /FontName (from /Name), /Flags (symbolic), the font's /FontBBox and /ItalicAngle 0; an untagged file
+    /// stays as it was.
+    /// </summary>
+    [Fact]
+    public void Iso02_Type3InTaggedFile_SavedWithADescriptor_UntaggedUnchanged()
+    {
+        byte[] File(bool tagged)
+        {
+            var pdf = new TestPdf();
+            var pagesNumber = pdf.Add(new PdfDictionary());
+            var pageNumber = pdf.Add(new PdfDictionary());
+            var rootNumber = pdf.Add(new PdfDictionary());
+            var document = pdf.Add(TestPdf.Dict(("Type", TestPdf.N("StructElem")), ("S", TestPdf.N("Document")), ("P", TestPdf.Ref(rootNumber))));
+            pdf.Replace(rootNumber, TestPdf.Dict(("Type", TestPdf.N("StructTreeRoot")), ("K", TestPdf.Ref(document))));
+            var font = Type3Iso02(pdf, 97, [1000], [(97, "a")], [("a", SquareD0Iso02)], box: [0, -100, 900, 800]);
+            font.Set(PdfName.Get("Name"), TestPdf.N("Probe3"));
+            pdf.Replace(pageNumber, TestPdf.Dict(("Type", TestPdf.N("Page")), ("Parent", TestPdf.Ref(pagesNumber)), ("MediaBox", TestPdf.Box(0, 0, 200, 200)),
+                ("Resources", TestPdf.Dict(("Font", TestPdf.Dict(("F", TestPdf.Ref(pdf.Add(font))))))),
+                ("Contents", TestPdf.Ref(pdf.Add(TestPdf.FlateStream("/Artifact BMC BT /F 10 Tf 10 10 Td (a) Tj ET EMC"u8.ToArray()))))));
+            pdf.Replace(pagesNumber, TestPdf.Dict(("Type", TestPdf.N("Pages")), ("Kids", new PdfArray { TestPdf.Ref(pageNumber) }), ("Count", PdfInteger.Of(1))));
+            var catalog = TestPdf.Dict(("Type", TestPdf.N("Catalog")), ("Pages", TestPdf.Ref(pagesNumber)));
+            if (tagged)
+            {
+                catalog.Set(PdfName.Get("MarkInfo"), TestPdf.Dict(("Marked", PdfBoolean.Of(true))));
+                catalog.Set(PdfName.Get("StructTreeRoot"), TestPdf.Ref(rootNumber));
+            }
+            pdf.RootNumber = pdf.Add(catalog);
+            return pdf.Build();
+        }
+        PdfDictionary Font(PdfDocument doc) => (PdfDictionary)doc.Pages[0].Resources!.GetDictionary(PdfName.Get("Font"))!.Get(PdfName.Get("F"))!;
+
+        using (var saved = DocumentStructureNormTests.Saved(File(tagged: true)))
+        {
+            var font = Font(saved);
+            Assert.IsType<PdfReference>(font.GetRaw(PdfName.Get("FontDescriptor")));
+            var descriptor = font.GetDictionary(PdfName.Get("FontDescriptor"))!;
+            Assert.Equal("FontDescriptor", descriptor.GetName(PdfName.Type)?.Value);
+            Assert.Equal("Probe3", descriptor.GetName(PdfName.Get("FontName"))?.Value);
+            Assert.Equal(4, descriptor.GetInteger(PdfName.Get("Flags")));
+            Assert.Equal(new double[] { 0, -100, 900, 800 },
+                Enumerable.Range(0, 4).Select(i => descriptor.GetArray(PdfName.Get("FontBBox"))!.Get(i)!.AsNumber()!.Value).ToArray());
+            Assert.Equal(0, descriptor.GetNumber(PdfName.Get("ItalicAngle")));
+        }
+        using (var saved = DocumentStructureNormTests.Saved(File(tagged: false)))
+            Assert.False(Font(saved).ContainsKey(PdfName.Get("FontDescriptor")));
+    }
+
     /// <summary>9.6.4 sentence 34: a code outside FirstChar to LastChar has width 0 — /FirstChar 97 /LastChar 97, code 98 with a glyph: width 0.</summary>
     [Fact]
     public void Iso02_Type3CodeOutsideFirstLast_WidthZero()

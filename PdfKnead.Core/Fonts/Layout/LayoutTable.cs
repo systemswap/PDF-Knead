@@ -326,6 +326,9 @@ internal sealed class GlyphDefinitions(byte[] data)
 {
     private readonly TableData _t = new(data);
 
+    /// <summary>Whether the table has a GlyphClassDef; without one the shaper derives the classes itself (OpenType 18.1).</summary>
+    public bool HasGlyphClasses => _t.U16(4) > 0;
+
     public int GlyphClass(int glyph) => _t.U16(4) is var offset and > 0 ? _t.Class(offset, glyph) : 0;
 
     public int MarkAttachClass(int glyph) => _t.U16(10) is var offset and > 0 ? _t.Class(offset, glyph) : 0;
@@ -339,17 +342,47 @@ internal sealed class GlyphDefinitions(byte[] data)
     }
 
     /// <summary>Whether a lookup with these flags skips the glyph.</summary>
-    public bool Skips(Lookup lookup, int glyph)
+    public bool Skips(Lookup lookup, int glyph) => Skips(this, lookup, glyph, GlyphClass(glyph));
+
+    /// <summary>
+    /// Whether a lookup with these flags skips a glyph of class <paramref name="cls"/> (from GlyphClassDef, or derived by the shaper when the font
+    /// has none). Mark attachment classes and mark glyph sets come from <paramref name="gdef"/>; without it a mark is in no class and no set.
+    /// </summary>
+    public static bool Skips(GlyphDefinitions? gdef, Lookup lookup, int glyph, int cls)
     {
         var flag = lookup.Flag;
         if ((flag & 0xFF0E) == 0 && lookup.MarkFilteringSet < 0) return false;
-        var cls = GlyphClass(glyph);
         if (cls == 1 && (flag & 0x2) != 0) return true;
         if (cls == 2 && (flag & 0x4) != 0) return true;
         if (cls != 3) return false;
         if ((flag & 0x8) != 0) return true;
-        if (lookup.MarkFilteringSet >= 0) return !InMarkSet(lookup.MarkFilteringSet, glyph);
+        if (lookup.MarkFilteringSet >= 0) return gdef is null || !gdef.InMarkSet(lookup.MarkFilteringSet, glyph);
         var attach = flag >> 8;
-        return attach != 0 && MarkAttachClass(glyph) != attach;
+        return attach != 0 && (gdef?.MarkAttachClass(glyph) ?? 0) != attach;
+    }
+
+    /// <summary>
+    /// The caret values of a ligature in the LigCaretList (OpenType 18.2.4): its LigGlyph table must hold exactly <paramref name="count"/> carets
+    /// (one fewer than its components), each of format 1 or 3 (a coordinate; the device or variation data of format 3 are not used — the
+    /// default instance at no particular resolution) or 2 (a contour point, returned as its index). Null for a glyph without carets, another
+    /// number of them, a NULL offset or an unknown format. The count asked for bounds what is read.
+    /// </summary>
+    public (int Format, int Value)[]? LigatureCarets(int glyph, int count)
+    {
+        var list = _t.U16(8);
+        if (list == 0 || count <= 0 || _t.U16(list) == 0) return null;
+        var index = _t.Coverage(list + _t.U16(list), glyph);
+        if (index < 0 || index >= _t.U16(list + 2) || _t.U16(list + 4 + index * 2) is not (var offset and > 0)) return null;
+        var ligGlyph = list + offset;
+        if (_t.U16(ligGlyph) != count) return null;
+        var carets = new (int Format, int Value)[count];
+        for (var k = 0; k < count; k++)
+        {
+            if (_t.U16(ligGlyph + 2 + k * 2) is not (var at and > 0)) return null;
+            var format = _t.U16(ligGlyph + at);
+            if (format is not (1 or 2 or 3)) return null;
+            carets[k] = (format, format == 2 ? _t.U16(ligGlyph + at + 2) : _t.I16(ligGlyph + at + 2));
+        }
+        return carets;
     }
 }

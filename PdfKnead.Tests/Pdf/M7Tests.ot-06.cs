@@ -235,6 +235,8 @@ public sealed partial class M7NormTests
         public bool PrivateOutside { get; init; }
         public int Operands { get; init; }
         public int UnitsPerEm { get; init; } = 2048;
+        /// <summary>Each glyph after the square calls local subroutine 0 of its Font DICT (Font DICT 0: „0 100 rlineto“, 1: „100 0 rlineto“).</summary>
+        public bool CallLocalSubr { get; init; }
     }
 
     /// <summary>
@@ -268,7 +270,7 @@ public sealed partial class M7NormTests
         }
 
         // charstrings: a square of 100 units (50 50 rmoveto 100 0 rlineto 0 100 rlineto), the first one with Operands numbers before it
-        byte[] square = [189, 189, 21, 239, 139, 5, 139, 239, 5];
+        byte[] square = o.CallLocalSubr ? [189, 189, 21, 239, 139, 5, 139, 239, 5, 32, 10] : [189, 189, 21, 239, 139, 5, 139, 239, 5];
         var charStrings = new List<byte[]> { Array.Empty<byte>() };
         for (var g = 1; g < o.Glyphs; g++)
             charStrings.Add(g == 1 && o.Operands > 0 ? [.. Enumerable.Repeat((byte)140, o.Operands), 5, .. square] : square);
@@ -369,8 +371,15 @@ public sealed partial class M7NormTests
         return TrueTypeSubsetter.Assemble(tables);
     }
 
-    /// <summary>What every reading of an OpenType font with only CFF2 gives today: no CFF, not intact, no outlines, the matrix from head.</summary>
-    internal static void Ot06AssertCff2NotRead(byte[] file, int unitsPerEm = 2048)
+    /// <summary>The square every glyph after .notdef of <see cref="Ot06Cff2"/> draws.</summary>
+    internal const string Ot06Square = "50 50 rmoveto 100 0 rlineto 0 100 rlineto";
+
+    /// <summary>
+    /// What every reading of an OpenType font with only CFF2 gives now (question 1, docs/FEHLERGEDAECHTNIS.md, No. 1158): no 'CFF ', not intact
+    /// (a strict PDF reader knows no CFF2), not broken, glyph 0 empty, every other glyph the square (glyph 1 <paramref name="first"/> if given),
+    /// the matrix of the Top DICT or, without one, from head; the redaction keeping every glyph draws them as before in a static CFF2 table.
+    /// </summary>
+    internal static void Ot06AssertCff2Read(byte[] file, int unitsPerEm = 2048, Matrix? matrix = null, string? first = null)
     {
         Assert.Equal("OTTO"u8.ToArray(), file[..4]);
         var font = OpenTypeFont.Parse(file);
@@ -378,8 +387,14 @@ public sealed partial class M7NormTests
         Assert.Null(font.Cff);
         Assert.False(font.Intact);
         Assert.False(font.Broken);
-        for (var g = 0; g < Math.Max(2, font.GlyphCount); g++) Assert.True(font.Outline(g).IsEmpty);
-        Assert.Equal(Matrix.Scale(1.0 / unitsPerEm, 1.0 / unitsPerEm), font.FontMatrix);
+        Assert.True(font.Outline(0).IsEmpty);
+        for (var g = 1; g < font.GlyphCount; g++) SameOutlineOt08(ReferenceOt08(g == 1 && first is not null ? first : Ot06Square), font.Outline(g), $"Glyphe {g}");
+        Assert.Equal(matrix ?? Matrix.Scale(1.0 / unitsPerEm, 1.0 / unitsPerEm), font.FontMatrix);
+        var all = Enumerable.Range(0, font.GlyphCount).ToArray();
+        var scrubbed = OpenTypeFont.Parse(TrueTypeSubsetter.Scrub(file, all));
+        foreach (var g in all) SameOutlineOt08(font.Outline(g), scrubbed.Outline(g), $"bereinigt, Glyphe {g}");
+        Assert.Equal(font.FontMatrix, scrubbed.FontMatrix);
+        AssertStaticCff2Ot08(scrubbed);
     }
 
     // ------------------------------------------------------------ OT 5 CBDT
@@ -468,17 +483,17 @@ public sealed partial class M7NormTests
     }
 
     /// <summary>
-    /// OT 5.4 sentences 1–5 (reader): colour glyphs are set horizontally only — a strike flagged vertical (0x02) reads its format 17 metrics as
-    /// the horizontal ones, and the vertical bearings of format 18 change nothing.
+    /// OT 5.4 sentences 1–5 (reader): colour glyphs are set horizontally only, and the flags say which direction small metrics describe — a
+    /// strike flagged horizontal (0x01) places its format 17 image by them, one flagged vertical only (0x02) gives no image for horizontal text
+    /// (FG 1160; before read as horizontal); the vertical bearings of format 18 change nothing.
     /// </summary>
     [Fact]
-    public void Cbdt_VerticalMetricsAndFlagsNotUsed()
+    public void Cbdt_SmallMetricsFollowTheFlags_BigMetricsHorizontal()
     {
         var png = Ot06Png(8, 8);
         var horizontal = ColorGlyphs.For(Ot06ColorFont([new Ot06Strike(96, 96, 32, 1, 1, 17, Ot06Format17(png, 8, 8, 2, 7))]))!.Glyph(Ot06M)!.Value;
-        var vertical = ColorGlyphs.For(Ot06ColorFont([new Ot06Strike(96, 96, 32, 2, 1, 17, Ot06Format17(png, 8, 8, 2, 7))]))!.Glyph(Ot06M)!.Value;
         Assert.Equal((2, 7 - 8), (horizontal.X, horizontal.Y));
-        Assert.Equal((horizontal.X, horizontal.Y), (vertical.X, vertical.Y));
+        Assert.Null(ColorGlyphs.For(Ot06ColorFont([new Ot06Strike(96, 96, 32, 2, 1, 17, Ot06Format17(png, 8, 8, 2, 7))]))!.Glyph(Ot06M));
         var plain = ColorGlyphs.For(Ot06ColorFont([new Ot06Strike(96, 96, 32, 1, 1, 18, Ot06Format18(png, 8, 8, 2, 7, 0, 0))]))!.Glyph(Ot06M)!.Value;
         var bearings = ColorGlyphs.For(Ot06ColorFont([new Ot06Strike(96, 96, 32, 1, 1, 18, Ot06Format18(png, 8, 8, 2, 7, 5, 9))]))!.Glyph(Ot06M)!.Value;
         Assert.Equal((plain.X, plain.Y), (bearings.X, bearings.Y));
@@ -645,19 +660,20 @@ public sealed partial class M7NormTests
         Assert.False(font.Outline(11).IsEmpty);
     }
 
-    // ------------------------------------------------------------ OT 8 CFF2 (not read)
+    // ------------------------------------------------------------ OT 8 CFF2
 
     /// <summary>
-    /// OT 8.1 sentences 1–13, 8.2 sentences 1–14 and 29–53, 8.3.1, 8.3.2 sentences 1–37, 8.4, 8.4.1 sentences 20–30, 8.5.1 and 8.5.2 (reader,
-    /// today's behaviour, question 1): CFF2 is not read — an OpenType font with a CFF2 table in place of 'CFF ' (header, TopDICT,
-    /// GlobalSubrINDEX, CharStringINDEX, FontDICTINDEX, PrivateDICT): no CFF, not intact, every outline empty, the matrix from head. With a
-    /// VariationStore (8.2 sentences 15–28) and with a charstring of 100 operands before one operator (8.4.1 sentences 1–19) the same.
+    /// OT 8.1 sentences 1–13, 8.2 sentences 1–14 and 29–53, 8.3.1, 8.3.2 sentences 1–37, 8.4, 8.4.1 sentences 20–30, 8.5.1 and 8.5.2 (reader and
+    /// redaction, question 1): CFF2 is read in the default instance — an OpenType font with a CFF2 table in place of 'CFF ' (header, TopDICT,
+    /// GlobalSubrINDEX, CharStringINDEX, FontDICTINDEX, PrivateDICT) draws its squares, the matrix from head (no FontMatrix in the Top DICT);
+    /// with a VariationStore (8.2 sentences 15–28) the same, and a charstring of 100 operands before one rlineto (8.4.1 sentences 1–19: the
+    /// stack holds 513) draws its 50 lines before the square; the redaction writes it as a static CFF2 table.
     /// </summary>
     [Theory]
     [InlineData("einfach")]
     [InlineData("VariationStore")]
     [InlineData("100 Operanden")]
-    public void Cff2Font_IsNotRead(string variant)
+    public void Cff2Font_IsReadInTheDefaultInstance(string variant)
     {
         var options = variant switch
         {
@@ -669,12 +685,12 @@ public sealed partial class M7NormTests
         var file = variant == "VariationStore"
             ? Ot06Cff2Font(Ot06Cff2(options), 2, 2048, ("fvar", fvar), ("gvar", gvar))
             : Ot06Cff2Font(Ot06Cff2(options), 2);
-        Ot06AssertCff2NotRead(file);
+        Ot06AssertCff2Read(file, first: variant == "100 Operanden" ? string.Concat(Enumerable.Repeat("1 1 rlineto ", 50)) + Ot06Square : null);
     }
 
     /// <summary>
-    /// OT 8.2 sentences 10–14 and 8.6 sentences 1–7 (reader, today's behaviour): a bare CFF2 program (header 02 00 05 …) as FontFile3 is not
-    /// recognised — <see cref="FontProgram.FromBytes"/> gives null and the font is substituted.
+    /// OT 8.2 sentences 10–14 and 8.6 sentences 1–7 (reader): a bare CFF2 program (header 02 00 05 …) as FontFile3 is not recognised — ISO 32000-2,
+    /// 9.9 knows CFF2 in no FontFile3 subtype (only within OpenType), <see cref="FontProgram.FromBytes"/> gives null and the font is substituted.
     /// </summary>
     [Fact]
     public void Cff2Program_AloneAsFontFile3_IsNotRecognised()
@@ -685,13 +701,14 @@ public sealed partial class M7NormTests
     }
 
     /// <summary>
-    /// OT 8.1 sentences 1–13 (writer, today's behaviour): a program with only CFF2 is not scrubbed — embedded as FontFile3 /OpenType in a
-    /// TrueType font and one of its two letters redacted, the text goes and the program stays byte for byte.
+    /// OT 8.1 sentences 1–13 (writer, question 1): a program with only CFF2 is scrubbed — embedded as FontFile3 /OpenType in a TrueType font and
+    /// one of its two letters redacted, the text goes, and in the program the glyph of „B“ is empty while „A“ draws its square as before, in a
+    /// static CFF2 table (before, the program stayed byte for byte with the glyph of the redacted text).
     /// </summary>
     [Fact]
-    public void Cff2Font_Embedded_RedactionLeavesTheProgramUnchanged()
+    public void Cff2Font_Embedded_RedactionScrubsTheProgram()
     {
-        var program = Ot06Cff2Font(Ot06Cff2(new Ot06Cff2Options { Glyphs = 3 }), 3);
+        var program = Cff2FontOt08(Ot06Cff2(new Ot06Cff2Options { Glyphs = 3 }), 3);
         var pdf = TestPdf.Simple(1);
         var file = pdf.Add(new PdfStream(TestPdf.Dict(("Subtype", TestPdf.N("OpenType"))), program));
         var descriptor = pdf.Add(TestPdf.Dict(("Type", TestPdf.N("FontDescriptor")), ("FontName", TestPdf.N("M7Probe")), ("Flags", PdfInteger.Of(32)),
@@ -708,7 +725,12 @@ public sealed partial class M7NormTests
         Assert.Equal("A", RedactionTests.Read(after, after.Pages[0]).Text);
         var stream = after.Pages[0].Resources!.GetDictionary(PdfName.Get("Font"))!.GetDictionary(PdfName.Get("F1"))!
             .GetDictionary(PdfName.Get("FontDescriptor"))!.GetStream(PdfName.Get("FontFile3"))!;
-        Assert.Equal(program, after.GetStreamData(stream));
+        var data = after.GetStreamData(stream);
+        Assert.NotEqual(program, data);
+        var scrubbed = OpenTypeFont.Parse(data);
+        SameOutlineOt08(ReferenceOt08(Ot06Square), scrubbed.Outline(1), "A");
+        Assert.True(scrubbed.Outline(2).IsEmpty);
+        AssertStaticCff2Ot08(scrubbed);
     }
 
     // ------------------------------------------------------------ OT 8.3.2 real numbers (CFF 1)

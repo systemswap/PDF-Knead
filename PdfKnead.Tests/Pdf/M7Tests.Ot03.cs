@@ -264,14 +264,15 @@ public sealed partial class M7NormTests
     }
 
     /// <summary>
-    /// OT 2.8 sentences 4 and 19 (today's behaviour; open question GPOS 7/8): contextual (type 7) and chained contextual (type 8)
-    /// positioning are passed over by the shaper. „kern“ names only a type 7 or 8 lookup (input {A}, lookahead {V} for type 8, record
-    /// (0 → single positioning XAdvance −200)): „AV“ keeps the widths it has with „-kern“, while the nested lookup alone would act.
+    /// OT 2.8 sentences 4 and 19: contextual (type 7) and chained contextual (type 8) positioning apply their nested lookups like the GSUB
+    /// contexts. „kern“ names only a type 7 or 8 lookup (input {A}, lookahead {V} for type 8, record (0 → single positioning XAdvance −200)):
+    /// „AV“ takes the −200 the nested lookup gives when named directly, with „-kern“ it keeps its widths (docs/FEHLERGEDAECHTNIS.md, No. 1161;
+    /// before both types were passed over).
     /// </summary>
     [Theory]
     [InlineData(7)]
     [InlineData(8)]
-    public void Ot03_ContextualPositioningTypes7And8_ArePassedOverToday(int type)
+    public void Ot03_ContextualPositioningTypes7And8_ApplyTheirNestedLookups(int type)
     {
         int a = Ot03G('A'), v = Ot03G('V');
         var context = type == 7
@@ -279,8 +280,8 @@ public sealed partial class M7NormTests
             : new Ot03Part().U16(3, 0, 1).Off(Ot03Cov(a)).U16(1).Off(Ot03Cov(v)).U16(1, 0, 1);
         var single = Ot03Lookup(1, 0, new Ot03Part().U16(1).Off(Ot03Cov(a)).U16(4, -200));
         var shaper = Ot03GposShaper(Ot03Header([Ot03Lookup(type, 0, context), single], [("kern", [0])]));
-        Assert.Equal(shaper.Shape("AV", ["-kern"])[0].XAdvance, shaper.Shape("AV")[0].XAdvance);
-        Assert.Equal(Ot03Font.AdvanceWidth(a), shaper.Shape("AV")[0].XAdvance);
+        Assert.Equal(Ot03Font.AdvanceWidth(a), shaper.Shape("AV", ["-kern"])[0].XAdvance);
+        Assert.Equal(Ot03Font.AdvanceWidth(a) - 200, shaper.Shape("AV")[0].XAdvance);
         var direct = Ot03GposShaper(Ot03Header([Ot03Lookup(type, 0, context), single], [("kern", [1])]));
         Assert.Equal(Ot03Font.AdvanceWidth(a) - 200, direct.Shape("AV")[0].XAdvance);
     }

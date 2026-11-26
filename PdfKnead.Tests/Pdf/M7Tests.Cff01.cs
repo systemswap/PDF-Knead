@@ -707,17 +707,20 @@ public sealed partial class M7NormTests
         Assert.False(font.Outline(1).IsEmpty);
     }
 
-    /// <summary>TN 5176, 10 sentence 13: a scrubbed font whose kept glyphs have standard names only, without Notice, has the empty String INDEX 00 00.</summary>
+    /// <summary>
+    /// TN 5176, 10 sentence 13: a scrubbed font whose glyphs have standard names only, without Notice, has the empty String INDEX 00 00 — the
+    /// custom string no glyph names leaves it. (A removed glyph would bring its neutral name as a custom string, question 9.)
+    /// </summary>
     [Fact]
     public void Cff01_ScrubbedWithStandardNamesOnly_EmptyStringIndex()
     {
         var cff = Cff01Build(new Cff01Spec
         {
             Strings = ["eigener"],
-            Charset = [0, 0, 34, 0x01, 0x87],   // glyph 1 "A" (SID 34), glyph 2 the custom string
+            Charset = [0, 0, 34, 0, 35],   // glyph 1 "A" (SID 34), glyph 2 "B" (SID 35); the custom string names no glyph
             CharStrings = [[14], Cff01Cs(0, 0, "rmoveto", 10, 0, "rlineto", "endchar"), Cff01Cs(0, 0, "rmoveto", 0, 10, "rlineto", "endchar")],
         });
-        var scrubbed = CffScrubber.Scrub(cff, [1]).Data;
+        var scrubbed = CffScrubber.Scrub(cff, [1, 2]).Data;
         Assert.Empty(Cff01Parts(scrubbed).Strings);
         var at = Cff01Parts(scrubbed).GlobalAt;
         Assert.Equal(new byte[] { 0, 0 }, scrubbed[(at - 2)..at]);
@@ -943,5 +946,141 @@ public sealed partial class M7NormTests
         var r = new FontReader(valid);
         var index = CffFont.CffIndex.Read(valid, ref r);
         Assert.Equal([0x41], index.Item(valid, 0).ToArray());
+    }
+
+    // ------------------------------------------------------------ CFF 11 sentence 3: unique names and CIDs after scrubbing (question 9)
+
+    /// <summary>The Font DICT index FDSelect (format 0, as the scrubber writes it) gives a glyph of a CID-keyed CFF.</summary>
+    private static int Cff01FdOf(byte[] cff, int glyph)
+    {
+        var at = Cff01Top(cff).Int(1237)!.Value;
+        Assert.Equal(0, cff[at]);
+        return cff[at + 1 + glyph];
+    }
+
+    /// <summary>
+    /// TN 5176, 11 sentences 1–4 (redaction, question 9, docs/FEHLERGEDAECHTNIS.md, No. 1158): the names in the charset are unique — the scrubbed
+    /// symbol font names every removed glyph „removed.“ and its glyph index (no more SID 0, the name of .notdef, for all of them): all names
+    /// differ, none of a removed glyph maps to a character, and the names of the removed glyphs are gone.
+    /// </summary>
+    [Fact]
+    public void Cff01_ScrubbedNameKeyed_RemovedGlyphsGetUniqueNeutralNames()
+    {
+        var data = EmbeddedFonts.LoadStandard("FoxitSymbol.cff");
+        var font = CffFont.Parse(data);
+        var kept = new[] { "alpha", "beta", "Sigma" }.Select(font.GlyphByName).ToList();
+        var (bytes, keep) = CffScrubber.Scrub(data, kept);
+        var scrubbed = CffFont.Parse(bytes);
+        var names = Enumerable.Range(0, scrubbed.GlyphCount).Select(scrubbed.GlyphName).ToList();
+        Assert.Equal(names.Count, names.Distinct(StringComparer.Ordinal).Count());
+        for (var g = 1; g < font.GlyphCount; g++)
+        {
+            if (keep.Contains(g))
+            {
+                Assert.Equal(font.GlyphName(g), scrubbed.GlyphName(g));
+                continue;
+            }
+            Assert.Equal("removed." + g.ToString(CultureInfo.InvariantCulture), scrubbed.GlyphName(g));
+            Assert.Null(GlyphNames.ToUnicode(scrubbed.GlyphName(g)!));
+            Assert.Equal(-1, scrubbed.GlyphByName(font.GlyphName(g)!));
+        }
+        Assert.Equal(-1, bytes.AsSpan().IndexOf("gamma"u8));
+    }
+
+    /// <summary>
+    /// TN 5176, 11 sentences 1–4 (redaction, question 9): a removed glyph whose neutral name a kept glyph already has gets „.x“ appended — a kept
+    /// glyph named „removed.2“ and the removed glyph 2: „removed.2.x“, the names stay unique.
+    /// </summary>
+    [Fact]
+    public void Cff01_ScrubbedNameKeyed_NeutralNameOfAKeptGlyph_IsExtended()
+    {
+        var data = CffBuilder.Build("Probe", Cff01Thousandth, [("removed.2", Cff01Square(100), 500), ("b", Cff01Square(200), 500)]);
+        var scrubbed = CffFont.Parse(CffScrubber.Scrub(data, [1]).Data);
+        Assert.Equal("removed.2", scrubbed.GlyphName(1));
+        Assert.Equal("removed.2.x", scrubbed.GlyphName(2));
+        Assert.Equal(1, scrubbed.GlyphByName("removed.2"));
+    }
+
+    /// <summary>
+    /// TN 5176, 11 sentences 1–4 (redaction, question 9): the CIDs in the charset of a CID-keyed font are unique — a subset of Noto Sans CJK (CID =
+    /// glyph index of the full font) scrubbed down to 漢字A: each removed glyph (秘密Z) gets its own glyph index as CID, not CID 0 and not its
+    /// original CID (which in a subset tells the character); the original CIDs reach no glyph any more, the kept ones theirs; a removed glyph
+    /// takes the Font DICT of glyph 0 (its own would tell the kind of glyph); CIDCount covers the CIDs.
+    /// </summary>
+    [Fact]
+    public void Cff01_ScrubbedCidKeyed_RemovedGlyphsGetUniqueNeutralCids()
+    {
+        var noto = Cff01NotoFont.Value;
+        var all = "漢字A秘密Z".Select(c => noto.GlyphForUnicode(c)).ToList();
+        var subset = CffSubsetter.Subset(Cff01Noto.Value, all);
+        var font = CffFont.Parse(subset);
+        var kept = "漢字A".Select(c => font.GlyphByCid(noto.GlyphForUnicode(c))).ToList();
+        var removed = "秘密Z".Select(c => font.GlyphByCid(noto.GlyphForUnicode(c))).ToList();
+        Assert.All(kept.Concat(removed), g => Assert.True(g > 0));
+        Assert.Contains(removed, g => Cff01FdOf(subset, g) != Cff01FdOf(subset, 0));   // a removed glyph had a Font DICT of its own
+        var bytes = CffScrubber.Scrub(subset, kept).Data;
+        var scrubbed = CffFont.Parse(bytes);
+        var cids = Enumerable.Range(0, scrubbed.GlyphCount).Select(scrubbed.CidOf).ToList();
+        Assert.Equal(cids.Count, cids.Distinct().Count());
+        foreach (var g in kept)
+        {
+            Assert.Equal(font.CidOf(g), scrubbed.CidOf(g));
+            Assert.Equal(g, scrubbed.GlyphByCid(font.CidOf(g)));
+            Assert.Equal(Cff01FdOf(subset, g), Cff01FdOf(bytes, g));
+        }
+        foreach (var g in removed)
+        {
+            Assert.Equal(g, scrubbed.CidOf(g));
+            Assert.Equal(-1, scrubbed.GlyphByCid(font.CidOf(g)));
+            Assert.True(scrubbed.Outline(g).IsEmpty);
+            Assert.Equal(Cff01FdOf(bytes, 0), Cff01FdOf(bytes, g));
+        }
+        Assert.True((Cff01Top(bytes).Int(1234) ?? 8720) > cids.Max());
+    }
+
+    /// <summary>
+    /// TN 5176, 11 sentences 1–4 (redaction of a page, question 9): the neutral CID of a removed glyph is not one the page still shows — a subset
+    /// of Noto Sans CJK (CIDs 漢 and 秘 of the full font) under CIDFontType0 shows 漢, 秘 and the CID equal to the glyph index of 秘 (no glyph: it
+    /// draws .notdef); redacting 秘 scrubs the program, and the removed glyph takes another free CID, so the shown CID keeps drawing .notdef — had
+    /// it taken that CID, the shown code would have drawn the empty glyph, the check after scrubbing would have refused the program, and the
+    /// glyph of the redacted character would have stayed in the file.
+    /// </summary>
+    [Fact]
+    public void Cff01_ScrubbedOnAPage_NeutralCidAvoidsAShownCid()
+    {
+        var noto = Cff01NotoFont.Value;
+        int han = noto.GlyphForUnicode('漢'), secret = noto.GlyphForUnicode('秘');
+        var subset = CffSubsetter.Subset(Cff01Noto.Value, [han, secret]);
+        var parsed = CffFont.Parse(subset);
+        var secretGlyph = parsed.GlyphByCid(secret);
+        Assert.Equal(-1, parsed.GlyphByCid(secretGlyph));
+        var pdf = TestPdf.Simple(1);
+        var file = pdf.Add(TestPdf.FlateStream(subset, TestPdf.Dict(("Subtype", TestPdf.N("CIDFontType0C")))));
+        var descriptor = pdf.Add(TestPdf.Dict(("Type", TestPdf.N("FontDescriptor")), ("FontName", TestPdf.N("ABCDEF+Muster")), ("Flags", Core.Pdf.Objects.PdfInteger.Of(4)),
+            ("FontBBox", TestPdf.Box(0, -200, 1000, 900)), ("ItalicAngle", Core.Pdf.Objects.PdfInteger.Of(0)), ("Ascent", Core.Pdf.Objects.PdfInteger.Of(900)),
+            ("Descent", Core.Pdf.Objects.PdfInteger.Of(-200)), ("CapHeight", Core.Pdf.Objects.PdfInteger.Of(700)), ("StemV", Core.Pdf.Objects.PdfInteger.Of(80)),
+            ("FontFile3", TestPdf.Ref(file))));
+        var font = pdf.Add(TestPdf.Dict(("Type", TestPdf.N("Font")), ("Subtype", TestPdf.N("Type0")), ("BaseFont", TestPdf.N("ABCDEF+Muster")),
+            ("Encoding", TestPdf.N("Identity-H")), ("DescendantFonts", new Core.Pdf.Objects.PdfArray([TestPdf.Dict(("Type", TestPdf.N("Font")),
+                ("Subtype", TestPdf.N("CIDFontType0")), ("BaseFont", TestPdf.N("ABCDEF+Muster")),
+                ("CIDSystemInfo", TestPdf.Dict(("Registry", new Core.Pdf.Objects.PdfString("Adobe"u8.ToArray())),
+                    ("Ordering", new Core.Pdf.Objects.PdfString("Identity"u8.ToArray())), ("Supplement", Core.Pdf.Objects.PdfInteger.Of(0)))),
+                ("FontDescriptor", TestPdf.Ref(descriptor)))]))));
+        ((Core.Pdf.Objects.PdfDictionary)pdf.Get(2)).GetDictionary(Core.Pdf.Objects.PdfName.Resources)!.GetDictionary(Core.Pdf.Objects.PdfName.Get("Font"))!
+            .Set(Core.Pdf.Objects.PdfName.Get("F1"), TestPdf.Ref(font));
+        pdf.Replace(4, TestPdf.FlateStream(Encoding.ASCII.GetBytes(string.Create(CultureInfo.InvariantCulture,
+            $"BT /F1 24 Tf 72 600 Td <{han:X4}> Tj 100 0 Td <{secret:X4}> Tj 100 0 Td <{secretGlyph:X4}> Tj ET"))));
+        using var doc = Core.Pdf.Document.PdfDocument.Open(pdf.Build());
+        using var after = Core.Pdf.Document.PdfDocument.Open(RedactionTests.WithBars(doc, (0, new Core.Pdf.Document.PdfRectangle(165, 590, 200, 630))));
+        var stream = after.Pages[0].Resources!.GetDictionary(Core.Pdf.Objects.PdfName.Get("Font"))!.GetDictionary(Core.Pdf.Objects.PdfName.Get("F1"))!
+            .GetArray(Core.Pdf.Objects.PdfName.Get("DescendantFonts"))!.Get(0) is Core.Pdf.Objects.PdfDictionary cid
+            ? cid.GetDictionary(Core.Pdf.Objects.PdfName.Get("FontDescriptor"))!.GetStream(Core.Pdf.Objects.PdfName.Get("FontFile3"))!
+            : throw new InvalidOperationException("kein CIDFont");
+        var scrubbed = CffFont.Parse(after.GetStreamData(stream));
+        Assert.True(scrubbed.Outline(secretGlyph).IsEmpty);
+        Assert.False(scrubbed.Outline(scrubbed.GlyphByCid(han)).IsEmpty);
+        Assert.Equal(-1, scrubbed.GlyphByCid(secret));
+        Assert.NotEqual(0, scrubbed.CidOf(secretGlyph));
+        Assert.Equal(-1, scrubbed.GlyphByCid(secretGlyph));
     }
 }

@@ -177,9 +177,12 @@ public sealed class FontScrubTests
         }
         foreach (var g in removed)
             Assert.True(scrubbed.Outline(g).IsEmpty);
-        // the CID of a kept glyph still leads to it; a removed one has no CID any more
+        // the CID of a kept glyph still leads to it; a removed one has a neutral CID of its own — its glyph index (unique in the charset, TN 5176,
+        // 11; before every removed glyph had CID 0, docs/FEHLERGEDAECHTNIS.md, No. 1158)
         Assert.All(kept, g => Assert.Equal(g, scrubbed.GlyphByCid(font.CidOf(g))));
-        Assert.All(removed, g => Assert.True(font.CidOf(g) > 0 && scrubbed.CidOf(g) == 0 && scrubbed.GlyphByCid(font.CidOf(g)) != g));
+        Assert.All(removed, g => Assert.True(font.CidOf(g) > 0 && scrubbed.CidOf(g) == g));
+        var cids = Enumerable.Range(0, scrubbed.GlyphCount).Select(scrubbed.CidOf).ToList();
+        Assert.Equal(cids.Count, cids.Distinct().Count());
     }
 
     /// <summary>An OpenType font with CFF outlines: scrubbed like TrueType (cmap, metrics, layout tables), the outlines by the CFF scrubber.</summary>
@@ -307,9 +310,9 @@ public sealed class FontScrubTests
     }
 
     /// <summary>
-    /// OpenType cmap 9.3 and 9.4.1: the records of the cleaned cmap sorted by platform and encoding, a subtable of a format the reader does
-    /// not read (here format 14 under (0,5)) left out instead of written as an empty format 4, and a Macintosh subtable with its language
-    /// (here 18, Turkish) (docs/FEHLERGEDAECHTNIS.md, No. 1143).
+    /// OpenType cmap 9.3 and 9.4.1: the records of the cleaned cmap sorted by platform and encoding, a subtable without anything to keep (here
+    /// format 14 under (0,5) without selectors; since No. 1160 format 14 is written filtered, format 2 left out) left out instead of written
+    /// as an empty format 4, and a Macintosh subtable with its language (here 18, Turkish) (docs/FEHLERGEDAECHTNIS.md, No. 1143).
     /// </summary>
     [Fact]
     public void ScrubbedCmap_SortedWithoutUnreadFormatsAndWithTheMacLanguage()

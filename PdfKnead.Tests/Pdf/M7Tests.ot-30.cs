@@ -192,8 +192,9 @@ public sealed partial class M7NormTests
 
     /// <summary>
     /// OT 31.1.2 sentences 1–42 (and 31.2.3, 31.2.4, 31.2.5 sentences 1–6, 12 and 19, 31.2.8, 31.2.12): the own font writes OS/2 version 4 of 96
-    /// bytes — version 4, xAvgCharWidth 500, usWeightClass 400, usWidthClass 5, fsType 0 (no reserved bit), the sub- and superscript offsets 0,
-    /// fsSelection 0x0040, usFirstCharIndex 0x20, usLastCharIndex 0xFFFF, sTypoAscender 1000, usWinAscent 1000, sCapHeight 1000, usBreakChar 0x20.
+    /// bytes of 1024 units per em — version 4, xAvgCharWidth 512, usWeightClass 400, usWidthClass 5, fsType 0 (no reserved bit), no slant of
+    /// sub- and superscript, fsSelection 0x0040, usFirstCharIndex 0x20, usLastCharIndex 0xFFFF, sTypoAscender 1024, usWinAscent 1024, sCapHeight 0
+    /// (no H, FG 1166), usBreakChar 0x20.
     /// </summary>
     [Fact]
     public void Ot30_GlyphlessOs2_Version4FieldsAtTheirOffsets()
@@ -201,7 +202,7 @@ public sealed partial class M7NormTests
         var os2 = Ot30Glyphless;
         Assert.Equal(96, os2.Length);
         Assert.Equal(4, Ot30U16(os2, 0));
-        Assert.Equal(500, Ot30U16(os2, 2));
+        Assert.Equal(512, Ot30U16(os2, 2));
         Assert.Equal(400, Ot30U16(os2, 4));
         Assert.Equal(5, Ot30U16(os2, 6));
         Assert.Equal(0, Ot30U16(os2, 8));
@@ -211,9 +212,9 @@ public sealed partial class M7NormTests
         Assert.Equal(0x0040, Ot30U16(os2, 62));
         Assert.Equal(0x0020, Ot30U16(os2, 64));
         Assert.Equal(0xFFFF, Ot30U16(os2, 66));
-        Assert.Equal(1000, Ot30U16(os2, 68));
-        Assert.Equal(1000, Ot30U16(os2, 74));
-        Assert.Equal(1000, Ot30U16(os2, 88));
+        Assert.Equal(1024, Ot30U16(os2, 68));
+        Assert.Equal(1024, Ot30U16(os2, 74));
+        Assert.Equal(0, Ot30U16(os2, 88));
         Assert.Equal(0x0020, Ot30U16(os2, 92));
     }
 
@@ -499,13 +500,15 @@ public sealed partial class M7NormTests
     // ------------------------------------------------------------ 31.2.6–31.2.13 sub- and superscript
 
     /// <summary>
-    /// OT 31.2.6, 31.2.7, 31.2.10, 31.2.11 sentences 1–5 (today's behaviour, question 27 open): the own font writes ySubscriptXSize,
-    /// ySubscriptYSize, ySuperscriptXSize and ySuperscriptYSize as 0 (offsets 10, 12, 18, 20), and the offsets 14, 16, 22 and 24 as 0.
+    /// OT 31.2.6, 31.2.7, 31.2.10, 31.2.11 sentences 1–5 (writer, FG 1166): the own font writes ySubscriptXSize, ySubscriptYSize,
+    /// ySuperscriptXSize and ySuperscriptYSize (offsets 10, 12, 18, 20) as the usual parts of its em (65 % and 60 % of 1024), the subscript 7.5 %
+    /// below and the superscript 35 % above the baseline (16, 24), no slant offsets (14, 22).
     /// </summary>
     [Fact]
-    public void Ot30_GlyphlessOs2_SubAndSuperscriptFieldsZeroToday()
+    public void Ot30_GlyphlessOs2_SubAndSuperscriptSizes()
     {
-        foreach (var at in (int[])[10, 12, 14, 16, 18, 20, 22, 24]) Assert.Equal(0, Ot30U16(Ot30Glyphless, at));
+        Assert.Equal(new[] { 665, 614, 0, 76, 665, 614, 0, 358 },
+            ((int[])[10, 12, 14, 16, 18, 20, 22, 24]).Select(at => Ot30U16(Ot30Glyphless, at)).ToArray());
     }
 
     /// <summary>

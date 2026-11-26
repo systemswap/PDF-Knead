@@ -81,7 +81,7 @@ public static partial class PdfTextEncoding
     }
 
     /// <summary>
-    /// Whether a character up to U+00FF has its own code in PDFDocEncoding (ISO 32000-2, Table D.2): not the codes PDFDocEncoding gives
+    /// Whether a character up to U+00FF has its own code in PDFDocEncoding (ISO 32000-2, Table D.3): not the codes PDFDocEncoding gives
     /// other characters, not 9Fh and ADh, and of the control characters only TAB, LF and CR — the others (00h–08h, 0Bh, 0Ch, 0Eh–17h, 7Fh) have
     /// no character there. Before, they were written as such bytes, which a reader may take for anything (docs/FEHLERGEDAECHTNIS.md, No. 1145).
     /// </summary>

@@ -318,7 +318,7 @@ public static class SignatureFonts
             if (font is not { Broken: false, GlyphCount: > 0 }) return null;
             foreach (var tag in (ReadOnlySpan<string>)["cmap", "head", "hhea", "hmtx", "maxp"])
                 if (!font.HasTable(tag)) return null;
-            if (!(font.HasTable("glyf") && font.HasTable("loca")) && font.Cff is null) return null;
+            if (!(font.HasTable("glyf") && font.HasTable("loca")) && font.Cff is null && font.Cff2 is null) return null;
             var color = ColorGlyphs.For(font);
             foreach (var c in "AaMm")
                 if (font.GlyphForUnicode(c) is var glyph and > 0 && font.AdvanceWidth(glyph) > 0

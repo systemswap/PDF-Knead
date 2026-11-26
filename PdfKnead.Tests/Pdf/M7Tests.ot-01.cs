@@ -800,23 +800,32 @@ public sealed partial class M7NormTests
     }
 
     /// <summary>
-    /// OT 1.6.3 sentence 4 (today's behaviour): CFF outlines in a CFF2 table are not read — the font has no outlines, and scrubbing fails as for
-    /// any unreadable program, so redaction leaves the program unchanged (<c>FontScrub.ScrubProgram</c> scrubs only fonts with glyf or „CFF “).
+    /// OT 1.6.3 sentence 4 (question 1, docs/FEHLERGEDAECHTNIS.md, No. 1158): CFF outlines in a CFF2 table (Compact Font Format 2.0) are read in the
+    /// default instance and scrubbed — glyph 1 of a CFF2 font draws its rectangle, and scrubbing it keeps glyph 1 and empties glyph 2 (before, the
+    /// font had no outlines and the redaction left the program unchanged). Data of CFF version 1 put into a table „CFF2“ are no CFF2 (major
+    /// version 1): that font stays without outlines, and scrubbing fails as for any unreadable program.
     /// </summary>
     [Fact]
-    public void Ot01_Cff2_IsNotReadAndNotScrubbed()
+    public void Ot01_Cff2_IsReadAndScrubbed()
     {
+        var file = Cff2FontOt08(Cff2GlyphsOt08("100 0 rmoveto 200 0 rlineto 0 200 rlineto", "0 0 rmoveto 0 300 rlineto 300 0 rlineto"), 3);
+        var font = OpenTypeFont.Parse(file);
+        Assert.False(font.Outline(1).IsEmpty || font.Outline(2).IsEmpty);
+        var scrubbed = OpenTypeFont.Parse(TrueTypeSubsetter.Scrub(file, [1]));
+        Assert.Equal(font.Outline(1).Points, scrubbed.Outline(1).Points);
+        Assert.True(scrubbed.Outline(2).IsEmpty);
+
         var tables = Ot01NotoTables("CFF ", "cmap", "head", "hhea", "hmtx", "maxp");
         tables["CFF2"] = tables["CFF "];
         tables.Remove("CFF ");
-        var file = TrueTypeSubsetter.Finish(tables);
-        var font = OpenTypeFont.Parse(file);
-        var g = font.GlyphForUnicode('漢');
+        var version1 = TrueTypeSubsetter.Finish(tables);
+        var wrong = OpenTypeFont.Parse(version1);
+        var g = wrong.GlyphForUnicode('漢');
         Assert.True(g > 0);
-        Assert.Null(font.Cff);
-        Assert.True(font.Outline(g).IsEmpty);
-        Assert.False(font.HasTable("glyf") || font.HasTable("CFF "));
-        Assert.Throws<FontFormatException>(() => TrueTypeSubsetter.Scrub(file, [g]));
+        Assert.Null(wrong.Cff);
+        Assert.True(wrong.Outline(g).IsEmpty);
+        Assert.False(wrong.HasTable("glyf") || wrong.HasTable("CFF "));
+        Assert.Throws<FontFormatException>(() => TrueTypeSubsetter.Scrub(version1, [g]));
     }
 
     /// <summary>

@@ -23,7 +23,7 @@ public sealed class ShaperTests(ITestOutputHelper output)
         "minimum illumination",
     ];
 
-    private static (int[] Glyphs, int[] Advances, int[] XOffsets, int[] YOffsets) HarfBuzz(byte[] data, int unitsPerEm, string text, string[] features)
+    internal static (int[] Glyphs, int[] Advances, int[] XOffsets, int[] YOffsets) HarfBuzz(byte[] data, int unitsPerEm, string text, string[] features)
     {
         // HarfBuzz copies the font data immediately (Duplicate). With Blob.FromStream it reads the data only while shaping, and under
         // load on Linux it once returned glyph 0 for an entire text (AmaticSC) while the built-in shaper was correct

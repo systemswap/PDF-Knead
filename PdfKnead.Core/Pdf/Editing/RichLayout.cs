@@ -35,6 +35,9 @@ public readonly record struct LaidGlyph(int Glyph, double X, double Advance, Ele
     /// <summary>A mark attached to a glyph before it: how many glyphs back (0: none); a line set right to left keeps it at its base (No. 910).</summary>
     internal int AttachBack { get; init; }
 
+    /// <summary>Points per font unit of <see cref="Face"/> (size, horizontal scaling): places the carets of a ligature from the font (No. 1161); 0 if unknown.</summary>
+    internal double FontScale { get; init; }
+
     /// <summary>Ascender of the font in em units.</summary>
     public double AscentEm => Face?.Ascent ?? Original?.Ascent ?? 0.8;
 
@@ -298,7 +301,7 @@ public sealed class RichLayout
                 // A tab is shaped as a space (its advance is set when breaking lines) but stays recognisable as a tab
                 var glyphText = run[g.Cluster] == '\t' ? "\t" : g.Text ?? "";
                 result.Add(new LaidGlyph(g.Glyph, 0, advance, face, fakeBold, fakeItalic, span, charStart, Math.Max(1, g.Text?.Length ?? 1), glyphText,
-                    g.XOffset * scale * stretch, g.YOffset * scale) { Stretch = stretch, AttachBack = g.AttachBack });
+                    g.XOffset * scale * stretch, g.YOffset * scale) { Stretch = stretch, AttachBack = g.AttachBack, FontScale = scale * stretch });
             }
         }
     }
@@ -321,7 +324,8 @@ public sealed class RichLayout
         var i = 0;
         foreach (var rune in piece.EnumerateRunes())
         {
-            var source = Source(rune);
+            // a variation selector stays with the character before it, whose font chooses the variant (cmap format 14; No. 1160)
+            var source = Core.Fonts.OpenTypeFont.IsVariationSelector(rune.Value) && current is { } before ? before : Source(rune);
             if (current is { } c && !ReferenceEquals(c.Face, source.Face))
             {
                 yield return (runStart, i - runStart, c.Face, c.FakeBold, c.FakeItalic);
@@ -485,7 +489,7 @@ public sealed class RichLayout
         return (XAt(line, caret), line.Baseline, line.Ascent, line.Descent);
     }
 
-    /// <summary>Gets the x of an insertion point in its line (proportionally within a ligature).</summary>
+    /// <summary>Gets the x of an insertion point in its line (within a ligature at the caret its font gives, else proportionally).</summary>
     /// <param name="line">The line.</param>
     /// <param name="caret">Character index of the insertion point.</param>
     /// <returns>x in points from the left edge.</returns>
@@ -494,9 +498,36 @@ public sealed class RichLayout
         foreach (var g in line.Glyphs)
         {
             if (caret <= g.CharStart) return g.X;
-            if (caret < g.CharStart + g.CharLength) return g.X + g.Advance * (caret - g.CharStart) / g.CharLength;
+            if (caret < g.CharStart + g.CharLength) return g.X + InsideLigature(g, caret - g.CharStart);
         }
         return line.Glyphs.Count > 0 ? line.Glyphs[^1].X + line.Glyphs[^1].Advance : line.X;
+    }
+
+    /// <summary>
+    /// The x of an insertion point <paramref name="offset"/> characters into a glyph that stands for several (a ligature), from its start: at the
+    /// caret its font gives for that boundary between the components (GDEF LigCaretList, OpenType 18.2.4; one component per character, the
+    /// carets in logical order as the line is laid out), else — no carets, another number of them, a boundary inside a surrogate pair — at the
+    /// share of the characters before it. Before, always the share (docs/FEHLERGEDAECHTNIS.md, No. 1161).
+    /// </summary>
+    private static double InsideLigature(LaidGlyph g, int offset)
+    {
+        if (g.Face is { } face && g.FontScale > 0 && Boundary(g.Text, offset) is var (k, n) && k > 0
+            && TextShaper.For(face.Font).LigatureCarets(g.Glyph, n) is { } carets)
+            return carets[k - 1] * g.FontScale;
+        return g.Advance * offset / g.CharLength;
+
+        // the boundary after character k of n (code points), 0 when the offset lies inside one
+        static (int K, int N) Boundary(string text, int offset)
+        {
+            int k = 0, n = 0, at = 0;
+            foreach (var rune in text.EnumerateRunes())
+            {
+                if (at == offset) k = n;
+                at += rune.Utf16SequenceLength;
+                n++;
+            }
+            return (k, n);
+        }
     }
 
     /// <summary>

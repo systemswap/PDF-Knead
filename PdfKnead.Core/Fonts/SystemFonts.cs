@@ -128,11 +128,16 @@ internal static class SystemFonts
     /// </summary>
     public static IReadOnlyList<string> Families() => Index.Value.Families;
 
-    private static (Dictionary<string, string>, string[]) Build()
+    private static (Dictionary<string, string>, string[]) Build() => Build(Directories());
+
+    /// <summary>The index of the fonts in some directories (the system's, or a test directory).</summary>
+    /// <param name="directories">The directories, searched four levels deep.</param>
+    /// <returns>Key → font file, and the families offered for new text.</returns>
+    internal static (Dictionary<string, string> Paths, string[] Families) Build(IEnumerable<string> directories)
     {
         var index = new Dictionary<string, string>(StringComparer.Ordinal);
         var families = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var dir in Directories())
+        foreach (var dir in directories)
         {
             IEnumerable<string> files;
             try
@@ -146,8 +151,9 @@ internal static class SystemFonts
             }
             foreach (var file in files)
             {
+                // single fonts .ttf/.otf, collections .ttc/.otc (OpenType 3.2; .otc was passed over before, No. 1160)
                 if (!(file.EndsWith(".ttf", StringComparison.OrdinalIgnoreCase) || file.EndsWith(".otf", StringComparison.OrdinalIgnoreCase)
-                      || file.EndsWith(".ttc", StringComparison.OrdinalIgnoreCase))) continue;
+                      || file.EndsWith(".ttc", StringComparison.OrdinalIgnoreCase) || file.EndsWith(".otc", StringComparison.OrdinalIgnoreCase))) continue;
                 var (names, family, usable) = Names(file);
                 foreach (var name in names)
                     if (name.Length > 0) index.TryAdd(name, file);
@@ -251,24 +257,11 @@ internal static class SystemFonts
         return (keys, familyName, usable);
     }
 
-    /// <summary>Reads entry <paramref name="id"/> of the name table (Windows Unicode preferred, otherwise Mac Roman).</summary>
-    private static string? Read(byte[] name, int id)
-    {
-        if (name.Length < 6) return null;
-        int count = BinaryPrimitives.ReadUInt16BigEndian(name.AsSpan(2)), strings = BinaryPrimitives.ReadUInt16BigEndian(name.AsSpan(4));
-        string? mac = null;
-        for (var i = 0; i < count && 6 + i * 12 + 12 <= name.Length; i++)
-        {
-            var r = name.AsSpan(6 + i * 12, 12);
-            int platform = BinaryPrimitives.ReadUInt16BigEndian(r), encoding = BinaryPrimitives.ReadUInt16BigEndian(r[2..]);
-            int nameId = BinaryPrimitives.ReadUInt16BigEndian(r[6..]), length = BinaryPrimitives.ReadUInt16BigEndian(r[8..]);
-            var at = strings + BinaryPrimitives.ReadUInt16BigEndian(r[10..]);
-            if (nameId != id || at + length > name.Length) continue;
-            if (platform == 3 && encoding is 0 or 1) return Encoding.BigEndianUnicode.GetString(name, at, length);
-            if (platform == 1 && encoding == 0) mac ??= Encoding.Latin1.GetString(name, at, length);
-        }
-        return mac;
-    }
+    /// <summary>
+    /// Reads entry <paramref name="id"/> of the name table: Windows Unicode (encodings 0 and 1) preferred, otherwise Mac OS Roman, English
+    /// first — the rule of the font reader (<see cref="NameRecords"/>; No. 1160).
+    /// </summary>
+    private static string? Read(byte[] name, int id) => NameRecords.Read(name, 0, id, systemIndex: true);
 }
 
 /// <summary>

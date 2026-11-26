@@ -535,7 +535,7 @@ internal sealed partial class SimpleFont : PdfFont
             if (cp > 0 && ot.HasCmap(3, 1) || cp > 0 && ot.HasCmap(0, 3) || cp > 0 && ot.HasCmap(3, 10)) gid = ot.GlyphForUnicode(cp);
             if (gid <= 0 && ot.HasCmap(1, 0) && FontTables.MacOsRomanCode(name) is >= 0 and var mac) gid = ot.Lookup(1, 0, mac);
             if (gid <= 0) gid = Math.Max(0, ot.GlyphByName(name));
-            if (gid <= 0 && !_program.IsEmbedded && _toUnicode?.ToUnicode((uint)code, 1) is { Length: > 0 } text) gid = ot.GlyphForUnicode(char.ConvertToUtf32(text, 0));
+            if (gid <= 0 && !_program.IsEmbedded && _toUnicode?.ToUnicode((uint)code, 1) is { Length: > 0 } text) gid = ot.GlyphForText(text);
         }
         if (gid <= 0 && !_program.IsEmbedded)
         {
@@ -547,7 +547,7 @@ internal sealed partial class SimpleFont : PdfFont
             // a tab between words); any other code the file names .notdef draws nothing (test file issue11403 — before, a substitute glyph)
             var space = code is 32 or 9 or 10 or 13 or 0xA0;
             if (name == ".notdef" && !space) return -1;
-            if (!space && _toUnicode?.ToUnicode((uint)code, 1) is { Length: > 0 } text) gid = ot.GlyphForUnicode(char.ConvertToUtf32(text, 0));
+            if (!space && _toUnicode?.ToUnicode((uint)code, 1) is { Length: > 0 } text) gid = ot.GlyphForText(text);
             if (gid <= 0) gid = ot.GlyphForUnicode(space ? 0x20 : code);
             return gid <= 0 ? -1 : gid;
         }
@@ -557,7 +557,7 @@ internal sealed partial class SimpleFont : PdfFont
                 foreach (var prefix in (ReadOnlySpan<int>)[0, 0xF000, 0xF100, 0xF200])
                     if (ot.Lookup(3, 0, prefix + code) is > 0 and var g) { gid = g; break; }
             if (gid <= 0 && ot.HasCmap(1, 0)) gid = Math.Max(0, ot.Lookup(1, 0, code));
-            if (gid <= 0 && !_program.IsEmbedded && _toUnicode?.ToUnicode((uint)code, 1) is { Length: > 0 } text) gid = ot.GlyphForUnicode(char.ConvertToUtf32(text, 0));
+            if (gid <= 0 && !_program.IsEmbedded && _toUnicode?.ToUnicode((uint)code, 1) is { Length: > 0 } text) gid = ot.GlyphForText(text);
             if (gid <= 0 && (ot.HasCmap(3, 1) || !_program.IsEmbedded)) gid = ot.GlyphForUnicode(code);
             if (gid <= 0 && ot.CmapSubtables.Count == 0 && code < ot.GlyphCount) gid = code;   // broken subset without a cmap
             // otherwise every existing cmap with the raw code, as in common font engines (issue5501: only a (0,0) cmap, shifted codes;
@@ -843,7 +843,7 @@ internal sealed partial class CompositeFont : PdfFont
             // substitute through the text (ToUnicode)
             // (if the substitute lacks the character: nothing, not its placeholder — CJK without the font folder)
             if (text is { Length: > 0 })
-                return (sub.GlyphForUnicode(char.ConvertToUtf32(text, 0)) is > 0 and var g ? sub.Outline(g) : GlyphOutline.Empty, toText, null);
+                return (sub.GlyphForText(text) is > 0 and var g ? sub.Outline(g) : GlyphOutline.Empty, toText, null);
             // without text: glyph IDs of the installed font, otherwise through the glyph order of the family
             // the CID itself: a CIDToGIDMap belongs to an embedded program (ISO 32000-2, 9.7.4.2 — before it was applied to the installed
             // font too, unlike two of three reference readers: probe K14, No. 1153)

@@ -1155,6 +1155,10 @@ public static partial class PdfWriter
                     // decides by the font as read; docs/FEHLERGEDAECHTNIS.md, No. 372)
                     // and in every version a standard font with a descriptor but no widths (No. 1151)
                     var entries = (Pdf20 ? StandardFontEmbedding.Described(d, source.Doc) : null) ?? StandardFontEmbedding.WithWidths(d, source.Doc) ?? d;
+                    // a CIDToGIDMap without an embedded program goes, in every version (No. 1167; PDF/A embeds every font itself)
+                    if (_pdfA is null) entries = WithoutStrayCidToGidMap(entries) ?? entries;
+                    // a tagged copy: a Type 3 font gets a descriptor (No. 1166)
+                    entries = WithType3Descriptor(entries) ?? entries;
                     var dict = new PdfDictionary(entries.Count);
                     foreach (var (key, value) in entries.Entries)
                         // PDF/A rebuilds the descriptors of the fonts of the file itself; a described standard font's is written here
@@ -5100,6 +5104,8 @@ public static partial class PdfWriter
                 case PdfDictionary d:
                     // PDF 2.0: the standard fonts of fields (/DR) and elements as above (No. 372)
                     var entries = (Pdf20 ? StandardFontEmbedding.Described(d, _main) : null) ?? StandardFontEmbedding.WithWidths(d, _main) ?? d;
+                    if (_pdfA is null) entries = WithoutStrayCidToGidMap(entries) ?? entries;
+                    entries = WithType3Descriptor(entries) ?? entries;
                     var dict = new PdfDictionary(entries.Count);
                     foreach (var (key, value) in entries.Entries)
                         dict.Set(key, key == FontDescriptorKey && value is PdfDictionary descriptor ? IndirectDescriptor(descriptor) : Fresh(value, depth + 1));
@@ -5196,6 +5202,71 @@ public static partial class PdfWriter
             result.Set(PdfName.Get("DescendantFonts"), changed);
             return result;
         }
+
+        /// <summary>
+        /// A Type 2 CIDFont without an embedded program has no /CIDToGIDMap (ISO 32000-1, 9.7.4.2: not allowed; ISO 32000-2: to be ignored, and
+        /// the display ignores it since No. 1153) — removed in every version written, also from one held directly in /DescendantFonts. A copy,
+        /// or null if nothing changes (docs/FEHLERGEDAECHTNIS.md, No. 1167).
+        /// </summary>
+        private static PdfDictionary? WithoutStrayCidToGidMap(PdfDictionary dict)
+        {
+            static bool Stray(PdfDictionary font) =>
+                font.GetName(PdfName.Subtype)?.Value == "CIDFontType2" && font.ContainsKey(CidToGidMapKey) &&
+                font.Get(FontDescriptorKey) is PdfDictionary descriptor &&
+                !descriptor.ContainsKey(PdfName.Get("FontFile")) && !descriptor.ContainsKey(PdfName.Get("FontFile2")) &&
+                !descriptor.ContainsKey(PdfName.Get("FontFile3"));
+            if (Stray(dict))
+            {
+                var copy = Clone(dict);
+                copy.Remove(CidToGidMapKey);
+                return copy;
+            }
+            if (dict.GetName(PdfName.Subtype)?.Value != "Type0" || dict.GetRaw(PdfName.Get("DescendantFonts")) is not PdfArray descendants) return null;
+            if (!Enumerable.Range(0, descendants.Count).Any(i => descendants[i] is PdfDictionary direct && Stray(direct))) return null;
+            var changed = new PdfArray { Resolver = descendants.Resolver };
+            for (var i = 0; i < descendants.Count; i++)
+                if (descendants[i] is PdfDictionary direct && Stray(direct))
+                {
+                    var font = Clone(direct);
+                    font.Remove(CidToGidMapKey);
+                    changed.Add(font);
+                }
+                else changed.Add(descendants[i]);
+            var result = Clone(dict);
+            result.Set(PdfName.Get("DescendantFonts"), changed);
+            return result;
+        }
+
+        /// <summary>
+        /// A tagged copy: a Type 3 font without /FontDescriptor gets one (ISO 32000-2, 9.6.4: required for a Type 3 font in a tagged file) —
+        /// /FontName from the font's /Name (else a fixed name), symbolic (the glyphs are the font's own), the font's /FontBBox (both in glyph
+        /// space), upright; written indirect as every descriptor. The same copy for each time the font is met, or null if nothing changes
+        /// (docs/FEHLERGEDAECHTNIS.md, No. 1166).
+        /// </summary>
+        private PdfDictionary? WithType3Descriptor(PdfDictionary dict)
+        {
+            if (dict.GetName(PdfName.Subtype)?.Value != "Type3" || dict.ContainsKey(FontDescriptorKey) || !TaggedCopy()) return null;
+            if (_type3Described.TryGetValue(dict, out var known)) return known;
+            var descriptor = new PdfDictionary();
+            descriptor.Set(PdfName.Type, PdfName.Get("FontDescriptor"));
+            descriptor.Set(PdfName.Get("FontName"), dict.GetName(PdfName.Get("Name")) ?? PdfName.Get("PDFKneadType3"));
+            descriptor.Set(PdfName.Get("Flags"), PdfInteger.Of(4));
+            var box = new PdfArray();
+            if (dict.Get(PdfName.Get("FontBBox")) is PdfArray { Count: 4 } given &&
+                Enumerable.Range(0, 4).All(i => given.Get(i).AsNumber() is { } n && double.IsFinite(n)))
+                for (var i = 0; i < 4; i++) box.Add(given.Get(i)!);
+            else
+                for (var i = 0; i < 4; i++) box.Add(PdfInteger.Of(0));
+            descriptor.Set(PdfName.Get("FontBBox"), box);
+            descriptor.Set(PdfName.Get("ItalicAngle"), PdfInteger.Of(0));
+            var copy = Clone(dict);
+            copy.Set(FontDescriptorKey, descriptor);
+            _type3Described[dict] = copy;
+            return copy;
+        }
+
+        /// <summary>Type 3 fonts given a descriptor (<see cref="WithType3Descriptor"/>), by the dictionary as read.</summary>
+        private readonly Dictionary<PdfDictionary, PdfDictionary> _type3Described = new(ReferenceEqualityComparer.Instance);
 
         private static readonly PdfName CidToGidMapKey = PdfName.Get("CIDToGIDMap");
 
@@ -5493,6 +5564,16 @@ public static partial class PdfWriter
             else if (Pdf20 && _pdfA is null && obj is PdfDictionary annot && WithAppearance(annot, source) is { } drawn) obj = drawn;
             // PDF 2.0: an embedded Type 2 CIDFont names its CID → glyph mapping (No. 524)
             if (Pdf20 && obj is PdfDictionary cidHolder && WithCidToGidMap(cidHolder) is { } mapped) obj = mapped;
+            // in every version: a CIDToGIDMap without an embedded program goes (No. 1167)
+            if (_pdfA is null && obj is PdfDictionary strayHolder && WithoutStrayCidToGidMap(strayHolder) is { } stripped) obj = stripped;
+            // a tagged copy: a Type 3 font gets a descriptor, an object of its own (No. 1166)
+            if (obj is PdfDictionary type3 && WithType3Descriptor(type3) is { } described3)
+            {
+                var descriptor3 = (PdfDictionary)described3.Get(FontDescriptorKey)!;
+                var withDescriptor = Clone(described3);
+                withDescriptor.Set(FontDescriptorKey, IndirectDescriptor(descriptor3));
+                obj = withDescriptor;
+            }
             if (obj is PdfStream stream)
             {
                 WriteStream(number, stream, source, asRead);

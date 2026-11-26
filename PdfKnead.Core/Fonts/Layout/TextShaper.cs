@@ -37,6 +37,24 @@ public struct ShapedGlyph
 
     /// <summary>The joining form of the character in Arabic script (<see cref="ArabicJoining"/>): it selects isol, init, medi or fina.</summary>
     internal ArabicJoining.Form Form;
+
+    /// <summary>
+    /// The glyph class the shaper derives when the font has no GlyphClassDef (OpenType 18.1): 3 (mark) for a character of the general category
+    /// Mn, 2 for a ligature formed by GSUB, else 1 (base). Not used when the font has the classes.
+    /// </summary>
+    internal byte Class;
+
+    /// <summary>
+    /// Ligature bookkeeping for mark-to-ligature attachment (OpenType 20.4.6): a ligature glyph carries its own id here, a mark the id of the
+    /// ligature it belongs to (0: none).
+    /// </summary>
+    internal int LigatureId;
+
+    /// <summary>For a mark: the component (counted from 1) of ligature <see cref="LigatureId"/> it belongs to; 0 for none.</summary>
+    internal int LigatureComponent;
+
+    /// <summary>For a ligature glyph formed by GSUB: the number of its components (0 for other glyphs).</summary>
+    internal int LigatureComponents;
 }
 
 /// <summary>
@@ -48,10 +66,12 @@ public struct ShapedGlyph
 /// </summary>
 /// <remarks>
 /// One shaper is shared per <see cref="OpenTypeFont"/>; <see cref="Shape"/> keeps its state per call and is safe to call from
-/// several threads. Not supported: GSUB types 3 and 8, GPOS types 7 and 8, device tables; on a ligature a mark takes the last component.
-/// The work per call is bounded (lookup attempts and matching steps, No. 1137).
+/// several threads. Not supported: GSUB type 3 (there is no choice of alternates; the glyph of the cmap stays) and device tables. Contextual
+/// positioning (GPOS 7, 8), reverse chaining substitution (GSUB 8), the component of a mark on a ligature and glyph classes derived from
+/// Unicode without GlyphClassDef since docs/FEHLERGEDAECHTNIS.md, No. 1161. The work per call is bounded (lookup attempts and matching
+/// steps, No. 1137).
 /// </remarks>
-public sealed class TextShaper
+public sealed partial class TextShaper
 {
     private static readonly ConditionalWeakTable<OpenTypeFont, TextShaper> Shapers = new();
 
@@ -134,8 +154,24 @@ public sealed class TextShaper
         var index = 0;
         foreach (var rune in text.EnumerateRunes())
         {
+            // a variation selector after a character: the glyph of the sequence from cmap format 14 (OpenType 9.4.10), and the selector
+            // itself without a glyph of its own unless the font maps it — before it became glyph 0, a box (docs/FEHLERGEDAECHTNIS.md, No. 1160)
+            if (OpenTypeFont.IsVariationSelector(rune.Value) && run.Count > 0)
+            {
+                var previous = run[^1];
+                var variant = _font.GlyphForVariation(codePoints[^1], rune.Value);
+                if (variant > 0) previous = previous with { Glyph = variant };
+                if (variant >= 0 || _font.GlyphForUnicode(rune.Value) <= 0)
+                {
+                    run[^1] = previous with { Text = previous.Text + rune };
+                    index += rune.Utf16SequenceLength;
+                    continue;
+                }
+            }
             var glyph = rune.Value == '\t' ? _font.GlyphForUnicode(' ') : _font.GlyphForUnicode(rune.Value);
-            run.Add(new ShapedGlyph { Glyph = glyph, Cluster = index, Text = rune.ToString() });
+            // the class used without a GlyphClassDef: a non-spacing mark is a mark, every other character a base (No. 1161)
+            var cls = System.Text.Rune.GetUnicodeCategory(rune) == System.Globalization.UnicodeCategory.NonSpacingMark ? (byte)3 : (byte)1;
+            run.Add(new ShapedGlyph { Glyph = glyph, Cluster = index, Text = rune.ToString(), Class = cls });
             codePoints.Add(rune.Value);
             index += rune.Utf16SequenceLength;
         }
@@ -173,8 +209,8 @@ public sealed class TextShaper
         {
             var g = run[i];
             g.XAdvance = _font.AdvanceWidth(g.Glyph);
-            // Marks (GDEF class 3) do not advance
-            if (_gdef?.GlyphClass(g.Glyph) == 3 && _gpos is not null) g.XAdvance = 0;
+            // Marks (GDEF class 3, or derived from Unicode without a GlyphClassDef) do not advance
+            if (ClassOf(g) == 3 && _gpos is not null) g.XAdvance = 0;
             run[i] = g;
         }
 
@@ -259,22 +295,30 @@ public sealed class TextShaper
 
         /// <summary>Glyphs moved in the run (insertions, removals): cheap block copies, one step per 64.</summary>
         public bool Move(int glyphs) => Spend(1 + glyphs / 64);
+
+        /// <summary>Ligatures formed so far in this call: the next one's id (<see cref="ShapedGlyph.LigatureId"/>).</summary>
+        public int NextLigatureId() => ++_ligatures;
+
+        private int _ligatures;
     }
 
-    private bool Skips(Lookup lookup, int glyph) => _gdef?.Skips(lookup, glyph) == true;
+    /// <summary>The class of a glyph: from the GlyphClassDef of GDEF, or — without one — the class derived from Unicode and GSUB (No. 1161).</summary>
+    private int ClassOf(ShapedGlyph g) => _gdef is { HasGlyphClasses: true } gdef ? gdef.GlyphClass(g.Glyph) : g.Class;
+
+    private bool Skips(Lookup lookup, ShapedGlyph g) => GlyphDefinitions.Skips(_gdef, lookup, g.Glyph, ClassOf(g));
 
     /// <summary>Next position after <paramref name="i"/> that the lookup does not skip; -1 = none.</summary>
     private int Next(List<ShapedGlyph> run, Lookup lookup, int i)
     {
         for (var j = i + 1; j < run.Count; j++)
-            if (!Skips(lookup, run[j].Glyph)) return j;
+            if (!Skips(lookup, run[j])) return j;
         return -1;
     }
 
     private int Previous(List<ShapedGlyph> run, Lookup lookup, int i)
     {
         for (var j = i - 1; j >= 0; j--)
-            if (!Skips(lookup, run[j].Glyph)) return j;
+            if (!Skips(lookup, run[j])) return j;
         return -1;
     }
 
@@ -341,9 +385,16 @@ public sealed class TextShaper
         public void ApplyLookup(int index, ArabicJoining.Form? only = null)
         {
             var lookup = shaper._gsub!.Lookup(index);
+            if (lookup.Type == 8)
+            {
+                // reverse chaining single substitution runs from the end of the run to its start (OpenType 21.4.9)
+                for (var i = run.Count - 1; i >= 0 && work.Left > 0; i--)
+                    if (!(only is { } form && run[i].Form != form) && !shaper.Skips(lookup, run[i])) ApplyAt(lookup, i, 0, out _);
+                return;
+            }
             for (var i = 0; i < run.Count && run.Count < MaxGlyphs && work.Left > 0;)
             {
-                if (only is { } form && run[i].Form != form || shaper.Skips(lookup, run[i].Glyph) || !ApplyAt(lookup, i, 0, out var next)) i++;
+                if (only is { } form && run[i].Form != form || shaper.Skips(lookup, run[i]) || !ApplyAt(lookup, i, 0, out var next)) i++;
                 else i = Math.Max(next, i + 1);
             }
         }
@@ -384,6 +435,8 @@ public sealed class TextShaper
                     // A count of 0 (deleting the glyph, not allowed by the specification) would otherwise skip the next glyph
                     if (count == 0 || run.Count + count > MaxGlyphs || !work.Move(count + run.Count - i)) return false;
                     var original = run[i];
+                    // the glyphs of a ligature taken apart are no ligatures (No. 1161)
+                    if (original.LigatureComponents > 0) original = original with { LigatureComponents = 0, Class = 1 };
                     var glyphs = new ShapedGlyph[count];
                     for (var k = 0; k < count; k++) glyphs[k] = original with { Glyph = t.U16(seq + 2 + k * 2), Text = k == 0 ? original.Text : "" };
                     // in one block: inserting glyph by glyph moved the rest of the run once per glyph (No. 1137)
@@ -398,9 +451,39 @@ public sealed class TextShaper
                     return Context(lookup, sub, i, depth, chained: false, out next);
                 case 6:
                     return Context(lookup, sub, i, depth, chained: true, out next);
+                case 8:
+                    // only as a lookup of its own: it cannot be nested in a context (it runs backwards over the whole run)
+                    return depth == 0 && ReverseChain(lookup, sub, i);
                 default:
-                    return false;   // 3 (alternates to choose from), 8 (reverse chaining, Arabic): not needed for Latin script
+                    return false;   // 3 (alternates to choose from): there is no choice, the glyph of the cmap stays
             }
+        }
+
+        /// <summary>
+        /// Reverse chaining contextual single substitution (lookup type 8, ReverseChainSingleSubstFormat1; OpenType 21.4.9): the input glyph in
+        /// its coverage, the backtrack (from the glyph before it towards the start) and the lookahead (from the glyph after it towards the end)
+        /// each matching one coverage per place; then the substitute of its coverage index. The run is processed from its end, so the lookahead
+        /// already holds the substitutes made (docs/FEHLERGEDAECHTNIS.md, No. 1161; before passed over).
+        /// </summary>
+        private bool ReverseChain(Lookup lookup, int sub, int i)
+        {
+            var t = T;
+            if (t.U16(sub) != 1 || t.U16(sub + 2) == 0) return false;
+            var c = t.Coverage(sub + t.U16(sub + 2), run[i].Glyph);
+            if (c < 0) return false;
+            var backtrack = t.U16(sub + 4);
+            var lookahead = sub + 6 + backtrack * 2;
+            var lookaheadCount = t.U16(lookahead);
+            var substitutes = lookahead + 2 + lookaheadCount * 2;
+            if (c >= t.U16(substitutes)) return false;
+            var tt = t;
+            if (!shaper.MatchContext(work, run, lookup, i,
+                    backtrack, (k, g) => Covers(tt, sub, sub + 6 + k * 2, g),
+                    1, None,
+                    lookaheadCount, (k, g) => Covers(tt, sub, lookahead + 2 + k * 2, g), out _))
+                return false;
+            Replace(i, t.U16(substitutes + 2 + c * 2));
+            return true;
         }
 
         private void Replace(int i, int glyph)
@@ -435,9 +518,17 @@ public sealed class TextShaper
                 if (!ok || !work.Move(components * (run.Count - i))) continue;
                 var text = "";
                 foreach (var p in positions) text += run[p].Text;
+                var (id, total) = shaper.TrackComponents(run, positions, work);
                 var first = run[i];
                 first.Glyph = t.U16(lig);
                 first.Text = text;
+                if (id > 0)
+                {
+                    first.LigatureId = id;
+                    first.LigatureComponent = 0;
+                    first.LigatureComponents = total;
+                    first.Class = 2;
+                }
                 run[i] = first;
                 for (var k = components - 1; k >= 1; k--) run.RemoveAt(positions[k]);
                 return true;
@@ -445,153 +536,13 @@ public sealed class TextShaper
             return false;
         }
 
-        /// <summary>Contextual substitution (type 5) and chained contextual substitution (type 6), formats 1–3 each.</summary>
+        /// <summary>Contextual substitution (type 5) and chained contextual substitution (type 6), formats 1–3 each (<see cref="MatchContextSubtable"/>).</summary>
         private bool Context(Lookup lookup, int sub, int i, int depth, bool chained, out int next)
         {
             next = i + 1;
-            var t = T;
-            var glyph = run[i].Glyph;
-            var format = t.U16(sub);
-            if (!chained)
-            {
-                switch (format)
-                {
-                    case 1:
-                    {
-                        var c = t.Coverage(sub + t.U16(sub + 2), glyph);
-                        // a NULL rule set or rule is none (Common Table Formats 2.8.2), a rule of no glyphs never matches (it holds the
-                        // first one) — before, a NULL offset read the subtable itself as rules, and a count of 0 matched (No. 1144)
-                        if (c < 0 || c >= t.U16(sub + 4) || t.U16(sub + 6 + c * 2) == 0) return false;
-                        var set = sub + t.U16(sub + 6 + c * 2);
-                        for (var r = 0; r < t.U16(set); r++)
-                        {
-                            if (t.U16(set + 2 + r * 2) == 0) continue;
-                            var rule = set + t.U16(set + 2 + r * 2);
-                            int count = t.U16(rule), subs = t.U16(rule + 2);
-                            if (count == 0) continue;
-                            var tt = t;
-                            if (shaper.MatchContext(work, run, lookup, i, 0, None, count, (k, g) => g == tt.U16(rule + 4 + (k - 1) * 2), 0, None, out var pos))
-                                return Apply(pos, rule + 4 + (count - 1) * 2, subs, depth, out next);
-                        }
-                        return false;
-                    }
-                    case 2:
-                    {
-                        if (t.Coverage(sub + t.U16(sub + 2), glyph) < 0) return false;
-                        var classDef = ClassDef(sub, sub + 4);
-                        var cls = t.Class(classDef, glyph);
-                        if (cls >= t.U16(sub + 6) || t.U16(sub + 8 + cls * 2) == 0) return false;
-                        var set = sub + t.U16(sub + 8 + cls * 2);
-                        for (var r = 0; r < t.U16(set); r++)
-                        {
-                            if (t.U16(set + 2 + r * 2) == 0) continue;
-                            var rule = set + t.U16(set + 2 + r * 2);
-                            int count = t.U16(rule), subs = t.U16(rule + 2);
-                            if (count == 0) continue;
-                            var tt = t;
-                            if (shaper.MatchContext(work, run, lookup, i, 0, None, count, (k, g) => tt.Class(classDef, g) == tt.U16(rule + 4 + (k - 1) * 2), 0, None, out var pos))
-                                return Apply(pos, rule + 4 + (count - 1) * 2, subs, depth, out next);
-                        }
-                        return false;
-                    }
-                    case 3:
-                    {
-                        int count = t.U16(sub + 2), subs = t.U16(sub + 4);
-                        var tt = t;
-                        if (count == 0 || t.Coverage(sub + t.U16(sub + 6), glyph) < 0) return false;
-                        if (!shaper.MatchContext(work, run, lookup, i, 0, None, count, (k, g) => tt.Coverage(sub + tt.U16(sub + 6 + k * 2), g) >= 0, 0, None, out var pos))
-                            return false;
-                        return Apply(pos, sub + 6 + count * 2, subs, depth, out next);
-                    }
-                    default:
-                        return false;
-                }
-            }
-
-            switch (format)
-            {
-                case 1:
-                {
-                    var c = t.Coverage(sub + t.U16(sub + 2), glyph);
-                    if (c < 0 || c >= t.U16(sub + 4) || t.U16(sub + 6 + c * 2) == 0) return false;
-                    var set = sub + t.U16(sub + 6 + c * 2);
-                    for (var r = 0; r < t.U16(set); r++)
-                    {
-                        if (t.U16(set + 2 + r * 2) == 0) continue;
-                        var rule = set + t.U16(set + 2 + r * 2);
-                        var (bt, inp, la, records, subs) = ChainParts(rule);
-                        if (t.U16(inp - 2) == 0) continue;
-                        var tt = t;
-                        if (shaper.MatchContext(work, run, lookup, i,
-                                tt.U16(rule), (k, g) => g == tt.U16(bt + k * 2),
-                                tt.U16(inp - 2), (k, g) => g == tt.U16(inp + (k - 1) * 2),
-                                tt.U16(la - 2), (k, g) => g == tt.U16(la + k * 2), out var pos))
-                            return Apply(pos, records, subs, depth, out next);
-                    }
-                    return false;
-                }
-                case 2:
-                {
-                    if (t.Coverage(sub + t.U16(sub + 2), glyph) < 0) return false;
-                    int backDef = ClassDef(sub, sub + 4), inputDef = ClassDef(sub, sub + 6), aheadDef = ClassDef(sub, sub + 8);
-                    var cls = t.Class(inputDef, glyph);
-                    if (cls >= t.U16(sub + 10) || t.U16(sub + 12 + cls * 2) == 0) return false;
-                    var set = sub + t.U16(sub + 12 + cls * 2);
-                    for (var r = 0; r < t.U16(set); r++)
-                    {
-                        if (t.U16(set + 2 + r * 2) == 0) continue;
-                        var rule = set + t.U16(set + 2 + r * 2);
-                        var (bt, inp, la, records, subs) = ChainParts(rule);
-                        if (t.U16(inp - 2) == 0) continue;
-                        var tt = t;
-                        if (shaper.MatchContext(work, run, lookup, i,
-                                tt.U16(rule), (k, g) => tt.Class(backDef, g) == tt.U16(bt + k * 2),
-                                tt.U16(inp - 2), (k, g) => tt.Class(inputDef, g) == tt.U16(inp + (k - 1) * 2),
-                                tt.U16(la - 2), (k, g) => tt.Class(aheadDef, g) == tt.U16(la + k * 2), out var pos))
-                            return Apply(pos, records, subs, depth, out next);
-                    }
-                    return false;
-                }
-                case 3:
-                {
-                    var btCount = t.U16(sub + 2);
-                    var inp = sub + 4 + btCount * 2;
-                    var inCount = t.U16(inp);
-                    var la = inp + 2 + inCount * 2;
-                    var laCount = t.U16(la);
-                    var records = la + 2 + laCount * 2;
-                    var tt = t;
-                    if (inCount == 0 || t.Coverage(sub + t.U16(inp + 2), glyph) < 0) return false;
-                    if (!shaper.MatchContext(work, run, lookup, i,
-                            btCount, (k, g) => tt.Coverage(sub + tt.U16(sub + 4 + k * 2), g) >= 0,
-                            inCount, (k, g) => tt.Coverage(sub + tt.U16(inp + 2 + k * 2), g) >= 0,
-                            laCount, (k, g) => tt.Coverage(sub + tt.U16(la + 2 + k * 2), g) >= 0, out var pos))
-                        return false;
-                    return Apply(pos, records + 2, t.U16(records), depth, out next);
-                }
-                default:
-                    return false;
-            }
+            return shaper.MatchContextSubtable(T, work, run, lookup, sub, i, chained, out var positions, out var records, out var count)
+                && Apply(positions, records, count, depth, out next);
         }
-
-        /// <summary>A ClassDef from its offset at <paramref name="at"/>: NULL means every glyph is of class 0 (Common Table Formats 2.6) — before,
-        /// the subtable itself was read as one (No. 1144). -1 for NULL (<see cref="TableData.Class"/> reads class 0 there).</summary>
-        private int ClassDef(int sub, int at) => T.U16(at) == 0 ? -1 : sub + T.U16(at);
-
-        /// <summary>Chained rule (formats 1/2): start of the backtrack, input (from the second glyph) and lookahead sequences, and the substitution records.</summary>
-        private (int Backtrack, int Input, int Lookahead, int Records, int Count) ChainParts(int rule)
-        {
-            var t = T;
-            var bt = rule + 2;
-            var inCountAt = bt + t.U16(rule) * 2;
-            var inp = inCountAt + 2;
-            var laCountAt = inp + Math.Max(0, t.U16(inCountAt) - 1) * 2;
-            var la = laCountAt + 2;
-            var subsAt = la + t.U16(laCountAt) * 2;
-            return (bt, inp, la, subsAt + 2, t.U16(subsAt));
-        }
-
-        private static bool None(int k, int g) => false;
 
         /// <summary>
         /// Applies the nested lookups at the input positions (SubstLookupRecords). A record names its place in the input sequence as the
@@ -657,7 +608,7 @@ public sealed class TextShaper
             var lookup = shaper._gpos!.Lookup(index);
             for (var i = 0; i < run.Count && work.Left > 0;)
             {
-                if (shaper.Skips(lookup, run[i].Glyph) || !ApplyAt(lookup, i, 0, out var next)) i++;
+                if (shaper.Skips(lookup, run[i]) || !ApplyAt(lookup, i, 0, out var next)) i++;
                 else i = Math.Max(next, i + 1);
             }
         }
@@ -743,10 +694,32 @@ public sealed class TextShaper
                 case 5:
                     return MarkToLigature(sub, i);
                 case 7 or 8:
-                    return false;   // contextual positioning: rare in Latin script, not supported
+                    return Context(lookup, sub, i, depth, chained: lookup.Type == 8, out next);
                 default:
                     return false;
             }
+        }
+
+        /// <summary>
+        /// Contextual positioning (type 7) and chained contextual positioning (type 8), formats 1–3 each as in GSUB (<see
+        /// cref="MatchContextSubtable"/>): the nested GPOS lookups of the records at their places in the input sequence. Positioning does not
+        /// change the run, so a place stays where the match found it (unlike GSUB, No. 1142); nesting and work are bounded as for GSUB
+        /// (No. 1137). Before, both types were passed over — the bundled Liberation fonts use type 8 for marks under „hebr“
+        /// (docs/FEHLERGEDAECHTNIS.md, No. 1161).
+        /// </summary>
+        private bool Context(Lookup lookup, int sub, int i, int depth, bool chained, out int next)
+        {
+            next = i + 1;
+            var t = T;
+            if (!shaper.MatchContextSubtable(t, work, run, lookup, sub, i, chained, out var positions, out var records, out var count)) return false;
+            for (var r = 0; r < count && work.Spend(1); r++)
+            {
+                var place = t.U16(records + r * 4);
+                if (place >= positions.Length) continue;
+                ApplyAt(shaper._gpos!.Lookup(t.U16(records + r * 4 + 2)), positions[place], depth + 1, out _);
+            }
+            next = positions[^1] + 1;
+            return true;
         }
 
         private static int ValueSize(int format) => 2 * System.Numerics.BitOperations.PopCount((uint)(format & 0xFF));
@@ -793,16 +766,28 @@ public sealed class TextShaper
             return true;
         }
 
-        /// <summary>Attaches a mark to a base glyph (type 4) or to a preceding mark (type 6).</summary>
+        /// <summary>
+        /// Attaches a mark to a base glyph (type 4) or to a preceding mark (type 6). The base is the nearest preceding glyph that is not a mark;
+        /// mark2 of mark-to-mark the glyph before the mark that the lookup's flags do not skip (OpenType 20.4.7) — before always the glyph right
+        /// before it, so a mark the flags pass over in between broke the attachment — and only a mark of the same base or of the same ligature
+        /// component (docs/FEHLERGEDAECHTNIS.md, No. 1161).
+        /// </summary>
         private bool MarkToBase(Lookup lookup, int sub, int i, bool toMark)
         {
             var t = T;
             var markIndex = t.Coverage(sub + t.U16(sub + 2), run[i].Glyph);
             if (markIndex < 0) return false;
-            // Base: the nearest preceding glyph that is not a mark (for mark-to-mark: the preceding glyph)
-            var b = i - 1;
-            if (!toMark)
-                while (b >= 0 && shaper._gdef?.GlyphClass(run[b].Glyph) == 3) b--;
+            int b;
+            if (toMark)
+            {
+                b = shaper.Previous(run, lookup, i, work);
+                if (b < 0 || !SameComponent(run[i], run[b])) return false;
+            }
+            else
+            {
+                b = i - 1;
+                while (b >= 0 && shaper.ClassOf(run[b]) == 3) b--;
+            }
             // the marks passed and, in Attach, the advances summed (No. 1137)
             if (b < 0 || !work.Spend(2 * (i - b))) return false;
             var baseIndex = t.Coverage(sub + t.U16(sub + 4), run[b].Glyph);
@@ -821,6 +806,16 @@ public sealed class TextShaper
             return true;
         }
 
+        /// <summary>
+        /// Whether two marks may stack (mark-to-mark): both on the same base (no ligature), on the same component of one ligature, or one of them
+        /// a ligature of marks itself — as common shaping engines decide, so that a mark of one component does not sit on a mark of another.
+        /// </summary>
+        private static bool SameComponent(ShapedGlyph mark1, ShapedGlyph mark2)
+        {
+            if (mark1.LigatureId == mark2.LigatureId) return mark1.LigatureId == 0 || mark1.LigatureComponent == mark2.LigatureComponent;
+            return mark1.LigatureId > 0 && mark1.LigatureComponent == 0 || mark2.LigatureId > 0 && mark2.LigatureComponent == 0;
+        }
+
         /// <summary>Places mark <paramref name="i"/> so that its anchor meets the anchor of glyph <paramref name="b"/> before it.</summary>
         private void Attach(int i, int b, (int X, int Y) baseAnchor, (int X, int Y) markAnchor)
         {
@@ -836,9 +831,9 @@ public sealed class TextShaper
 
         /// <summary>
         /// Attaches a mark to a ligature (lookup type 5, MarkLigPosFormat1; OpenType GPOS, „Lookup type 5 subtable: mark-to-ligature
-        /// attachment positioning“): the nearest preceding glyph that is not a mark, with the anchor of the mark's class in one of its
-        /// components. The component a mark belongs to is not tracked through substitution here; the last one is taken — the mark follows
-        /// the ligature in the text, so it belongs to its last character in the common case (lam-alef with a mark on the alef) (No. 910).
+        /// attachment positioning“): the nearest preceding glyph that is not a mark, with the anchor of the mark's class in the component the
+        /// mark belongs to — tracked through GSUB (<see cref="TrackComponents"/>): a mark the ligature passed over takes the component before
+        /// it, a mark after the ligature the last one. Before, every mark took the last component (No. 910; docs/FEHLERGEDAECHTNIS.md, No. 1161).
         /// </summary>
         private bool MarkToLigature(int sub, int i)
         {
@@ -846,7 +841,7 @@ public sealed class TextShaper
             var markIndex = t.Coverage(sub + t.U16(sub + 2), run[i].Glyph);
             if (markIndex < 0) return false;
             var b = i - 1;
-            while (b >= 0 && shaper._gdef?.GlyphClass(run[b].Glyph) == 3) b--;
+            while (b >= 0 && shaper.ClassOf(run[b]) == 3) b--;
             if (b < 0 || !work.Spend(2 * (i - b))) return false;
             var ligatureIndex = t.Coverage(sub + t.U16(sub + 4), run[b].Glyph);
             if (ligatureIndex < 0) return false;
@@ -860,7 +855,11 @@ public sealed class TextShaper
             var attach = ligatureArray + t.U16(ligatureArray + 2 + ligatureIndex * 2);
             var components = t.U16(attach);
             if (components == 0) return false;
-            var anchorOffset = t.U16(attach + 2 + ((components - 1) * classCount + cls) * 2);
+            var mark = run[i];
+            var component = mark.LigatureId != 0 && mark.LigatureId == run[b].LigatureId && mark.LigatureComponent > 0
+                ? Math.Min(components, mark.LigatureComponent) - 1
+                : components - 1;
+            var anchorOffset = t.U16(attach + 2 + (component * classCount + cls) * 2);
             if (t.U16(markRecord + 2) == 0 || Anchor(markArray + t.U16(markRecord + 2)) is not { } m || anchorOffset == 0 || Anchor(attach + anchorOffset) is not { } la) return false;
             Attach(i, b, la, m);
             return true;

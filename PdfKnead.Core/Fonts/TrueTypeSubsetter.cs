@@ -71,12 +71,14 @@ public static class TrueTypeSubsetter
     /// classes of glyphs (kerning, OpenType layout) are left out — a PDF reader positions every glyph itself. A character that was only
     /// in redacted text can then not be read from the font (docs/FEHLERGEDAECHTNIS.md, No. 169).
     /// </summary>
-    /// <remarks>An OpenType font with CFF outlines (a 'CFF ' table) is scrubbed the same way, its outlines by <see cref="CffScrubber"/>.</remarks>
+    /// <remarks>An OpenType font with CFF outlines (a 'CFF ' table) is scrubbed the same way, its outlines by <see cref="CffScrubber"/>; one with
+    /// a 'CFF2' table by <see cref="Cff2Scrubber"/> (a static CFF2 table in the default instance, the tables of the variations left out).</remarks>
     /// <param name="font">The TrueType or OpenType font file.</param>
     /// <param name="glyphs">Glyph indices still shown.</param>
+    /// <param name="shownCids">For a CID-keyed 'CFF ' table: the CIDs still shown, which no removed glyph takes as its new CID (<see cref="CffScrubber.Scrub"/>).</param>
     /// <returns>The font file.</returns>
-    /// <exception cref="FontFormatException">The font has neither glyf, loca and head nor a CFF table, or head or loca is too short.</exception>
-    public static byte[] Scrub(byte[] font, IEnumerable<int> glyphs)
+    /// <exception cref="FontFormatException">The font has neither glyf, loca and head nor a CFF or readable CFF2 table, or head or loca is too short.</exception>
+    public static byte[] Scrub(byte[] font, IEnumerable<int> glyphs, IReadOnlySet<int>? shownCids = null)
     {
         Dictionary<string, (int Offset, int Length)> tables;
         HashSet<int> keep;
@@ -85,8 +87,17 @@ public static class TrueTypeSubsetter
         var directory = ReadDirectory(font);
         if (!directory.ContainsKey("glyf") && directory.TryGetValue("CFF ", out var cffTable))
         {
-            (outlines["CFF "], keep) = CffScrubber.Scrub(new ArraySegment<byte>(font, cffTable.Offset, cffTable.Length), glyphs);
+            (outlines["CFF "], keep) = CffScrubber.Scrub(new ArraySegment<byte>(font, cffTable.Offset, cffTable.Length), glyphs, shownCids);
             tables = directory;
+            count = directory.TryGetValue("maxp", out var maxp) && maxp.Length >= 6 ? BinaryPrimitives.ReadUInt16BigEndian(font.AsSpan(maxp.Offset + 4)) : 0;
+        }
+        else if (!directory.ContainsKey("glyf") && directory.ContainsKey("CFF2"))
+        {
+            // CFF2: written as the static default instance, without the tables of the variations (docs/FEHLERGEDAECHTNIS.md, No. 1158)
+            if (OpenTypeFont.Parse(font).Cff2 is not { } cff2) throw new FontFormatException("CFF2 nicht lesbar");
+            (outlines["CFF2"], keep) = Cff2Scrubber.Scrub(cff2, glyphs);
+            tables = new Dictionary<string, (int Offset, int Length)>(directory, StringComparer.Ordinal);
+            foreach (var tag in Cff2Scrubber.VariationTables) tables.Remove(tag);
             count = directory.TryGetValue("maxp", out var maxp) && maxp.Length >= 6 ? BinaryPrimitives.ReadUInt16BigEndian(font.AsSpan(maxp.Offset + 4)) : 0;
         }
         else
@@ -442,11 +453,23 @@ public static class TrueTypeSubsetter
             var wide = (platform, encoding) is (3, 10) or (0, 4) or (0, 6);
             var source = font.CmapOffset(platform, encoding);
             var format = source >= 0 && source + 2 <= data.Length ? BinaryPrimitives.ReadUInt16BigEndian(data.AsSpan(source)) : -1;
-            // a subtable of a format the reader does not read (2, 8, 10, 14 …) is left out: written as an empty format 4 it lost every
-            // mapping, and under (0,5) only format 14 is allowed (cmap 9.3.2) (No. 1143)
-            if (format is not (0 or 4 or 6 or 12 or 13)) continue;
+            // the variation sequences under (0,5) stay in format 14, filtered on the glyphs kept (cmap 9.4.10; before left out, No. 1160)
+            if ((platform, encoding) == (0, 5))
+            {
+                if (format == 14 && !bodyOf.ContainsKey((source, false)) && Format14Of(font, keep, ref budget) is { } sequences)
+                {
+                    bodyOf[(source, false)] = bodies.Count;
+                    bodies.Add(sequences);
+                }
+                if (format == 14 && bodyOf.TryGetValue((source, false), out var shared)) records.Add((platform, encoding, shared));
+                continue;
+            }
+            // formats 8 and 10 (Unicode code points, read since No. 1160) are written as the others; a subtable of format 2 (the byte codes of
+            // the old encodings, which format 4 would read as 16-bit codes) or of an unknown one is left out: written as an empty format 4 it
+            // lost every mapping (No. 1143)
+            if (format is not (0 or 4 or 6 or 8 or 10 or 12 or 13)) continue;
             // a Macintosh subtable keeps its language (cmap 9.4.1: the Macintosh language code plus one, 0 for any language)
-            var language = platform != 1 ? 0 : format is 12 or 13
+            var language = platform != 1 ? 0 : format is 8 or 10 or 12 or 13
                 ? source + 12 <= data.Length ? (int)BinaryPrimitives.ReadUInt32BigEndian(data.AsSpan(source + 8)) : 0
                 : source + 6 <= data.Length ? BinaryPrimitives.ReadUInt16BigEndian(data.AsSpan(source + 4)) : 0;
             if (!bodyOf.TryGetValue((source, wide), out var body))
@@ -497,6 +520,75 @@ public static class TrueTypeSubsetter
 
     /// <summary>Codes read from all cmap subtables together when the cmap is written again.</summary>
     private const int MaxCmapCodes = 1_000_000;
+
+    /// <summary>
+    /// The format 14 subtable of the font, keeping only what the glyphs kept show (cmap 9.4.10): a default sequence where the Unicode subtables
+    /// still map its base character (to a glyph kept), a non-default one where its glyph is kept; selectors left without sequences are dropped.
+    /// Selectors, ranges and base characters ascending and each once.
+    /// </summary>
+    /// <returns>The subtable; null if no sequence is left.</returns>
+    private static byte[]? Format14Of(OpenTypeFont font, HashSet<int> keep, ref int budget)
+    {
+        var records = new List<(int Selector, List<(int Start, int Extra)> Ranges, List<(int Code, int Glyph)> Mappings)>();
+        foreach (var (selector, defaults, nonDefaults) in font.VariationSequences(ref budget).DistinctBy(s => s.Selector).OrderBy(s => s.Selector))
+        {
+            if (selector > 0xFFFFFF) continue;
+            var ranges = new List<(int Start, int Extra)>();
+            foreach (var code in defaults.Distinct().Order())
+            {
+                if (font.GlyphForUnicode(code) is var g && (g <= 0 || !keep.Contains(g))) continue;
+                if (ranges.Count > 0 && ranges[^1].Start + ranges[^1].Extra + 1 == code && ranges[^1].Extra < 255) ranges[^1] = (ranges[^1].Start, ranges[^1].Extra + 1);
+                else ranges.Add((code, 0));
+            }
+            var mappings = nonDefaults.Where(m => m.Glyph > 0 && keep.Contains(m.Glyph)).DistinctBy(m => m.Code).OrderBy(m => m.Code).ToList();
+            if (ranges.Count > 0 || mappings.Count > 0) records.Add((selector, ranges, mappings));
+        }
+        if (records.Count == 0) return null;
+        using var output = new MemoryStream();
+        using var tables = new MemoryStream();
+        var head = new byte[10 + 11 * records.Count];
+        BinaryPrimitives.WriteUInt16BigEndian(head, 14);
+        BinaryPrimitives.WriteUInt32BigEndian(head.AsSpan(6), (uint)records.Count);
+        Span<byte> b = stackalloc byte[5];
+        for (var i = 0; i < records.Count; i++)
+        {
+            var (selector, ranges, mappings) = records[i];
+            var at = head.AsSpan(10 + 11 * i);
+            at[0] = (byte)(selector >> 16);
+            BinaryPrimitives.WriteUInt16BigEndian(at[1..], (ushort)selector);
+            if (ranges.Count > 0)
+            {
+                BinaryPrimitives.WriteUInt32BigEndian(at[3..], (uint)(head.Length + tables.Length));
+                BinaryPrimitives.WriteUInt32BigEndian(b, (uint)ranges.Count);
+                tables.Write(b[..4]);
+                foreach (var (start, extra) in ranges)
+                {
+                    b[0] = (byte)(start >> 16);
+                    BinaryPrimitives.WriteUInt16BigEndian(b[1..], (ushort)start);
+                    b[3] = (byte)extra;
+                    tables.Write(b[..4]);
+                }
+            }
+            if (mappings.Count > 0)
+            {
+                BinaryPrimitives.WriteUInt32BigEndian(at[7..], (uint)(head.Length + tables.Length));
+                BinaryPrimitives.WriteUInt32BigEndian(b, (uint)mappings.Count);
+                tables.Write(b[..4]);
+                foreach (var (code, glyph) in mappings)
+                {
+                    b[0] = (byte)(code >> 16);
+                    BinaryPrimitives.WriteUInt16BigEndian(b[1..], (ushort)code);
+                    BinaryPrimitives.WriteUInt16BigEndian(b[3..], (ushort)glyph);
+                    tables.Write(b);
+                }
+            }
+        }
+        BinaryPrimitives.WriteUInt32BigEndian(head.AsSpan(2), (uint)(head.Length + tables.Length));
+        output.Write(head);
+        tables.Position = 0;
+        tables.CopyTo(output);
+        return output.ToArray();
+    }
 
     /// <summary>Runs of consecutive codes with consecutive glyphs.</summary>
     private static List<(int First, int Last, int Glyph)> Runs(List<(int Code, int Glyph)> map)

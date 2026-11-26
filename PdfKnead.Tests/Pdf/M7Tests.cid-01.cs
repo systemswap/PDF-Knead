@@ -187,12 +187,13 @@ public sealed partial class M7NormTests
 
     /// <summary>
     /// CID 2.4 sentences 8–10, 2.5 sentence 2, 3.2 sentences 99–102 and 197, 5.2 sentences 174–175, 7.4 sentences 69–72: a CID the CIDFont has no
-    /// glyph for (another supplement, an empty interval) — the text asks for the glyph of CID 0. Open question (FRAGEN.md 19a): this test holds
-    /// today's behaviour. CID-keyed CFF with a visible glyph 0 and the CIDs 1–3, Identity-H, code 0009 (CID 9 is not in the charset): nothing
-    /// is drawn (CffFont.GlyphByCid gives −1, CompositeFont.Select an empty outline); the width stays the one of CID 9.
+    /// glyph for (another supplement, an empty interval) — the text asks for the glyph of CID 0; two of three reference readers draw nothing
+    /// (probes K7/K8, 25.11.2026), and so does PDF-Knead (special rule A198). CID-keyed CFF with a visible glyph 0 and the CIDs 1–3,
+    /// Identity-H, code 0009 (CID 9 is not in the charset): nothing is drawn (CffFont.GlyphByCid gives −1, CompositeFont.Select an empty
+    /// outline); the width stays the one of CID 9.
     /// </summary>
     [Fact]
-    public void Cid01_CidWithoutGlyph_DrawsNothingToday()
+    public void Cid01_CidWithoutGlyph_DrawsNothing_AsTwoOfThreeReaders()
     {
         var cff = Cid01CidCff([1, 2, 3]);
         Assert.Equal(-1, CffFont.Parse(cff).GlyphByCid(9));

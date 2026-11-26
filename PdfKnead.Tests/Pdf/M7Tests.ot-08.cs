@@ -9,9 +9,10 @@ namespace PdfKnead.Tests.Pdf;
 
 /// <summary>
 /// Konformitätsabgleich M7, package ot-08 (OpenType, CFF2 table: Private DICT 8.9 with 8.9.1–8.9.5, CharString 8.10.1 and 8.10.2): the tests the
-/// sentence-by-sentence drafts named as missing. PDF-Knead does not read the CFF2 table (open question to the user); the tests pin the
-/// behaviour of today — the glyphs of such a font have no outline, the tables beside the outlines are read, nothing writes CFF2. The CFF2 builder
-/// of this file serves the packages ot-09, ot-10 and ot-11 as well.
+/// sentence-by-sentence drafts named as missing. PDF-Knead reads the CFF2 table in the default instance (question 1, docs/FEHLERGEDAECHTNIS.md,
+/// No. 1158): each glyph draws what its charstring says, blends resolved to their default values, the tables beside the outlines are read, and
+/// the redaction writes a static CFF2 table. The CFF2 builder and the assertions of this file serve the packages ot-06, ot-07, ot-09, ot-10 and
+/// ot-11 as well.
 /// </summary>
 public sealed partial class M7NormTests
 {
@@ -296,50 +297,154 @@ public sealed partial class M7NormTests
         return TrueTypeSubsetter.Assemble(tables);
     }
 
+    /// <summary>What a probe of the CFF2 theories draws: the font, per glyph after .notdef a Type 2 charstring (null: empty), and glyph 0.</summary>
+    internal sealed record Cff2ProbeOt08(byte[] Font, string?[] Glyphs, string? Notdef = null);
+
     /// <summary>
-    /// The behaviour of today for a font whose outlines are in CFF2: it parses without error and is not broken, but CFF2 is not read (no CFF, not
-    /// intact), every glyph has an empty outline, and neither scrubbing nor subsetting writes it (both refuse it as without outlines).
+    /// The outline of a Type 2 charstring in a CFF (version 1) font — the reference for what a CFF2 glyph draws in the default instance; empty
+    /// for null.
     /// </summary>
-    internal static void AssertCff2NotReadOt08(byte[] font)
+    internal static GlyphOutline ReferenceOt08(string? charString) =>
+        charString is null ? GlyphOutline.Empty : CffFont.Parse(OneGlyphCffOt11(CsOt08(charString + " endchar"))).Outline(1);
+
+    /// <summary>Two outlines are the same: verbs and points.</summary>
+    internal static void SameOutlineOt08(GlyphOutline expected, GlyphOutline actual, string what)
     {
+        Assert.True(expected.Verbs.SequenceEqual(actual.Verbs), what + ": Verben");
+        Assert.True(expected.Points.SequenceEqual(actual.Points), what + ": Punkte");
+    }
+
+    /// <summary>The operators of a DICT (0–31, 12 x as 1200 + x, 255) with their operands, numbers decoded as in CFF/CFF2.</summary>
+    internal static List<(int Op, List<double> Operands)> DictEntriesOt08(ReadOnlySpan<byte> d)
+    {
+        var result = new List<(int, List<double>)>();
+        var operands = new List<double>();
+        for (var i = 0; i < d.Length;)
+        {
+            int b = d[i++];
+            if (b <= 27 || b is 31 or 255)
+            {
+                result.Add((b == 12 && i < d.Length ? 1200 + d[i++] : b, operands));
+                operands = [];
+            }
+            else if (b == 28) { operands.Add((short)(d[i] << 8 | d[i + 1])); i += 2; }
+            else if (b == 29) { operands.Add(BinaryPrimitives.ReadInt32BigEndian(d[i..])); i += 4; }
+            else if (b == 30)
+            {
+                while (i < d.Length)
+                {
+                    var x = d[i++];
+                    if ((x & 0xF0) == 0xF0 || (x & 0x0F) == 0x0F) break;
+                }
+                operands.Add(double.NaN);
+            }
+            else if (b <= 246) operands.Add(b - 139);
+            else if (b <= 250) operands.Add((b - 247) * 256 + d[i++] + 108);
+            else operands.Add(-(b - 251) * 256 - d[i++] - 108);
+        }
+        return result;
+    }
+
+    /// <summary>The items of a CFF2 INDEX (uint32 count) at <paramref name="at"/>.</summary>
+    internal static byte[][] Index2ItemsOt08(byte[] table, int at)
+    {
+        var count = (int)BinaryPrimitives.ReadUInt32BigEndian(table.AsSpan(at));
+        if (count == 0) return [];
+        int offSize = table[at + 4];
+        int Offset(int i)
+        {
+            var v = 0;
+            for (var k = 0; k < offSize; k++) v = v << 8 | table[at + 5 + i * offSize + k];
+            return v;
+        }
+        var data = at + 5 + (count + 1) * offSize - 1;
+        return [.. Enumerable.Range(0, count).Select(i => table[(data + Offset(i))..(data + Offset(i + 1))])];
+    }
+
+    /// <summary>
+    /// A CFF2 table written by the redaction is static: no VariationStore in the Top DICT, no global subroutines, no charstring calls a subroutine
+    /// or uses blend, vsindex, return or endchar, no Private DICT names local subroutines, vsindex or blend — and the font has none of the
+    /// tables of the variations.
+    /// </summary>
+    internal static void AssertStaticCff2Ot08(OpenTypeFont scrubbed)
+    {
+        var table = scrubbed.TableData("CFF2").ToArray();
+        Assert.Equal(2, table[0]);
+        int headerSize = table[2], topSize = table[3] << 8 | table[4];
+        var top = DictEntriesOt08(table.AsSpan(headerSize, topSize));
+        Assert.DoesNotContain(top, e => e.Op == 24);
+        Assert.Equal(0u, BinaryPrimitives.ReadUInt32BigEndian(table.AsSpan(headerSize + topSize)));
+        foreach (var cs in Index2ItemsOt08(table, (int)top.Single(e => e.Op == 17).Operands[^1]))
+            foreach (var op in (int[])[10, 29, 11, 14, 15, 16]) Assert.DoesNotContain(op, OperatorsOt11(cs));
+        foreach (var fd in Index2ItemsOt08(table, (int)top.Single(e => e.Op == 1236).Operands[^1]))
+        {
+            var location = DictEntriesOt08(fd).Single(e => e.Op == 18).Operands;
+            var ops = DictEntriesOt08(table.AsSpan((int)location[1], (int)location[0])).Select(e => e.Op).ToList();
+            foreach (var op in (int[])[19, 22, 23]) Assert.DoesNotContain(op, ops);
+        }
+        foreach (var tag in (string[])["fvar", "avar", "STAT", "HVAR", "VVAR", "MVAR", "gvar"]) Assert.False(scrubbed.HasTable(tag), tag);
+    }
+
+    /// <summary>
+    /// What every reading of a font „OTTO“ with only a CFF2 table gives now (question 1, docs/FEHLERGEDAECHTNIS.md, No. 1158): it parses, is not
+    /// broken, has no 'CFF ' and is not intact (a strict PDF reader knows no CFF2), and each glyph draws in the default instance what the probe
+    /// says (the same charstring read as Type 2, blends resolved). The redaction keeping every glyph draws them all as before in a static CFF2
+    /// table; keeping only glyph 0, every other glyph is empty. Compressing (subsetting) still refuses such a font: it stays as it is.
+    /// </summary>
+    internal static void AssertCff2ReadOt08(Cff2ProbeOt08 probe)
+    {
+        var font = probe.Font;
         var parsed = OpenTypeFont.Parse(font);
         Assert.False(parsed.Broken);
         Assert.True(parsed.HasTable("CFF2"));
         Assert.Null(parsed.Cff);
         Assert.False(parsed.Intact);
-        Assert.True(parsed.GlyphCount > 0);
-        for (var g = 0; g < Math.Min(parsed.GlyphCount, 32); g++) Assert.True(parsed.Outline(g).IsEmpty, $"Umriss von Glyphe {g}");
-        Assert.Throws<FontFormatException>(() => TrueTypeSubsetter.Scrub(font, [0, 1]));
+        Assert.True(parsed.GlyphCount > probe.Glyphs.Length);
+        SameOutlineOt08(ReferenceOt08(probe.Notdef), parsed.Outline(0), "Glyphe 0");
+        for (var i = 0; i < probe.Glyphs.Length; i++) SameOutlineOt08(ReferenceOt08(probe.Glyphs[i]), parsed.Outline(i + 1), $"Glyphe {i + 1}");
+
+        var all = Enumerable.Range(0, parsed.GlyphCount).ToArray();
+        var scrubbed = OpenTypeFont.Parse(TrueTypeSubsetter.Scrub(font, all));
+        foreach (var g in all) SameOutlineOt08(parsed.Outline(g), scrubbed.Outline(g), $"bereinigt, Glyphe {g}");
+        AssertStaticCff2Ot08(scrubbed);
+        var notdefOnly = OpenTypeFont.Parse(TrueTypeSubsetter.Scrub(font, [0]));
+        SameOutlineOt08(parsed.Outline(0), notdefOnly.Outline(0), "nur Glyphe 0");
+        for (var g = 1; g < parsed.GlyphCount; g++) Assert.True(notdefOnly.Outline(g).IsEmpty, $"entfernte Glyphe {g}");
         Assert.Throws<FontFormatException>(() => TrueTypeSubsetter.Subset(font, [0, 1]));
     }
 
     private const string RectOt08 = "100 0 rmoveto 200 0 rlineto 0 200 rlineto";
 
-    /// <summary>The probes of ot-08, each a font „OTTO“ with only a CFF2 table.</summary>
-    private static byte[] ProbeOt08(string name)
+    /// <summary>The probes of ot-08, each a font „OTTO“ with only a CFF2 table, and what each glyph draws.</summary>
+    private static Cff2ProbeOt08 ProbeOt08(string name)
     {
-        byte[] Glyphs(params string[] g) => Cff2FontOt08(Cff2GlyphsOt08(g), g.Length + 1);
-        byte[] WithPrivate(string dict, Cff2VariationsOt08? variations = null, string glyph = RectOt08) =>
-            Cff2FontOt08(Cff2Ot08(new([[], CsOt08(glyph)], Privates: [new(DictOt08(dict))], Variations: variations)), 2,
-                extra: variations is null ? null : new Dictionary<string, byte[]> { ["fvar"] = FvarOt08() });
+        Cff2ProbeOt08 Glyphs(params string[] g) => new(Cff2FontOt08(Cff2GlyphsOt08(g), g.Length + 1), g);
+        // the Private DICT changes no outline; with a variation store fvar beside it
+        Cff2ProbeOt08 WithPrivate(string dict, Cff2VariationsOt08? variations = null, string glyph = RectOt08, string? drawn = null) =>
+            new(Cff2FontOt08(Cff2Ot08(new([[], CsOt08(glyph)], Privates: [new(DictOt08(dict))], Variations: variations)), 2,
+                extra: variations is null ? null : new Dictionary<string, byte[]> { ["fvar"] = FvarOt08() }), [drawn ?? glyph]);
         return name switch
         {
             "Rect" => Glyphs(RectOt08),
-            "TwoFontDicts" => Cff2FontOt08(Cff2Ot08(new([[], CsOt08("-107 callsubr"), CsOt08("-107 callsubr")],
+            // glyph 1 takes the subroutine of Font DICT 0, glyph 2 that of Font DICT 1 (FontDICTSelect format 0: 0 0 1)
+            "TwoFontDicts" => new(Cff2FontOt08(Cff2Ot08(new([[], CsOt08("-107 callsubr"), CsOt08("-107 callsubr")],
                 Privates: [new([], [CsOt08("0 0 rmoveto 100 0 rlineto 0 100 rlineto")]), new([], [CsOt08("0 0 rmoveto 0 300 rlineto 300 0 rlineto")])],
-                FdSelect: [0, 0, 1])), 3),
-            "EmptyPrivate" => Cff2FontOt08(Cff2Ot08(new([[], CsOt08(RectOt08)], Privates: [new(null)])), 2),
+                FdSelect: [0, 0, 1])), 3), ["0 0 rmoveto 100 0 rlineto 0 100 rlineto", "0 0 rmoveto 0 300 rlineto 300 0 rlineto"]),
+            "EmptyPrivate" => new(Cff2FontOt08(Cff2Ot08(new([[], CsOt08(RectOt08)], Privates: [new(null)])), 2), [RectOt08]),
             "PrivateBlendBlueValues" => WithPrivate("-15 0 5 5 2 blend BlueValues", OneRegionOt08),
             "BlueValuesDelta" => WithPrivate("-15 15 700 15 -168 12 BlueValues"),
             "BlueScaleBcd" => WithPrivate("0x1E 0x0A 0x03 0x96 0x25 0xFF BlueScale"),
-            "EmptyFontDictIndex" => Cff2FontOt08(Cff2Ot08(new([[], CsOt08(RectOt08)], NoFontDicts: true)), 2),
-            "AllPrivateOperators" => Cff2FontOt08(Cff2Ot08(new([[], CsOt08("-107 callsubr")], Privates: [new(DictOt08(
+            // no Font DICT at all: tolerated, the glyph draws without local subroutines
+            "EmptyFontDictIndex" => new(Cff2FontOt08(Cff2Ot08(new([[], CsOt08(RectOt08)], NoFontDicts: true)), 2), [RectOt08]),
+            "AllPrivateOperators" => new(Cff2FontOt08(Cff2Ot08(new([[], CsOt08("-107 callsubr")], Privates: [new(DictOt08(
                     "0 vsindex -15 0 5 5 2 blend BlueValues -250 10 OtherBlues -15 15 FamilyBlues -250 10 FamilyOtherBlues 0.039625 BlueScale 7 BlueShift " +
                     "1 BlueFuzz 50 StdHW 80 StdVW 50 10 StemSnapH 80 12 StemSnapV 0 LanguageGroup 0.06 ExpansionFactor"), [CsOt08(RectOt08)])],
-                Variations: OneRegionOt08)), 2, extra: new Dictionary<string, byte[]> { ["fvar"] = FvarOt08() }),
-            "LocalSubr" => Cff2FontOt08(Cff2Ot08(new([[], CsOt08("-107 callsubr")], Privates: [new([], [CsOt08(RectOt08)])])), 2),
-            "LocalSubrOutside" => Cff2FontOt08(Cff2Ot08(new([[], CsOt08("-107 callsubr")], Privates: [new(DictOt08("0x1D 0x00 0x0F 0x42 0x40 Subrs"))])), 2),
-            "PrivateVsindex" => WithPrivate("1 vsindex", TwoDataSetsOt08, "100 5 6 1 blend 0 rmoveto 200 0 rlineto 0 200 rlineto"),
+                Variations: OneRegionOt08)), 2, extra: new Dictionary<string, byte[]> { ["fvar"] = FvarOt08() }), [RectOt08]),
+            "LocalSubr" => new(Cff2FontOt08(Cff2Ot08(new([[], CsOt08("-107 callsubr")], Privates: [new([], [CsOt08(RectOt08)])])), 2), [RectOt08]),
+            // LocalSubrINDEXOffset beyond the table: no subroutines, the call draws nothing
+            "LocalSubrOutside" => new(Cff2FontOt08(Cff2Ot08(new([[], CsOt08("-107 callsubr")], Privates: [new(DictOt08("0x1D 0x00 0x0F 0x42 0x40 Subrs"))])), 2), [null]),
+            // vsindex 1 in the Private DICT: k = 2, so „100 5 6 1 blend“ leaves 100 (with k = 1 it would leave 100 5)
+            "PrivateVsindex" => WithPrivate("1 vsindex", TwoDataSetsOt08, "100 5 6 1 blend 0 rmoveto 200 0 rlineto 0 200 rlineto", RectOt08),
             "BlueValues" => WithPrivate("-15 15 700 15 BlueValues"),
             "BlueValuesInvalid" => WithPrivate("700 -10 3 1 3 1 3 1 3 1 3 1 3 1 3 1 BlueValues"),
             "OtherBluesInvalid" => WithPrivate("-250 10 20 10 20 10 20 10 20 10 20 -5 OtherBlues"),
@@ -359,9 +464,10 @@ public sealed partial class M7NormTests
             "LanguageGroup7" => WithPrivate("7 LanguageGroup"),
             "ExpansionFactor" => WithPrivate("1 LanguageGroup 0.5 ExpansionFactor"),
             "OtherBluesBeforeBlueValues" => WithPrivate("-250 10 OtherBlues -15 15 700 15 BlueValues"),
-            "LongCharString" => Glyphs(LongCharStringOt08()),
-            "GlobalSubr" => Cff2FontOt08(Cff2Ot08(new([[], CsOt08("-107 callgsubr")], GlobalSubrs: [CsOt08(RectOt08)])), 2),
-            "EmptyCharString" => Cff2FontOt08(Cff2Ot08(new([[], [], CsOt08(RectOt08)])), 3),
+            // the rectangle, then moves that change nothing (the dangling ones drop out of the outline)
+            "LongCharString" => new(Cff2FontOt08(Cff2GlyphsOt08(LongCharStringOt08()), 2), [RectOt08]),
+            "GlobalSubr" => new(Cff2FontOt08(Cff2Ot08(new([[], CsOt08("-107 callgsubr")], GlobalSubrs: [CsOt08(RectOt08)])), 2), [RectOt08]),
+            "EmptyCharString" => new(Cff2FontOt08(Cff2Ot08(new([[], [], CsOt08(RectOt08)])), 3), [null, RectOt08]),
             _ => throw new ArgumentException(name),
         };
     }
@@ -383,12 +489,12 @@ public sealed partial class M7NormTests
     // ------------------------------------------------------------ 8.9 to 8.10.2
 
     /// <summary>
-    /// OT 8.9 sentences 1–21 and 8.9.1 to 8.9.5, 8.10.1 sentences 1–14, 8.10.2 sentences 7–10 (reader, today): PDF-Knead does not read the CFF2
-    /// table — for each Private DICT, Font DICT and charstring arrangement of these sentences (one or two Font DICTs with FontDICTSelect, an
-    /// empty Private DICT, blend and vsindex in the Private DICT, delta arrays, BCD numbers, every Private DICT operator, local and global
-    /// subroutines, hint values breaking the rules for font makers, a charstring of 65 535 bytes, an empty charstring) the font parses without
-    /// error, has no CFF and is not intact, every glyph has an empty outline, and scrubbing and subsetting refuse it (8.9 sentences 22–26: no
-    /// CFF2 is written). Once CFF2 is read (question 1), the expected outlines replace these assertions.
+    /// OT 8.9 sentences 1–21 and 8.9.1 to 8.9.5, 8.10.1 sentences 1–14, 8.10.2 sentences 7–10 (reader and redaction, question 1): PDF-Knead reads
+    /// the CFF2 table in the default instance — for each Private DICT, Font DICT and charstring arrangement of these sentences (one or two Font
+    /// DICTs with FontDICTSelect, an empty Private DICT, blend and vsindex in the Private DICT, delta arrays, BCD numbers, every Private DICT
+    /// operator, local and global subroutines, hint values breaking the rules for font makers, a charstring of 65 535 bytes, an empty charstring)
+    /// each glyph draws what its charstring says (hints and Private DICT values change no outline; a LocalSubrINDEX beyond the table leaves the
+    /// call without effect), and the redaction writes a static CFF2 table (8.9 sentences 22–26: no VariationStore, no subroutines).
     /// </summary>
     [Theory]
     [InlineData("Rect")]                       // 8.9 1–2
@@ -424,60 +530,98 @@ public sealed partial class M7NormTests
     [InlineData("LongCharString")]             // 8.10.1 1–9
     [InlineData("GlobalSubr")]                 // 8.10.1 10–14
     [InlineData("EmptyCharString")]            // 8.10.2 7–10
-    public void Cff2PrivateDictAndCharStrings_AreNotRead_GlyphsStayEmpty(string probe) => AssertCff2NotReadOt08(ProbeOt08(probe));
+    public void Cff2PrivateDictAndCharStrings_AreRead_DefaultInstanceDrawn(string probe) => AssertCff2ReadOt08(ProbeOt08(probe));
 
     /// <summary>
-    /// OT 8.9 sentences 1–2 (reader, today): a font „OTTO“ with only a CFF2 table is taken as an embedded program (not broken), and as one
-    /// with TrueType outlines, because it has no CFF — so the display finds no outline and draws nothing; no substitute is chosen.
+    /// OT 8.9 sentences 1–2 (reader): a font „OTTO“ with only a CFF2 table is taken as an embedded program (not broken) whose glyphs are found as
+    /// in a TrueType font (CFF2 has no charset, names or encoding: cmap and post), and the display draws its outline from the CFF2 table.
     /// </summary>
     [Fact]
-    public void Cff2Font_IsTakenAsEmbeddedTrueTypeProgram()
+    public void Cff2Font_IsTakenAsEmbeddedTrueTypeProgram_AndDrawn()
     {
-        var program = FontProgram.FromBytes(ProbeOt08("Rect"));
+        var program = FontProgram.FromBytes(ProbeOt08("Rect").Font);
         Assert.NotNull(program);
         Assert.True(program.IsEmbedded);
         Assert.True(program.IsTrueType);
         Assert.Null(program.Cff);
-        Assert.True(program.OpenType!.Outline(1).IsEmpty);
+        SameOutlineOt08(ReferenceOt08(RectOt08), program.OpenType!.Outline(1), "Glyphe 1");
     }
 
     /// <summary>
-    /// OT 8.10.1 sentences 15–17 (reader): the advance widths of a CFF2 font are in hmtx, not in the charstrings — PDF-Knead reads hmtx also
-    /// beside a CFF2 table: glyph 1 is 600 wide, while its outline stays empty (CFF2 not read).
+    /// OT 8.10.1 sentences 15–17 (reader): the advance widths of a CFF2 font are in hmtx, not in the charstrings — glyph 1 is 600 wide (hmtx) and
+    /// draws its rectangle.
     /// </summary>
     [Fact]
     public void Cff2Font_AdvanceWidthComesFromHmtx()
     {
-        var font = OpenTypeFont.Parse(ProbeOt08("Rect"));
+        var font = OpenTypeFont.Parse(ProbeOt08("Rect").Font);
         Assert.Equal(600, font.AdvanceWidth(1));
-        Assert.True(font.Outline(1).IsEmpty);
+        Assert.False(font.Outline(1).IsEmpty);
     }
 
     /// <summary>
-    /// OT 8.10.2 sentences 1–6 (reader, today): the CharStringINDEX holds three charstrings, maxp says five glyphs — the glyph count comes from
-    /// maxp (5), every outline (0 … 4) is empty, nothing fails.
+    /// OT 8.10.2 sentences 1–6 (reader, tolerant): the CharStringINDEX holds three charstrings, maxp says five glyphs — the glyph count comes from
+    /// maxp (5), glyphs 1 and 2 draw, 3 and 4 beyond the charstrings are empty, nothing fails.
     /// </summary>
     [Fact]
     public void Cff2Font_MaxpCountsMoreGlyphsThanCharStrings_NothingFails()
     {
         var font = OpenTypeFont.Parse(Cff2FontOt08(Cff2GlyphsOt08(RectOt08, RectOt08), 3, numGlyphs: 5));
         Assert.Equal(5, font.GlyphCount);
-        for (var g = 0; g < 5; g++) Assert.True(font.Outline(g).IsEmpty);
+        Assert.False(font.Outline(1).IsEmpty || font.Outline(2).IsEmpty);
+        Assert.True(font.Outline(0).IsEmpty && font.Outline(3).IsEmpty && font.Outline(4).IsEmpty);
     }
 
     /// <summary>
-    /// OT 8.10.2 sentences 1–6 (redaction, today): text in a TrueType font whose program has only CFF2 outlines; redacting the „A“ leaves the
-    /// program as it was, byte for byte — scrubbing handles only glyf and „CFF “ (FontScrub.ScrubProgram), so all charstrings stay (finding S9 c,
-    /// question 1).
+    /// OT 8.10.2 sentences 1–6 and 8.10.2 sentences 7–10 (redaction, question 1): text „AB“ in a TrueType font whose program has only CFF2
+    /// outlines; redacting the „A“ scrubs the program — „A“ (glyph 1) becomes an empty charstring and leaves the cmap, „B“ draws as before, the
+    /// CFF2 table is static (finding S9 c; before, the program stayed byte for byte with the glyph of the redacted text).
     /// </summary>
     [Fact]
-    public void Cff2Font_RedactedText_ProgramStaysWhole()
+    public void Cff2Font_RedactedText_ProgramScrubbedStatic()
     {
         var program = Cff2FontOt08(Cff2GlyphsOt08(RectOt08, "0 0 rmoveto 0 300 rlineto 300 0 rlineto"), 3);
         using var doc = PdfDocument.Open(PdfARuleCases.WithTrueType(program: () => program)());
         using var after = PdfDocument.Open(RedactionTests.WithBars(doc, (0, new PdfRectangle(70, 690, 87, 730))));
         var font = (PdfDictionary)after.Pages[0].Resources!.GetDictionary(PdfName.Get("Font"))!.Get(PdfName.Get("F1"))!;
         var file = font.GetDictionary(PdfName.Get("FontDescriptor"))!.GetStream(PdfName.Get("FontFile2"))!;
-        Assert.Equal(program, after.GetStreamData(file));
+        var data = after.GetStreamData(file);
+        Assert.NotEqual(program, data);
+        var before = OpenTypeFont.Parse(program);
+        var scrubbed = OpenTypeFont.Parse(data);
+        Assert.True(scrubbed.Outline(1).IsEmpty);
+        Assert.Equal(0, scrubbed.GlyphForUnicode('A'));
+        SameOutlineOt08(before.Outline(2), scrubbed.Outline(2), "B");
+        Assert.Equal(2, scrubbed.GlyphForUnicode('B'));
+        AssertStaticCff2Ot08(scrubbed);
+    }
+
+    /// <summary>
+    /// OT 8.4.1 sentences 1–19, 8.5.2 and 8.11.3 (reader, security, docs/FEHLERGEDAECHTNIS.md, No. 1158): sizes from a CFF2 table are bounded — a
+    /// CharStringINDEX counting 0xFFFFFFFF charstrings in a table of some bytes is refused before its offsets are allocated (the font has no
+    /// outlines, nothing fails); 512 numbers before one rlineto draw 256 lines, 514 overflow the stack of 513 and make the glyph empty; a blend
+    /// asking for more operands than the stack holds, and a vsindex after a blend, make the glyph empty; the glyphs beside them still draw.
+    /// </summary>
+    [Fact]
+    public void Cff2_DamagedSizes_BoundedAndHarmless()
+    {
+        var table = Cff2GlyphsOt08(RectOt08);
+        var top = DictEntriesOt08(table.AsSpan(table[2], table[3] << 8 | table[4]));
+        var at = (int)top.Single(e => e.Op == 17).Operands[^1];
+        table[at] = table[at + 1] = table[at + 2] = table[at + 3] = 0xFF;
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var huge = OpenTypeFont.Parse(Cff2FontOt08(table, 2));
+        Assert.True(huge.Outline(1).IsEmpty);
+        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(5));
+
+        string Lines(int pairs) => "0 0 rmoveto " + string.Concat(Enumerable.Repeat("1 0 ", pairs)) + "rlineto";
+        var font = OpenTypeFont.Parse(Cff2FontOt08(Cff2Ot08(new([[], CsOt08(Lines(256)), CsOt08(Lines(257)), CsOt08("0 0 rmoveto 10 5 30000 blend 0 rlineto"),
+            CsOt08("0 0 rmoveto 10 5 1 blend 0 rlineto 0 vsindex 0 10 rlineto"), CsOt08(RectOt08)], Variations: OneRegionOt08)), 6,
+            extra: new Dictionary<string, byte[]> { ["fvar"] = FvarOt08() }));
+        Assert.Equal(256, font.Outline(1).Verbs.Count(v => v == PdfKnead.Core.Pdf.Graphics.PathVerb.Line));
+        Assert.True(font.Outline(2).IsEmpty);
+        Assert.True(font.Outline(3).IsEmpty);
+        Assert.True(font.Outline(4).IsEmpty);
+        SameOutlineOt08(ReferenceOt08(RectOt08), font.Outline(5), "Glyphe 5");
     }
 }

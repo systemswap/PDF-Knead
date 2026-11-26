@@ -6,7 +6,8 @@ namespace PdfKnead.Core.Fonts;
 /// <summary>
 /// Compact Font Format font (Adobe TN 5176) with Type 2 charstrings (Adobe TN 5177), either stand-alone
 /// (PDF FontFile3 /Type1C, /CIDFontType0C) or as the "CFF " table of an OpenType font. Reads the
-/// name, charset, encoding, CID mapping and the glyph outlines.
+/// name, charset, encoding, CID mapping and the glyph outlines. The "CFF2" table of an OpenType font (OpenType 8) is read as well
+/// (<see cref="ParseCff2"/>), in its default instance.
 /// </summary>
 /// <remarks>
 /// Glyph outlines are built on first use and cached up to 64 MB per font; the members are safe to call from several threads.
@@ -16,6 +17,9 @@ public sealed class CffFont
     private const int MaxSubrDepth = 10;
     private const int MaxStack = 48;
 
+    /// <summary>The argument stack of CFF2 holds 513 numbers (OpenType 8.4.1), that of Type 2 charstrings 48 (Adobe TN 5177, Appendix B).</summary>
+    internal const int MaxStackCff2 = 513;
+
     private readonly ArraySegment<byte> _data;   // the CFF data (for OpenType a slice of the file)
     private readonly CffIndex _charStrings;
     private readonly CffIndex _globalSubrs;
@@ -23,7 +27,10 @@ public sealed class CffFont
 
     /// <summary>The Font DICTs of a CIDFont that FDSelect can name: its values are Card8 (Adobe TN 5176, 19).</summary>
     internal const int MaxFontDicts = 256;
-    private readonly byte[]? _fdSelect;          // glyph → Font DICT (CID-keyed fonts)
+    private readonly ushort[]? _fdSelect;        // glyph → Font DICT (CID-keyed fonts, CFF2)
+    private bool _cff2;                           // the data are CFF2 (OpenType 8)
+    private int[]? _regionCounts;                 // CFF2: the regions of each ItemVariationData (k; -1 unreadable), null without VariationStore
+    private double[]? _topMatrix;                 // CFF2: the operands of the Top DICT's FontMatrix, if it has one
     private Matrix?[]? _fdRelative;               // Font DICT → its own FontMatrix relative to FontMatrix (null: the same)
     private readonly string[]? _names;           // glyph → name (not CID-keyed)
     private readonly Dictionary<string, int>? _nameToGlyph;
@@ -35,7 +42,7 @@ public sealed class CffFont
     private readonly BoundedCache<int, (GlyphOutline Outline, double Width)> _cache = new(64L << 20, g => g.Outline.EstimatedBytes);
 
     private CffFont(ArraySegment<byte> data, string name, Matrix fontMatrix, CffIndex charStrings, CffIndex globalSubrs, PrivateDict[] privates,
-        byte[]? fdSelect, string[]? names, Dictionary<string, int>? nameToGlyph, int[]? glyphToCid, int[] encoding)
+        ushort[]? fdSelect, string[]? names, Dictionary<string, int>? nameToGlyph, int[]? glyphToCid, int[] encoding)
     {
         _data = data;
         Name = name;
@@ -85,6 +92,12 @@ public sealed class CffFont
 
     /// <summary>Whether the font is CID-keyed (the Top DICT contains ROS).</summary>
     public bool IsCidKeyed => _glyphToCid is not null;
+
+    /// <summary>
+    /// Whether the data are CFF2 (OpenType 8): no names, charset, encoding or widths of their own — an OpenType font finds its glyphs through
+    /// cmap and post and takes the advances from hmtx; the glyphs are drawn in the default instance.
+    /// </summary>
+    internal bool IsCff2 => _cff2;
 
     /// <summary>Number of glyphs (entries in the CharStrings INDEX).</summary>
     public int GlyphCount => _charStrings.Count;
@@ -199,7 +212,7 @@ public sealed class CffFont
 
         var isCid = top.Has(1230);
         PrivateDict[] privates;
-        byte[]? fdSelect = null;
+        ushort[]? fdSelect = null;
         Matrix?[]? fdRelative = null;
         if (isCid && top.Int(1236) is { } fdArrayOffset)
         {
@@ -222,7 +235,7 @@ public sealed class CffFont
                 if (fd.Matrix(1207) is { } sub) fdMatrices[i] = topMatrix is { } t ? sub * t : sub;
             }
             if (fdArray.Count == 0) privates[0] = PrivateDict.Empty;
-            if (top.Int(1237) is { } fdSelectOffset) fdSelect = ReadFdSelect(data, fdSelectOffset, glyphCount);
+            if (top.Int(1237) is { } fdSelectOffset) fdSelect = Array.ConvertAll(ReadFdSelect(data, fdSelectOffset, glyphCount), b => (ushort)b);
             // The first Font DICT determines the FontMatrix of the font; the others are converted relative to it per glyph
             if (fdMatrices[0] is { } first) fontMatrix = first;
             var inverse = fontMatrix.Invert();
@@ -260,6 +273,150 @@ public sealed class CffFont
         {
             _fdRelative = fdRelative,
         };
+    }
+
+    /// <summary>The glyphs a CFF2 table may hold: numGlyphs of maxp is a uint16 and must equal the count of the CharStringINDEX (OpenType 8.10.2).</summary>
+    private const int MaxCff2Glyphs = 65535;
+
+    /// <summary>
+    /// Parses the "CFF2" table of an OpenType font (OpenType 8): header, Top DICT, GlobalSubrINDEX, CharStringINDEX, FontDICTINDEX with the
+    /// Private DICTs and their local subroutines, FontDICTSelect (formats 0, 3, 4) and of the VariationStore the number of regions of each
+    /// ItemVariationData (k, for blend). The glyphs are drawn in the default instance: blend leaves the default values and drops the deltas.
+    /// </summary>
+    /// <remarks>
+    /// Tolerant where a lenient reader draws: without FontDICTINDEX, or with an empty one, the glyphs draw without local subroutines; a
+    /// FontDICTSelect of an unknown format leaves every glyph with the first Font DICT. Sizes from the data are bounded as for CFF (at most 256
+    /// Font DICTs, each Private DICT read once — docs/FEHLERGEDAECHTNIS.md, No. 1136; an INDEX is checked against the data before its offsets
+    /// are read; per glyph the work, depth and stack limits of the charstring interpreter; No. 1158).
+    /// </remarks>
+    /// <param name="data">The CFF2 table; the font keeps a reference to it and reads charstrings from it on demand.</param>
+    /// <param name="unitsPerEm">unitsPerEm of the head table: without a FontMatrix in the Top DICT the glyphs are scaled by its inverse, as common
+    /// font engines do (the FontMatrix may only be left out at 1000 units per em, OpenType 8.7.2).</param>
+    /// <returns>The parsed font (<see cref="IsCff2"/>).</returns>
+    /// <exception cref="FontFormatException">The major version is not 2, the Top DICT lies outside the table, there is no CharStringINDEX, or an
+    /// INDEX runs past the end of the data or counts more than 65 535 glyphs.</exception>
+    internal static CffFont ParseCff2(ArraySegment<byte> data, int unitsPerEm)
+    {
+        var r = new FontReader(data);
+        if (r.U8() != 2) throw new FontFormatException("CFF2: unbekannte Hauptversion");
+        r.U8();                             // minor
+        var headerSize = r.U8();
+        int topSize = r.U16();
+        // the Top DICT starts at headerSize (a later version may put data before it; OpenType 8.6)
+        if (headerSize < 5 || headerSize > data.Count - topSize) throw new FontFormatException("CFF2: TopDICT außerhalb der Tabelle");
+        var top = Dict.ParseCff2(data.AsSpan(headerSize, topSize), null);
+        r.Position = headerSize + topSize;
+        var globalSubrs = CffIndex.Read2(data, ref r);
+        if (top.Int(17) is not { } charStringsOffset) throw new FontFormatException("CFF2 ohne CharStrings");
+        r.Position = charStringsOffset;
+        var charStrings = CffIndex.Read2(data, ref r);
+        if (charStrings.Count > MaxCff2Glyphs) throw new FontFormatException("CFF2: zu viele Glyphen");
+        var regionCounts = top.Int(24) is { } storeOffset ? ReadRegionCounts(data, storeOffset) : null;
+
+        var privates = new List<PrivateDict>();
+        if (top.Int(1236) is { } fontDictsOffset)
+        {
+            try
+            {
+                r.Position = fontDictsOffset;
+                var fontDicts = CffIndex.Read2(data, ref r);
+                var read = new Dictionary<(double, double), PrivateDict>();
+                for (var i = 0; i < Math.Min(fontDicts.Count, MaxFontDicts); i++)
+                {
+                    var fd = Dict.ParseCff2(fontDicts.Item(data, i), null);
+                    var location = fd.Get(18) is { Length: 2 } at ? (at[0], at[1]) : (-1d, -1d);
+                    if (!read.TryGetValue(location, out var priv)) read[location] = priv = PrivateDict.ReadCff2(data, fd, regionCounts);
+                    privates.Add(priv);
+                }
+            }
+            catch (FontFormatException)
+            {
+                // a FontDICTINDEX beyond the table: the glyphs draw without local subroutines
+            }
+        }
+        if (privates.Count == 0) privates.Add(PrivateDict.Empty);
+        var fdSelect = top.Int(1237) is { } fdSelectOffset ? ReadFdSelectCff2(data, fdSelectOffset, charStrings.Count) : null;
+
+        var topMatrix = top.Matrix(1207);
+        var fontMatrix = topMatrix ?? Matrix.Scale(1.0 / unitsPerEm, 1.0 / unitsPerEm);
+        return new CffFont(data, "", fontMatrix, charStrings, globalSubrs, [.. privates], fdSelect, null, null, null, new int[256])
+        {
+            _cff2 = true,
+            _regionCounts = regionCounts,
+            _topMatrix = topMatrix is null ? null : top.Get(1207),
+        };
+    }
+
+    /// <summary>
+    /// The number of regions of each ItemVariationData of a CFF2 VariationStore (OpenType 8.11.2: a uint16 length, then an ItemVariationStore
+    /// whose offsets count from its own start); k of blend. An entry that cannot be read is -1; null if the store itself cannot be read.
+    /// </summary>
+    private static int[]? ReadRegionCounts(ArraySegment<byte> data, int offset)
+    {
+        try
+        {
+            var r = new FontReader(data, offset);
+            r.U16();                        // length of the ItemVariationStore
+            var start = r.Position;
+            if (r.U16() != 1) return null;  // format 1 only
+            r.U32();                        // VariationRegionList: the regions do not matter in the default instance
+            int count = r.U16();
+            var counts = new int[count];
+            for (var i = 0; i < count; i++)
+            {
+                var at = (long)start + r.U32();
+                var d = new FontReader(data, at is >= 0 and <= int.MaxValue ? (int)at : -1);
+                if (!d.CanRead(6))
+                {
+                    counts[i] = -1;
+                    continue;
+                }
+                d.Skip(4);                  // itemCount and wordDeltaCount: CFF2 keeps the deltas in its charstrings (8.11.2)
+                counts[i] = d.U16();        // regionIndexCount
+            }
+            return counts;
+        }
+        catch (FontFormatException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// FontDICTSelect of CFF2 (OpenType 8.8.3): format 0 (a byte per glyph), 3 (ranges of uint16 glyphs with a uint8 index) and 4 (ranges of
+    /// uint32 glyphs with a uint16 index). Each glyph takes the first range that covers it: ranges running backwards cover nothing again, so
+    /// the work stays one step per glyph and range however many ranges a damaged table counts. Unknown formats and missing data: index 0.
+    /// </summary>
+    private static ushort[] ReadFdSelectCff2(ArraySegment<byte> data, int offset, int glyphCount)
+    {
+        var fd = new ushort[glyphCount];
+        try
+        {
+            var r = new FontReader(data, offset);
+            var format = r.U8();
+            if (format == 0)
+            {
+                for (var g = 0; g < glyphCount; g++) fd[g] = r.U8();
+            }
+            else if (format is 3 or 4)
+            {
+                long ranges = format == 3 ? r.U16() : r.U32();
+                long first = format == 3 ? r.U16() : r.U32();
+                long covered = 0;
+                for (long i = 0; i < ranges && covered < glyphCount; i++)
+                {
+                    var index = format == 3 ? r.U8() : r.U16();
+                    long next = format == 3 ? r.U16() : r.U32();
+                    for (var g = Math.Max(first, covered); g < next && g < glyphCount; g++) fd[g] = index;
+                    covered = Math.Max(covered, Math.Min(next, glyphCount));
+                    first = next;
+                }
+            }
+        }
+        catch (FontFormatException)
+        {
+        }
+        return fd;
     }
 
     internal static int[] ReadCharset(ArraySegment<byte> data, int offset, int glyphCount, bool isCid)
@@ -370,11 +527,21 @@ public sealed class CffFont
             {
                 int ranges = r.U16();
                 int first = r.U16();
-                for (var i = 0; i < ranges; i++)
+                // ranges that run up and down (a crafted font) would fill the glyphs again and again, up to some 2 000 million steps: a budget
+                // of four fillings of every glyph — a valid font fills each glyph once — ends the reading, the rest stays Font DICT 0
+                // (docs/FEHLERGEDAECHTNIS.md, No. 1170)
+                var budget = 4L * Math.Max(glyphCount, 1);
+                for (var i = 0; i < ranges && budget > 0; i++)
                 {
                     var index = r.U8();
                     int next = r.U16();
-                    for (var g = first; g < next && g < glyphCount; g++) fd[g] = index;
+                    var end = Math.Min(next, glyphCount);
+                    if (end > first)
+                    {
+                        if (end - first > budget) end = first + (int)budget;
+                        fd.AsSpan(first, end - first).Fill(index);
+                        budget -= end - first;
+                    }
                     first = next;
                 }
             }
@@ -403,6 +570,24 @@ public sealed class CffFont
             r.Position = dataStart + offsets[count];
             if (r.Position > data.Count || r.Position < 0) throw new FontFormatException("CFF-INDEX zu lang");
             return new CffIndex(count, offsets, dataStart);
+        }
+
+        /// <summary>
+        /// An INDEX of CFF2 (OpenType 8.5.2): the count is a uint32 (an empty INDEX is the count alone). The offsets must fit into the data
+        /// before they are read — a count of four billion in a short table must not allocate their array (No. 1158).
+        /// </summary>
+        public static CffIndex Read2(ArraySegment<byte> data, ref FontReader r)
+        {
+            var count = r.U32();
+            if (count == 0) return new CffIndex(0, [1], r.Position);
+            int offSize = r.U8();
+            if (offSize is < 1 or > 4 || (count + 1L) * offSize > data.Count - r.Position) throw new FontFormatException("CFF2-INDEX zu lang");
+            var offsets = new int[count + 1];
+            for (var i = 0; i <= count; i++) offsets[i] = r.Offset(offSize);
+            var dataStart = r.Position - 1;
+            r.Position = dataStart + offsets[count];
+            if (r.Position > data.Count || r.Position < 0) throw new FontFormatException("CFF2-INDEX zu lang");
+            return new CffIndex((int)count, offsets, dataStart);
         }
 
         public ReadOnlySpan<byte> Item(ArraySegment<byte> data, int i)
@@ -464,6 +649,73 @@ public sealed class CffFont
             return dict;
         }
 
+        /// <summary>
+        /// A DICT of CFF2 (OpenType 8.5.1): operators 0–24 and 12 x, the reserved bytes 25–27, 31 and 255 as operators that only clear the stack
+        /// (8.4.1), at most 513 operands (further numbers are dropped). vsindex (22) is kept as an entry and selects the regions for the blends
+        /// after it; blend (23) works in the default instance: of n default values, n·k deltas and n it leaves the n default values for the next
+        /// operator (8.9.3). A blend whose regions are unknown (no VariationStore, vsindex out of range) or that lacks operands clears the stack.
+        /// </summary>
+        /// <param name="bytes">The DICT data.</param>
+        /// <param name="regionCounts">The regions of each ItemVariationData (k); null without VariationStore.</param>
+        public static Dict ParseCff2(ReadOnlySpan<byte> bytes, int[]? regionCounts)
+        {
+            var dict = new Dict();
+            var operands = new List<double>();
+            var vsindex = 0;
+            var i = 0;
+            void Add(double v)
+            {
+                if (operands.Count < MaxStackCff2) operands.Add(v);
+            }
+            while (i < bytes.Length)
+            {
+                int b0 = bytes[i++];
+                if (b0 <= 27 || b0 is 31 or 255)
+                {
+                    var op = b0 == 12 && i < bytes.Length ? 1200 + bytes[i++] : b0;
+                    if (op == 23)
+                    {
+                        var n = operands.Count > 0 ? operands[^1] : -1;
+                        var k = regionCounts is { } counts && vsindex >= 0 && vsindex < counts.Length ? counts[vsindex] : -1;
+                        if (k >= 0 && n >= 0 && n == Math.Floor(n) && n * (k + 1) + 1 <= operands.Count)
+                            operands.RemoveRange(operands.Count - (int)(n * k + 1), (int)(n * k + 1));
+                        else operands.Clear();
+                        continue;
+                    }
+                    if (op == 22 && operands.Count > 0) vsindex = (int)Math.Clamp(operands[^1], -1, int.MaxValue);
+                    if (op is not (25 or 26 or 27 or 31 or 255)) dict._entries[op] = [.. operands];
+                    operands.Clear();
+                }
+                else if (b0 == 28 && i + 1 < bytes.Length)
+                {
+                    Add((short)(bytes[i] << 8 | bytes[i + 1]));
+                    i += 2;
+                }
+                else if (b0 == 29 && i + 3 < bytes.Length)
+                {
+                    Add(bytes[i] << 24 | bytes[i + 1] << 16 | bytes[i + 2] << 8 | bytes[i + 3]);
+                    i += 4;
+                }
+                else if (b0 == 30)
+                {
+                    Add(Real(bytes, ref i));
+                }
+                else if (b0 is >= 32 and <= 246)
+                {
+                    Add(b0 - 139);
+                }
+                else if (b0 is >= 247 and <= 250 && i < bytes.Length)
+                {
+                    Add((b0 - 247) * 256 + bytes[i++] + 108);
+                }
+                else if (b0 is >= 251 and <= 254 && i < bytes.Length)
+                {
+                    Add(-(b0 - 251) * 256 - bytes[i++] - 108);
+                }
+            }
+            return dict;
+        }
+
         private static double Real(ReadOnlySpan<byte> bytes, ref int i)
         {
             var sb = new System.Text.StringBuilder();
@@ -515,6 +767,40 @@ public sealed class CffFont
         public double DefaultWidth;
         public double NominalWidth;
 
+        /// <summary>CFF2: the ItemVariationData the charstrings of this Private DICT blend with unless they choose one (vsindex, OpenType 8.9.3).</summary>
+        public int VsIndex;
+
+        /// <summary>CFF2: the Private DICT as read in the default instance (for rewriting it, <see cref="Cff2Scrubber"/>); null for CFF.</summary>
+        public Dict? Source;
+
+        /// <summary>
+        /// Reads the Private DICT of a CFF2 Font DICT (operator 18: size, offset from the start of the table; 0 0 for an empty one, OpenType 8.8.4)
+        /// with its LocalSubrINDEX (operator 19, offset from the start of the Private DICT) and vsindex. A Private DICT or subroutine INDEX
+        /// beyond the table is left out.
+        /// </summary>
+        public static PrivateDict ReadCff2(ArraySegment<byte> data, Dict owner, int[]? regionCounts)
+        {
+            if (owner.Get(18) is not { Length: 2 } location) return Empty;
+            var size = location[0];
+            var offset = location[1];
+            if (offset < 0 || size <= 0 || offset > data.Count - size) return Empty;
+            var dict = Dict.ParseCff2(data.AsSpan((int)offset, (int)size), regionCounts);
+            var result = new PrivateDict { VsIndex = dict.Int(22) ?? 0, Source = dict };
+            if (dict.Int(19) is { } subrs && offset + subrs is >= 0 and <= int.MaxValue)
+            {
+                try
+                {
+                    var r = new FontReader(data, (int)(offset + subrs));
+                    result.Subrs = CffIndex.Read2(data, ref r);
+                    result.HasSubrs = true;
+                }
+                catch (FontFormatException)
+                {
+                }
+            }
+            return result;
+        }
+
         /// <summary>Reads the Private DICT of a Top or Font DICT (operator 18: size, offset).</summary>
         public static PrivateDict Read(ArraySegment<byte> data, Dict owner)
         {
@@ -548,14 +834,64 @@ public sealed class CffFont
 
     internal static int Bias(int count) => count < 1240 ? 107 : count < 33900 ? 1131 : 32768;
 
-    /// <summary>Executes a Type 2 charstring (Adobe TN 5177) and records the outline.</summary>
-    private sealed class CharStringInterpreter(CffFont font, PrivateDict priv)
+    // ------------------------------------------------------------ CFF2: rewriting (Cff2Scrubber)
+
+    /// <summary>The CFF2 Font DICT of a glyph (an index into the Font DICTs read; 0 where FontDICTSelect names none of them).</summary>
+    internal int FontDictOf(int glyph) => _fdSelect is not null && (uint)glyph < (uint)_fdSelect.Length && _fdSelect[glyph] < _privates.Length ? _fdSelect[glyph] : 0;
+
+    /// <summary>The number of Font DICTs read (at least one).</summary>
+    internal int FontDictCount => _privates.Length;
+
+    /// <summary>CFF2: the Private DICT of a Font DICT in the default instance; null for an empty one.</summary>
+    internal Dict? PrivateSource(int fontDict) => _privates[fontDict].Source;
+
+    /// <summary>CFF2: the operands of the Top DICT's FontMatrix as written; null if it has none.</summary>
+    internal double[]? TopMatrixOperands => _topMatrix;
+
+    /// <summary>
+    /// CFF2: the charstring of a glyph in the default instance without subroutines — what the interpreter executes, written out: every operator
+    /// that draws or hints with the numbers it finds on the stack (and the mask bytes of hintmask and cntrmask), the subroutines in place of
+    /// callsubr and callgsubr, without blend (the default values stay, the deltas go), vsindex, return and endchar. Read again it gives the same
+    /// outline and keeps the hints; it carries no variation data and no part of another glyph (OpenType 8.10, 8.11.3). A glyph whose charstring
+    /// cannot be executed is empty (as drawn); one that would grow beyond 65 535 bytes is written from its outline, without hints.
+    /// </summary>
+    /// <param name="glyph">The glyph index.</param>
+    /// <returns>The charstring; empty for a glyph without outline.</returns>
+    internal byte[] StaticCharString(int glyph)
+    {
+        if (!_cff2 || glyph < 0 || glyph >= GlyphCount) return [];
+        try
+        {
+            var output = new List<byte>();
+            new CharStringInterpreter(this, PrivateFor(glyph), output).Run(glyph);
+            if (output.Count <= MaxCharStringBytes) return [.. output];
+        }
+        catch (Exception e) when (e is FontFormatException or IndexOutOfRangeException or InvalidOperationException)
+        {
+            return [];
+        }
+        return CffBuilder.Path(Outline(glyph));
+    }
+
+    /// <summary>A charstring holds at most 65 535 bytes (Adobe TN 5177, Appendix B; OpenType 8.10.1).</summary>
+    internal const int MaxCharStringBytes = 65535;
+
+    /// <summary>The number of regions (k) of an ItemVariationData of a CFF2 VariationStore; -1 without such an ItemVariationData.</summary>
+    private int RegionCount(int vsindex) =>
+        _regionCounts is { } counts && vsindex >= 0 && vsindex < counts.Length ? counts[vsindex] : -1;
+
+    /// <summary>
+    /// Executes a Type 2 charstring (Adobe TN 5177) and records the outline. For CFF2 (OpenType 8.10) with a stack of 513 numbers, without
+    /// widths, with blend and vsindex in the default instance; the arithmetic operators of Type 2 are reserved there. With
+    /// <paramref name="emit"/> it also writes the static charstring (<see cref="StaticCharString"/>).
+    /// </summary>
+    private sealed class CharStringInterpreter(CffFont font, PrivateDict priv, List<byte>? emit = null)
     {
         private readonly GlyphOutline _outline = new();
         // Work limit per glyph: subroutines that call each other many times grow exponentially despite the depth limit
         private const int MaxSteps = 200_000;
         private int _steps;
-        private readonly double[] _stack = new double[MaxStack];
+        private readonly double[] _stack = new double[font._cff2 ? MaxStackCff2 : MaxStack];
         private readonly double[] _transient = new double[32];
         private int _sp;
         private double _x, _y;
@@ -563,6 +899,8 @@ public sealed class CffFont
         private bool _widthDone;
         private double _width;
         private bool _ended;
+        private int _vsindex = priv.VsIndex;   // CFF2: the ItemVariationData of blend
+        private bool _blended;                 // CFF2: a blend was executed (vsindex may only come before, OpenType 8.11.3)
 
         public (GlyphOutline, double) Run(int glyph)
         {
@@ -571,10 +909,10 @@ public sealed class CffFont
             return (_outline.Finish(), _width);
         }
 
-        /// <summary>The width precedes the first stack-clearing operator when that operator has one argument more than it takes.</summary>
+        /// <summary>The width precedes the first stack-clearing operator when that operator has one argument more than it takes; CFF2 has no widths (OpenType 8.10.1).</summary>
         private void Width(bool hasExtra)
         {
-            if (_widthDone) return;
+            if (_widthDone || font._cff2) return;
             _widthDone = true;
             if (hasExtra && _sp > 0)
             {
@@ -586,7 +924,40 @@ public sealed class CffFont
 
         private void Push(double v)
         {
-            if (_sp < MaxStack) _stack[_sp++] = v;
+            if (_sp < _stack.Length) _stack[_sp++] = v;
+            // CFF2: more than 513 numbers make the charstring invalid (OpenType 8.4.1), as common font engines treat it: the glyph is empty
+            else if (font._cff2) throw new FontFormatException("CFF2: Stapel übergelaufen");
+        }
+
+        /// <summary>
+        /// CFF2 blend in the default instance (OpenType 8.11.3): n on top, below it n default values and n groups of k deltas; the default values
+        /// stay, the deltas and n go — every region scalar is 0 at the default. Without the regions (no VariationStore, vsindex beyond it) or
+        /// without the operands the charstring is invalid and the glyph empty, as in common font engines.
+        /// </summary>
+        private void Blend()
+        {
+            var k = font.RegionCount(_vsindex);
+            if (_sp < 1 || k < 0) throw new FontFormatException("CFF2: blend ohne Regionen");
+            var n = _stack[_sp - 1];
+            if (n < 0 || n != Math.Floor(n) || n * (k + 1) + 1 > _sp) throw new FontFormatException("CFF2: blend ohne Operanden");
+            _sp -= (int)(n * k + 1);
+            _blended = true;
+        }
+
+        /// <summary>Writes the numbers on the stack and an operator into the static charstring (<see cref="StaticCharString"/>).</summary>
+        private void Emit(int op, ReadOnlySpan<byte> mask = default)
+        {
+            // beyond the limit nothing more is written: the glyph is then written from its outline (many subroutine calls must not make the
+            // list grow far beyond it first)
+            if (emit is null || emit.Count > MaxCharStringBytes) return;
+            for (var k = 0; k < _sp; k++) CffBuilder.Number(emit, _stack[k]);
+            if (op >= 1200)
+            {
+                emit.Add(12);
+                emit.Add((byte)(op - 1200));
+            }
+            else emit.Add((byte)op);
+            foreach (var b in mask) emit.Add(b);
         }
 
         private void Execute(ReadOnlySpan<byte> code, int depth)
@@ -620,109 +991,43 @@ public sealed class CffFont
                 {
                     case 1 or 3 or 18 or 23:    // hstem, vstem, hstemhm, vstemhm
                         Width(_sp % 2 == 1);
+                        Emit(b0);
                         _stems += _sp / 2;
                         _sp = 0;
                         break;
                     case 19 or 20:              // hintmask, cntrmask (preceded by an implicit vstem)
+                    {
                         Width(_sp % 2 == 1);
                         _stems += _sp / 2;
+                        var maskBytes = (_stems + 7) / 8;
+                        if (emit is not null) Emit(b0, MaskBytes(code, i, maskBytes));
                         _sp = 0;
-                        i += (_stems + 7) / 8;
+                        i += maskBytes;
                         break;
+                    }
                     case 21:                    // rmoveto
                         Width(_sp > 2);
+                        Emit(b0);
                         MoveBy(Arg(0), Arg(1));
                         _sp = 0;
                         break;
                     case 22:                    // hmoveto
                         Width(_sp > 1);
+                        Emit(b0);
                         MoveBy(Arg(0), 0);
                         _sp = 0;
                         break;
                     case 4:                     // vmoveto
                         Width(_sp > 1);
+                        Emit(b0);
                         MoveBy(0, Arg(0));
                         _sp = 0;
                         break;
-                    case 5:                     // rlineto
-                        for (var k = 0; k + 1 < _sp; k += 2) LineBy(_stack[k], _stack[k + 1]);
+                    case 5 or 6 or 7 or 8 or 24 or 25 or 26 or 27 or 30 or 31:   // the path operators
+                        Emit(b0);
+                        DrawPath(b0);
                         _sp = 0;
                         break;
-                    case 6 or 7:                // hlineto, vlineto: alternating
-                        var horizontal = b0 == 6;
-                        for (var k = 0; k < _sp; k++)
-                        {
-                            if (horizontal) LineBy(_stack[k], 0);
-                            else LineBy(0, _stack[k]);
-                            horizontal = !horizontal;
-                        }
-                        _sp = 0;
-                        break;
-                    case 8:                     // rrcurveto
-                        for (var k = 0; k + 5 < _sp; k += 6)
-                            CurveBy(_stack[k], _stack[k + 1], _stack[k + 2], _stack[k + 3], _stack[k + 4], _stack[k + 5]);
-                        _sp = 0;
-                        break;
-                    case 24:                    // rcurveline
-                    {
-                        var k = 0;
-                        for (; k + 5 < _sp - 2; k += 6)
-                            CurveBy(_stack[k], _stack[k + 1], _stack[k + 2], _stack[k + 3], _stack[k + 4], _stack[k + 5]);
-                        if (k + 1 < _sp) LineBy(_stack[k], _stack[k + 1]);
-                        _sp = 0;
-                        break;
-                    }
-                    case 25:                    // rlinecurve
-                    {
-                        var k = 0;
-                        for (; k + 1 < _sp - 6; k += 2) LineBy(_stack[k], _stack[k + 1]);
-                        if (k + 5 < _sp) CurveBy(_stack[k], _stack[k + 1], _stack[k + 2], _stack[k + 3], _stack[k + 4], _stack[k + 5]);
-                        _sp = 0;
-                        break;
-                    }
-                    case 26:                    // vvcurveto
-                    {
-                        var k = 0;
-                        double dx1 = 0;
-                        if (_sp % 2 == 1) dx1 = _stack[k++];
-                        for (; k + 3 < _sp; k += 4)
-                        {
-                            CurveBy(dx1, _stack[k], _stack[k + 1], _stack[k + 2], 0, _stack[k + 3]);
-                            dx1 = 0;
-                        }
-                        _sp = 0;
-                        break;
-                    }
-                    case 27:                    // hhcurveto
-                    {
-                        var k = 0;
-                        double dy1 = 0;
-                        if (_sp % 2 == 1) dy1 = _stack[k++];
-                        for (; k + 3 < _sp; k += 4)
-                        {
-                            CurveBy(_stack[k], dy1, _stack[k + 1], _stack[k + 2], _stack[k + 3], 0);
-                            dy1 = 0;
-                        }
-                        _sp = 0;
-                        break;
-                    }
-                    case 30 or 31:              // vhcurveto, hvcurveto
-                    {
-                        var vertical = b0 == 30;
-                        var k = 0;
-                        while (k + 3 < _sp)
-                        {
-                            var last = _sp - k == 5;
-                            if (vertical)
-                                CurveBy(0, _stack[k], _stack[k + 1], _stack[k + 2], _stack[k + 3], last ? _stack[k + 4] : 0);
-                            else
-                                CurveBy(_stack[k], 0, _stack[k + 1], _stack[k + 2], last ? _stack[k + 4] : 0, _stack[k + 3]);
-                            k += last ? 5 : 4;
-                            vertical = !vertical;
-                        }
-                        _sp = 0;
-                        break;
-                    }
                     case 10:                    // callsubr
                     {
                         if (!priv.HasSubrs || _sp == 0) { _sp = 0; break; }
@@ -739,13 +1044,21 @@ public sealed class CffFont
                     }
                     case 11:                    // return
                         return;
-                    case 14:                    // endchar (with 4 arguments: seac)
+                    case 14:                    // endchar (with 4 arguments: seac); CFF2 has neither, and ends the glyph here as common font engines
                         Width(_sp is 1 or 5);
-                        if (_sp >= 4) Seac(_stack[_sp - 4], _stack[_sp - 3], (int)_stack[_sp - 2], (int)_stack[_sp - 1], depth);
+                        if (_sp >= 4 && !font._cff2) Seac(_stack[_sp - 4], _stack[_sp - 3], (int)_stack[_sp - 2], (int)_stack[_sp - 1], depth);
                         _outline.Close();
                         _ended = true;
                         _sp = 0;
                         return;
+                    case 15 when font._cff2:    // vsindex: before any blend (OpenType 8.11.3); a later one makes the charstring invalid
+                        if (_blended) throw new FontFormatException("CFF2: vsindex nach blend");
+                        if (_sp > 0) _vsindex = (int)Math.Clamp(_stack[_sp - 1], -1, int.MaxValue);
+                        _sp = 0;
+                        break;
+                    case 16 when font._cff2:    // blend
+                        Blend();
+                        break;
                     case 12:
                         Escape(At(code, i++));
                         break;
@@ -756,8 +1069,110 @@ public sealed class CffFont
             }
         }
 
+        /// <summary>Draws a path operator (rlineto … hvcurveto) with the numbers on the stack.</summary>
+        private void DrawPath(int op)
+        {
+            switch (op)
+            {
+                case 5:                     // rlineto
+                    for (var k = 0; k + 1 < _sp; k += 2) LineBy(_stack[k], _stack[k + 1]);
+                    _sp = 0;
+                    break;
+                case 6 or 7:                // hlineto, vlineto: alternating
+                    var horizontal = op == 6;
+                    for (var k = 0; k < _sp; k++)
+                    {
+                        if (horizontal) LineBy(_stack[k], 0);
+                        else LineBy(0, _stack[k]);
+                        horizontal = !horizontal;
+                    }
+                    _sp = 0;
+                    break;
+                case 8:                     // rrcurveto
+                    for (var k = 0; k + 5 < _sp; k += 6)
+                        CurveBy(_stack[k], _stack[k + 1], _stack[k + 2], _stack[k + 3], _stack[k + 4], _stack[k + 5]);
+                    _sp = 0;
+                    break;
+                case 24:                    // rcurveline
+                {
+                    var k = 0;
+                    for (; k + 5 < _sp - 2; k += 6)
+                        CurveBy(_stack[k], _stack[k + 1], _stack[k + 2], _stack[k + 3], _stack[k + 4], _stack[k + 5]);
+                    if (k + 1 < _sp) LineBy(_stack[k], _stack[k + 1]);
+                    _sp = 0;
+                    break;
+                }
+                case 25:                    // rlinecurve
+                {
+                    var k = 0;
+                    for (; k + 1 < _sp - 6; k += 2) LineBy(_stack[k], _stack[k + 1]);
+                    if (k + 5 < _sp) CurveBy(_stack[k], _stack[k + 1], _stack[k + 2], _stack[k + 3], _stack[k + 4], _stack[k + 5]);
+                    _sp = 0;
+                    break;
+                }
+                case 26:                    // vvcurveto
+                {
+                    var k = 0;
+                    double dx1 = 0;
+                    if (_sp % 2 == 1) dx1 = _stack[k++];
+                    for (; k + 3 < _sp; k += 4)
+                    {
+                        CurveBy(dx1, _stack[k], _stack[k + 1], _stack[k + 2], 0, _stack[k + 3]);
+                        dx1 = 0;
+                    }
+                    _sp = 0;
+                    break;
+                }
+                case 27:                    // hhcurveto
+                {
+                    var k = 0;
+                    double dy1 = 0;
+                    if (_sp % 2 == 1) dy1 = _stack[k++];
+                    for (; k + 3 < _sp; k += 4)
+                    {
+                        CurveBy(_stack[k], dy1, _stack[k + 1], _stack[k + 2], _stack[k + 3], 0);
+                        dy1 = 0;
+                    }
+                    _sp = 0;
+                    break;
+                }
+                case 30 or 31:              // vhcurveto, hvcurveto
+                {
+                    var vertical = op == 30;
+                    var k = 0;
+                    while (k + 3 < _sp)
+                    {
+                        var last = _sp - k == 5;
+                        if (vertical)
+                            CurveBy(0, _stack[k], _stack[k + 1], _stack[k + 2], _stack[k + 3], last ? _stack[k + 4] : 0);
+                        else
+                            CurveBy(_stack[k], 0, _stack[k + 1], _stack[k + 2], last ? _stack[k + 4] : 0, _stack[k + 3]);
+                        k += last ? 5 : 4;
+                        vertical = !vertical;
+                    }
+                    _sp = 0;
+                    break;
+                }
+            }
+        }
+
+        /// <summary>The mask bytes of hintmask or cntrmask as read (zeros where the charstring ends early).</summary>
+        private static byte[] MaskBytes(ReadOnlySpan<byte> code, int at, int count)
+        {
+            var mask = new byte[count];
+            for (var k = 0; k < count; k++) mask[k] = (byte)At(code, at + k);
+            return mask;
+        }
+
         private void Escape(int op)
         {
+            // CFF2 keeps only the flex operators of the escaped ones (OpenType 8.10.5.1): the others are reserved and clear the stack
+            if (font._cff2 && op is not (34 or 35 or 36 or 37))
+            {
+                _sp = 0;
+                return;
+            }
+            if (op is 34 or 35 or 36 or 37) Emit(1200 + op);
             switch (op)
             {
                 case 35:                        // flex

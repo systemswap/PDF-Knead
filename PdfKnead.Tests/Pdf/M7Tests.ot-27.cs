@@ -375,15 +375,16 @@ public sealed partial class M7NormTests
     // ------------------------------------------------------------ OT 23 head
 
     /// <summary>
-    /// OT 23 sentences 2–3 and 43–45 (writer, today's behaviour; question 27): the font of the text recognition has no contours, yet its head box is
-    /// 0, 0, 500, 1000 (the rule would give 0 for all four).
+    /// OT 23 sentences 2–3 and 43–45 (writer, FG 1166): the font of the text recognition has no contours, so its head box is 0 for all four
+    /// values; its units per em are a power of two (1024).
     /// </summary>
     [Fact]
-    public void Ot27_GlyphlessFont_HeadBoxToday0_0_500_1000()
+    public void Ot27_GlyphlessFont_HeadBoxZero_UnitsPerEm1024()
     {
         var head = Ot27GlyphlessTable("head");
         Assert.True(OpenTypeFont.Parse(OcrTextLayer.Glyphless).Outline(1).IsEmpty);
-        Assert.Equal(new[] { 0, 0, 500, 1000 }, Enumerable.Range(0, 4).Select(i => Ot27I16(head, 36 + 2 * i)).ToArray());
+        Assert.Equal(new[] { 0, 0, 0, 0 }, Enumerable.Range(0, 4).Select(i => Ot27I16(head, 36 + 2 * i)).ToArray());
+        Assert.Equal(1024, Ot27U16(head, 18));
     }
 
     /// <summary>OT 23 sentences 4–7 (writer): head of the text recognition font has majorVersion 1 and minorVersion 0.</summary>

@@ -136,6 +136,24 @@ public sealed class ElementFace
     private bool IsCff => Font.Cff is not null;
 
     /// <summary>
+    /// Outlines in CFF2 (a variable OpenType font without glyf, OpenType 8): displayed through the font itself (read like TrueType); saved as a
+    /// CID-keyed CFF of the default instance built from the outlines (FontFile3/CIDFontType0C, as ISO 32000-2, 9.9, Table 124 knows it) —
+    /// before the TrueType subset refused it and saving broke off (docs/FEHLERGEDAECHTNIS.md, No. 1158).
+    /// </summary>
+    private bool IsCff2 => Font.Cff is null && Font.Cff2 is not null;
+
+    /// <summary>The CFF of the default instance for the glyphs given: CID = glyph index (Identity-H writes glyph indices), widths from hmtx.</summary>
+    private byte[] Cff2Subset(IReadOnlyList<int> glyphs)
+    {
+        var cff2 = Font.Cff2!;
+        var matrix = cff2.FontMatrix;
+        // the advance of hmtx (font units of head) in the units of the outlines (those of the FontMatrix)
+        var scale = matrix.A != 0 ? 1.0 / (Font.UnitsPerEm * matrix.A) : 1;
+        return CffBuilder.BuildCid(BaseName, matrix, "Adobe", "Identity", 0,
+            [.. glyphs.Where(g => g > 0).Select(g => (g, cff2.Outline(g), Font.AdvanceWidth(g) * scale))]);
+    }
+
+    /// <summary>
     /// The CFF table as a separate array for display, once per file and table: the language variants of Noto CJK share one
     /// table of 15 MB, and a copy per variant would cost an extra 31 MB once Japanese and Korean text has been typed.
     /// </summary>
@@ -180,7 +198,7 @@ public sealed class ElementFace
                 var widths = new PdfArray();
                 for (var g = 0; g < Font.GlyphCount; g++) widths.Add(WidthObject(g));
                 // CFF outlines (OpenType "OTTO", Noto CJK): the CFF data itself as CIDFontType0C, code = glyph
-                return _displayFont = Type0(BaseName, IsCff ? SharedCff() : _data, new PdfArray([PdfInteger.Of(0), widths]), null);
+                return _displayFont = Type0(BaseName, IsCff ? SharedCff() : _data, new PdfArray([PdfInteger.Of(0), widths]), null, symbolic: false, cff: IsCff);
             }
         }
     }
@@ -193,7 +211,7 @@ public sealed class ElementFace
     public PdfDictionary SavedFont(IReadOnlyDictionary<int, string> glyphs)
     {
         var used = glyphs.Keys.Order().ToList();
-        var subset = IsCff ? CffSubsetter.Subset(CffData(), used) : TrueTypeSubsetter.Subset(_data, used);
+        var subset = IsCff ? CffSubsetter.Subset(CffData(), used) : IsCff2 ? Cff2Subset(used) : TrueTypeSubsetter.Subset(_data, used);
         var widths = new PdfArray();
         for (var i = 0; i < used.Count;)
         {
@@ -208,7 +226,7 @@ public sealed class ElementFace
         // Symbolic (bit 3) when a character lies outside the Standard Latin character set, else Nonsymbolic (bit 6) (ISO 32000-2, 9.8.2) —
         // before always Nonsymbolic, also for Greek or Chinese text (docs/FEHLERGEDAECHTNIS.md, No. 1147)
         var symbolic = glyphs.Values.Any(t => t.EnumerateRunes().Any(r => !FontTables.StandardLatin.Contains(r.Value)));
-        return Type0(SubsetTag(used) + "+" + BaseName, subset, widths, ToUnicode(glyphs), symbolic);
+        return Type0(SubsetTag(used) + "+" + BaseName, subset, widths, ToUnicode(glyphs), symbolic, IsCff || IsCff2);
     }
 
     /// <summary>Six capital letters derived from the glyphs (9.9.2): the same subset gets the same name.</summary>
@@ -225,7 +243,7 @@ public sealed class ElementFace
         return new string(tag);
     }
 
-    private PdfDictionary Type0(string name, byte[] fontFile, PdfArray widths, PdfStream? toUnicode, bool symbolic = false)
+    private PdfDictionary Type0(string name, byte[] fontFile, PdfArray widths, PdfStream? toUnicode, bool symbolic, bool cff)
     {
         var units = 1000.0 / Font.UnitsPerEm;
         var head = Font.TableData("head");
@@ -243,7 +261,7 @@ public sealed class ElementFace
             : Ascent * 700;
 
         var file = new PdfDictionary();
-        if (IsCff) file.Set(PdfName.Subtype, PdfName.Get("CIDFontType0C"));
+        if (cff) file.Set(PdfName.Subtype, PdfName.Get("CIDFontType0C"));
         else file.Set(PdfName.Get("Length1"), PdfInteger.Of(fontFile.Length));
         var descriptor = new PdfDictionary();
         descriptor.Set(PdfName.Type, PdfName.Get("FontDescriptor"));
@@ -256,7 +274,7 @@ public sealed class ElementFace
         descriptor.Set(PdfName.Get("Descent"), PdfInteger.Of((long)Math.Round(Descent * 1000)));
         descriptor.Set(PdfName.Get("CapHeight"), PdfInteger.Of((long)Math.Round(capHeight)));
         descriptor.Set(PdfName.Get("StemV"), PdfInteger.Of(80));
-        descriptor.Set(PdfName.Get(IsCff ? "FontFile3" : "FontFile2"), new PdfStream(file, fontFile));
+        descriptor.Set(PdfName.Get(cff ? "FontFile3" : "FontFile2"), new PdfStream(file, fontFile));
 
         var systemInfo = new PdfDictionary();
         systemInfo.Set(PdfName.Get("Registry"), new PdfString("Adobe"u8.ToArray()));
@@ -265,19 +283,19 @@ public sealed class ElementFace
 
         var cid = new PdfDictionary();
         cid.Set(PdfName.Type, PdfName.Get("Font"));
-        cid.Set(PdfName.Subtype, PdfName.Get(IsCff ? "CIDFontType0" : "CIDFontType2"));
+        cid.Set(PdfName.Subtype, PdfName.Get(cff ? "CIDFontType0" : "CIDFontType2"));
         cid.Set(PdfName.Get("BaseFont"), PdfName.Get(name));
         cid.Set(PdfName.Get("CIDSystemInfo"), systemInfo);
         cid.Set(PdfName.Get("FontDescriptor"), descriptor);
         cid.Set(PdfName.Get("DW"), PdfInteger.Of(1000));
         cid.Set(PdfName.W, widths);
-        if (!IsCff) cid.Set(PdfName.Get("CIDToGIDMap"), PdfName.Identity);   // CFF: the subset maps CID → glyph itself
+        if (!cff) cid.Set(PdfName.Get("CIDToGIDMap"), PdfName.Identity);   // CFF: the subset maps CID → glyph itself
 
         var font = new PdfDictionary();
         font.Set(PdfName.Type, PdfName.Get("Font"));
         font.Set(PdfName.Subtype, PdfName.Get("Type0"));
         // over a CIDFontType0 the name of the CIDFont, a hyphen and the name of the CMap (9.7.6.1; before the CIDFont's name alone, No. 1147)
-        font.Set(PdfName.Get("BaseFont"), PdfName.Get(IsCff ? name + "-Identity-H" : name));
+        font.Set(PdfName.Get("BaseFont"), PdfName.Get(cff ? name + "-Identity-H" : name));
         font.Set(PdfName.Get("Encoding"), PdfName.Get("Identity-H"));
         font.Set(PdfName.Get("DescendantFonts"), new PdfArray([cid]));
         if (toUnicode is not null) font.Set(PdfName.Get("ToUnicode"), toUnicode);

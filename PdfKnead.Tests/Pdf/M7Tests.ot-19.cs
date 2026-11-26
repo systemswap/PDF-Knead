@@ -14,9 +14,9 @@ namespace PdfKnead.Tests.Pdf;
 /// <summary>
 /// Konformitätsabgleich M7, package ot-19 (OpenType: gasp — grid-fitting and scan-conversion procedure, GDEF — glyph definition): the tests
 /// the sentence-by-sentence drafts named as missing. gasp is not read (PDF-Knead renders without hinting, always anti-aliased); GDEF gives
-/// glyph classes, mark attachment classes and mark glyph sets to the shaper, while AttachList, LigCaretList and the ItemVariationStore are not
-/// read (carets inside ligatures are proportional, user question 15 is open: these tests hold today's behaviour). The variation tables come
-/// from the helpers of package ot-18.
+/// glyph classes, mark attachment classes and mark glyph sets to the shaper (without a GlyphClassDef the classes come from Unicode), the
+/// LigCaretList gives the carets inside ligatures of typed text (docs/FEHLERGEDAECHTNIS.md, No. 1161), while AttachList and the
+/// ItemVariationStore are not read. The variation tables come from the helpers of package ot-18.
 /// </summary>
 public sealed partial class M7NormTests
 {
@@ -429,7 +429,8 @@ public sealed partial class M7NormTests
 
     /// <summary>
     /// OT 18.1 sentences 4–5, 8, 11–12, 23–26, 48–58; OT 18.2.1 sentence 33; OT 18.2.3 sentences 1–8; OT 18.2.4 sentences 18–22; OT 18.2.7
-    /// sentences 1–8; OT 18.3.3 sentences 1–20; OT 18.3.4 sentences 5–22 and 23–31; OT 18.3.5 sentences 1–6; OT 18.3.6 sentences 1–17: AttachList, LigCaretList and the ItemVariationStore of GDEF are not read — GDEF 1.3 with all three, an AttachList with point
+    /// sentences 1–8; OT 18.3.3 sentences 1–20; OT 18.3.4 sentences 5–22 and 23–31; OT 18.3.5 sentences 1–6; OT 18.3.6 sentences 1–17: AttachList and the ItemVariationStore of GDEF are not read, the LigCaretList only for
+    /// the carets of typed text (<see cref="Ot19_LigatureCaretsFromGdef_FormatsOneToThree"/>), never for shaping — GDEF 1.3 with all three, an AttachList with point
     /// 18 for „a“, a variable font (fvar) whose GDEF 1.3 has a store and whose GPOS pair adjustment a VariationIndex, an itemVarStoreOffset
     /// beyond the end of the table, the AttachList of the example at offset 6, an AttachList whose glyphCount 0xFFFF runs past the end, the
     /// LigCaretList of example 4 at offset 8, a LigCaretList with caret values of formats 1, 2 and 3 (with a Device table): „AVá“ is
@@ -507,7 +508,8 @@ public sealed partial class M7NormTests
 
     /// <summary>
     /// OT 18.1 sentences 9–10 and 13: a ligature f + i in a lookup with LookupFlag 0x0008 (ignore marks) and GDEF class 3 for the acute: „f́i“
-    /// becomes the ligature (the mark skipped and kept); without GDEF, or with LookupFlag 0, „f́i“ stays three glyphs.
+    /// becomes the ligature (the mark skipped and kept); with a GDEF that makes the acute a base (class 1), or with LookupFlag 0, „f́i“ stays
+    /// three glyphs — the classes of GDEF decide, not the character (without a GlyphClassDef see <see cref="Ot19_WithoutGdef_ClassesFromUnicode"/>).
     /// </summary>
     [Fact]
     public void Ot19_IgnoreMarksFlag_UsesTheGdefClasses()
@@ -517,7 +519,7 @@ public sealed partial class M7NormTests
         var gdef = Ot19Gdef(glyphClasses: Ot19Classes((acute, 3)));
         int[] Shape(byte[] gsub, byte[]? classes) => [.. Ot19Shaper(gsub, null, classes).Shape("f́i").Select(g => g.Glyph)];
         Assert.Equal([fi, acute], Shape(Gsub(0x0008), gdef));
-        Assert.Equal([f, acute, i], Shape(Gsub(0x0008), null));
+        Assert.Equal([f, acute, i], Shape(Gsub(0x0008), Ot19Gdef(glyphClasses: Ot19Classes((acute, 1)))));
         Assert.Equal([f, acute, i], Shape(Gsub(0), gdef));
     }
 
@@ -547,22 +549,34 @@ public sealed partial class M7NormTests
     }
 
     /// <summary>
-    /// OT 18.1 sentence 22 (today's behaviour, user question 15): without GDEF no classes are derived — with a GPOS mark-to-base for „a“ and the
-    /// marks U+0301 and U+0323, in „ạ́“ only U+0301 attaches (U+0323 would need the base before U+0301), both marks keep their hmtx advance, and
-    /// a ligature lookup with LookupFlag 0x0008 skips no mark.
+    /// OT 18.1 sentence 22: without GlyphClassDef the shaper sets the classes itself — a character of the general category Mn is a mark, a
+    /// ligature formed by GSUB a ligature, every other glyph a base (docs/FEHLERGEDAECHTNIS.md, No. 1161; before no class at all). With a GPOS
+    /// mark-to-base for „a“ and the marks U+0301 and U+0323, without GDEF (and with a GDEF that has only a LigCaretList), in „a“ U+0301 U+0323
+    /// both marks attach to „a“ (one and two glyphs back) and do not advance; a ligature lookup with LookupFlag 0x0008 passes over the acute
+    /// in „f́i“; pair lookups with LookupFlag 0x0004 (ignore ligatures) pass over the „fi“ GSUB formed — fi–x does not apply, x–y does.
     /// </summary>
     [Fact]
-    public void Ot19_WithoutGdef_NoClassesAreDerived()
+    public void Ot19_WithoutGdef_ClassesFromUnicode()
     {
-        int a = Ot19G('a'), acute = Ot19G('́'), dot = Ot19G('̣');
+        int a = Ot19G('a'), acute = Ot19G('́'), dot = Ot19G('̣'), fi = Ot19G('ﬁ');
         Assert.NotEqual(0, dot);
         var gpos = Ot19Layout("mark", Ot19Lookup(4, 0, -1, Ot19MarkToBase([a], [acute, dot], (500, 1100), (0, 1000))));
-        var glyphs = Ot19Shaper(null, gpos, null).Shape("ạ́");
-        Assert.Equal([0, 1, 0], glyphs.Select(g => g.AttachBack));
-        Assert.Equal(Ot18SansFont.AdvanceWidth(acute), glyphs[1].XAdvance);
-        Assert.Equal(Ot18SansFont.AdvanceWidth(dot), glyphs[2].XAdvance);
-        var gsub = Ot19Layout("liga", Ot19Lookup(4, 0x0008, -1, Ot19Ligature([Ot19G('f'), Ot19G('i')], Ot19G('ﬁ'))));
-        Assert.Equal(3, Ot19Shaper(gsub, null, null).Shape("f́i").Length);
+        var caretsOnly = Ot19Gdef(ligCarets: Ot19Raw(0x0004, 0x0000, 0x0001, 0x0000));
+        foreach (var gdef in new[] { null, caretsOnly })
+        {
+            var glyphs = Ot19Shaper(null, gpos, gdef).Shape("ạ́");
+            Assert.Equal([0, 1, 2], glyphs.Select(g => g.AttachBack));
+            Assert.Equal(0, glyphs[1].XAdvance);
+            Assert.Equal(0, glyphs[2].XAdvance);
+        }
+        var gsub = Ot19Layout("liga", Ot19Lookup(4, 0x0008, -1, Ot19Ligature([Ot19G('f'), Ot19G('i')], fi)));
+        Assert.Equal([fi, acute], Ot19Shaper(gsub, null, null).Shape("f́i").Select(g => g.Glyph));
+        int x = Ot19G('x'), y = Ot19G('y');
+        var pairs = Ot19Layout("kern", Ot19Lookup(2, 0x0004, -1, Ot19Pair(fi, x, 0x0004, -100)), Ot19Lookup(2, 0x0004, -1, Ot19Pair(x, y, 0x0004, -50)));
+        var shaped = Ot19Shaper(Ot19Layout("liga", Ot19Lookup(4, 0, -1, Ot19Ligature([Ot19G('f'), Ot19G('i')], fi))), pairs, null).Shape("fixy");
+        Assert.Equal([fi, x, y], shaped.Select(g => g.Glyph));
+        Assert.Equal(Ot18SansFont.AdvanceWidth(fi), shaped[0].XAdvance);
+        Assert.Equal(Ot18SansFont.AdvanceWidth(x) - 50, shaped[1].XAdvance);
     }
 
     /// <summary>
@@ -633,15 +647,14 @@ public sealed partial class M7NormTests
     };
 
     /// <summary>
-    /// OT 18.1 sentences 33–35 and 36–40, OT 18.2.4 sentences 10–17, 18–22, 23–29, 30–38 and 39–52, OT 18.3.4 sentences 1–4, 5–22 and 23–31,
-    /// OT 18.3.5 sentences 1–6, OT 18.3.6 sentences 1–17 (today's behaviour, user question 15): the LigCaretList is not read — a caret inside a
-    /// ligature lies at the share of its characters: in „fi“ (advance 9 pt from x 10) at the middle (14.5), in „ffi“ at one and two thirds
-    /// (13, 16), whatever caret values (formats 1, 2, 3) the font holds; the edges at the start of the ligature and of the next glyph.
+    /// OT 18.1 sentences 36–40: without carets from the font a program places them without knowing the components — PDF-Knead at the share of the
+    /// characters: in „fi“ (advance 9 pt from x 10, no font known) at the middle (14.5), in „ffi“ at one and two thirds (13, 16); the edges at
+    /// the start of the ligature and of the next glyph.
     /// </summary>
     [Theory]
     [InlineData(2)]
     [InlineData(3)]
-    public void Ot19_CaretInsideALigature_IsProportional(int characters)
+    public void Ot19_CaretInsideALigatureWithoutFontCarets_IsProportional(int characters)
     {
         var line = Ot19LigatureLine(characters);
         Assert.Equal(10, RichLayout.XAt(line, 0), 6);
@@ -651,12 +664,156 @@ public sealed partial class M7NormTests
     }
 
     /// <summary>
-    /// OT 18.1 sentences 27–32, OT 18.2.4 sentences 1–9 (today's behaviour, user question 15): Noto Sans Arabic has a LigCaretList with carets for
-    /// the ligature glyph of U+FDF2 (three carets in format 1) — formatted text with that ligature has no insertion point inside it: the
-    /// ligature stands for one character, the carets are not read.
+    /// A small font for typed text, chosen for <paramref name="family"/>: glyphs f g h i (1–4, from U+0066), the ligatures fi (5: a box to x 800,
+    /// advance 1000) and ffi (6: a composite of glyph 7 (a box to x 400) and glyph 5 moved by 500, advance 1500), GSUB „liga“ (f f i → ffi,
+    /// f i → fi) and a GDEF with classes and the LigCaretList given. The choice is put into the cache of the font choice, as after a lookup.
+    /// </summary>
+    private static void Ot19UseLigatureFont(string family, Action<Ot20Bytes> ligCarets)
+    {
+        var box = Ot20Simple([Ot20Rect(0, 0, 100, 50)]);
+        var glyphs = new[]
+        {
+            box, box, box, box, box, Ot20Simple([Ot20Rect(0, 0, 800, 700)]),
+            Ot20Composite([new Ot20Part(Ot20Xy, 7, 0, 0), new Ot20Part(Ot20Xy, 5, 500, 0)]), Ot20Simple([Ot20Rect(0, 0, 400, 700)]),
+        };
+        var gsub = Ot20Layout([("liga", [0])], [Ot20Lookup(4, Ot21Ligature(([1, 1, 4], 6), ([1, 4], 5)))]);
+        var gdef = Ot20Raw(b =>
+        {
+            string classes = b.NewLabel(), carets = b.NewLabel();
+            b.U16(1).U16(0).Off16(classes, 0).U16(0).Off16(carets, 0).U16(0);
+            b.Label(classes);
+            Ot20ClassDef(b, new Dictionary<int, int> { [1] = 1, [4] = 1, [5] = 2, [6] = 2 });
+            b.Label(carets);
+            ligCarets(b);
+        });
+        var cmap = CmapOt11((3, 10, GroupCmapOt11(12, 'f', 'i', 1)));
+        var font = OpenTypeFont.Parse(Ot20Font(glyphs, [600, 500, 500, 500, 300, 1000, 1500, 400],
+            new Dictionary<string, byte[]> { ["cmap"] = cmap, ["GSUB"] = gsub, ["GDEF"] = gdef }));
+        var key = "test:" + family;
+        ElementFace.For(key, () => font, false, false, false);
+        var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static;
+        var cache = (System.Collections.IDictionary)typeof(RichFonts).GetField("Cache", flags)!.GetValue(null)!;
+        var gate = (Lock)typeof(RichFonts).GetField("Gate", flags)!.GetValue(null)!;
+        using (gate.EnterScope()) cache[(family, false, false)] = (key, false, false, true);
+    }
+
+    /// <summary>
+    /// The LigCaretList of <see cref="Ot19UseLigatureFont"/>: coverage {5, 6}; fi one caret of format 1 at 300; ffi a caret of format 3 at 600 with
+    /// a Device table for 12–17 ppem and one of format 2 at contour point 6 (the third point of the second component: x 500 + 800).
+    /// </summary>
+    private static void Ot19CaretsOfAllFormats(Ot20Bytes b)
+    {
+        var at = b.Here;
+        string coverage = b.NewLabel(), fi = b.NewLabel(), ffi = b.NewLabel();
+        b.Off16(coverage, at).U16(2).Off16(fi, at).Off16(ffi, at);
+        b.Label(fi);
+        var fiAt = b.Here;
+        var one = b.NewLabel();
+        b.U16(1).Off16(one, fiAt);
+        b.Label(one).U16(1).U16(300);
+        b.Label(ffi);
+        var ffiAt = b.Here;
+        string three = b.NewLabel(), two = b.NewLabel(), device = b.NewLabel();
+        b.U16(2).Off16(three, ffiAt).Off16(two, ffiAt);
+        b.Label(three);
+        var threeAt = b.Here;
+        b.U16(3).U16(600).Off16(device, threeAt);
+        b.Label(two).U16(2).U16(6);
+        b.Label(device).U16(12).U16(17).U16(2).U16(0x1111).U16(0x2200);
+        b.Label(coverage);
+        Ot20Coverage(b, [5, 6]);
+    }
+
+    /// <summary>
+    /// OT 18.1 sentences 4–5, 8, 27–32, 33–35 and 36–40, OT 18.2.4 sentences 1–9, 10–17, 18–22, 23–29, 30–38 and 39–52, OT 18.3.4 sentences 1–4,
+    /// 5–22 and 23–31, OT 18.3.5 sentences 1–6, OT 18.3.6 sentences 1–17: the carets inside a ligature of typed text come from the LigCaretList
+    /// (docs/FEHLERGEDAECHTNIS.md, No. 1161; before at the share of the characters). Typed „fiffi“ (size 10 pt, 1000 units per em) becomes fi
+    /// and ffi: the insertion point after f of „fi“ lies 3 pt into it (format 1, 300), those inside „ffi“ 6 pt (format 3, 600, the Device table
+    /// not used) and 13 pt into it (format 2, contour point 6 of the composite glyph at x 1300, unhinted); a click 12.5 pt into „ffi“ finds the
+    /// insertion point before i; the selection of the second f of „ffi“ runs from 6 to 13 pt.
     /// </summary>
     [Fact]
-    public void Ot19_LigatureWithCaretsInTheFont_OffersNoCaretInside()
+    public void Ot19_LigatureCaretsFromGdef_FormatsOneToThree()
+    {
+        const string family = "M7 Ot19 Ligature Carets";
+        Ot19UseLigatureFont(family, Ot19CaretsOfAllFormats);
+        var layout = RichLayout.Layout(new RichText("fiffi", new RichStyle { Family = family, Size = 10 }), 500, BlockAlignment.Left, 1.2, 10, 0);
+        var glyphs = layout.Lines[0].Glyphs;
+        Assert.Equal([5, 6], glyphs.Select(g => g.Glyph));
+        var (fi, ffi) = (glyphs[0], glyphs[1]);
+        Assert.Equal(fi.X + 3, layout.Caret(1).X, 6);
+        Assert.Equal(ffi.X, layout.Caret(2).X, 6);
+        Assert.Equal(ffi.X + 6, layout.Caret(3).X, 6);
+        Assert.Equal(ffi.X + 13, layout.Caret(4).X, 6);
+        Assert.Equal(ffi.X + 15, layout.Caret(5).X, 6);
+        Assert.Equal(4, layout.HitTest(ffi.X + 12.5, 5));
+        var selection = Assert.Single(layout.Selection(3, 4));
+        Assert.Equal((ffi.X + 6, ffi.X + 13), (selection.Left, selection.Right));
+    }
+
+    /// <summary>
+    /// OT 18.2.4 sentences 10–17 and 18–22, damaged or unusable carets: a LigGlyph with another number of carets than one fewer than the
+    /// components, a caret of an unknown format, a contour point beyond the glyph, and a caret beyond the advance of the ligature. The first three
+    /// fall back to the share of the characters; the last is held at the end of the ligature.
+    /// </summary>
+    [Fact]
+    public void Ot19_LigatureCarets_Unusable_ShareOrClamped()
+    {
+        void Carets(Ot20Bytes b, int count, int format, int value)
+        {
+            var at = b.Here;
+            string coverage = b.NewLabel(), fi = b.NewLabel();
+            b.Off16(coverage, at).U16(1).Off16(fi, at);
+            b.Label(fi);
+            var fiAt = b.Here;
+            var labels = Enumerable.Range(0, count).Select(_ => b.NewLabel()).ToArray();
+            b.U16(count);
+            foreach (var l in labels) b.Off16(l, fiAt);
+            foreach (var l in labels) b.Label(l).U16(format).U16(value);
+            b.Label(coverage);
+            Ot20Coverage(b, [5]);
+        }
+        foreach (var (name, count, format, value, expected) in new[]
+                 { ("two", 2, 1, 300, 5.0), ("format4", 1, 4, 300, 5.0), ("point99", 1, 2, 99, 5.0), ("beyond", 1, 1, 5000, 10.0) })
+        {
+            var family = "M7 Ot19 Carets " + name;
+            Ot19UseLigatureFont(family, b => Carets(b, count, format, value));
+            var layout = RichLayout.Layout(new RichText("fi", new RichStyle { Family = family, Size = 10 }), 500, BlockAlignment.Left, 1.2, 10, 0);
+            var fi = Assert.Single(layout.Lines[0].Glyphs);
+            Assert.Equal(5, fi.Glyph);
+            Assert.Equal(fi.X + expected, layout.Caret(1).X, 6);
+        }
+    }
+
+    /// <summary>
+    /// OT 18.2.4 sentences 1–9 and 23–29, OT 18.3.4 sentences 1–4, 5–22 and 23–31, OT 18.3.5 sentences 1–6, OT 18.3.6 sentences 1–17: the
+    /// LigCaretList of example 4 — each LigGlyph found over the coverage index: the first glyph (0x009F) with one caret of format 1 (603), the
+    /// second (0x00A5) with two (603, 1206); asked for another number of carets, or for a glyph outside the coverage, there are none. One
+    /// ligature with carets of formats 1, 2 (contour point 13, example 5) and 3 (1206 with the Device table of example 6, not used).
+    /// </summary>
+    [Fact]
+    public void Ot19_LigCaretListExamples_Read()
+    {
+        var example4 = new GlyphDefinitions(Ot19Gdef(ligCarets: Ot19Raw(0x0008, 0x0002, 0x0010, 0x0014, 0x0001, 0x0002, 0x009F, 0x00A5, 0x0001,
+            0x000E, 0x0002, 0x0006, 0x000E, 0x0001, 0x025B, 0x0001, 0x025B, 0x0001, 0x04B6)));
+        Assert.Equal(new (int, int)[] { (1, 603) }, example4.LigatureCarets(0x9F, 1)!);
+        Assert.Equal(new (int, int)[] { (1, 603), (1, 1206) }, example4.LigatureCarets(0xA5, 2)!);
+        Assert.Null(example4.LigatureCarets(0x9F, 2));
+        Assert.Null(example4.LigatureCarets(0xA6, 1));
+        var ffi = Ot19G('ﬃ');
+        var formats = new GlyphDefinitions(Ot19Gdef(ligCarets: Ot19Raw(0x0026, 0x0001, 0x0006, 0x0003, 0x0008, 0x000C, 0x0010, 0x0001, 0x025B, 0x0002,
+            0x000D, 0x0003, 0x04B6, 0x0006, 0x000C, 0x0011, 0x0002, 0x1111, 0x2200, 0x0001, 0x0001, ffi)));
+        Assert.Equal(new (int, int)[] { (1, 603), (2, 13), (3, 1206) }, formats.LigatureCarets(ffi, 3)!);
+        Assert.Null(new GlyphDefinitions(Ot19Gdef(glyphClasses: Ot19BaseClasses())).LigatureCarets(ffi, 3));
+    }
+
+    /// <summary>
+    /// OT 18.1 sentences 27–32, OT 18.2.4 sentences 1–9: Noto Sans Arabic has a LigCaretList with carets for the ligature glyph of U+FDF2 (three
+    /// carets in format 1) — typed as that one character (a presentation form), the ligature stands for one character and offers no insertion
+    /// point inside it; the carets serve ligatures formed from several characters (<see cref="Ot19_LigatureCaretsFromGdef_FormatsOneToThree"/>).
+    /// </summary>
+    [Fact]
+    public void Ot19_LigatureCharacter_OneCharacterNoCaretInside()
     {
         var arabic = OpenTypeFont.Parse(EmbeddedFonts.ArabicOpenType("NotoSansArabic-Regular.ttf").FileData);
         var gdef = new TableData(arabic.TableData("GDEF").ToArray());

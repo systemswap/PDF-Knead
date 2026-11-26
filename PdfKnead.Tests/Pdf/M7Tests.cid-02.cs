@@ -63,18 +63,21 @@ public sealed partial class M7NormTests
 
     /// <summary>
     /// CID 5.2 sentences 27–29 and 32, 7.3 sentences 1–5: a CMap file begins with „%!“ and a first line naming it a CMap resource. The encoding CMap
-    /// of a PDF/A copy (and PdfACMaps.Encoding) begins with „%!PS-Adobe-3.0 Resource-CMap“; it carries no %% comments for spoolers (today's state,
-    /// question FRAGEN.md 28) and CMap.Parse reads every entry of it. The ToUnicode writers begin without such a line (today's state).
+    /// of a PDF/A copy (and PdfACMaps.Encoding) begins with „%!PS-Adobe-3.0 Resource-CMap“ and carries the structure comments of the example in
+    /// ISO 32000-2 9.7.5.4 (BeginResource with its name, EndComments, EndResource, EOF; FG 1166), and CMap.Parse reads every entry of it. The
+    /// ToUnicode writers begin without such a line.
     /// </summary>
     [Fact]
-    public void Cid02_WrittenEncodingCMap_BeginsWithTheResourceComment_WithoutDscComments()
+    public void Cid02_WrittenEncodingCMap_BeginsWithTheResourceComment_WithDscComments()
     {
         var (dict, text, data) = Cid02CopiedEncodingCMap();
         var writers = Cid02Writers();
         foreach (var (writer, program) in writers.Where(w => w.Writer is "PDF/A-Kopie" or "PdfACMaps.Encoding"))
         {
             Assert.True(program.Split('\n')[0] == "%!PS-Adobe-3.0 Resource-CMap", writer);
-            Assert.DoesNotContain("%%", program, StringComparison.Ordinal);
+            Assert.Contains("%%BeginResource: CMap (", program, StringComparison.Ordinal);
+            Assert.Contains("%%EndComments", program, StringComparison.Ordinal);
+            Assert.Contains("%%EndResource\n%%EOF", program, StringComparison.Ordinal);
         }
         foreach (var (writer, program) in writers.Where(w => w.Writer.Contains("ToUnicode", StringComparison.Ordinal)))
             Assert.False(program.StartsWith('%'), writer);
@@ -91,8 +94,9 @@ public sealed partial class M7NormTests
 
     /// <summary>
     /// CID 5.2 sentences 42–48, 7.3 sentence 6: right after the header the file finds and begins the procset CIDInit, then „12 dict begin“ starts
-    /// the resource dictionary and defineresource registers the CMap. The encoding CMaps (copy and PdfACMaps.Encoding) have them as lines 2 and 3,
-    /// the three ToUnicode writers as lines 1 and 2; all register the CMap with „CMapName currentdict /CMap defineresource pop“.
+    /// the resource dictionary and defineresource registers the CMap. The encoding CMaps (copy and PdfACMaps.Encoding) have them right after
+    /// their structure comments (the line „%%EndComments“, FG 1166), the three ToUnicode writers as lines 1 and 2; all register the CMap with
+    /// „CMapName currentdict /CMap defineresource pop“.
     /// </summary>
     [Fact]
     public void Cid02_WrittenCMaps_OpenTheProcSetAndTheResourceDictionary()
@@ -100,7 +104,8 @@ public sealed partial class M7NormTests
         foreach (var (writer, text) in Cid02Writers())
         {
             var lines = text.Split('\n');
-            var first = writer is "PDF/A-Kopie" or "PdfACMaps.Encoding" ? 1 : 0;
+            var first = writer is "PDF/A-Kopie" or "PdfACMaps.Encoding" ? Array.IndexOf(lines, "%%EndComments") + 1 : 0;
+            Assert.True(first > 1 || writer is not ("PDF/A-Kopie" or "PdfACMaps.Encoding"), writer);
             Assert.True(lines[first] == "/CIDInit /ProcSet findresource begin", writer);
             Assert.True(lines[first + 1] == "12 dict begin", writer);
             Assert.Contains("CMapName currentdict /CMap defineresource pop", text, StringComparison.Ordinal);
@@ -165,13 +170,17 @@ public sealed partial class M7NormTests
 
     /// <summary>
     /// CID 5.3 sentences 1–7, 7.3 sentences 13–14: the last lines close the CMap — endcmap, defineresource with the name and the category CMap, and
-    /// two end (the resource dictionary, the procset); no CMap operator after endcmap. Every writer ends its program exactly so.
+    /// two end (the resource dictionary, the procset); no CMap operator after endcmap. Every writer ends its program exactly so — the encoding
+    /// CMaps followed only by the closing structure comments %%EndResource and %%EOF (FG 1166).
     /// </summary>
     [Fact]
     public void Cid02_WrittenCMaps_EndWithEndcmapDefineresourceAndTwoEnds()
     {
         foreach (var (writer, text) in Cid02Writers())
-            Assert.True(text.EndsWith("\nendcmap\nCMapName currentdict /CMap defineresource pop\nend\nend\n", StringComparison.Ordinal), writer);
+        {
+            var tail = writer is "PDF/A-Kopie" or "PdfACMaps.Encoding" ? "%%EndResource\n%%EOF\n" : "";
+            Assert.True(text.EndsWith("\nendcmap\nCMapName currentdict /CMap defineresource pop\nend\nend\n" + tail, StringComparison.Ordinal), writer);
+        }
     }
 
     /// <summary>

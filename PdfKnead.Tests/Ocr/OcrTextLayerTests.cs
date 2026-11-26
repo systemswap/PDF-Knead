@@ -164,6 +164,6 @@ public class OcrTextLayerTests
     {
         var font = OpenTypeFont.Parse(OcrTextLayer.Glyphless);
         Assert.Equal(2, font.GlyphCount);
-        Assert.Equal(1000, font.UnitsPerEm);
+        Assert.Equal(1024, font.UnitsPerEm);   // a power of two (docs/FEHLERGEDAECHTNIS.md, No. 1166)
     }
 }

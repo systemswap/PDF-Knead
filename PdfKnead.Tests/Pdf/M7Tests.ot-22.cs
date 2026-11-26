@@ -162,77 +162,113 @@ public sealed partial class M7NormTests
     private static void Ot22SamePositions(ShapedGlyph[] expected, ShapedGlyph[] actual) =>
         Assert.Equal(expected.Select(g => (g.Glyph, g.XAdvance, g.XOffset, g.YOffset)), actual.Select(g => (g.Glyph, g.XAdvance, g.XOffset, g.YOffset)));
 
-    // ------------------------------------------------------------ OT 20.4.8 (open question 11: GPOS 7 and 8)
+    // ------------------------------------------------------------ OT 20.4.8 (GPOS 7, docs/FEHLERGEDAECHTNIS.md, No. 1161)
 
     /// <summary>
-    /// OT 20.4.8 sentences 1–5 (open question 11): contextual positioning applies nested lookups at places of the input sequence. Feature „kern“
-    /// with a single lookup of type 7, format 3 (coverages {A}{V}, record (1, lookup 1 = XPlacement −120)): today „AV“ stands as without it —
-    /// V is not moved (after the norm XOffset −120, as lookup 1 named directly gives). Test of the present behaviour until the question is decided.
+    /// OT 20.4.8 sentences 1–5: contextual positioning applies nested lookups at places of the input sequence. Feature „kern“ with a single lookup
+    /// of type 7, format 3 (coverages {A}{V}, record (1, lookup 1 = XPlacement −120)): V in „AV“ gets XOffset −120, as lookup 1 named directly
+    /// gives, A stays (before No. 1161 the lookup was passed over).
     /// </summary>
     [Fact]
-    public void Ot22_ContextFormat3_TodayWithoutEffect()
+    public void Ot22_ContextFormat3_MovesTheGlyphAtItsPlace()
     {
         var (context, without, direct) = Ot22Contextual(7, Ot22Context3([[Ot20G('A')], [Ot20G('V')]], (1, 1)), "AV", 1,
             Ot20Lookup(1, Ot20Single1([Ot20G('V')], 1, -120)));
-        Ot22SamePositions(without, context);
         Assert.Equal(-120, direct[1].XOffset);
+        Ot22SamePositions(direct, context);
+        Assert.Equal((without[0].XAdvance, 0.0), (context[0].XAdvance, context[0].XOffset));
     }
 
     /// <summary>
-    /// OT 20.4.8 sentences 7–8 (open question 11): the records of a GPOS context name lookups of the GPOS LookupList, so they only position.
-    /// Type 7, format 1 with the record (0, lookup 3), lookup 3 = YPlacement +200 for A: today A stays at YOffset 0 (after the norm 200).
+    /// OT 20.4.8 sentences 7–8: the records of a GPOS context name lookups of the GPOS LookupList, so they only position. Type 7, format 1 with the
+    /// record (0, lookup 3), lookup 3 = YPlacement +200 for A (lookups 1 and 2 act on B only): A is raised by 200.
     /// </summary>
     [Fact]
-    public void Ot22_ContextRecordNamesAGposLookup_TodayWithoutEffect()
+    public void Ot22_ContextRecordNamesAGposLookup_ThatLookupPositions()
     {
-        var (context, without, direct) = Ot22Contextual(7, Ot22Context1([Ot20G('A')], (0, 3)), "A", 3,
+        var (context, _, direct) = Ot22Contextual(7, Ot22Context1([Ot20G('A')], (0, 3)), "A", 3,
             Ot20Lookup(1, Ot20Single1([Ot20G('B')], 2, 1)), Ot20Lookup(1, Ot20Single1([Ot20G('B')], 2, 2)), Ot20Lookup(1, Ot20Single1([Ot20G('A')], 2, 200)));
-        Ot22SamePositions(without, context);
-        Assert.Equal(0, context[0].YOffset);
         Assert.Equal(200, direct[0].YOffset);
+        Assert.Equal(200, context[0].YOffset);
     }
 
     /// <summary>
-    /// OT 20.4.8 sentences 9–10, 15 (open question 11): format 1 matches a sequence of glyphs. Coverage {T}, rule T o with the record (1, lookup 1
-    /// = YPlacement −50): today o in „To“ is not moved (after the norm −50).
+    /// OT 20.4.8 sentences 9–10, 15: format 1 matches a sequence of glyphs. Coverage {T}, rule T o with the record (1, lookup 1 = YPlacement −50):
+    /// o in „To“ is lowered by 50, in „Tx“ the rule does not match.
     /// </summary>
     [Fact]
-    public void Ot22_ContextFormat1_TodayWithoutEffect()
+    public void Ot22_ContextFormat1_GlyphSequence()
     {
-        var (context, without, direct) = Ot22Contextual(7, Ot22Context1(Ot22Gs("To"), (1, 1)), "To", 1, Ot20Lookup(1, Ot20Single1([Ot20G('o')], 2, -50)));
-        Ot22SamePositions(without, context);
+        var (context, _, direct) = Ot22Contextual(7, Ot22Context1(Ot22Gs("To"), (1, 1)), "To", 1, Ot20Lookup(1, Ot20Single1([Ot20G('o'), Ot20G('x')], 2, -50)));
         Assert.Equal(-50, direct[1].YOffset);
+        Ot22SamePositions(direct, context);
+        Assert.Equal(0, Ot22Contextual(7, Ot22Context1(Ot22Gs("To"), (1, 1)), "Tx", 1, Ot20Lookup(1, Ot20Single1([Ot20G('o'), Ot20G('x')], 2, -50))).Context[1].YOffset);
     }
 
     /// <summary>
-    /// OT 20.4.8 sentences 18–21, 26 (open question 11): format 2 matches classes. ClassDef {A, T → 1, comma → 2}, rule 1 2 with the record (1,
-    /// lookup 1 = XPlacement −80): today the comma in „T,“ is not moved (after the norm −80).
+    /// OT 20.4.8 sentences 18–21, 26: format 2 matches classes. ClassDef {A, T → 1, comma → 2}, rule 1 2 with the record (1, lookup 1 = XPlacement
+    /// −80): the comma in „T,“ and in „A,“ moves by −80, in „V,“ (V of class 0) it stays.
     /// </summary>
     [Fact]
-    public void Ot22_ContextFormat2_TodayWithoutEffect()
+    public void Ot22_ContextFormat2_Classes()
     {
         var classes = new Dictionary<int, int> { [Ot20G('A')] = 1, [Ot20G('T')] = 1, [Ot20G(',')] = 2 };
-        var (context, without, direct) = Ot22Contextual(7, Ot22Context2(Ot22Gs("AT"), classes, 3, [1, 2], (1, 1)), "T,", 1,
-            Ot20Lookup(1, Ot20Single1([Ot20G(',')], 1, -80)));
-        Ot22SamePositions(without, context);
-        Assert.Equal(-80, direct[1].XOffset);
+        var nested = Ot20Lookup(1, Ot20Single1([Ot20G(',')], 1, -80));
+        foreach (var (text, expected) in new[] { ("T,", -80.0), ("A,", -80.0), ("V,", 0.0) })
+            Assert.Equal(expected, Ot22Contextual(7, Ot22Context2(Ot22Gs("AT"), classes, 3, [1, 2], (1, 1)), text, 1, nested).Context[1].XOffset);
     }
 
     /// <summary>
-    /// OT 20.4.8 sentences 29–35, 42 (open question 11): format 3 matches one coverage per place, a glyph may be in several. Coverages {A–Z} {I}
-    /// {A–Z} with the record (1, lookup 1 = XAdvance +30): today I in „AIA“ is as wide as without (after the norm 30 wider).
+    /// OT 20.4.8 sentences 29–35, 42: format 3 matches one coverage per place, a glyph may be in several. Coverages {A–Z} {I} {A–Z} with the record
+    /// (1, lookup 1 = XAdvance +30): I in „AIA“ is 30 wider, the capitals around it are not changed.
     /// </summary>
     [Fact]
-    public void Ot22_ContextFormat3_GlyphInSeveralCoverages_TodayWithoutEffect()
+    public void Ot22_ContextFormat3_GlyphInSeveralCoverages()
     {
         var capitals = Ot22Gs("ABCDEFGHIJKLMNOPQRSTUVWXYZ");
         var (context, without, direct) = Ot22Contextual(7, Ot22Context3([capitals, [Ot20G('I')], capitals], (1, 1)), "AIA", 1,
             Ot20Lookup(1, Ot20Single1([Ot20G('I')], 4, 30)));
-        Ot22SamePositions(without, context);
-        Assert.Equal(Ot20Adv('I') + 30, direct[1].XAdvance);
+        Assert.Equal(Ot20Adv('I') + 30, context[1].XAdvance);
+        Assert.Equal((without[0].XAdvance, without[2].XAdvance), (context[0].XAdvance, context[2].XAdvance));
+        Assert.Equal(Ot20Adv('I') + 30, Ot22Contextual(7, Ot22Context3([capitals, [Ot20G('I')], capitals], (1, 1)), "III", 1,
+            Ot20Lookup(1, Ot20Single1([Ot20G('I')], 4, 30))).Context[1].XAdvance);
     }
 
-    // ------------------------------------------------------------ OT 20.4.9 (open question 11)
+    /// <summary>
+    /// OT 20.4.8 sentences 1–5 with the lookup flags: the input sequence passes over what the context lookup skips, and a record's place counts in
+    /// it. Format 3 {A}{V} with IGNORE_MARKS and GDEF marking the acute as a mark, record (1, lookup 1 = YPlacement +70 for V and the acute):
+    /// in „Á“ followed by V the V (third glyph) is raised, the acute in between is not.
+    /// </summary>
+    [Fact]
+    public void Ot22_Context_PlacesInTheInputPassOverSkippedMarks()
+    {
+        var acute = Ot20G('́');
+        var gpos = Ot20Kern(Ot20Lookup(7, 8, Ot22Context3([[Ot20G('A')], [Ot20G('V')]], (1, 1))),
+            Ot20Lookup(1, Ot20Single1([Ot20G('V'), acute], 2, 70)));
+        var shaped = Ot20Shaper(gpos, Ot20Gdef(new Dictionary<int, int> { [acute] = 3 })).Shape("ÁV");
+        Assert.Equal([Ot20G('A'), acute, Ot20G('V')], shaped.Select(g => g.Glyph));
+        Assert.Equal([0.0, 0, 70], shaped.Select(g => g.YOffset));
+    }
+
+    /// <summary>
+    /// OT 20.4.8 sentences 7–8 and the work limits (docs/FEHLERGEDAECHTNIS.md, No. 1137): a context whose record names the context lookup itself
+    /// nests no deeper than the limit, and a long text with such a context is shaped in bounded time; the glyphs and advances stay those of the
+    /// font.
+    /// </summary>
+    [Fact]
+    public void Ot22_ContextNamingItself_Bounded()
+    {
+        var gpos = Ot20Kern(Ot20Lookup(7, Ot22Context3([[Ot20G('A')]], (0, 0))));
+        var shaper = Ot20Shaper(gpos);
+        var text = new string('A', 20_000);
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var shaped = shaper.Shape(text);
+        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(10), watch.Elapsed.ToString());
+        Assert.Equal(text.Length, shaped.Length);
+        Assert.All(shaped, g => Assert.Equal(Ot20Adv('A'), g.XAdvance));
+    }
+
+    // ------------------------------------------------------------ OT 20.4.9 (GPOS 8, No. 1161)
 
     /// <summary>Liberation Sans with the type of every lookup of type 8 in its GPOS set to 0 (no lookup type: the subtables are passed over).</summary>
     private static byte[] Ot22WithoutType8(byte[] gpos)
@@ -248,66 +284,100 @@ public sealed partial class M7NormTests
         return copy;
     }
 
+    /// <summary>A GSUB or GPOS whose every script record names the script table of <paramref name="script"/>: the shaper takes its lookups for any text.</summary>
+    private static byte[] Ot22OnlyScript(byte[] table, string script)
+    {
+        var copy = (byte[])table.Clone();
+        var t = new TableData(table);
+        var list = t.U16(4);
+        var offset = -1;
+        for (var i = 0; i < t.U16(list); i++)
+            if (t.Tag(list + 2 + i * 6) == script) offset = t.U16(list + 2 + i * 6 + 4);
+        Assert.True(offset > 0);
+        for (var i = 0; i < t.U16(list); i++)
+        {
+            var at = list + 2 + i * 6 + 4;
+            copy[at] = (byte)(offset >> 8);
+            copy[at + 1] = (byte)offset;
+        }
+        return copy;
+    }
+
     /// <summary>
-    /// OT 20.1 sentences 53–57 and OT 20.4.9 sentences 1–5 (open question 11): chained contextual positioning. The bundled Liberation Sans Regular
-    /// has lookups of type 8 in its feature „mark“ (of the script „hebr“; „latn“ names only mark-to-base lookups): shaping „i“ with U+0301 and
-    /// a Hebrew letter with a point gives today the same positions as with all type-8 lookups taken out.
+    /// OT 20.1 sentences 53–57 and OT 20.4.9 sentences 1–5: chained contextual positioning. The bundled Liberation Sans Regular has lookups of type 8
+    /// in its feature „mark“ of the script „hebr“ („latn“ names only mark-to-base lookups). Shaped with the „hebr“ lookups, a bet with qamats and
+    /// etnahta and a dalet with sheva and tevir place their marks where the bundled shaping library places them for the font itself (the
+    /// accent moved by the chained contexts beside the vowel point), and other than with the type 8 lookups taken out.
     /// </summary>
     [Fact]
-    public void Ot22_LiberationChainedPositioning_TodaySameAsWithout()
+    public void Ot22_LiberationChainedPositioning_HebrewMarksAsTheShapingLibrary()
     {
         var gpos = Ot20Lib.TableData("GPOS").ToArray();
         var table = new LayoutTable(gpos, 9);
         Assert.Contains(table.LookupsFor(["mark"], "hebr"), l => table.Lookup(l).Type == 8);
-        var stripped = TextShaper.For(OpenTypeFont.Parse(ColorFontBuilder.WithTables(ShaperLimitTests.Liberation,
-            new Dictionary<string, byte[]?> { ["GPOS"] = Ot22WithoutType8(gpos) })));
-        var original = TextShaper.For(Ot20Lib);
-        foreach (var text in new[] { "í", "בָשׁ" })
-            Ot22SamePositions(original.Shape(text), stripped.Shape(text));
+        TextShaper Hebrew(byte[] layout) => TextShaper.For(OpenTypeFont.Parse(ColorFontBuilder.WithTables(ShaperLimitTests.Liberation,
+            new Dictionary<string, byte[]?> { ["GPOS"] = Ot22OnlyScript(layout, "hebr"), ["GSUB"] = Ot22OnlyScript(Ot20Lib.TableData("GSUB").ToArray(), "hebr") })));
+        var shaper = Hebrew(gpos);
+        var stripped = Hebrew(Ot22WithoutType8(gpos));
+        // the marks of one base letter: x from the origin of the base, y
+        static (int Glyph, double X, double Y)[] Marks(ShapedGlyph[] g) => [.. g.Skip(1).Select(m => (m.Glyph, g[0].XAdvance + m.XOffset, m.YOffset)).OrderBy(m => m.Glyph)];
+        foreach (var text in new[] { "בָ֑", "דְ֚" })
+        {
+            var own = shaper.Shape(text);
+            // the library sets Hebrew right to left: in its visual order the marks (no advance) stand before their base, at its origin
+            var hb = ShaperTests.HarfBuzz(ShaperLimitTests.Liberation, Ot20Lib.UnitsPerEm, text, []);
+            Assert.Equal(own.Length, hb.Glyphs.Length);
+            Assert.Equal(own[0].Glyph, hb.Glyphs[^1]);
+            var expected = hb.Glyphs[..^1].Select((g, i) => (g, (double)hb.XOffsets[i], (double)hb.YOffsets[i])).OrderBy(m => m.g).ToArray();
+            Assert.Equal(expected, Marks(own));
+            Assert.NotEqual(Marks(own), Marks(stripped.Shape(text)));
+        }
     }
 
     /// <summary>
-    /// OT 20.4.9 sentences 1–5 and 20–27 (open question 11): format 3 of type 8 — coverages for backtrack, input and lookahead; only the input
-    /// is adjusted. Backtrack {x}, input {a}, lookahead {y}, record (0, lookup 1 = YPlacement +100): today a in „xay“ stays at YOffset 0 (after
-    /// the norm 100), and in „xaz“ (lookahead not met) at 0 either way.
+    /// OT 20.4.9 sentences 1–5 and 20–27: format 3 of type 8 — coverages for backtrack, input and lookahead; only the input is adjusted. Backtrack
+    /// {x}, input {a}, lookahead {y}, record (0, lookup 1 = YPlacement +100 for x, a and y): a in „xay“ is raised by 100, x and y are not; in
+    /// „xaz“ (lookahead not met) and „bay“ (backtrack not met) nothing moves.
     /// </summary>
     [Fact]
-    public void Ot22_ChainFormat3_TodayWithoutEffect()
+    public void Ot22_ChainFormat3_OnlyTheInputIsAdjusted()
     {
         var chain = Ot22Chain3([[Ot20G('x')]], [[Ot20G('a')]], [[Ot20G('y')]], (0, 1));
-        var nested = Ot20Lookup(1, Ot20Single1([Ot20G('a')], 2, 100));
-        var (context, without, direct) = Ot22Contextual(8, chain, "xay", 1, nested);
-        Ot22SamePositions(without, context);
-        Assert.Equal(0, context[1].YOffset);
-        Assert.Equal(100, direct[1].YOffset);
-        Assert.Equal(0, Ot22Contextual(8, chain, "xaz", 1, nested).Context[1].YOffset);
+        var nested = Ot20Lookup(1, Ot20Single1([Ot20G('x'), Ot20G('a'), Ot20G('y')], 2, 100));
+        var (context, _, direct) = Ot22Contextual(8, chain, "xay", 1, nested);
+        Assert.Equal([100.0, 100, 100], direct.Select(g => g.YOffset));
+        Assert.Equal([0.0, 100, 0], context.Select(g => g.YOffset));
+        foreach (var text in new[] { "xaz", "bay" })
+            Assert.All(Ot22Contextual(8, chain, text, 1, nested).Context, g => Assert.Equal(0, g.YOffset));
     }
 
     /// <summary>
-    /// OT 20.4.9 sentences 7–8, 10–11 (open question 11): format 1 of type 8 — sequences of glyphs. Backtrack [x], input [a], lookahead [y],
-    /// record (0, lookup 1 = XPlacement +40): today a in „xay“ is not moved (after the norm +40).
+    /// OT 20.4.9 sentences 7–8, 10–11: format 1 of type 8 — sequences of glyphs. Backtrack [x], input [a], lookahead [y], record (0, lookup 1 =
+    /// XPlacement +40): a in „xay“ moves by +40, in „xa“ (no lookahead at the end of the run) it stays.
     /// </summary>
     [Fact]
-    public void Ot22_ChainFormat1_TodayWithoutEffect()
+    public void Ot22_ChainFormat1_GlyphSequences()
     {
-        var (context, without, direct) = Ot22Contextual(8, Ot22Chain1([Ot20G('x')], [Ot20G('a')], [Ot20G('y')], (0, 1)), "xay", 1,
-            Ot20Lookup(1, Ot20Single1([Ot20G('a')], 1, 40)));
-        Ot22SamePositions(without, context);
+        var chain = Ot22Chain1([Ot20G('x')], [Ot20G('a')], [Ot20G('y')], (0, 1));
+        var nested = Ot20Lookup(1, Ot20Single1([Ot20G('a')], 1, 40));
+        var (context, _, direct) = Ot22Contextual(8, chain, "xay", 1, nested);
         Assert.Equal(40, direct[1].XOffset);
+        Ot22SamePositions(direct, context);
+        Assert.Equal(0, Ot22Contextual(8, chain, "xa", 1, nested).Context[1].XOffset);
     }
 
     /// <summary>
-    /// OT 20.4.9 sentences 13–18 (open question 11): format 2 of type 8 — three ClassDefs for backtrack, input and lookahead. {x → 1}, {a → 1},
-    /// {y → 1}, record (0, lookup 1 = XPlacement +40): today a in „xay“ is not moved (after the norm +40).
+    /// OT 20.4.9 sentences 13–18: format 2 of type 8 — three ClassDefs for backtrack, input and lookahead. {x → 1}, {a → 1}, {y → 1}, record (0,
+    /// lookup 1 = XPlacement +40): a in „xay“ moves by +40; in „yax“ (backtrack and lookahead of class 0 in their ClassDefs) it stays.
     /// </summary>
     [Fact]
-    public void Ot22_ChainFormat2_TodayWithoutEffect()
+    public void Ot22_ChainFormat2_ThreeClassDefs()
     {
         var chain = Ot22Chain2([Ot20G('a')], new Dictionary<int, int> { [Ot20G('x')] = 1 }, new Dictionary<int, int> { [Ot20G('a')] = 1 },
             new Dictionary<int, int> { [Ot20G('y')] = 1 }, 2, ([1], [1], [1]), (0, 1));
-        var (context, without, direct) = Ot22Contextual(8, chain, "xay", 1, Ot20Lookup(1, Ot20Single1([Ot20G('a')], 1, 40)));
-        Ot22SamePositions(without, context);
-        Assert.Equal(40, direct[1].XOffset);
+        var nested = Ot20Lookup(1, Ot20Single1([Ot20G('a')], 1, 40));
+        Assert.Equal(40, Ot22Contextual(8, chain, "xay", 1, nested).Context[1].XOffset);
+        Assert.Equal(0, Ot22Contextual(8, chain, "yax", 1, nested).Context[1].XOffset);
     }
 
     // ------------------------------------------------------------ OT 20.4.10

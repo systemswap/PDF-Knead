@@ -215,8 +215,22 @@ public static class OcrTextLayer
         return font;
     }
 
-    /// <summary>The TrueType program: two empty glyphs (.notdef and the one every code shows), each 500 units wide, 1000 units per em.</summary>
+    /// <summary>
+    /// The TrueType program: two empty glyphs (.notdef and the one every code shows), each half an em wide (512 of 1024 units per em, a power
+    /// of two as OpenType head recommends for TrueType outlines). Its metrics follow what the glyphs are — no contours: a head box of zeros
+    /// (OpenType 23), no x or H: sxHeight and sCapHeight 0 (31.2.29/30) — and its names carry style and full name (30.4); sub- and
+    /// superscript sizes and a strikeout as thick as the underline (31.2.6–14, 32.2) (docs/FEHLERGEDAECHTNIS.md, No. 1166).
+    /// </summary>
     internal static byte[] Glyphless { get; } = BuildGlyphless();
+
+    /// <summary>Units per em of <see cref="Glyphless"/>.</summary>
+    private const int GlyphlessUnits = 1024;
+
+    /// <summary>The advance of both glyphs in font units: <see cref="Advance"/> thousandths of an em.</summary>
+    private const int GlyphlessAdvance = Advance * GlyphlessUnits / 1000;
+
+    /// <summary>Underline thickness of <see cref="Glyphless"/> in font units (5 % of the em), also its strikeout size.</summary>
+    private const int UnderlineThickness = GlyphlessUnits / 20;
 
     private static byte[] BuildGlyphless()
     {
@@ -234,17 +248,16 @@ public static class OcrTextLayer
             U32(b, 4, 0x00010000);
             U32(b, 12, 0x5F0F3CF5);
             U16(b, 16, 0x000B);                 // baseline and left side bearing at 0, integer scaling
-            U16(b, 18, 1000);                   // units per em
-            U16(b, 40, Advance);                // xMax
-            U16(b, 42, 1000);                   // yMax
+            U16(b, 18, GlyphlessUnits);         // units per em
+            // xMin, yMin, xMax, yMax: 0 — no glyph has a contour
             U16(b, 46, 3);                      // smallest readable size
             U16(b, 48, 2);                      // direction hint
         });
         var hhea = Table(36, b =>
         {
             U32(b, 0, 0x00010000);
-            U16(b, 4, 1000);                    // ascender
-            U16(b, 10, Advance);                // widest advance
+            U16(b, 4, GlyphlessUnits);          // ascender
+            U16(b, 10, GlyphlessAdvance);       // widest advance
             U16(b, 18, 1);                      // caret upright
             U16(b, 34, 2);                      // number of metrics
         });
@@ -256,8 +269,8 @@ public static class OcrTextLayer
         });
         var hmtx = Table(8, b =>
         {
-            U16(b, 0, Advance);
-            U16(b, 4, Advance);
+            U16(b, 0, GlyphlessAdvance);
+            U16(b, 4, GlyphlessAdvance);
         });
         var cmap = Table(4 + 8 + 24, b =>
         {
@@ -275,15 +288,22 @@ public static class OcrTextLayer
             U16(b, 32, 1);                      // delta: 0xFFFF → glyph 0
         });
         // the PostScript name (ID 6) in the two records the norm names, Macintosh (1,0,0) in Roman and Windows (3,1,0x409) in UTF-16 (OpenType
-        // name 3.19.1 — before Windows alone, No. 1151); the family name for Windows; sorted by platform, encoding, language and ID
+        // name 3.19.1 — before Windows alone, No. 1151); for Windows also family (1), style (2) and full name (4; for the regular face the
+        // family name, OpenType 30.4 — before only 1 and 6, No. 1166); sorted by platform, encoding, language and ID; equal strings stored once
         var nameText = Encoding.BigEndianUnicode.GetBytes(FontName);
+        var styleText = Encoding.BigEndianUnicode.GetBytes("Regular");
         var macText = Encoding.ASCII.GetBytes(FontName);
-        var name = Table(6 + 3 * 12 + macText.Length + 2 * nameText.Length, b =>
+        const int Records = 5;
+        var name = Table(6 + Records * 12 + macText.Length + nameText.Length + styleText.Length, b =>
         {
-            U16(b, 2, 3);
-            U16(b, 4, 6 + 3 * 12);
+            U16(b, 2, Records);
+            U16(b, 4, 6 + Records * 12);
+            int win = macText.Length, style = macText.Length + nameText.Length;
             (int Platform, int Encoding, int Language, int Id, int Length, int Offset)[] records =
-                [(1, 0, 0, 6, macText.Length, 0), (3, 1, 0x409, 1, nameText.Length, macText.Length), (3, 1, 0x409, 6, nameText.Length, macText.Length + nameText.Length)];
+            [
+                (1, 0, 0, 6, macText.Length, 0), (3, 1, 0x409, 1, nameText.Length, win), (3, 1, 0x409, 2, styleText.Length, style),
+                (3, 1, 0x409, 4, nameText.Length, win), (3, 1, 0x409, 6, nameText.Length, win),
+            ];
             for (var i = 0; i < records.Length; i++)
             {
                 var r = 6 + i * 12;
@@ -294,30 +314,37 @@ public static class OcrTextLayer
                 U16(b, r + 8, records[i].Length);
                 U16(b, r + 10, records[i].Offset);
             }
-            macText.CopyTo(b[(6 + 3 * 12)..]);
-            nameText.CopyTo(b[(6 + 3 * 12 + macText.Length)..]);
-            nameText.CopyTo(b[(6 + 3 * 12 + macText.Length + nameText.Length)..]);
+            macText.CopyTo(b[(6 + Records * 12)..]);
+            nameText.CopyTo(b[(6 + Records * 12 + win)..]);
+            styleText.CopyTo(b[(6 + Records * 12 + style)..]);
         });
         var os2 = Table(96, b =>
         {
             U16(b, 0, 4);
-            U16(b, 2, Advance);                 // average width
+            U16(b, 2, GlyphlessAdvance);        // average width
             U16(b, 4, 400);                     // regular
             U16(b, 6, 5);                       // normal width
+            // sub- and superscript: the usual 65 % wide, 60 % high, 7.5 % below and 35 % above the baseline
+            U16(b, 10, GlyphlessUnits * 65 / 100);
+            U16(b, 12, GlyphlessUnits * 60 / 100);
+            U16(b, 16, GlyphlessUnits * 75 / 1000);
+            U16(b, 18, GlyphlessUnits * 65 / 100);
+            U16(b, 20, GlyphlessUnits * 60 / 100);
+            U16(b, 24, GlyphlessUnits * 35 / 100);
+            U16(b, 26, UnderlineThickness);     // strikeout as thick as the underline (post), position 0: no x height
             U16(b, 62, 0x40);                   // regular
             U16(b, 64, 0x20);                   // first and last character
             U16(b, 66, 0xFFFF);
-            U16(b, 68, 1000);                   // typographic ascender
-            U16(b, 74, 1000);                   // Windows ascent
-            U16(b, 86, Advance);                // x height
-            U16(b, 88, 1000);                   // cap height
+            U16(b, 68, GlyphlessUnits);         // typographic ascender
+            U16(b, 74, GlyphlessUnits);         // Windows ascent
+            // x height and cap height (86, 88): 0 — the font has no glyph for x or H
             U16(b, 92, 0x20);                   // break character
         });
         var post = Table(32, b =>
         {
             U32(b, 0, 0x00030000);              // no glyph names
-            U16(b, 8, unchecked((ushort)-100)); // underline
-            U16(b, 10, 50);
+            U16(b, 8, unchecked((ushort)-(GlyphlessUnits / 10))); // underline
+            U16(b, 10, UnderlineThickness);
             U32(b, 12, 1);                      // fixed pitch
         });
         return TrueTypeSubsetter.Assemble(new Dictionary<string, byte[]>

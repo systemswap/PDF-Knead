@@ -429,6 +429,8 @@ internal static class FontScrub
     {
         var gids = new HashSet<int>();
         var names = new HashSet<string>(StringComparer.Ordinal);
+        // the CIDs still shown: a removed glyph of a CID-keyed CFF must not take one of them as its new CID (No. 1158)
+        var cids = new HashSet<int>();
         foreach (var (dict, codes) in usage.Codes)
         {
             if (ProgramOf(dict)?.Id.Number != program) continue;
@@ -439,6 +441,7 @@ internal static class FontScrub
                 var (g, n) = font.ProgramGlyphs(code, length);
                 gids.UnionWith(g);
                 names.UnionWith(n);
+                if (font.Cid(code, length) is >= 0 and var cid) cids.Add(cid);
             }
         }
         if (doc.GetObject(program) is not PdfStream stream) return;
@@ -448,9 +451,10 @@ internal static class FontScrub
             byte[]? scrubbed = null;
             if (Core.Fonts.OpenTypeFont.LooksLikeSfnt(data))
             {
-                if (Core.Fonts.OpenTypeFont.Parse(data) is { Broken: false } ot && (ot.HasTable("glyf") || ot.HasTable("CFF ")))
+                // (CFF2 as well: before it stayed whole, with the glyphs of the redacted text; docs/FEHLERGEDAECHTNIS.md, No. 1158)
+                if (Core.Fonts.OpenTypeFont.Parse(data) is { Broken: false } ot && (ot.HasTable("glyf") || ot.HasTable("CFF ") || ot.Cff2 is not null))
                 {
-                    scrubbed = Core.Fonts.TrueTypeSubsetter.Scrub(data, gids);
+                    scrubbed = Core.Fonts.TrueTypeSubsetter.Scrub(data, gids, cids);
                     var after = Core.Fonts.OpenTypeFont.Parse(scrubbed);
                     if (!SameGlyphs(gids, ot.GlyphCount, ot.Outline, ot.AdvanceWidth, after.Outline, after.AdvanceWidth, after.GlyphCount)) return;
                     // every shown code draws the same glyph as before, as the display chooses it: a code whose cmap entry pointed beyond the
@@ -468,7 +472,7 @@ internal static class FontScrub
             else if (stream.Dictionary.GetName(PdfName.Subtype)?.Value is "Type1C" or "CIDFontType0C" && data is [1, ..])
             {
                 // bare CFF (FontFile3)
-                scrubbed = Core.Fonts.CffScrubber.Scrub(data, gids).Data;
+                scrubbed = Core.Fonts.CffScrubber.Scrub(data, gids, cids).Data;
                 var before = Core.Fonts.CffFont.Parse(data);
                 var after = Core.Fonts.CffFont.Parse(scrubbed);
                 if (!SameGlyphs(gids, before.GlyphCount, before.Outline, before.AdvanceWidth, after.Outline, after.AdvanceWidth, after.GlyphCount)) return;

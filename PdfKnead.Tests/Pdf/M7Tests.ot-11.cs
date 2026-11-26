@@ -10,8 +10,8 @@ namespace PdfKnead.Tests.Pdf;
 
 /// <summary>
 /// Konformitätsabgleich M7, package ot-11 (OpenType, CFF2 table: variations 8.11, dependencies on other tables 8.12, the example table 8.13;
-/// cmap 9 and 9.1): the tests the sentence-by-sentence drafts named as missing. PDF-Knead reads neither CFF2 nor any variation table (open
-/// questions 1 and 2); those tests pin the behaviour of today. The CFF2 builder is in the file of package ot-08.
+/// cmap 9 and 9.1): the tests the sentence-by-sentence drafts named as missing. PDF-Knead reads CFF2 in the default instance (question 1,
+/// docs/FEHLERGEDAECHTNIS.md, No. 1158) and no variation table (question 2). The CFF2 builder and the assertions are in the file of package ot-08.
 /// </summary>
 public sealed partial class M7NormTests
 {
@@ -207,30 +207,44 @@ public sealed partial class M7NormTests
 
     private static (float X, float Y) FirstPointOt11(GlyphOutline outline) => (outline.Points[0], outline.Points[1]);
 
-    /// <summary>The probes of ot-11 for the CFF2 theory: fonts „OTTO“ around CFF2 tables with variation data.</summary>
-    private static byte[] ProbeOt11(string name)
+    /// <summary>The rectangle 50 … 550 × 0 … 500 the example table draws in its default instance (both charstrings call the subroutine).</summary>
+    private const string ExampleRectOt11 = "50 0 rmoveto 500 hlineto 500 vlineto -500 hlineto";
+
+    /// <summary>
+    /// The probes of ot-11 for the CFF2 theory: fonts „OTTO“ around CFF2 tables with variation data, and what each glyph draws in the default
+    /// instance (each blend leaves its default values; vsindex chooses k).
+    /// </summary>
+    private static Cff2ProbeOt08 ProbeOt11(string name)
     {
         var fvar = new Dictionary<string, byte[]> { ["fvar"] = FvarOt08() };
-        byte[] Font(byte[] cff2, Dictionary<string, byte[]>? extra = null) => Cff2FontOt08(cff2, 2, extra: extra ?? fvar);
-        byte[] Glyph(Cff2VariationsOt08? v, string glyph, string? privateDict = null) =>
-            Font(Cff2Ot08(new([[], CsOt08(glyph)], Privates: [new(privateDict is null ? [] : DictOt08(privateDict))], Variations: v)));
+        byte[] Font(byte[] cff2, Dictionary<string, byte[]>? extra = null, int glyphs = 2) => Cff2FontOt08(cff2, glyphs, extra: extra ?? fvar);
+        Cff2ProbeOt08 Glyph(Cff2VariationsOt08? v, string glyph, string? drawn, string? privateDict = null) =>
+            new(Font(Cff2Ot08(new([[], CsOt08(glyph)], Privates: [new(privateDict is null ? [] : DictOt08(privateDict))], Variations: v))), [drawn]);
+        Cff2ProbeOt08 Example(byte[] font) => new(font, [ExampleRectOt11], ExampleRectOt11);
+        const string line = "0 0 rmoveto 10 0 rlineto 0 10 rlineto";
         return name switch
         {
-            "Example" => Font(ExampleCff2Ot11()),
-            "ExampleWithoutFvar" => Font(ExampleCff2Ot11(), new()),
-            "ExampleWithGvar" => Font(ExampleCff2Ot11(), new() { ["fvar"] = FvarOt08(), ["gvar"] = EmptyGvarOt11(2) }),
-            "ExampleWithMvar" => Font(ExampleCff2Ot11(), new() { ["fvar"] = FvarOt08(), ["MVAR"] = MvarOt11() }),
-            "NoVariationStoreButBlend" => Font(Cff2Ot08(new([[], CsOt08("0 0 rmoveto 10 5 1 blend 0 rlineto 0 10 rlineto")]))),
-            "TwoDataSets" => Glyph(TwoDataSetsOt08, "1 vsindex 0 0 rmoveto 10 5 6 1 blend 0 rlineto 0 10 rlineto"),
-            "ItemCountOne" => Font(ExampleCff2Ot11(TwoRegionsOt08 with { ItemCount = 1 })),
-            "PrivateAndGlyphVsindex" => Font(Cff2Ot08(new([[], CsOt08("0 vsindex 0 0 rmoveto 10 5 1 blend 0 rlineto 0 10 rlineto"),
-                CsOt08("0 0 rmoveto 10 5 6 1 blend 0 rlineto 0 10 rlineto")], Privates: [new(DictOt08("1 vsindex"))], Variations: TwoDataSetsOt08))),
-            "BlendHlineto" => Font(Cff2Ot08(new([[], CsOt08("0 0 rmoveto 120 52 1 blend hlineto"), CsOt08("1 vsindex 0 0 rmoveto 120 52 36 1 blend hlineto")],
-                Variations: TwoDataSetsOt08))),
-            "SplitBlends" => Font(Cff2Ot08(new([[], CsOt08("0 0 rmoveto 10 5 1 blend 20 7 1 blend rlineto"), CsOt08("0 0 rmoveto 10 20 5 7 2 blend rlineto")],
-                Variations: OneRegionOt08))),
-            "NestedBlends" => Glyph(OneRegionOt08, "0 0 rmoveto 100 10 1 blend 4 1 blend hlineto"),
-            "BlendFirstMoveto" => Glyph(OneRegionOt08, "10 20 5 0 2 blend rmoveto 100 0 rlineto 0 0 rmoveto 50 0 rlineto"),
+            "Example" => Example(Font(ExampleCff2Ot11())),
+            // the default instance needs no fvar, and gvar or MVAR beside the table change nothing
+            "ExampleWithoutFvar" => Example(Font(ExampleCff2Ot11(), new())),
+            "ExampleWithGvar" => Example(Font(ExampleCff2Ot11(), new() { ["fvar"] = FvarOt08(), ["gvar"] = EmptyGvarOt11(2) })),
+            "ExampleWithMvar" => Example(Font(ExampleCff2Ot11(), new() { ["fvar"] = FvarOt08(), ["MVAR"] = MvarOt11() })),
+            // blend without VariationStore: invalid, the glyph is empty (as in common font engines)
+            "NoVariationStoreButBlend" => new(Font(Cff2Ot08(new([[], CsOt08("0 0 rmoveto 10 5 1 blend 0 rlineto 0 10 rlineto")]))), [null]),
+            "TwoDataSets" => Glyph(TwoDataSetsOt08, "1 vsindex 0 0 rmoveto 10 5 6 1 blend 0 rlineto 0 10 rlineto", line),
+            // deltas in the ItemVariationData (itemCount 1) are not those of CFF2: ignored
+            "ItemCountOne" => Example(Font(ExampleCff2Ot11(TwoRegionsOt08 with { ItemCount = 1 }))),
+            // vsindex 0 in the charstring before vsindex 1 of the Private DICT: k = 1 for glyph 1, k = 2 for glyph 2
+            "PrivateAndGlyphVsindex" => new(Font(Cff2Ot08(new([[], CsOt08("0 vsindex 0 0 rmoveto 10 5 1 blend 0 rlineto 0 10 rlineto"),
+                CsOt08("0 0 rmoveto 10 5 6 1 blend 0 rlineto 0 10 rlineto")], Privates: [new(DictOt08("1 vsindex"))], Variations: TwoDataSetsOt08)), glyphs: 3),
+                [line, line]),
+            "BlendHlineto" => new(Font(Cff2Ot08(new([[], CsOt08("0 0 rmoveto 120 52 1 blend hlineto"), CsOt08("1 vsindex 0 0 rmoveto 120 52 36 1 blend hlineto")],
+                Variations: TwoDataSetsOt08)), glyphs: 3), ["0 0 rmoveto 120 hlineto", "0 0 rmoveto 120 hlineto"]),
+            "SplitBlends" => new(Font(Cff2Ot08(new([[], CsOt08("0 0 rmoveto 10 5 1 blend 20 7 1 blend rlineto"), CsOt08("0 0 rmoveto 10 20 5 7 2 blend rlineto")],
+                Variations: OneRegionOt08)), glyphs: 3), ["0 0 rmoveto 10 20 rlineto", "0 0 rmoveto 10 20 rlineto"]),
+            "NestedBlends" => Glyph(OneRegionOt08, "0 0 rmoveto 100 10 1 blend 4 1 blend hlineto", "0 0 rmoveto 100 hlineto"),
+            "BlendFirstMoveto" => Glyph(OneRegionOt08, "10 20 5 0 2 blend rmoveto 100 0 rlineto 0 0 rmoveto 50 0 rlineto",
+                "10 20 rmoveto 100 0 rlineto 0 0 rmoveto 50 0 rlineto"),
             _ => throw new ArgumentException(name),
         };
     }
@@ -239,12 +253,12 @@ public sealed partial class M7NormTests
 
     /// <summary>
     /// OT 8.11.1 sentences 2–17, 8.11.2 sentences 1–36, 8.11.3 sentences 1–31, 8.11.5 sentences 1–13, 8.11.6 sentences 14–19, 8.12.3 sentence 1,
-    /// 8.12.6, 8.12.7 and 8.13 sentences 11–114 (reader and writer, today): PDF-Knead reads neither CFF2 nor its VariationStore, vsindex or blend —
-    /// for a table shaped like the example of 8.13 (two regions, k = 2, blended Private DICT values and a blended rectangle in a local
-    /// subroutine), with and without fvar, with gvar or MVAR beside it, without VariationStore but with blend, with two ItemVariationData and
-    /// vsindex in the Private DICT and the charstring, with itemCount 1, and with the blend patterns of 8.11.3, 8.11.5 and 8.11.6, the font parses
-    /// without error, has no CFF and is not intact, every glyph has an empty outline, and scrubbing and subsetting refuse it (no CFF2 is
-    /// written). Once CFF2 is read (question 1), the default instance (the rectangle 50 … 550 × 0 … 500) replaces these assertions.
+    /// 8.12.6, 8.12.7 and 8.13 sentences 11–114 (reader and writer, question 1): PDF-Knead reads CFF2 with its VariationStore (k of each
+    /// ItemVariationData), vsindex and blend in the default instance — the table shaped like the example of 8.13 (two regions, k = 2, blended
+    /// Private DICT values and a blended rectangle in a local subroutine) draws the rectangle 50 … 550 × 0 … 500 in both glyphs, with and without
+    /// fvar, with gvar or MVAR beside it and with itemCount 1; two ItemVariationData with vsindex in the Private DICT and the charstring, and the
+    /// blend patterns of 8.11.3, 8.11.5 and 8.11.6 (split, nested, on the first moveto) draw their default values; blend without VariationStore
+    /// makes the glyph empty. The redaction writes a static CFF2 table without VariationStore, blend, vsindex and the tables of the variations.
     /// </summary>
     [Theory]
     [InlineData("Example")]                  // 8.11.1, 8.11.2 1–6/10–19, 8.11.3 1–4, 8.12.3 1, 8.12.6, 8.13 11–114
@@ -259,12 +273,13 @@ public sealed partial class M7NormTests
     [InlineData("SplitBlends")]              // 8.11.5 1–6
     [InlineData("NestedBlends")]             // 8.11.5 11–13
     [InlineData("BlendFirstMoveto")]         // 8.11.6 14–19
-    public void Cff2Variations_AreNotRead_GlyphsStayEmpty(string probe) => AssertCff2NotReadOt08(ProbeOt11(probe));
+    public void Cff2Variations_DefaultInstanceDrawn_ScrubbedStatic(string probe) => AssertCff2ReadOt08(ProbeOt11(probe));
 
     /// <summary>
-    /// OT 8.13 sentences 1–10 (reader, today): the bytes of a CFF2 table (header 02 00 05 …) given as a bare FontFile3 are no font program —
-    /// FontProgram.FromBytes recognises CFF only with major version 1 and returns null (the font is substituted by name); as the table „CFF2“ of
-    /// a font they give no CFF and the font is not intact.
+    /// OT 8.13 sentences 1–10 (reader): the bytes of a CFF2 table (header 02 00 05 …) given as a bare FontFile3 are no font program —
+    /// FontProgram.FromBytes recognises bare CFF only with major version 1 and returns null (the font is substituted by name; ISO 32000-2, 9.9
+    /// knows CFF2 in no FontFile3 subtype); as the table „CFF2“ of a font they draw the example rectangle (not 'CFF ', not intact: a strict PDF
+    /// reader knows no CFF2).
     /// </summary>
     [Fact]
     public void BareCff2Data_IsNoFontProgram()
@@ -275,7 +290,15 @@ public sealed partial class M7NormTests
         var font = OpenTypeFont.Parse(Cff2FontOt08(cff2, 2));
         Assert.Null(font.Cff);
         Assert.False(font.Intact);
+        SameOutlineOt08(ReferenceOt08(ExampleRectOt11), font.Outline(1), "Glyphe 1");
     }
+
+    /// <summary>
+    /// A CFF2 table with a rectangle for every glyph of a font (glyph 0 empty), the rectangle of glyph g 100 + g units wide — for replacing glyf in
+    /// a real font.
+    /// </summary>
+    private static byte[] RectanglesCff2Ot11(int glyphs) =>
+        Cff2Ot08(new([[], .. Enumerable.Range(1, glyphs - 1).Select(g => CsOt08($"50 0 rmoveto {100 + g} 0 rlineto 0 600 rlineto"))]));
 
     /// <summary>
     /// OT 8.11.1 sentences 9–15 (reader, today, for comparison): in a charstring of the table „CFF “ (Type 2) operator 16, blend in CFF2, is
@@ -322,8 +345,8 @@ public sealed partial class M7NormTests
 
     /// <summary>
     /// OT 8.11.4 sentences 4–9 (writer): the rules for blended and overlapping stem hints concern fonts that carry hints — the CFF PDF-Knead builds
-    /// carries none: the charstrings of CffBuilder.Build hold no hstem, vstem, hstemhm, vstemhm, hintmask or cntrmask. (No CFF2 is written: the
-    /// CFF2 theories show scrubbing and subsetting refuse a CFF2 font.)
+    /// carries none: the charstrings of CffBuilder.Build hold no hstem, vstem, hstemhm, vstemhm, hintmask or cntrmask. (The static CFF2 table of a
+    /// redaction keeps the hints of the font as they were, without blend: the CFF2 theories.)
     /// </summary>
     [Fact]
     public void CffBuilder_WritesNoHintOperators()
@@ -383,7 +406,7 @@ public sealed partial class M7NormTests
     /// <summary>
     /// OT 8.12 sentences 3–8 and 8.12.4 sentence 1 (reader): the tables without reference to a glyph format are read as in any font, also when
     /// the outlines are in CFF2 — a handwriting font with glyf and loca replaced by a CFF2 table keeps its family and PostScript name, weight,
-    /// ascent, cmap and hmtx widths (only the outline of „M“ is empty: CFF2 is not read).
+    /// ascent, cmap and hmtx widths, and „M“ draws its rectangle from the CFF2 table.
     /// </summary>
     [Fact]
     public void Cff2Font_TablesBesideTheOutlinesAreRead()
@@ -391,7 +414,7 @@ public sealed partial class M7NormTests
         var source = EmbeddedFonts.LoadHandwriting("PatrickHand-Regular.ttf");
         var plain = OpenTypeFont.Parse(source);
         var font = OpenTypeFont.Parse(ColorFontBuilder.WithTables(source,
-            new Dictionary<string, byte[]?> { ["CFF2"] = ExampleCff2Ot11(), ["glyf"] = null, ["loca"] = null }));
+            new Dictionary<string, byte[]?> { ["CFF2"] = RectanglesCff2Ot11(plain.GlyphCount), ["glyf"] = null, ["loca"] = null }));
         var m = plain.GlyphForUnicode('M');
         Assert.True(m > 0);
         Assert.Equal(plain.FamilyName, font.FamilyName);
@@ -400,23 +423,32 @@ public sealed partial class M7NormTests
         Assert.Equal(plain.Ascent, font.Ascent);
         Assert.Equal(m, font.GlyphForUnicode('M'));
         Assert.Equal(plain.AdvanceWidth(m), font.AdvanceWidth(m));
-        Assert.True(font.Outline(m).IsEmpty);
+        SameOutlineOt08(ReferenceOt08($"50 0 rmoveto {100 + m} 0 rlineto 0 600 rlineto"), font.Outline(m), "M");
     }
 
     /// <summary>
-    /// OT 8.12 sentence 9 (new text, today): a CFF2 font used for new text draws no glyph („M“ has no outline), and saving that text fails — the
-    /// subset for the saved font refuses it (ElementFace.SavedFont, finding B74); importing it as a signature font is refused. Whether such a font
-    /// is offered at all is question 1.
+    /// OT 8.12 sentence 9 (new text, question 1): a CFF2 font used for new text draws its glyphs („M“ from the CFF2 table), and saving that text
+    /// writes a CID-keyed CFF of the default instance as FontFile3 /CIDFontType0C under a CIDFontType0 (ISO 32000-2, 9.9, Table 124 knows no
+    /// CFF2) whose CID „M“ draws the same outline — before the TrueType subset refused it and saving broke off (finding B74); importing it as a
+    /// signature font works.
     /// </summary>
     [Fact]
-    public void Cff2Font_ForNewText_DrawsNothingAndSavingFails()
+    public void Cff2Font_ForNewText_DrawnAndSavedAsCff()
     {
         var source = EmbeddedFonts.LoadHandwriting("PatrickHand-Regular.ttf");
-        var data = ColorFontBuilder.WithTables(source, new Dictionary<string, byte[]?> { ["CFF2"] = ExampleCff2Ot11(), ["glyf"] = null, ["loca"] = null });
+        var plain = OpenTypeFont.Parse(source);
+        var data = ColorFontBuilder.WithTables(source, new Dictionary<string, byte[]?> { ["CFF2"] = RectanglesCff2Ot11(plain.GlyphCount), ["glyf"] = null, ["loca"] = null });
         var face = ElementFace.For("M7-ot-11-CFF2-" + Guid.NewGuid().ToString("N"), () => OpenTypeFont.Parse(data), false, false, false);
         var m = face.Font.GlyphForUnicode('M');
-        Assert.True(face.Font.Outline(m).IsEmpty);
-        Assert.Throws<FontFormatException>(() => face.SavedFont(new Dictionary<int, string> { [m] = "M" }));
+        Assert.False(face.Font.Outline(m).IsEmpty);
+        var saved = face.SavedFont(new Dictionary<int, string> { [m] = "M" });
+        var cidFont = (PdfKnead.Core.Pdf.Objects.PdfDictionary)saved.GetArray(PdfKnead.Core.Pdf.Objects.PdfName.Get("DescendantFonts"))!.Get(0)!;
+        Assert.Equal("CIDFontType0", cidFont.GetName(PdfKnead.Core.Pdf.Objects.PdfName.Subtype)!.Value);
+        var fontFile = cidFont.GetDictionary(PdfKnead.Core.Pdf.Objects.PdfName.Get("FontDescriptor"))!.GetStream(PdfKnead.Core.Pdf.Objects.PdfName.Get("FontFile3"))!;
+        Assert.Equal("CIDFontType0C", fontFile.Dictionary.GetName(PdfKnead.Core.Pdf.Objects.PdfName.Subtype)!.Value);
+        var cff = CffFont.Parse(fontFile.RawData!);
+        Assert.True(cff.IsCidKeyed);
+        SameOutlineOt08(face.Font.Outline(m), cff.Outline(cff.GlyphByCid(m)), "M gespeichert");
 
         var folder = Path.Combine(Path.GetTempPath(), "pdfknead-m7-ot11-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(folder);
@@ -426,8 +458,8 @@ public sealed partial class M7NormTests
             File.WriteAllBytes(file, data);
             var target = Path.Combine(folder, "Ziel");
             var result = SignatureFonts.Import(file, [target]);
-            Assert.NotNull(result.Error);
-            Assert.False(Directory.Exists(target) && Directory.EnumerateFiles(target).Any());
+            Assert.Null(result.Error);
+            Assert.True(Directory.EnumerateFiles(target).Any());
         }
         finally
         {
@@ -436,8 +468,8 @@ public sealed partial class M7NormTests
     }
 
     /// <summary>
-    /// OT 8.12 sentences 10–11 (reader, today): a CFF2 font with COLR/CPAL (glyph 1 one red layer) and fvar — colour layers are not read
-    /// (ColorGlyphs.For gives null), and the outlines stay empty.
+    /// OT 8.12 sentences 10–11 (reader): a CFF2 font with COLR/CPAL (glyph 1 one red layer) and fvar — colour layers are not read for it
+    /// (ColorGlyphs.For gives null), glyph 1 draws its outline from the CFF2 table.
     /// </summary>
     [Fact]
     public void Cff2FontWithColr_NoColourGlyphs()
@@ -448,12 +480,12 @@ public sealed partial class M7NormTests
             extra: new Dictionary<string, byte[]> { ["COLR"] = colr, ["CPAL"] = cpal, ["fvar"] = FvarOt08() }));
         Assert.True(font.HasTable("COLR"));
         Assert.Null(ColorGlyphs.For(font));
-        Assert.True(font.Outline(1).IsEmpty);
+        Assert.False(font.Outline(1).IsEmpty);
     }
 
     /// <summary>
-    /// OT 8.12.1 sentence 1 (writer): a font written with a CFF2 table and no glyf gets the sfnt version „OTTO“ (TrueTypeSubsetter.Assemble; no
-    /// writing path brings a CFF2 table there today).
+    /// OT 8.12.1 sentence 1 (writer): a font written with a CFF2 table and no glyf gets the sfnt version „OTTO“ (TrueTypeSubsetter.Assemble; the
+    /// redaction of a CFF2 font writes through it).
     /// </summary>
     [Fact]
     public void Assembled_WithCff2_IsOtto()
@@ -487,19 +519,20 @@ public sealed partial class M7NormTests
     public void TruncatedMaxp_GlyphCountComesFromTheCff() => Assert.Equal(2, GlyphCountWithMaxpOt11([0, 0, 0x50, 0, 1]));
 
     /// <summary>
-    /// OT 8.12.3 sentences 2–6 (reader, today): the FontMatrix of a CFF2 font must match unitsPerEm; PDF-Knead, not reading CFF2, scales by head —
-    /// with 2000 units per em the font matrix is 0.0005.
+    /// OT 8.12.3 sentences 2–6 (reader, tolerant): the FontMatrix of a CFF2 font must match unitsPerEm and may be left out only at 1000 — a CFF2
+    /// table without FontMatrix in a font of 2000 units per em is scaled by head (0.0005), as common font engines do; the redaction keeps it so.
     /// </summary>
     [Fact]
     public void Cff2Font_FontMatrixComesFromHead()
     {
-        var font = OpenTypeFont.Parse(Cff2FontOt08(ExampleCff2Ot11(), 2, unitsPerEm: 2000));
-        Assert.Equal(Matrix.Scale(0.0005, 0.0005), font.FontMatrix);
+        var file = Cff2FontOt08(ExampleCff2Ot11(), 2, unitsPerEm: 2000);
+        Assert.Equal(Matrix.Scale(0.0005, 0.0005), OpenTypeFont.Parse(file).FontMatrix);
+        Assert.Equal(Matrix.Scale(0.0005, 0.0005), OpenTypeFont.Parse(TrueTypeSubsetter.Scrub(file, [1])).FontMatrix);
     }
 
     /// <summary>
-    /// OT 8.12.3 sentences 7–10 (reader, today): indexToLocFormat 1 in a CFF2 font without loca — the glyph count comes from maxp, the outlines are
-    /// empty, no loca is read.
+    /// OT 8.12.3 sentences 7–10 (reader): indexToLocFormat 1 in a CFF2 font without loca — the glyph count comes from maxp, both glyphs draw the
+    /// example rectangle from the CFF2 table, no loca is read.
     /// </summary>
     [Fact]
     public void Cff2Font_LongLocaFlagWithoutLoca_IsHarmless()
@@ -508,7 +541,8 @@ public sealed partial class M7NormTests
         Assert.True(font.LongLoca);
         Assert.False(font.HasTable("loca"));
         Assert.Equal(2, font.GlyphCount);
-        Assert.True(font.Outline(0).IsEmpty && font.Outline(1).IsEmpty);
+        SameOutlineOt08(ReferenceOt08(ExampleRectOt11), font.Outline(0), "Glyphe 0");
+        SameOutlineOt08(ReferenceOt08(ExampleRectOt11), font.Outline(1), "Glyphe 1");
     }
 
     /// <summary>vhea (all glyphs with a full record) and vmtx (advance 1000, top side bearing 100 each) for <paramref name="glyphs"/> glyphs.</summary>
@@ -562,11 +596,11 @@ public sealed partial class M7NormTests
     // ------------------------------------------------------------ cmap 9.1
 
     /// <summary>
-    /// OT cmap 9.1 sentences 7–8 (reader): formats 0 and 6 are read — (1,0) format 0 maps „A“ to glyph 3, (0,3) format 6 from 0x20 maps 0x21 to
-    /// glyph 5; format 2 (high-byte mapping) is not read today — under (3,2) the code 0x8140 gives 0 (question 5).
+    /// OT cmap 9.1 sentences 7–8 (reader): formats 0, 2 and 6 are read — (1,0) format 0 maps „A“ to glyph 3, (0,3) format 6 from 0x20 maps 0x21
+    /// to glyph 5; format 2 (high-byte mapping) under (3,2) maps the two-byte code 0x8140 to glyph 9 (FG 1160; before 0).
     /// </summary>
     [Fact]
-    public void Cmap_Formats0And6AreRead_Format2IsNot()
+    public void Cmap_Formats0And2And6AreRead()
     {
         var format0 = new byte[262];
         BeOt11((0, 2), (262, 2), (0, 2)).CopyTo(format0, 0);                // format 0, length, language
@@ -578,22 +612,32 @@ public sealed partial class M7NormTests
         Assert.Equal(3, font.Lookup(1, 0, 'A'));
         Assert.Equal(5, font.Lookup(0, 3, 0x21));
         Assert.Equal(6, font.Lookup(0, 3, 0x22));
-        Assert.Equal(0, font.Lookup(3, 2, 0x8140));
+        Assert.Equal(9, font.Lookup(3, 2, 0x8140));
+        Assert.Equal(0, font.Lookup(3, 2, 0x8141));
+        Assert.Equal(0, font.Lookup(3, 2, 0x81));
     }
 
     /// <summary>
-    /// OT cmap 9.1 sentences 9–10 (reader): format 12 is read — (3,10) with the group U+1F600 … U+1F602 from glyph 5 gives glyph 6 for U+1F601;
-    /// the same mapping in format 10 is not read today (0; question 5).
+    /// OT cmap 9.1 sentences 9–10 (reader): the 32-bit formats 8, 10 and 12 are read — (3,10) with the group U+1F600 … U+1F602 from glyph 5 gives
+    /// glyph 6 for U+1F601 in format 12, in format 10 (trimmed array) and in format 8 (the code as the two halves of its surrogate pair) (FG 1160;
+    /// before 8 and 10 gave 0).
     /// </summary>
     [Fact]
-    public void Cmap_Format12IsRead_Format10IsNot()
+    public void Cmap_Formats8And10And12AreRead()
     {
         OpenTypeFont With(byte[] subtable) =>
             OpenTypeFont.Parse(ColorFontBuilder.WithTables(LiberationOt11, new Dictionary<string, byte[]?> { ["cmap"] = CmapOt11((3, 10, subtable)) }));
         Assert.Equal(6, With(GroupCmapOt11(12, 0x1F600, 0x1F602, 5)).GlyphForUnicode(0x1F601));
         var format10 = With(Format10Ot11(0x1F600, 3, 5));
-        Assert.Equal(0, format10.GlyphForUnicode(0x1F601));
-        Assert.Equal(0, format10.Lookup(3, 10, 0x1F601));
+        Assert.Equal(6, format10.GlyphForUnicode(0x1F601));
+        Assert.Equal(6, format10.Lookup(3, 10, 0x1F601));
+        Assert.Equal(0, format10.Lookup(3, 10, 0x1F603));
+        var pair = (0xD83D << 16) | 0xDE00;
+        var is32 = new byte[8192];
+        is32[0xD83D / 8] |= (byte)(0x80 >> (0xD83D % 8));
+        var format8 = With([.. BeOt11((8, 2), (0, 2), (12 + 8192 + 4 + 12, 4), (0, 4)), .. is32, .. BeOt11((1, 4), (pair, 4), (pair + 2, 4), (5, 4))]);
+        Assert.Equal(6, format8.GlyphForUnicode(0x1F601));
+        Assert.Equal(0, format8.GlyphForUnicode(0x1F603));
     }
 
     /// <summary>OT cmap 9.1 sentences 11–12 (reader): format 13 maps a whole group to one glyph — U+0400 … U+04FF all to glyph 7.</summary>
@@ -610,8 +654,8 @@ public sealed partial class M7NormTests
 
     /// <summary>
     /// OT cmap 9.1 sentences 14–18 (writer): scrubbing writes only formats 4 and 12 — every subtable of Liberation Sans ((0,3), (1,0) format 6,
-    /// (3,1)) comes out in format 4; the (3,10) and (0,4) subtables of the Noto CJK font in format 12 (its (0,5) format 14 is left out); the PDF/A
-    /// rebuild with a code map writes one (3,0) subtable in format 4.
+    /// (3,1)) comes out in format 4; the (3,10) and (0,4) subtables of the Noto CJK font in format 12 (its (0,5) stays format 14, filtered on
+    /// the glyphs kept, FG 1160); the PDF/A rebuild with a code map writes one (3,0) subtable in format 4.
     /// </summary>
     [Fact]
     public void WrittenCmaps_UseFormats4And12()
@@ -637,7 +681,7 @@ public sealed partial class M7NormTests
         Assert.Equal(12, FormatOf(cjk, 3, 10));
         Assert.Equal(12, FormatOf(cjk, 0, 4));
         Assert.Equal(4, FormatOf(cjk, 3, 1));
-        Assert.False(cjk.HasCmap(0, 5));
+        Assert.Equal(14, FormatOf(cjk, 0, 5));                              // the variation sequences of 漢 kept (FG 1160)
 
         var rebuilt = OpenTypeFont.Parse(TrueTypeSubsetter.Rebuild(LiberationOt11, new Dictionary<int, int> { [0] = 0, [a] = 600 }, [], [('A', a)]));
         Assert.Equal(new (int, int)[] { (3, 0) }, rebuilt.CmapSubtables);
@@ -645,22 +689,26 @@ public sealed partial class M7NormTests
     }
 
     /// <summary>
-    /// OT cmap 9.1 sentence 19 (reader, today): subtables in the formats 2, 8, 10 and 14 are not read but do no harm — every code gives glyph 0,
-    /// without an error (question 5).
+    /// OT cmap 9.1 sentence 19 (reader): every format the specification defines is read — 2, 8, 10 and 14 beside the others: (3,2) format 2 gives
+    /// glyph 9 for 0x8140, (3,7) format 8 and (3,10) format 10 glyph 6 for U+1F601, (0,5) format 14 the glyph 5 for the sequence U+2764 U+FE0F
+    /// (a single code in it gives 0); an unknown format 99 gives 0 without an error (FG 1160).
     /// </summary>
     [Fact]
-    public void Cmap_UnreadFormats_GiveGlyphZeroWithoutError()
+    public void Cmap_EveryDefinedFormatIsRead_UnknownGivesGlyphZero()
     {
         var font = OpenTypeFont.Parse(ColorFontBuilder.WithTables(LiberationOt11, new Dictionary<string, byte[]?>
         {
-            ["cmap"] = CmapOt11((0, 5, Format14Ot11(5)), (3, 2, Format2Ot11(9)), (3, 7, Format8Ot11(0x1F600, 5)), (3, 10, Format10Ot11(0x1F600, 3, 5))),
+            ["cmap"] = CmapOt11((0, 5, Format14Ot11(5)), (3, 2, Format2Ot11(9)), (3, 7, Format8Ot11(0x1F600, 5)), (3, 10, Format10Ot11(0x1F600, 3, 5)),
+                (3, 11, BeOt11((99, 2), (6, 2), (0, 2)))),
         }));
-        Assert.Equal(new (int, int)[] { (0, 5), (3, 2), (3, 7), (3, 10) }, font.CmapSubtables);
+        Assert.Equal(new (int, int)[] { (0, 5), (3, 2), (3, 7), (3, 10), (3, 11) }, font.CmapSubtables);
         Assert.Equal(0, font.Lookup(0, 5, 0x2764));
-        Assert.Equal(0, font.Lookup(3, 2, 0x8140));
-        Assert.Equal(0, font.Lookup(3, 7, 0x1F601));
-        Assert.Equal(0, font.Lookup(3, 10, 0x1F601));
-        Assert.Equal(0, font.GlyphForUnicode(0x1F601));
+        Assert.Equal(5, PdfKnead.Core.Fonts.Layout.TextShaper.For(font).Shape("❤️").Single().Glyph);
+        Assert.Equal(9, font.Lookup(3, 2, 0x8140));
+        Assert.Equal(6, font.Lookup(3, 7, 0x1F601));
+        Assert.Equal(6, font.Lookup(3, 10, 0x1F601));
+        Assert.Equal(6, font.GlyphForUnicode(0x1F601));
+        Assert.Equal(0, font.Lookup(3, 11, 0x41));
     }
 
     /// <summary>

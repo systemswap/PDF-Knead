@@ -433,25 +433,48 @@ public sealed partial class M7NormTests
     }
 
     /// <summary>
-    /// OT 20.1 sentence 51 and OT 20.4.6 sentences 5–7, 16 (open question 12: tracking the component of a mark through GSUB): the anchor depends
-    /// on the component the mark belongs to, which the shaper is to track through the substitutions. Today PDF-Knead takes the last component:
-    /// a mark after the first of three characters (f, mark, f, i → ligature with the mark passed over) and a mark between the two of „fi“ take
-    /// the anchor of the last component (after the norm: of the first). Test of the present behaviour until the question is decided.
+    /// OT 20.1 sentence 51 and OT 20.4.6 sentences 5–7, 16: the anchor depends on the component the mark belongs to, which the shaper tracks
+    /// through the substitutions (docs/FEHLERGEDAECHTNIS.md, No. 1161; before every mark took the last component). A mark after the first of
+    /// three characters (f, mark, f, i → ligature with the mark passed over) takes the anchor of the first component, one after the second f that
+    /// of the second; a mark between the two of „fi“ that of the first.
     /// </summary>
     [Fact]
-    public void Ot21_MarkInsideALigature_TodayTheLastComponent()
+    public void Ot21_MarkInsideALigature_TakesItsComponent()
     {
         var ffi = Ot20G('Q');
         var three = Ot21LigatureShaper(Ot20MarkLigature([(Ot21Acute, 0, Ot20Anchor(0, 0))],
             [(ffi, [[Ot20Anchor(100, 700)], [Ot20Anchor(400, 710)], [Ot20Anchor(700, 720)]])], 1), ([Ot20G('f'), Ot20G('f'), Ot20G('i')], ffi));
         var shaped = three.Shape("f́fi");
         Assert.Equal([ffi, Ot21Acute], shaped.Select(g => g.Glyph));
-        Assert.Equal(720, shaped[1].YOffset);                                    // after the norm: 700 (first component)
+        Assert.Equal((100 - shaped[0].XAdvance, 700.0, 1), (shaped[1].XOffset, shaped[1].YOffset, shaped[1].AttachBack));
+        shaped = three.Shape("ff́i");
+        Assert.Equal((400 - shaped[0].XAdvance, 710.0), (shaped[1].XOffset, shaped[1].YOffset));
         var two = Ot21LigatureShaper(Ot20MarkLigature([(Ot21Acute, 0, Ot20Anchor(0, 0))], [(Ot21Fi, [[Ot20Anchor(200, 700)], [Ot20Anchor(800, 750)]])], 1),
             Ot21FiLigature);
         shaped = two.Shape("f́i");
         Assert.Equal([Ot21Fi, Ot21Acute], shaped.Select(g => g.Glyph));
-        Assert.Equal(750, shaped[1].YOffset);                                    // after the norm: 700
+        Assert.Equal((200 - shaped[0].XAdvance, 700.0), (shaped[1].XOffset, shaped[1].YOffset));
+    }
+
+    /// <summary>
+    /// OT 20.4.6 sentences 5–7, 16 through two substitutions: a component that is itself a ligature brings its components along. „liga“ joins f f
+    /// into one glyph (W), then that glyph and i into the ligature of three components: a mark after the first f takes the first anchor, after the
+    /// second f the second, after i the third.
+    /// </summary>
+    [Fact]
+    public void Ot21_MarkInsideALigatureOfALigature_ComponentsCarriedOver()
+    {
+        int ff = Ot20G('W'), ffi = Ot20G('Q'), f = Ot20G('f'), i = Ot20G('i');
+        var gsub = Ot20Layout([("liga", [0, 1])], [Ot20Lookup(4, 8, Ot21Ligature(([f, f], ff))), Ot20Lookup(4, 8, Ot21Ligature(([ff, i], ffi)))]);
+        var gpos = Ot20Layout([("mark", [0])], [Ot20Lookup(5, Ot20MarkLigature([(Ot21Acute, 0, Ot20Anchor(0, 0))],
+            [(ffi, [[Ot20Anchor(100, 700)], [Ot20Anchor(400, 710)], [Ot20Anchor(700, 720)]])], 1))]);
+        var shaper = Ot20Shaper(gpos, Ot21Gdef(ff, ffi), gsub);
+        foreach (var (text, y) in new[] { ("f́fi", 700.0), ("ff́i", 710.0), ("ffí", 720.0) })
+        {
+            var shaped = shaper.Shape(text);
+            Assert.Equal([ffi, Ot21Acute], shaped.Select(g => g.Glyph));
+            Assert.Equal(y, shaped[1].YOffset);
+        }
     }
 
     /// <summary>
@@ -492,17 +515,37 @@ public sealed partial class M7NormTests
     }
 
     /// <summary>
-    /// OT 20.4.7 sentence 9 (open question 12: mark-to-mark with the lookup's flags): mark2 is the glyph before mark1, passing over what the lookup
-    /// flags skip. With MarkAttachmentType 1 and a mark of class 2 between mark2 (class 1) and mark1 (class 1), PDF-Knead today takes the glyph
-    /// right before mark1 and attaches nothing (after the norm: mark1 at mark2). Test of the present behaviour until the question is decided.
+    /// OT 20.4.7 sentence 9: mark2 is the glyph before mark1, passing over what the lookup flags skip (docs/FEHLERGEDAECHTNIS.md, No. 1161; before
+    /// always the glyph right before it). With MarkAttachmentType 1 and a mark of class 2 between mark2 (class 1) and mark1 (class 1), mark1 is
+    /// attached to mark2 two glyphs back, at its anchor.
     /// </summary>
     [Fact]
-    public void Ot21_MarkToMark_SkippedMarkBetween_TodayNotAttached()
+    public void Ot21_MarkToMark_PassesOverWhatTheFlagsSkip()
     {
         var shaper = Ot21MarkMarkShaper(Ot20MarkAttach([(Ot21Acute, 0, Ot20Anchor(10, 0))], [(Ot21Circumflex, [Ot20Anchor(60, 500)])], 1), 0x0100,
             new Dictionary<int, int> { [Ot21Acute] = 1, [Ot21Circumflex] = 1, [Ot21Tilde] = 2 });
         var shaped = shaper.Shape("ẫ́");
-        Assert.Equal((0, 0.0), (shaped[3].AttachBack, shaped[3].YOffset));      // after the norm: AttachBack 2, YOffset 500
+        Assert.Equal([Ot20G('a'), Ot21Circumflex, Ot21Tilde, Ot21Acute], shaped.Select(g => g.Glyph));
+        Assert.Equal((2, 500.0), (shaped[3].AttachBack, shaped[3].YOffset));
+        Assert.Equal(shaped[1].XOffset + 60 - 10 - shaped[1].XAdvance - shaped[2].XAdvance, shaped[3].XOffset);
+    }
+
+    /// <summary>
+    /// OT 20.4.7 sentence 9 with OT 20.4.6: marks of different components of a ligature do not stack. „fi“ formed over an acute after f (the acute
+    /// belongs to the first component) with a grave after the ligature (the last component): the mark-to-mark lookup (mark1 grave, mark2 acute)
+    /// leaves the grave; after „fi“ with both marks behind it, the grave is attached to the acute.
+    /// </summary>
+    [Fact]
+    public void Ot21_MarkToMark_MarksOfDifferentComponentsDoNotStack()
+    {
+        var gpos = Ot20Layout([("mkmk", [0])], [Ot20Lookup(6, Ot20MarkAttach([(Ot21Grave, 0, Ot20Anchor(10, 0))], [(Ot21Acute, [Ot20Anchor(60, 500)])], 1))]);
+        var shaper = Ot20Shaper(gpos, Ot21Gdef(Ot21Fi), Ot21Liga(Ot21FiLigature));
+        var apart = shaper.Shape("f́ì");
+        Assert.Equal([Ot21Fi, Ot21Acute, Ot21Grave], apart.Select(g => g.Glyph));
+        Assert.Equal((0, 0.0), (apart[2].AttachBack, apart[2].YOffset));
+        var together = shaper.Shape("fí̀");
+        Assert.Equal([Ot21Fi, Ot21Acute, Ot21Grave], together.Select(g => g.Glyph));
+        Assert.Equal((1, 500.0), (together[2].AttachBack, together[2].YOffset));
     }
 
     /// <summary>

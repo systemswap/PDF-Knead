@@ -659,19 +659,57 @@ public sealed partial class M7NormTests
     }
 
     /// <summary>
-    /// 9.7.5.4 sentence 5 (reader): a notdef mapping also applies when the normal mapping gives a CID without a glyph — code 05h maps to CID 7,
-    /// which the embedded CID-keyed CFF lacks; its notdef range gives CID 100, which it has: the glyph of CID 100 is drawn.
+    /// 9.7.5.4 sentence 5 (reader, special rule A198): the norm has a code whose CID has no glyph take the notdef CID of its code — code 05h
+    /// maps to CID 7, which the embedded CID-keyed CFF lacks, its notdef range gives CID 100. Two of three reference readers draw nothing for
+    /// a CID without a glyph (probes K7/K8, 25.11.2026), and so does PDF-Knead: otherwise subsets without a space glyph showed boxes where
+    /// those readers show nothing.
     /// </summary>
-    [Fact(Skip = "M7-Befund: CID ohne Glyphe fällt nicht auf die notdef-CID ihres Codes zurück (CompositeFont.Select)")]
-    public void CidWithoutGlyph_TakesTheNotdefCidOfItsCode()
+    [Fact]
+    public void CidWithoutGlyph_DrawsNothing_AsTwoOfThreeReaders()
     {
         var (doc, _, font) = Iso03NotoSubsetFont("1 beginnotdefrange\n<00> <1F> 100\nendnotdefrange\n1 begincidchar\n<05> 7\nendcidchar\n");
         using (doc)
         {
-            var cff = Iso03NotoJp.Value.Cff!;
-            var expected = cff.Outline(cff.GlyphByCid(100));
-            Assert.False(expected.IsEmpty);
-            Assert.True(Iso03SameOutline(expected, font.Glyph(0x05, 1).Outline));
+            Assert.False(Iso03NotoJp.Value.Cff!.Outline(Iso03NotoJp.Value.Cff!.GlyphByCid(100)).IsEmpty);
+            Assert.True(font.Glyph(0x05, 1).Outline.IsEmpty);
+        }
+    }
+
+    /// <summary>
+    /// 9.7.4.2 sentences 16–17 with ISO 32000-1 9.7.4.1 sentence 50 and 9.7.4.2 sentence 16 (writer, FG 1167): a CIDFontType2 without an embedded
+    /// program has no /CIDToGIDMap (1.x: not allowed; 2.0: ignored) — saved as 1.7 and as 2.0 the map is gone; an embedded CIDFontType2 keeps
+    /// its map.
+    /// </summary>
+    [Fact]
+    public void NonEmbeddedCidTrueType_SavedWithoutCidToGidMap_EmbeddedKeepsIt()
+    {
+        PdfDictionary Descendant(PdfDocument doc) =>
+            (PdfDictionary)doc.Pages[0].Resources!.GetDictionary(PdfName.Get("Font"))!.GetDictionary(PdfName.Get("F"))!
+                .GetArray(PdfName.Get("DescendantFonts"))!.Get(0)!;
+        byte[] File(bool embedded)
+        {
+            var pdf = TestPdf.Simple(1);
+            PdfDictionary font;
+            if (embedded) font = Iso03CidTrueType(pdf, TestPdf.N("Identity-H"));
+            else
+            {
+                var cid = TestPdf.Dict(("Type", TestPdf.N("Font")), ("Subtype", TestPdf.N("CIDFontType2")), ("BaseFont", TestPdf.N("Arial")),
+                    ("CIDSystemInfo", Iso03Collection("Adobe", "Identity", 0)),
+                    ("FontDescriptor", TestPdf.Dict(("Type", TestPdf.N("FontDescriptor")), ("FontName", TestPdf.N("Arial")), ("Flags", PdfInteger.Of(32)))),
+                    ("CIDToGIDMap", TestPdf.Ref(pdf.Add(TestPdf.FlateStream(new byte[80])))));
+                font = TestPdf.Dict(("Type", TestPdf.N("Font")), ("Subtype", TestPdf.N("Type0")), ("BaseFont", TestPdf.N("Arial")),
+                    ("Encoding", TestPdf.N("Identity-H")), ("DescendantFonts", new PdfArray([cid])));
+            }
+            pdf.Replace(4, TestPdf.FlateStream("BT /F 20 Tf 72 700 Td <00240025> Tj ET"u8.ToArray()));
+            ((PdfDictionary)pdf.Get(5)).Set(PdfName.Resources, TestPdf.Dict(("Font", TestPdf.Dict(("F", font)))));
+            return pdf.Build();
+        }
+        foreach (var version in (ReadOnlySpan<string>)["1.7", "2.0"])
+        {
+            using (var saved = DocumentStructureNormTests.Saved(File(false), new PdfSaveOptions { Version = version }))
+                Assert.False(Descendant(saved).ContainsKey(PdfName.Get("CIDToGIDMap")), version);
+            using (var saved = DocumentStructureNormTests.Saved(File(true), new PdfSaveOptions { Version = version }))
+                Assert.True(Descendant(saved).ContainsKey(PdfName.Get("CIDToGIDMap")), version);
         }
     }
 

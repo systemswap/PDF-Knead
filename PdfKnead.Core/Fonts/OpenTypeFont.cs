@@ -135,6 +135,19 @@ public sealed class OpenTypeFont
             {
             }
         }
+        // CFF2 (OpenType 8), the outlines of variable CFF fonts: drawn in the default instance — before not read, and the text of such a font
+        // stayed invisible (docs/FEHLERGEDAECHTNIS.md, No. 1158). Only without 'CFF ' and glyf, which common font engines take first
+        else if (Table("CFF2") is { } cff2 && !(HasTable("glyf") && HasTable("loca")))
+        {
+            try
+            {
+                Cff2 = CffFont.ParseCff2(new ArraySegment<byte>(data, cff2.Offset, cff2.Length), UnitsPerEm);
+                if (GlyphCount == 0) GlyphCount = Cff2.GlyphCount;
+            }
+            catch (FontFormatException)
+            {
+            }
+        }
 
         if (Table("OS/2") is { } os2)
         {
@@ -246,8 +259,19 @@ public sealed class OpenTypeFont
     /// <summary>CFF outlines (OpenType "OTTO"), otherwise null (TrueType outlines in glyf).</summary>
     public CffFont? Cff { get; }
 
+    /// <summary>
+    /// CFF2 outlines (the table "CFF2" of a font without 'CFF ' and glyf, OpenType 8), drawn in the default instance; otherwise null. Unlike
+    /// <see cref="Cff"/> CFF2 has no glyph names, charset or encoding of its own: the font finds its glyphs through cmap and post like a TrueType
+    /// font and takes its advances from hmtx.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="Intact"/> stays false for such a font: a strict reader of PDF (ISO 32000-2, 9.9, Table 124 names "glyf" and "CFF " only) does not
+    /// read CFF2, so PDF/A takes it as not embedded and rebuilds it from what the display draws.
+    /// </remarks>
+    public CffFont? Cff2 { get; }
+
     /// <summary>Maps font units to text space (1 = one em).</summary>
-    public Matrix FontMatrix => Cff is { } cff ? cff.FontMatrix : Matrix.Scale(1.0 / UnitsPerEm, 1.0 / UnitsPerEm);
+    public Matrix FontMatrix => Cff is { } cff ? cff.FontMatrix : Cff2 is { } cff2 ? cff2.FontMatrix : Matrix.Scale(1.0 / UnitsPerEm, 1.0 / UnitsPerEm);
 
     /// <summary>Whether the font has a table.</summary>
     /// <param name="tag">Four-character table tag, e.g. "glyf".</param>
@@ -339,6 +363,63 @@ public sealed class OpenTypeFont
     }
 
     /// <summary>
+    /// Whether a character is a variation selector (U+FE00–U+FE0F, U+E0100–U+E01EF, the Mongolian free variation selectors U+180B–U+180D and
+    /// U+180F): it chooses a variant of the character before it (cmap format 14, OpenType 9.4.10) and has no glyph of its own.
+    /// </summary>
+    /// <param name="codePoint">Unicode code point.</param>
+    internal static bool IsVariationSelector(int codePoint) =>
+        codePoint is >= 0xFE00 and <= 0xFE0F or >= 0xE0100 and <= 0xE01EF or >= 0x180B and <= 0x180D or 0x180F;
+
+    /// <summary>
+    /// The glyph of a Unicode variation sequence (base character and variation selector) from the format 14 subtable under (0,5) (OpenType
+    /// 9.4.10): for a default sequence the glyph of the base character from the Unicode subtables, for a non-default one the glyph the table
+    /// names (docs/FEHLERGEDAECHTNIS.md, No. 1160).
+    /// </summary>
+    /// <param name="baseChar">The base character.</param>
+    /// <param name="selector">The variation selector.</param>
+    /// <returns>The glyph index; -1 if the font has no format 14 subtable or it does not list the sequence.</returns>
+    internal int GlyphForVariation(int baseChar, int selector)
+    {
+        var index = CmapIndex(0, 5);
+        if (index < 0) return -1;
+        if (!_cmaps.TryGetValue(index, out var map)) map = _cmaps.GetOrAdd(index, i => CmapTable.Read(_data, _cmapRecords[i].Offset));
+        if (map is not Format14 variations) return -1;
+        var glyph = variations.Variation(baseChar, selector);
+        return glyph == 0 ? GlyphForUnicode(baseChar) : glyph;
+    }
+
+    /// <summary>
+    /// The glyph of the first character of a text (the text of a code from /ToUnicode, when a substitute font draws it); if a variation selector
+    /// follows it and the font lists the sequence (<see cref="GlyphForVariation"/>), the glyph of the sequence.
+    /// </summary>
+    /// <param name="text">The text; its first character counts, a variation selector after it chooses the variant.</param>
+    /// <returns>The glyph index; 0 if the font lacks the character.</returns>
+    internal int GlyphForText(string text)
+    {
+        if (System.Text.Rune.DecodeFromUtf16(text, out var first, out var used) != System.Buffers.OperationStatus.Done) return 0;
+        if (used < text.Length && System.Text.Rune.DecodeFromUtf16(text.AsSpan(used), out var next, out _) == System.Buffers.OperationStatus.Done
+            && IsVariationSelector(next.Value) && GlyphForVariation(first.Value, next.Value) is > 0 and var variant)
+            return variant;
+        return GlyphForUnicode(first.Value);
+    }
+
+    /// <summary>
+    /// The variation sequences of the format 14 subtable under (0,5), for writing them again: per selector the base characters of the default
+    /// sequences and the non-default ones with their glyphs, ascending; together at most <paramref name="budget"/> characters.
+    /// </summary>
+    /// <param name="budget">Characters left to read; decreased by those read.</param>
+    /// <returns>Nothing if the font has no such subtable.</returns>
+    internal List<(int Selector, List<int> Defaults, List<(int Code, int Glyph)> NonDefaults)> VariationSequences(ref int budget)
+    {
+        var result = new List<(int, List<int>, List<(int, int)>)>();
+        var index = CmapIndex(0, 5);
+        if (index < 0) return result;
+        if (!_cmaps.TryGetValue(index, out var map)) map = _cmaps.GetOrAdd(index, i => CmapTable.Read(_data, _cmapRecords[i].Offset));
+        if (map is Format14 variations) variations.All(result, ref budget);
+        return result;
+    }
+
+    /// <summary>
     /// One cmap subtable. Formats 4 and 12 are not expanded but searched by binary search in their
     /// segments, because CJK fonts have tens of thousands of characters.
     /// </summary>
@@ -373,10 +454,31 @@ public sealed class OpenTypeFont
                         for (var i = 0; i < count; i++) glyphs[i] = r.U16();
                         return new ArrayTable(first, glyphs);
                     }
+                    case 2:
+                        return new Format2(data, offset);
                     case 4:
                         return new Format4(data, offset);
+                    case 8:
+                        // the groups of format 8 are those of format 12, after the bit array of 8 KB (OpenType 9.4.6)
+                        return new Format12(data, offset, false, 12 + 8192, mixed: true);
+                    case 10:
+                    {
+                        // a trimmed array of 32-bit codes (9.4.7): first code, count, one glyph each — the count is limited by the table and the data
+                        r.Skip(10);
+                        var first = r.U32();
+                        var count = r.U32();
+                        var end = Math.Min(data.Length, offset + Math.Max(20L, LengthField32(data, offset)));
+                        count = (uint)Math.Min(count, Math.Min(MaxArrayCodes, Math.Max(0, (end - offset - 20) / 2)));
+                        if (first > 0x10FFFF) return new ArrayTable(0, []);
+                        count = Math.Min(count, 0x110000 - first);
+                        var glyphs = new int[count];
+                        for (var i = 0; i < count; i++) glyphs[i] = r.U16();
+                        return new ArrayTable((int)first, glyphs);
+                    }
                     case 12 or 13:
                         return new Format12(data, offset, format == 13);
+                    case 14:
+                        return new Format14(data, offset);
                 }
             }
             catch (FontFormatException)
@@ -384,6 +486,187 @@ public sealed class OpenTypeFont
             }
             return new ArrayTable(0, []);
         }
+
+        /// <summary>The 32-bit length field of formats 8, 10, 12 and 13 (after format and reserved); 0 if it lies outside the data.</summary>
+        protected static long LengthField32(byte[] data, int offset) =>
+            offset >= 0 && offset + 8 <= data.Length ? (uint)(data[offset + 4] << 24 | data[offset + 5] << 16 | data[offset + 6] << 8 | data[offset + 7]) : 0;
+
+        /// <summary>Codes a format 10 subtable holds at most (as many as a rewritten cmap reads, a million).</summary>
+        private const int MaxArrayCodes = 1_000_000;
+    }
+
+    /// <summary>
+    /// Format 2 (OpenType 9.4.3): mixed one- and two-byte codes of the old CJK encodings. The high byte chooses a subheader through
+    /// subHeaderKeys; subheader 0 maps the one-byte codes, the others the second byte of two-byte codes — firstCode and entryCount give the
+    /// range of second bytes, idRangeOffset the glyph array (counted from the field itself), idDelta is added modulo 65 536 to a glyph other
+    /// than 0. Every subheader and array entry is checked against the table and the data (docs/FEHLERGEDAECHTNIS.md, No. 1160).
+    /// </summary>
+    private sealed class Format2 : CmapTable
+    {
+        private readonly byte[] _data;
+        private readonly int _offset, _end;
+        private readonly ushort[] _keys = new ushort[256];
+
+        public Format2(byte[] data, int offset)
+        {
+            _data = data;
+            _offset = offset;
+            var r = new FontReader(data, offset + 2);
+            int length = r.U16();
+            r.Skip(2);
+            // the length field may be short or wrong in damaged fonts: the table reaches at least over the keys, at most to the end of the data
+            _end = (int)Math.Min(data.Length, Math.Max(offset + 6L + 512, offset + (long)length));
+            for (var i = 0; i < 256; i++) _keys[i] = r.U16();
+        }
+
+        public override IEnumerable<(int First, int Last)> Ranges()
+        {
+            for (var high = 0; high < 256; high++)
+            {
+                if (_keys[high] == 0)
+                {
+                    // one-byte code: subheader 0, the byte as the second byte
+                    if (Subheader(0) is { } s0 && high >= s0.First && high < s0.First + s0.Count) yield return (high, high);
+                }
+                else if (Subheader(_keys[high] / 8) is { } s && s.Count > 0)
+                    yield return ((high << 8) + Math.Min(255, s.First), (high << 8) + Math.Min(255, s.First + s.Count - 1));
+            }
+        }
+
+        public override int Map(int code)
+        {
+            if (code is < 0 or > 0xFFFF) return 0;
+            int high = code >> 8, low = code & 0xFF;
+            int subheader;
+            if (high == 0 && _keys[low] == 0) subheader = 0;           // one-byte code
+            else if (high != 0 && _keys[high] != 0) subheader = _keys[high] / 8;
+            else return 0;                                             // a lead byte alone, or a second byte after a one-byte code
+            if (Subheader(subheader) is not { } s || low < s.First || low >= s.First + s.Count) return 0;
+            var at = s.RangeOffsetAt + (long)s.RangeOffset + 2L * (low - s.First);
+            if (at < _offset || at + 2 > _end) return 0;
+            var g = _data[at] << 8 | _data[at + 1];
+            return g == 0 ? 0 : (g + s.Delta) & 0xFFFF;
+        }
+
+        /// <summary>Subheader <paramref name="index"/> (8 bytes after the keys); null if it lies outside the table.</summary>
+        private (int First, int Count, short Delta, int RangeOffset, int RangeOffsetAt)? Subheader(int index)
+        {
+            var at = _offset + 6 + 512 + 8L * index;
+            if (at + 8 > _end) return null;
+            var p = (int)at;
+            return (_data[p] << 8 | _data[p + 1], _data[p + 2] << 8 | _data[p + 3], (short)(_data[p + 4] << 8 | _data[p + 5]),
+                _data[p + 6] << 8 | _data[p + 7], p + 6);
+        }
+    }
+
+    /// <summary>
+    /// Format 14 (OpenType 9.4.10): Unicode variation sequences. Records sorted by selector; behind each a default table (ranges of base
+    /// characters whose sequence takes the glyph of the Unicode subtables) and a non-default one (base character and glyph). Searched in the
+    /// data by binary search; every count is limited by the table and every offset checked against it (docs/FEHLERGEDAECHTNIS.md, No. 1160).
+    /// </summary>
+    private sealed class Format14 : CmapTable
+    {
+        private readonly byte[] _data;
+        private readonly int _offset, _end, _records;
+
+        public Format14(byte[] data, int offset)
+        {
+            _data = data;
+            _offset = offset;
+            var r = new FontReader(data, offset + 2);
+            var length = r.U32();
+            var count = r.U32();
+            _end = (int)Math.Min(data.Length, offset + Math.Max(10L, length));
+            _records = (int)Math.Min(count, (uint)Math.Max(0, (_end - offset - 10) / 11));
+        }
+
+        // a single code means nothing in this format: the sequences are asked through Variation
+        public override int Map(int code) => 0;
+
+        public override IEnumerable<(int First, int Last)> Ranges() => [];
+
+        /// <summary>The glyph of a sequence: 0 for a default sequence, the glyph for a non-default one, -1 if the table does not list it.</summary>
+        public int Variation(int baseChar, int selector)
+        {
+            if (Record(selector) is not { } record) return -1;
+            var (defaults, nonDefaults) = record;
+            if (Table(defaults, 4) is { } d)
+            {
+                // the last range starting at or before the base character
+                int lo = 0, hi = d.Count - 1, found = -1;
+                while (lo <= hi)
+                {
+                    var mid = (lo + hi) >> 1;
+                    if (U24(d.At + 4 * mid) <= baseChar) { found = mid; lo = mid + 1; }
+                    else hi = mid - 1;
+                }
+                if (found >= 0 && baseChar <= U24(d.At + 4 * found) + _data[d.At + 4 * found + 3]) return 0;
+            }
+            if (Table(nonDefaults, 5) is { } n)
+            {
+                int lo = 0, hi = n.Count - 1;
+                while (lo <= hi)
+                {
+                    var mid = (lo + hi) >> 1;
+                    var code = U24(n.At + 5 * mid);
+                    if (code == baseChar) return _data[n.At + 5 * mid + 3] << 8 | _data[n.At + 5 * mid + 4];
+                    if (code < baseChar) lo = mid + 1;
+                    else hi = mid - 1;
+                }
+            }
+            return -1;
+        }
+
+        /// <summary>Every sequence, ascending, at most <paramref name="budget"/> base characters (for writing the subtable again).</summary>
+        public void All(List<(int Selector, List<int> Defaults, List<(int Code, int Glyph)> NonDefaults)> result, ref int budget)
+        {
+            for (var i = 0; i < _records && budget > 0; i++)
+            {
+                var at = _offset + 10 + 11 * i;
+                var selector = U24(at);
+                var defaults = new List<int>();
+                var nonDefaults = new List<(int, int)>();
+                if (Table(U32(at + 3), 4) is { } d)
+                    for (var k = 0; k < d.Count && budget > 0; k++)
+                    {
+                        var start = U24(d.At + 4 * k);
+                        for (var c = start; c <= Math.Min(0xFFFFFF, start + _data[d.At + 4 * k + 3]) && budget > 0; c++, budget--) defaults.Add(c);
+                    }
+                if (Table(U32(at + 7), 5) is { } n)
+                    for (var k = 0; k < n.Count && budget > 0; k++, budget--)
+                        nonDefaults.Add((U24(n.At + 5 * k), _data[n.At + 5 * k + 3] << 8 | _data[n.At + 5 * k + 4]));
+                result.Add((selector, defaults, nonDefaults));
+            }
+        }
+
+        /// <summary>The offsets of the default and non-default tables of a selector (binary search over the sorted records).</summary>
+        private (long Defaults, long NonDefaults)? Record(int selector)
+        {
+            int lo = 0, hi = _records - 1;
+            while (lo <= hi)
+            {
+                var mid = (lo + hi) >> 1;
+                var at = _offset + 10 + 11 * mid;
+                var s = U24(at);
+                if (s == selector) return (U32(at + 3), U32(at + 7));
+                if (s < selector) lo = mid + 1;
+                else hi = mid - 1;
+            }
+            return null;
+        }
+
+        /// <summary>A table behind an offset (0: none): where its entries start and how many lie inside the subtable.</summary>
+        private (int At, int Count)? Table(long offset, int entry)
+        {
+            if (offset == 0 || offset < 10 || _offset + offset + 4 > _end) return null;
+            var at = (int)(_offset + offset);
+            var count = Math.Min(U32(at), (_end - at - 4) / entry);
+            return count > 0 ? (at + 4, (int)count) : null;
+        }
+
+        private int U24(int at) => _data[at] << 16 | _data[at + 1] << 8 | _data[at + 2];
+
+        private long U32(int at) => (uint)(_data[at] << 24 | _data[at + 1] << 16 | _data[at + 2] << 8 | _data[at + 3]);
     }
 
     private sealed class ArrayTable(int first, int[] glyphs) : CmapTable
@@ -448,17 +731,24 @@ public sealed class OpenTypeFont
         }
     }
 
-    /// <summary>Formats 12/13: groups of consecutive codes (also above 0xFFFF); format 13 maps a whole group to one glyph.</summary>
+    /// <summary>
+    /// Formats 12/13: groups of consecutive codes (also above 0xFFFF); format 13 maps a whole group to one glyph. Format 8 has the same groups
+    /// after its bit array (<paramref name="countAt"/> 8204); its 32-bit codes are the two 16-bit halves of a surrogate pair, the high one first
+    /// (OpenType 9.4.6) — a code beyond the BMP is looked up so, and as itself where a font wrote it so.
+    /// </summary>
     private sealed class Format12 : CmapTable
     {
         private readonly uint[] _starts, _ends, _glyphs;
-        private readonly bool _constant;
+        private readonly bool _constant, _mixed;
 
-        public Format12(byte[] data, int offset, bool constant)
+        public Format12(byte[] data, int offset, bool constant, int countAt = 12, bool mixed = false)
         {
             _constant = constant;
-            var r = new FontReader(data, offset + 12);
-            var groups = (int)Math.Min(r.U32(), (uint)((data.Length - offset) / 12));
+            _mixed = mixed;
+            var r = new FontReader(data, offset + countAt);
+            // format 8 (read since No. 1160) within its length field; formats 12 and 13 as far as the data reach, as always
+            var end = mixed && LengthField32(data, offset) is var length && length >= countAt + 4 && offset + length <= data.Length ? offset + length : data.Length;
+            var groups = (int)Math.Min(r.U32(), (uint)Math.Max(0, (end - offset - countAt - 4) / 12));
             _starts = new uint[groups];
             _ends = new uint[groups];
             _glyphs = new uint[groups];
@@ -474,12 +764,29 @@ public sealed class OpenTypeFont
         {
             for (var i = 0; i < _starts.Length; i++)
                 if (_starts[i] <= _ends[i] && _ends[i] <= 0x10FFFF) yield return ((int)_starts[i], (int)_ends[i]);
+                else if (_mixed && _starts[i] <= _ends[i] && Scalar(_starts[i]) is { } first && Scalar(_ends[i]) is { } last && first <= last)
+                    yield return (first, last);
         }
 
         public override int Map(int code)
         {
             if (code < 0) return 0;
-            var c = (uint)code;
+            if (_mixed && code is > 0xFFFF and <= 0x10FFFF)
+            {
+                var v = code - 0x10000;
+                var pair = (uint)(0xD800 + (v >> 10)) << 16 | (uint)(0xDC00 + (v & 0x3FF));
+                if (Find(pair) is > 0 and var g) return g;
+            }
+            return Find((uint)code);
+        }
+
+        /// <summary>The code point of a surrogate pair written as a 32-bit code (format 8); null for another value.</summary>
+        private static int? Scalar(uint pair) =>
+            pair >> 16 is >= 0xD800 and <= 0xDBFF && (pair & 0xFFFF) is >= 0xDC00 and <= 0xDFFF
+                ? 0x10000 + (int)(((pair >> 16) - 0xD800) << 10 | ((pair & 0xFFFF) - 0xDC00)) : null;
+
+        private int Find(uint c)
+        {
             int lo = 0, hi = _starts.Length - 1;
             while (lo <= hi)
             {
@@ -572,35 +879,8 @@ public sealed class OpenTypeFont
         return _postNames = names;
     }
 
-    private string? ReadName(int nameId)
-    {
-        if (Table("name") is not { } table) return null;
-        try
-        {
-            var r = new FontReader(_data, table.Offset + 2);
-            int count = r.U16();
-            int strings = table.Offset + r.U16();
-            string? mac = null;
-            for (var i = 0; i < count; i++)
-            {
-                int platform = r.U16();
-                int encoding = r.U16();
-                r.U16();                        // language
-                int id = r.U16();
-                int length = r.U16();
-                int offset = r.U16();
-                if (id != nameId || strings + offset + length > _data.Length) continue;
-                var bytes = _data.AsSpan(strings + offset, length);
-                if (platform == 3 || platform == 0) return System.Text.Encoding.BigEndianUnicode.GetString(bytes);
-                if (platform == 1 && encoding == 0) mac ??= System.Text.Encoding.Latin1.GetString(bytes);
-            }
-            return mac;
-        }
-        catch (FontFormatException)
-        {
-            return null;
-        }
-    }
+    // English first, Mac OS Roman decoded, old Windows code pages and unknown languages passed over (NameRecords; No. 1160)
+    private string? ReadName(int nameId) => Table("name") is { } table ? NameRecords.Read(_data, table.Offset, nameId) : null;
 
     // ------------------------------------------------------------ Widths and outlines
 
@@ -618,7 +898,7 @@ public sealed class OpenTypeFont
     /// (an empty one is a glyph without outline, such as the space, or a slot a subset left free).</summary>
     /// <param name="glyph">Glyph index.</param>
     public bool HasGlyphData(int glyph) =>
-        Cff is { } cff ? glyph >= 0 && glyph < cff.GlyphCount
+        (Cff ?? Cff2) is { } cff ? glyph >= 0 && glyph < cff.GlyphCount
         : glyph >= 0 && glyph < _loca.Length - 1 && _loca[glyph + 1] > _loca[glyph] && Table("glyf") is { } glyf && _loca[glyph] < glyf.Length;
 
     /// <summary>
@@ -627,7 +907,7 @@ public sealed class OpenTypeFont
     /// </summary>
     internal (int XMin, int YMin)? ContourCorner(int glyph)
     {
-        if (Cff is not null || !HasGlyphData(glyph) || Table("glyf") is not { } glyf) return null;
+        if (Cff is not null || Cff2 is not null || !HasGlyphData(glyph) || Table("glyf") is not { } glyf) return null;
         var at = glyf.Offset + _loca[glyph];
         if (_loca[glyph] + 10 > glyf.Length || at + 10 > _data.Length) return null;
         var r = new FontReader(_data, at);
@@ -640,7 +920,7 @@ public sealed class OpenTypeFont
     /// <returns>The outline; empty for unknown glyphs, recursive composites and glyphs above the work limits.</returns>
     public GlyphOutline Outline(int glyph)
     {
-        if (Cff is { } cff) return cff.Outline(glyph);
+        if ((Cff ?? Cff2) is { } cff) return cff.Outline(glyph);
         // (compared without adding to the glyph: a glyph number of int.MaxValue from a damaged map overflowed and passed;
         // docs/FEHLERGEDAECHTNIS.md, No. 379)
         if (glyph < 0 || glyph >= _loca.Length - 1) return GlyphOutline.Empty;

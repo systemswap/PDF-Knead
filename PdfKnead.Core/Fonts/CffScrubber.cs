@@ -2,11 +2,11 @@ namespace PdfKnead.Core.Fonts;
 
 /// <summary>
 /// Scrubs a CFF font (Adobe TN 5176, Type 2 charstrings TN 5177) down to the glyphs that are still shown, for redaction
-/// (docs/FEHLERGEDAECHTNIS.md, No. 174): every other glyph keeps its number but becomes empty (endchar), loses its name or CID in the
-/// charset and its code in the encoding; the custom strings only it used leave the font. The kept glyphs are written without
-/// subroutines (inlined), so no shared subroutine carries a part of a removed glyph's outline. Glyph numbers, the names and CIDs of the
-/// kept glyphs, their codes, the Font DICTs and Private DICTs (without subroutines) stay, so that the PDF finds every shown glyph as
-/// before — plain and CID-keyed CFF alike.
+/// (docs/FEHLERGEDAECHTNIS.md, No. 174): every other glyph keeps its number but becomes empty (endchar), gets a neutral name or CID in the
+/// charset (<see cref="NeutralNames"/>), loses its code in the encoding and takes the Font DICT of glyph 0; the custom strings only it used
+/// leave the font. The kept glyphs are written without subroutines (inlined), so no shared subroutine carries a part of a removed glyph's
+/// outline. Glyph numbers, the names and CIDs of the kept glyphs, their codes, the Font DICTs and Private DICTs (without subroutines) stay,
+/// so that the PDF finds every shown glyph as before — plain and CID-keyed CFF alike.
 /// </summary>
 internal static class CffScrubber
 {
@@ -21,13 +21,16 @@ internal static class CffScrubber
     /// <summary>Scrubs the font.</summary>
     /// <param name="data">The CFF data.</param>
     /// <param name="glyphs">The glyphs still shown; glyph 0 and the parts of accented characters (seac) are kept as well.</param>
+    /// <param name="shownCids">The CIDs the PDF still shows (CID-keyed fonts): a removed glyph does not take one of them as its new CID, so a
+    /// shown CID without a glyph keeps drawing .notdef; null if unknown.</param>
     /// <returns>The new CFF data and the glyphs kept.</returns>
-    /// <exception cref="FontFormatException">The font cannot be read or rewritten (Type 1 charstrings, a glyph beyond the limits).</exception>
-    public static (byte[] Data, HashSet<int> Keep) Scrub(ArraySegment<byte> data, IEnumerable<int> glyphs)
+    /// <exception cref="FontFormatException">The font cannot be read or rewritten (Type 1 charstrings, a glyph beyond the limits, more names
+    /// than string IDs).</exception>
+    public static (byte[] Data, HashSet<int> Keep) Scrub(ArraySegment<byte> data, IEnumerable<int> glyphs, IReadOnlySet<int>? shownCids = null)
     {
         try
         {
-            return ScrubCore(data, glyphs);
+            return ScrubCore(data, glyphs, shownCids);
         }
         catch (Exception e) when (e is IndexOutOfRangeException or ArgumentException or OverflowException)
         {
@@ -36,7 +39,7 @@ internal static class CffScrubber
         }
     }
 
-    private static (byte[] Data, HashSet<int> Keep) ScrubCore(ArraySegment<byte> data, IEnumerable<int> glyphs)
+    private static (byte[] Data, HashSet<int> Keep) ScrubCore(ArraySegment<byte> data, IEnumerable<int> glyphs, IReadOnlySet<int>? shownCids)
     {
         var r = new FontReader(data);
         r.U8();
@@ -114,12 +117,24 @@ internal static class CffScrubber
             if (remap.TryGetValue(sid, out var mapped)) return mapped;
             if (sid - standard >= strings.Count) return 0;
             custom.Add(strings.Item(data, sid - standard).ToArray());
+            if (standard + custom.Count - 1 > ushort.MaxValue) throw new FontFormatException("CFF: zu viele Namen");
             return remap[sid] = standard + custom.Count - 1;
         }
 
-        // charset (format 0): SID or CID of kept glyphs, 0 (.notdef) for the others
+        // charset (format 0): SID or CID of kept glyphs, a neutral one for the others — names and CIDs must be unique (TN 5176, 11); before
+        // every removed glyph had SID or CID 0 (docs/FEHLERGEDAECHTNIS.md, No. 1158)
+        var neutral = isCid ? NeutralCids(count, keep, charset, shownCids) : null;
+        var neutralNames = isCid ? null : NeutralNames(count, keep, font);
         var charsetBytes = new List<byte> { 0 };
-        for (var g = 1; g < count; g++) CffSubsetter.AddU16(charsetBytes, keep.Contains(g) ? isCid ? charset[g] : Sid(charset[g]) : 0);
+        for (var g = 1; g < count; g++)
+            CffSubsetter.AddU16(charsetBytes, keep.Contains(g) ? isCid ? charset[g] : Sid(charset[g]) : isCid ? neutral![g] : NewString(neutralNames![g]));
+        int NewString(string name)
+        {
+            custom.Add(System.Text.Encoding.ASCII.GetBytes(name));
+            var sid = FontTables.CffStandardStrings.Length + custom.Count - 1;
+            if (sid > ushort.MaxValue) throw new FontFormatException("CFF: zu viele Namen");
+            return sid;
+        }
 
         // Encoding (plain fonts): the predefined ones stay (they name glyphs by name); a custom one is written again for the kept glyphs only:
         // a main table (format 0) with the first code of each kept glyph, code 0 for the others, and supplements for further codes of a glyph
@@ -153,7 +168,12 @@ internal static class CffScrubber
 
         var charStringsIndex = CffSubsetter.Index([.. Enumerable.Range(0, count).Select(g => flat.TryGetValue(g, out var cs) ? cs : [14])]);
         var privates = fonts.Select(f => Dict(f.Private, [19], Sid)).ToList();
-        byte[] fdSelectBytes = isCid ? [0, .. fdSelect] : [];
+        // a removed glyph takes the Font DICT of glyph 0: its own would tell which kind of glyph it was (a Font DICT for kana, one for ideographs)
+        byte[] fdSelectBytes = isCid ? [0, .. Enumerable.Range(0, count).Select(g => keep.Contains(g) ? fdSelect[g] : (byte)FdOf(0))] : [];
+        // CIDCount (default 8720) covers the highest CID, the neutral ones included
+        var maxCid = 0;
+        for (var g = 1; g < count && isCid; g++) maxCid = Math.Max(maxCid, keep.Contains(g) ? charset[g] : neutral![g]);
+        var cidCount = isCid && (top.Has(1234) || maxCid >= 8720) ? Math.Max(top.Int(1234) ?? 8720, maxCid + 1) : (int?)null;
 
         byte[] TopDict(int charsetAt, int encodingAt, int charStringsAt, int privateAt, int fdSelectAt, int fdArrayAt)
         {
@@ -163,7 +183,12 @@ internal static class CffScrubber
                 CffSubsetter.Operands(d, [Sid((int)ros[0]), Sid((int)ros[1]), ros[2]]);
                 CffSubsetter.Op(d, 1230);   // ROS must come first
             }
-            d.AddRange(Dict(top, OffsetOperators, Sid));
+            d.AddRange(Dict(top, isCid ? [.. OffsetOperators, 1234] : OffsetOperators, Sid));
+            if (cidCount is { } cids)
+            {
+                CffSubsetter.Operands(d, [cids]);
+                CffSubsetter.Op(d, 1234);
+            }
             CffSubsetter.Fixed(d, charsetAt);
             CffSubsetter.Op(d, 15);
             if (encodingBytes is not null)
@@ -238,6 +263,61 @@ internal static class CffScrubber
         if (isCid) cff.AddRange(CffSubsetter.Index(FontDicts(privateAt)));
         foreach (var p in privates) cff.AddRange(p);
         return ([.. cff], keep);
+    }
+
+    /// <summary>
+    /// The CIDs of the removed glyphs of a CID-keyed font: each its own glyph index, unless a kept glyph or a shown CID has that one — then the
+    /// next free CID from the glyph count on. The glyph index tells nothing the font does not show anyway (the glyphs keep their numbers); the
+    /// original CID would (in a subset the CIDs of its glyphs are the characters of the text, in a registry like Adobe-Japan1 each CID is a
+    /// character) — so the CIDs of removed glyphs reveal nothing, and stay unique (TN 5176, 11).
+    /// </summary>
+    /// <returns>Per glyph index the neutral CID (0 for kept glyphs and glyph 0).</returns>
+    private static int[] NeutralCids(int count, HashSet<int> keep, int[] charset, IReadOnlySet<int>? shown)
+    {
+        var taken = new HashSet<int> { 0 };
+        foreach (var g in keep) taken.Add(charset[g]);
+        if (shown is not null) taken.UnionWith(shown);
+        var result = new int[count];
+        var next = count;
+        for (var g = 1; g < count; g++)
+        {
+            if (keep.Contains(g)) continue;
+            var cid = g;
+            if (!taken.Add(cid))
+            {
+                var tries = 0;
+                while (!taken.Add(next))
+                {
+                    next = next >= ushort.MaxValue ? 1 : next + 1;
+                    if (++tries > ushort.MaxValue) throw new FontFormatException("CFF: keine freie CID");
+                }
+                cid = next;
+            }
+            result[g] = cid;
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// The names of the removed glyphs of a name-keyed font: "removed." and the glyph index (with ".x" appended while a kept glyph has the name)
+    /// — unique (TN 5176, 11), telling nothing but the number the glyph keeps anyway, and mapping to no character (no name of the Adobe Glyph
+    /// List before the period), so text extraction finds none in them.
+    /// </summary>
+    /// <returns>Per glyph index the neutral name (null for kept glyphs and glyph 0).</returns>
+    internal static string?[] NeutralNames(int count, HashSet<int> keep, CffFont font)
+    {
+        var kept = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var g in keep)
+            if (font.GlyphName(g) is { } name) kept.Add(name);
+        var result = new string?[count];
+        for (var g = 1; g < count; g++)
+        {
+            if (keep.Contains(g)) continue;
+            var name = "removed." + g.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            while (kept.Contains(name)) name += ".x";
+            result[g] = name;
+        }
+        return result;
     }
 
     /// <summary>A DICT without the given operators, string operands through <paramref name="sid"/>.</summary>

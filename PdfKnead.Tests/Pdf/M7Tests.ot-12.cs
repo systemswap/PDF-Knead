@@ -258,30 +258,56 @@ public sealed partial class M7NormTests
     }
 
     /// <summary>
-    /// 9.3 sentence 12, 9.3.2 sentence 8 and 9.4.10 sentences 1–3, 5–8, 9–14, 23–28 (reader, today's behaviour; question 5 is open): the format 14
-    /// subtable under (0,5) of Noto Sans CJK is not read — the record exists, a lookup in it gives 0, and the variation sequence 葛 U+E0100
-    /// shapes as two glyphs: the base character from the Unicode subtable and, for the selector, what the Unicode subtables give (glyph 0).
+    /// 9.3 sentence 12, 9.3.2 sentence 8 and 9.4.10 sentences 1–3, 5–8, 9–14, 23–28 (reader): the format 14 subtable under (0,5) of Noto Sans CJK
+    /// is read — a single code in it gives 0, the non-default sequence 葛 U+E0100 shapes as one glyph, 62001, the one the table names, with the
+    /// text of both characters; the default sequence 葛 U+E0101 as the glyph of the Unicode subtable; a selector the table does not list for 葛
+    /// (U+E01EF) is passed over instead of becoming glyph 0 (FG 1160).
     /// </summary>
     [Fact]
-    public void Format14VariationSequences_AreNotReadToday()
+    public void Format14VariationSequences_AreRead()
     {
         var noto = Iso03NotoJp.Value;
+        var kanji = noto.GlyphForUnicode(0x845B);
         Assert.True(noto.HasCmap(0, 5));
         Assert.Equal(0, noto.Lookup(0, 5, 0x845B));
-        var shaped = TextShaper.For(noto).Shape("葛\U000E0100");
-        Assert.Equal(2, shaped.Length);
-        Assert.Equal(noto.GlyphForUnicode(0x845B), shaped[0].Glyph);
-        Assert.Equal(0, shaped[1].Glyph);
+        var shaper = TextShaper.For(noto);
+        var variant = Assert.Single(shaper.Shape("葛\U000E0100"));
+        Assert.Equal(62001, variant.Glyph);
+        Assert.NotEqual(kanji, variant.Glyph);
+        Assert.Equal("葛\U000E0100", variant.Text);
+        Assert.Equal(kanji, Assert.Single(shaper.Shape("葛\U000E0101")).Glyph);
+        Assert.Equal(kanji, Assert.Single(shaper.Shape("葛\U000E01EF")).Glyph);
+        Assert.Equal(new[] { kanji, 62001, kanji }, shaper.Shape("葛葛\U000E0100葛").Select(g => g.Glyph));
     }
 
     /// <summary>
-    /// 9.4.10 sentences 15–22, 9.4.10.1 sentences 1–17 and 9.4.10.2 sentences 1–16 (reader, today's behaviour; question 5 is open): a hand-built
-    /// format 14 subtable in Noto Sans CJK — a record with both offsets 0, a default table with the range U+4E4D + 2 for U+E0100 and a range
-    /// 0xFFFFF0 + 0xFF that runs past 24 bits, a non-default table mapping 葛 U+E0100 to glyph 100 — is read without error and changes
-    /// nothing: 乏 U+E0100 and 葛 U+E0100 shape as the base glyph from the Unicode subtable plus glyph 0, not as the glyph the table names.
+    /// 9.4.10 sentences 5–8 (reader, substitute font): the text of a code from /ToUnicode as a substitute font draws it — „葛“ followed by U+E0100
+    /// gives glyph 62001 of Noto Sans CJK, followed by U+E0101 (default) or by U+E01EF (not listed) the glyph of „葛“, and a lone surrogate gives 0
+    /// instead of an exception (FG 1160).
     /// </summary>
     [Fact]
-    public void CraftedFormat14_IsNotReadToday_AndBreaksNothing()
+    public void Format14_SubstituteFontTakesTheSequenceOfTheText()
+    {
+        var noto = Iso03NotoJp.Value;
+        var method = typeof(OpenTypeFont).GetMethod("GlyphForText", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        Assert.NotNull(method);
+        int Glyph(string text) => (int)method.Invoke(noto, [text])!;
+        Assert.Equal(62001, Glyph("葛\U000E0100"));
+        Assert.Equal(noto.GlyphForUnicode(0x845B), Glyph("葛\U000E0101"));
+        Assert.Equal(noto.GlyphForUnicode(0x845B), Glyph("葛\U000E01EF"));
+        Assert.Equal(noto.GlyphForUnicode(0x845B), Glyph("葛"));
+        Assert.Equal(0, Glyph("\uD800"));
+    }
+
+    /// <summary>
+    /// 9.4.10 sentences 15–22, 9.4.10.1 sentences 1–17 and 9.4.10.2 sentences 1–16 (reader): a hand-built format 14 subtable in Noto Sans CJK —
+    /// a record with both offsets 0, a default table with the range U+4E4D + 2 for U+E0100 and a range 0xFFFFF0 + 0xFF that runs past 24 bits,
+    /// a non-default table mapping 葛 U+E0100 to glyph 100 — is read within its bounds: 乏 U+E0100 (in the default range) shapes as the base
+    /// glyph alone, 葛 U+E0100 as glyph 100, 葛 U+E0101 (both offsets 0) and 乏 U+E0102 (default) as the base glyph; with a record count far
+    /// beyond the table nothing is read outside it and nothing fails (FG 1160).
+    /// </summary>
+    [Fact]
+    public void CraftedFormat14_IsReadWithinItsBounds()
     {
         var noto = OpenTypeFont.Parse(Ot12NotoFile.Value);
         // header 10 bytes, three selector records of 11 bytes, then the default table (2 ranges) and the non-default table (1 mapping)
@@ -297,8 +323,16 @@ public sealed partial class M7NormTests
         Assert.Equal(0, font.Lookup(0, 5, 0x4E4D));
         Assert.Equal(0, font.Lookup(0, 5, 0x845B));
         var shaper = TextShaper.For(font);
-        Assert.Equal(new[] { noto.GlyphForUnicode(0x4E4F), 0 }, shaper.Shape("乏\U000E0100").Select(g => g.Glyph));
-        Assert.Equal(new[] { noto.GlyphForUnicode(0x845B), 0 }, shaper.Shape("葛\U000E0100").Select(g => g.Glyph));
+        Assert.Equal(new[] { noto.GlyphForUnicode(0x4E4F) }, shaper.Shape("乏\U000E0100").Select(g => g.Glyph));
+        Assert.Equal(new[] { 100 }, shaper.Shape("葛\U000E0100").Select(g => g.Glyph));
+        Assert.Equal(new[] { noto.GlyphForUnicode(0x845B) }, shaper.Shape("葛\U000E0101").Select(g => g.Glyph));
+        Assert.Equal(new[] { noto.GlyphForUnicode(0x4E4F) }, shaper.Shape("乏\U000E0102").Select(g => g.Glyph));
+        Assert.Equal(new[] { noto.GlyphForUnicode(0x4E4D) }, shaper.Shape("乍\U000E0102").Select(g => g.Glyph));
+        var huge = f14.ToArray();
+        huge[6] = huge[7] = huge[8] = huge[9] = 0x7F;                            // records: about two billion
+        huge[2] = huge[3] = huge[4] = huge[5] = 0xFF;                            // length: beyond the data
+        var crafted = OpenTypeFont.Parse(Ot12With(Ot12NotoFile.Value, (0, 5, huge), (3, 1, Ot12Sub(noto, 3, 1)), (3, 10, Ot12Sub(noto, 3, 10))));
+        Assert.Equal(noto.GlyphForUnicode(0x845B), Assert.Single(TextShaper.For(crafted).Shape("葛\U000E0103")).Glyph);
     }
 
     /// <summary>
@@ -315,14 +349,15 @@ public sealed partial class M7NormTests
 
     /// <summary>
     /// 9.3 sentences 14–15 (writer): not formats 4 and 6 together nor 10 and 12 together — the cmap of scrubbed Liberation Sans ((1,0) is format 6
-    /// in the source) and of scrubbed Noto Sans CJK ((1,1) format 6, (0,5) format 14) has only formats 4 and 12.
+    /// in the source) and of scrubbed Noto Sans CJK ((1,1) format 6) has only formats 4 and 12 for character codes — beside them format 14 under
+    /// (0,5) for the variation sequences (FG 1160).
     /// </summary>
     [Fact]
     public void ScrubbedCmap_HasOnlyFormats4And12()
     {
         var sans = TrueTypeSubsetter.Scrub(Ot12SansFile.Value, [0, Ot12Gid('A')]);
         Assert.All(Ot12Records(sans), r => Assert.Contains(r.Format, (int[])[4, 12]));
-        Assert.All(Ot12Records(Ot12NotoScrubbed.Value), r => Assert.Contains(r.Format, (int[])[4, 12]));
+        Assert.All(Ot12Records(Ot12NotoScrubbed.Value).Where(r => (r.Platform, r.Encoding) != (0, 5)), r => Assert.Contains(r.Format, (int[])[4, 12]));
     }
 
     /// <summary>
@@ -452,11 +487,12 @@ public sealed partial class M7NormTests
 
     /// <summary>
     /// 9.3.2 sentences 12–14, 9.3.5 sentences 17–19, 9.4.4 sentence 2 and 9.4.10 sentence 4 (writer): scrubbed Noto Sans CJK with the glyphs of
-    /// 葛 U+845B and 𠮟 U+20B9F kept — (0,4) and (3,10) are format 12 and map both, (0,3) and (3,1) are format 4 and map only U+845B; there is
-    /// no record (0,5) and no format 14 any more (the variation sequences are not carried over — question 5).
+    /// 葛 U+845B and 𠮟 U+20B9F kept — (0,4) and (3,10) are format 12 and map both, (0,3) and (3,1) are format 4 and map only U+845B; the
+    /// variation sequences stay in format 14 under (0,5) and only there, filtered: the default sequence 葛 U+E0101 is kept, the non-default
+    /// 葛 U+E0100 (glyph 62001, removed) is gone, and every sequence left shows a glyph kept (FG 1160; before the subtable was left out).
     /// </summary>
     [Fact]
-    public void ScrubbedCjkFont_FullRepertoireFormat12_BmpFormat4_NoVariationSequences()
+    public void ScrubbedCjkFont_FullRepertoireFormat12_BmpFormat4_VariationSequencesFiltered()
     {
         var noto = OpenTypeFont.Parse(Ot12NotoFile.Value);
         var (kanji, supplementary) = (noto.GlyphForUnicode(0x845B), noto.GlyphForUnicode(0x20B9F));
@@ -475,7 +511,29 @@ public sealed partial class M7NormTests
             Assert.Equal(kanji, font.Lookup(platform, encoding, 0x845B));
             Assert.Equal(0, font.Lookup(platform, encoding, 0x20B9F));
         }
-        Assert.DoesNotContain(records, r => (r.Platform, r.Encoding) == (0, 5) || r.Format == 14);
+        Assert.Equal(14, records.Single(r => (r.Platform, r.Encoding) == (0, 5)).Format);
+        Assert.DoesNotContain(records, r => r.Format == 14 && (r.Platform, r.Encoding) != (0, 5));
+        var shaper = TextShaper.For(font);
+        Assert.Equal(kanji, Assert.Single(shaper.Shape("葛\U000E0101")).Glyph);
+        Assert.Equal(kanji, Assert.Single(shaper.Shape("葛\U000E0100")).Glyph);
+        // every sequence written: a default one whose base character maps to a glyph kept, a non-default one to a glyph kept
+        var kept = new HashSet<int> { kanji, supplementary, noto.GlyphForUnicode('A') };
+        var f14 = Ot12Sub(font, 0, 5);
+        int U24(int at) => f14[at] << 16 | f14[at + 1] << 8 | f14[at + 2];
+        int U32(int at) => (int)BinaryPrimitives.ReadUInt32BigEndian(f14.AsSpan(at));
+        var selectors = new List<int>();
+        for (var i = 0; i < U32(6); i++)
+        {
+            var at = 10 + 11 * i;
+            selectors.Add(U24(at));
+            if (U32(at + 3) is > 0 and var d)
+                for (var k = 0; k < U32(d); k++)
+                    for (var c = U24(d + 4 + 4 * k); c <= U24(d + 4 + 4 * k) + f14[d + 7 + 4 * k]; c++) Assert.Contains(font.GlyphForUnicode(c), kept);
+            if (U32(at + 7) is > 0 and var n)
+                for (var k = 0; k < U32(n); k++) Assert.Contains(BinaryPrimitives.ReadUInt16BigEndian(f14.AsSpan(n + 7 + 5 * k)), kept.Select(g => (ushort)g));
+        }
+        Assert.Contains(0xE0101, selectors);
+        Assert.Equal(selectors.Order(), selectors);
     }
 
     /// <summary>
@@ -494,13 +552,15 @@ public sealed partial class M7NormTests
     // ------------------------------------------------------------ 9.3.5, 9.4.3
 
     /// <summary>
-    /// 9.3.5 sentences 8–15 and 9.4.3 sentences 1–34 (reader and writer, today's behaviour; question 5 is open): format 2 (mixed one- and two-byte
-    /// codes, the usual table of the old CJK encodings) is not read — Liberation Sans with a further (3,2) format 2 subtable (subheader 0 maps the
-    /// one-byte 0x41 to „A“, subheader 1 for the first byte 0x81 maps 0x8140 and 0x8141 to glyphs 5 and 6, a further one with idDelta 0xFFFE):
-    /// every lookup in it gives 0 without error, and since No. 1143 the scrubbed font leaves the record out (before: an empty format 4).
+    /// 9.3.5 sentences 8–15 and 9.4.3 sentences 1–34 (reader and writer): format 2 (mixed one- and two-byte codes, the usual table of the old CJK
+    /// encodings) is read — Liberation Sans with a further (3,2) format 2 subtable (subheader 0 maps the one-byte 0x41 to „A“, subheader 1 for
+    /// the first byte 0x81 maps 0x8140 and 0x8141 to glyphs 5 and 6, a further one with idDelta 0xFFFE): 0x41 gives „A“, 0x8140 and 0x8141 give
+    /// 5 and 6, 0x8142 (beyond entryCount) and the lead byte 0x81 alone give 0, 0x8240 gives 1 + 0xFFFE modulo 65 536; a subheader key pointing
+    /// beyond the table gives 0 without error; the scrubbed font leaves the record out as since No. 1143 (its byte codes are not those of format 4)
+    /// (FG 1160).
     /// </summary>
     [Fact]
-    public void Format2Subtable_IsNotReadToday()
+    public void Format2Subtable_IsRead_ScrubLeavesItOut()
     {
         var a = Ot12Gid('A');
         // header 6, subHeaderKeys 512, three subheaders of 8 bytes; glyph arrays from 542: 256 for subheader 0, 2 for subheader 1, 1 for subheader 2
@@ -516,7 +576,10 @@ public sealed partial class M7NormTests
         var font = Ot12SansPlus(3, 2, w.ToArray());
         var parsed = OpenTypeFont.Parse(font);
         Assert.True(parsed.HasCmap(3, 2));
-        foreach (var code in (int[])[0x41, 0x8140, 0x8141, 0x8142, 0x8240]) Assert.Equal(0, parsed.Lookup(3, 2, code));
+        Assert.Equal(new[] { a, 5, 6, 0, 0xFFFF, 0 }, ((int[])[0x41, 0x8140, 0x8141, 0x8142, 0x8240, 0x81]).Select(c => parsed.Lookup(3, 2, c)));
+        var beyond = w.ToArray();
+        beyond[6 + 2 * 0x83 + 1] = 0xF8;                                    // key of 0x83: subheader 31, beyond the table
+        Assert.Equal(0, OpenTypeFont.Parse(Ot12SansPlus(3, 2, beyond)).Lookup(3, 2, 0x8340));
         Assert.DoesNotContain(Ot12Records(TrueTypeSubsetter.Scrub(font, [0, a, 5, 6])), r => (r.Platform, r.Encoding) == (3, 2));
     }
 
@@ -550,7 +613,7 @@ public sealed partial class M7NormTests
 
     /// <summary>
     /// 9.4.1 sentences 1–2 (writer): outside the Macintosh platform the language field is 0 — in the cmaps of scrubbed Liberation Sans and Noto Sans
-    /// CJK and of a font rebuilt with a (3,0) cmap every subtable not of platform 1 has language 0.
+    /// CJK and of a font rebuilt with a (3,0) cmap every subtable not of platform 1 has language 0 (format 14 under (0,5) has no language field).
     /// </summary>
     [Fact]
     public void WrittenSubtables_LanguageZeroOutsideTheMacintoshPlatform()
@@ -558,7 +621,7 @@ public sealed partial class M7NormTests
         var a = Ot12Gid('A');
         var rebuilt = TrueTypeSubsetter.Rebuild(Ot12SansFile.Value, new Dictionary<int, int> { [a] = 1000 }, [], [(0xF041, a)]);
         foreach (var font in new[] { TrueTypeSubsetter.Scrub(Ot12SansFile.Value, [0, a]), Ot12NotoScrubbed.Value, rebuilt })
-            Assert.All(Ot12Records(font).Where(r => r.Platform != 1), r => Assert.Equal(0, r.Language));
+            Assert.All(Ot12Records(font).Where(r => r.Platform != 1 && r.Format != 14), r => Assert.Equal(0, r.Language));
         var symbol = Assert.Single(Ot12Records(rebuilt));
         Assert.Equal((3, 0), (symbol.Platform, symbol.Encoding));
     }
@@ -713,31 +776,42 @@ public sealed partial class M7NormTests
     }
 
     /// <summary>
-    /// 9.4.6 sentences 1–37 (reader, today's behaviour): format 8 (mixed 16- and 32-bit codes) is not read — Liberation Sans with a further (3,10)
-    /// format 8 subtable mapping 0x41–0x5A: a lookup in it gives 0 without error, „A“ comes from (3,1).
+    /// 9.4.6 sentences 1–37 (reader): format 8 (mixed 16- and 32-bit codes) is read — Liberation Sans with a further (3,10) format 8 subtable
+    /// mapping 0x41–0x5A and, as a 32-bit code (the halves D800 DC00 of its surrogate pair, marked in is32), U+10000: „A“ and „B“ come from it,
+    /// U+10000 gives glyph 9; a group count far beyond the table reads only the groups inside it, without error (FG 1160).
     /// </summary>
     [Fact]
-    public void Format8Subtable_IsNotReadToday()
+    public void Format8Subtable_IsRead()
     {
         var a = Ot12Gid('A');
-        var w = new Ot12Bytes().U16(8).U16(0).U32(12 + 8192 + 4 + 12).U32(0).Bytes(new byte[8192]).U32(1).U32(0x41).U32(0x5A).U32(a);
+        var is32 = new byte[8192];
+        is32[0xD800 / 8] = 0x80;
+        var w = new Ot12Bytes().U16(8).U16(0).U32(12 + 8192 + 4 + 24).U32(0).Bytes(is32).U32(2).U32(0x41).U32(0x5A).U32(a)
+            .U32(0xD800DC00L).U32(0xD800DC00L).U32(9);
         var font = OpenTypeFont.Parse(Ot12SansPlus(3, 10, w.ToArray()));
-        Assert.Equal(0, font.Lookup(3, 10, 0x41));
-        Assert.Equal(a, font.GlyphForUnicode('A'));
+        Assert.Equal(a, font.Lookup(3, 10, 0x41));
+        Assert.Equal(a + 1, font.GlyphForUnicode('B'));
+        Assert.Equal(9, font.GlyphForUnicode(0x10000));
+        var huge = w.ToArray();
+        huge[12 + 8192] = 0x7F;                                              // numGroups about two billion
+        Assert.Equal(a, OpenTypeFont.Parse(Ot12SansPlus(3, 10, huge)).Lookup(3, 10, 0x41));
     }
 
     /// <summary>
-    /// 9.4.7 sentences 1–14 (reader, today's behaviour): format 10 (trimmed array of 32-bit codes) is not read — Liberation Sans with a further (3,10)
-    /// format 10 subtable for U+10000 and U+10001: a lookup in it gives 0 without error.
+    /// 9.4.7 sentences 1–14 (reader): format 10 (trimmed array of 32-bit codes) is read — Liberation Sans with a further (3,10) format 10 subtable
+    /// for U+10000 and U+10001: they give „A“ and the glyph after it, U+FFFF and U+10002 give 0; a count of chars far beyond the table reads only
+    /// the glyphs inside it, without error (FG 1160).
     /// </summary>
     [Fact]
-    public void Format10Subtable_IsNotReadToday()
+    public void Format10Subtable_IsRead()
     {
         var a = Ot12Gid('A');
         var w = new Ot12Bytes().U16(10).U16(0).U32(24).U32(0).U32(0x10000).U32(2).U16(a).U16(a + 1);
         var font = OpenTypeFont.Parse(Ot12SansPlus(3, 10, w.ToArray()));
-        Assert.Equal(0, font.Lookup(3, 10, 0x10000));
-        Assert.Equal(0, font.Lookup(3, 10, 0x10001));
+        Assert.Equal(new[] { 0, a, a + 1, 0 }, ((int[])[0xFFFF, 0x10000, 0x10001, 0x10002]).Select(c => font.Lookup(3, 10, c)));
+        var huge = w.ToArray();
+        huge[16] = 0x7F;                                                     // numChars about two billion
+        Assert.Equal(a + 1, OpenTypeFont.Parse(Ot12SansPlus(3, 10, huge)).Lookup(3, 10, 0x10001));
     }
 
     /// <summary>

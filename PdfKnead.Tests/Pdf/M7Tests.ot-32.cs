@@ -85,7 +85,7 @@ public sealed partial class M7NormTests
     /// <summary>
     /// OT 31.2.23 sentence 12, 31.2.24 sentence 12, 31.2.26 sentences 5–11, 21–22, 31.2.27 sentences 5–13, 23–24, 31.2.28 sentences 1–42,
     /// 31.2.31 sentences 1–4, 31.2.32 sentences 1–5, 31.2.33 sentences 1–6, 31.2.34 sentences 8–14, 31.2.35 sentences 8–15 (writer): the own font
-    /// fits its empty glyphs (0 … 1000) — sTypoAscender/Descender/LineGap 1000/0/0 as hhea, usWinAscent 1000 ≥ yMax, usWinDescent 0 = −yMin, no
+    /// fits its empty glyphs (1024 units per em) — sTypoAscender/Descender/LineGap 1024/0/0 as hhea, usWinAscent 1024 ≥ yMax, usWinDescent 0 = −yMin, no
     /// code page bit, usDefaultChar 0, usBreakChar 0x20, usMaxContext 0, version 4 of 96 bytes (without the optical sizes).
     /// </summary>
     [Fact]
@@ -94,8 +94,8 @@ public sealed partial class M7NormTests
         var os2 = Ot30Glyphless;
         var hhea = Ot05GlyphlessTable("hhea");
         var head = Ot05GlyphlessTable("head");
-        Assert.Equal((1000, 0, 0), (Ot30U16(os2, 68), Ot30U16(os2, 70), Ot30U16(os2, 72)));
-        Assert.Equal((1000, 0, 0), (Ot30U16(hhea, 4), Ot30U16(hhea, 6), Ot30U16(hhea, 8)));
+        Assert.Equal((1024, 0, 0), (Ot30U16(os2, 68), Ot30U16(os2, 70), Ot30U16(os2, 72)));
+        Assert.Equal((1024, 0, 0), (Ot30U16(hhea, 4), Ot30U16(hhea, 6), Ot30U16(hhea, 8)));
         Assert.True(Ot30U16(os2, 74) >= BinaryPrimitives.ReadInt16BigEndian(head.AsSpan(42)));
         Assert.Equal(0, BinaryPrimitives.ReadInt16BigEndian(head.AsSpan(38)));
         Assert.Equal(0, Ot30U16(os2, 76));
@@ -137,16 +137,16 @@ public sealed partial class M7NormTests
     // ------------------------------------------------------------ 31.2.29, 31.2.30 x and cap height of the own font
 
     /// <summary>
-    /// OT 31.2.29 sentences 4–5 and 31.2.30 sentences 4–5 (today's behaviour, question 27 open): the own font has no glyph for x or H, yet writes
-    /// sxHeight 500 and sCapHeight 1000.
+    /// OT 31.2.29 sentences 4–5 and 31.2.30 sentences 4–5 (writer, FG 1166): the own font has no glyph for x or H, so it writes sxHeight and
+    /// sCapHeight 0.
     /// </summary>
     [Fact]
-    public void Ot32_GlyphlessOs2_XHeightAndCapHeightSetToday()
+    public void Ot32_GlyphlessOs2_XHeightAndCapHeightZero()
     {
         Assert.Equal(0, Ot05Glyphless.Value.GlyphForUnicode('x'));
         Assert.Equal(0, Ot05Glyphless.Value.GlyphForUnicode('H'));
-        Assert.Equal(500, Ot30U16(Ot30Glyphless, 86));
-        Assert.Equal(1000, Ot30U16(Ot30Glyphless, 88));
+        Assert.Equal(0, Ot30U16(Ot30Glyphless, 86));
+        Assert.Equal(0, Ot30U16(Ot30Glyphless, 88));
     }
 
     // ------------------------------------------------------------ 31.2.33 usMaxContext, 31.2.34/35 optical sizes
@@ -252,13 +252,13 @@ public sealed partial class M7NormTests
         Assert.Equal(-12, Ot30SavedDescriptor(font, italic: true).GetNumber(PdfName.Get("ItalicAngle")));
     }
 
-    /// <summary>OT 32.2 sentence 9: the own font is fixed pitch — isFixedPitch (offset 12) is 1 and both glyphs are 500 wide.</summary>
+    /// <summary>OT 32.2 sentence 9: the own font is fixed pitch — isFixedPitch (offset 12) is 1 and both glyphs are 512 of 1024 units wide.</summary>
     [Fact]
     public void Ot32_GlyphlessPost_FixedPitch_EqualAdvances()
     {
         Assert.Equal(1u, BinaryPrimitives.ReadUInt32BigEndian(Ot05GlyphlessTable("post").AsSpan(12)));
-        Assert.Equal(500, Ot05Glyphless.Value.AdvanceWidth(0));
-        Assert.Equal(500, Ot05Glyphless.Value.AdvanceWidth(1));
+        Assert.Equal(512, Ot05Glyphless.Value.AdvanceWidth(0));
+        Assert.Equal(512, Ot05Glyphless.Value.AdvanceWidth(1));
     }
 
     // ------------------------------------------------------------ 32.3–32.6 glyph names

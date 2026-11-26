@@ -434,15 +434,24 @@ public sealed partial class M7NormTests
     }
 
     /// <summary>
-    /// OT 14.1 sentence 56 (today's behaviour): ppemX 48 and ppemY 96 — only ppemY is read, used in both directions: 96 pixels per em and the
-    /// same images as with square pixels.
+    /// OT 14.1 sentence 56: ppemX and ppemY may differ (pixels not square) — ppemX 48 and ppemY 96: 96 pixels per em, and each image is twice as
+    /// wide as with square pixels (a pixel is 1/48 em wide), its left edge twice as far from the origin, its height and bottom the same (FG 1160;
+    /// before ppemY was used for both).
     /// </summary>
     [Fact]
-    public void Ot18_CblcUnequalPpemXAndY_UsesPpemYForBoth()
+    public void Ot18_CblcUnequalPpemXAndY_ImagesToSquarePixels()
     {
         var changed = Ot18ColorFontWith(cblc => cblc[8 + 44] = 48);
-        Assert.Equal(96, ColorGlyphs.For(OpenTypeFont.Parse(changed))!.PixelsPerEm);
-        Ot18SameImages(Ot18ColorFont.Value, changed);
+        var square = ColorGlyphs.For(OpenTypeFont.Parse(Ot18ColorFont.Value))!;
+        var wide = ColorGlyphs.For(OpenTypeFont.Parse(changed))!;
+        Assert.Equal(96, wide.PixelsPerEm);
+        foreach (var c in Ot18Letters)
+        {
+            var g = OpenTypeFont.Parse(Ot18ColorFont.Value).GlyphForUnicode(c);
+            var (x, y, image) = square.Glyph(g)!.Value;
+            var stretched = wide.Glyph(g)!.Value;
+            Assert.Equal((2 * image.Width, image.Height, 2 * x, y), (stretched.Image.Width, stretched.Image.Height, stretched.X, stretched.Y));
+        }
     }
 
     /// <summary>OT 14.1 sentences 57–64: a strike of bit depth 1, 2, 4 or 8 (monochrome or grey) is not used — the font has no colour glyphs.</summary>
@@ -459,14 +468,19 @@ public sealed partial class M7NormTests
     }
 
     /// <summary>
-    /// OT 14.1 sentences 65–72 and 86 (today's behaviour): flags 2 (vertical small glyph metrics) instead of 1 — the small metrics of the images are
-    /// read as horizontal ones all the same: the same images at the same places.
+    /// OT 14.1 sentences 65–72 and 86: the flags say which direction small glyph metrics describe — flags 2 (vertical only) instead of 1: the
+    /// images in format 17 (small metrics) give no place in horizontal text, no glyph has an image (each shows its outline); flags 3 (both) and
+    /// 0 (none named): the same images at the same places as with flags 1 (FG 1160; before flags 2 read as horizontal).
     /// </summary>
     [Fact]
-    public void Ot18_CblcVerticalMetricsFlag_SamePositions()
+    public void Ot18_CblcVerticalOnlySmallMetrics_NoImagesForHorizontalText()
     {
-        var changed = Ot18ColorFontWith(cblc => cblc[8 + 47] = 2);
-        Ot18SameImages(Ot18ColorFont.Value, changed);
+        var font = OpenTypeFont.Parse(Ot18ColorFontWith(cblc => cblc[8 + 47] = 2));
+        var colours = ColorGlyphs.For(font);
+        Assert.NotNull(colours);
+        Assert.All(Ot18Letters, c => Assert.Null(colours.Glyph(font.GlyphForUnicode(c))));
+        Ot18SameImages(Ot18ColorFont.Value, Ot18ColorFontWith(cblc => cblc[8 + 47] = 3));
+        Ot18SameImages(Ot18ColorFont.Value, Ot18ColorFontWith(cblc => cblc[8 + 47] = 0));
     }
 
     /// <summary>
@@ -802,5 +816,41 @@ public sealed partial class M7NormTests
         Assert.Same(plain, bold);
         Assert.Equal(400, bold.WeightClass);
         Assert.True(bold.HasTable("fvar"));
+    }
+
+    /// <summary>
+    /// OT 14 sentences 1–8 and 14.1 sentences 1–24, 57–64 (reader, special rule, measured): an embedded TrueType font whose glyphs exist only as
+    /// EBDT bitmaps (bit depth 1) — without glyf and loca, or with all glyphs empty — draws nothing, as two of three reference readers do (the
+    /// third draws the bitmaps only without glyf; probes e1–e4, FG 1160); its text is read all the same.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Ot18_BitmapOnlyEmbeddedFont_DrawsNothing_TextRead(bool emptyGlyf)
+    {
+        var a = Ot18G('A');
+        var (eblc, ebdt, _) = Ot18Bitmaps(a, 1, 1, 1, 0);
+        var emptyLoca = new byte[(Ot18SansFont.GlyphCount + 1) * (Ot18SansFont.LongLoca ? 4 : 2)];
+        var file = Ot18With(Ot18Sans, ("glyf", emptyGlyf ? new byte[4] : null), ("loca", emptyGlyf ? emptyLoca : null), ("EBLC", eblc), ("EBDT", ebdt));
+        var (doc, list, _) = Iso03PageFont("BT /F1 72 Tf 10 20 Td (AAA) Tj ET", pdf =>
+        {
+            var program = pdf.Add(TestPdf.FlateStream(file, TestPdf.Dict(("Length1", Core.Pdf.Objects.PdfInteger.Of(file.Length)))));
+            var descriptor = TestPdf.Dict(("Type", TestPdf.N("FontDescriptor")), ("FontName", TestPdf.N("ProbeBitmap")), ("Flags", Core.Pdf.Objects.PdfInteger.Of(32)),
+                ("FontBBox", TestPdf.Box(0, -200, 1000, 800)), ("ItalicAngle", Core.Pdf.Objects.PdfInteger.Of(0)), ("Ascent", Core.Pdf.Objects.PdfInteger.Of(800)),
+                ("Descent", Core.Pdf.Objects.PdfInteger.Of(-200)), ("CapHeight", Core.Pdf.Objects.PdfInteger.Of(700)), ("StemV", Core.Pdf.Objects.PdfInteger.Of(80)),
+                ("FontFile2", TestPdf.Ref(program)));
+            return TestPdf.Dict(("Type", TestPdf.N("Font")), ("Subtype", TestPdf.N("TrueType")), ("BaseFont", TestPdf.N("ProbeBitmap")),
+                ("Encoding", TestPdf.N("WinAnsiEncoding")), ("FontDescriptor", descriptor));
+        });
+        using (doc)
+        {
+            Assert.Equal("AAA", TextIso01(list));
+            using var bitmap = RenderIso01(doc, list);
+            var ink = 0;
+            for (var y = 0; y < bitmap.Height; y++)
+                for (var x = 0; x < bitmap.Width; x++)
+                    if (bitmap.GetPixel(x, y) is var p && Math.Min(p.Red, Math.Min(p.Green, p.Blue)) < 200) ink++;
+            Assert.Equal(0, ink);
+        }
     }
 }

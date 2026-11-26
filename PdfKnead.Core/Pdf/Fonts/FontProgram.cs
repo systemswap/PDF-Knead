@@ -36,7 +36,10 @@ internal sealed class FontProgram
     /// <summary>Font installed on the computer with the name of the PDF font (its glyph IDs are used as if embedded).</summary>
     public bool IsSystem { get; }
 
-    /// <summary>TrueType outlines (glyf), not CFF.</summary>
+    /// <summary>
+    /// Glyphs chosen as in a TrueType font: outlines in glyf, or in CFF2 (no charset, names or encoding of its own: cmap and post, OpenType 8.12),
+    /// not in 'CFF '.
+    /// </summary>
     public bool IsTrueType => OpenType is not null && OpenType.Cff is null;
 
     /// <summary>Font matrix of the program; 0.001 scaling if none is known.</summary>

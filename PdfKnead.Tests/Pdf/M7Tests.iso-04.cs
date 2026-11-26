@@ -98,11 +98,12 @@ public sealed partial class M7NormTests
     }
 
     /// <summary>
-    /// 9.7.6.3 sentences 3–7 (reader): a CID for which the CIDFont has no glyph, without a notdef mapping, is drawn with the glyph of CID 0 — an
-    /// embedded CID-keyed CFF without CID 7 (a subset of Noto CJK with the CIDs 0 and 100), text with CID 7: the outline of CID 0.
+    /// 9.7.6.3 sentences 3–7 (reader, special rule A198): the norm draws a CID without a glyph with the glyph of CID 0 — an embedded CID-keyed
+    /// CFF without CID 7 (a subset of Noto CJK with the CIDs 0 and 100), text with CID 7. Two of three reference readers draw nothing there
+    /// (probes K7/K8, 25.11.2026), and so does PDF-Knead.
     /// </summary>
-    [Fact(Skip = "M7-Befund: CID ohne Glyphe zeichnet nichts statt der Glyphe von CID 0 (CompositeFont.Select)")]
-    public void CidCffWithoutTheCid_DrawsTheGlyphOfCidZero()
+    [Fact]
+    public void CidCffWithoutTheCid_DrawsNothing_AsTwoOfThreeReaders()
     {
         var (doc, _, font) = Iso03NotoSubsetFont("1 begincidchar\n<05> 7\nendcidchar\n");
         using (doc)
@@ -111,7 +112,7 @@ public sealed partial class M7NormTests
             var notdef = cff.Outline(cff.GlyphByCid(0));
             Assert.False(notdef.IsEmpty);
             Assert.Equal(7, font.Cid(0x05, 1));
-            Assert.True(Iso03SameOutline(notdef, font.Glyph(0x05, 1).Outline));
+            Assert.True(font.Glyph(0x05, 1).Outline.IsEmpty);
         }
     }
 

@@ -183,7 +183,7 @@ public sealed partial class DocumentStructureNormTests
     /// string of 2.0 saved as 1.7 becomes exactly these bytes, one per character.
     /// </summary>
     /// <summary>
-    /// Annex D, Table D.2: of the control characters PDFDocEncoding has only TAB, LF and CR; 00h–08h, 0Bh, 0Ch, 0Eh–17h and 7Fh have no
+    /// Annex D, Table D.3: of the control characters PDFDocEncoding has only TAB, LF and CR; 00h–08h, 0Bh, 0Ch, 0Eh–17h and 7Fh have no
     /// character. A text with one of them is written as UTF-16BE (before, as that byte), and a password with one is no PDFDocEncoding password
     /// (docs/FEHLERGEDAECHTNIS.md, No. 1145).
     /// </summary>

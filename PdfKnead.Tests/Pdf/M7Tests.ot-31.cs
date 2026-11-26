@@ -46,14 +46,14 @@ public sealed partial class M7NormTests
     }
 
     /// <summary>
-    /// OT 31.2.14 sentences 5–6 (today's behaviour, question 27 open): the own font writes yStrikeoutSize 0 (offset 26), its post an underline
-    /// thickness of 50.
+    /// OT 31.2.14 sentences 5–6 and OT 32.2 sentences 6–8 (writer, FG 1166): the own font writes a yStrikeoutSize (offset 26) as thick as the
+    /// underline thickness of its post table (51 of 1024 units).
     /// </summary>
     [Fact]
-    public void Ot31_GlyphlessOs2_StrikeoutSizeZeroToday()
+    public void Ot31_GlyphlessOs2_StrikeoutSizeEqualsTheUnderline()
     {
-        Assert.Equal(0, Ot30U16(Ot30Glyphless, 26));
-        Assert.Equal(50, Ot30U16(Ot05GlyphlessTable("post"), 10));
+        Assert.Equal(51, Ot30U16(Ot30Glyphless, 26));
+        Assert.Equal(51, Ot30U16(Ot05GlyphlessTable("post"), 10));
     }
 
     /// <summary>

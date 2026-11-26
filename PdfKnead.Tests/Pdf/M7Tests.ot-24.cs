@@ -80,8 +80,8 @@ public sealed partial class M7NormTests
     }
 
     /// <summary>
-    /// OT 21.1 sentences 19–22, OT 21.3 sentences 26 and 31 (type 3), OT 21.4.4 sentences 1, 4–8, 10–16, 17–20 (today's behaviour, question
-    /// 13): alternate substitution offers alternatives to choose from; PDF-Knead offers no choice and keeps the default glyph of the cmap,
+    /// OT 21.1 sentences 19–22, OT 21.3 sentences 26 and 31 (type 3), OT 21.4.4 sentences 1, 4–8, 10–16, 17–20 (deliberately so): alternate
+    /// substitution offers alternatives to choose from; PDF-Knead offers no choice of alternates and keeps the default glyph of the cmap,
     /// which sentence 22 allows. A type 3 lookup (coverage {&amp;} or {a}, three alternatives in an AlternateSet) under „salt“ switched on,
     /// or under „liga“, leaves „&amp;“ and „a“ as their cmap glyphs.
     /// </summary>
@@ -132,24 +132,45 @@ public sealed partial class M7NormTests
     }
 
     /// <summary>
-    /// OT 21.1 sentences 33–34, OT 21.3 sentences 26 and 31 (type 8), OT 21.4.9 sentences 1–6, 7–11, 12–16, 17–20, 22–31 (today's behaviour,
-    /// question 13): reverse chaining single substitution is passed over. A type 8 lookup (ReverseChainSingleSubstFormat1, coverage {a},
-    /// lookahead {b}, substitute x) under „calt“ leaves „aab“ (by the specification „axb“); without lookahead „a“ stays „a“ (by the
-    /// specification „x“).
+    /// OT 21.1 sentences 33–34, OT 21.3 sentences 26 and 31 (type 8), OT 21.4.9 sentences 1–6, 7–11, 12–16, 17–20, 22–31: reverse chaining
+    /// single substitution runs from the end of the run to its start (docs/FEHLERGEDAECHTNIS.md, No. 1161; before passed over). A type 8 lookup
+    /// (ReverseChainSingleSubstFormat1, coverage {a}, lookahead {b}, substitute x) under „calt“ turns „aab“ into „axb“ (the first a sees the x
+    /// already made); with the lookahead {b, x} into „xxb“ — processed from the start it would give „axb“; without lookahead „a“ becomes „x“;
+    /// with backtrack {c} „cab“ becomes „cxb“ and „dab“ stays.
     /// </summary>
     [Fact]
-    public void Ot24_ReverseChaining_Type8_LeavesTheGlyphs()
+    public void Ot24_ReverseChaining_Type8_FromTheEndOfTheRun()
     {
-        int a = Ot03G('a'), b = Ot03G('b'), x = Ot03G('x');
-        TextShaper Shaper(bool lookahead)
+        int a = Ot03G('a'), b = Ot03G('b'), c = Ot03G('c'), x = Ot03G('x');
+        TextShaper Shaper(int[] backtrack, int[] lookahead)
         {
-            var sub = new Ot03Part().U16(1).Off(Ot03Cov(a)).U16(0);
-            if (lookahead) sub.U16(1).Off(Ot03Cov(b));
-            else sub.U16(0);
+            var sub = new Ot03Part().U16(1).Off(Ot03Cov(a)).U16(backtrack.Length == 0 ? 0 : 1);
+            if (backtrack.Length > 0) sub.Off(Ot03Cov(backtrack));
+            sub.U16(lookahead.Length == 0 ? 0 : 1);
+            if (lookahead.Length > 0) sub.Off(Ot03Cov(lookahead));
             return Ot03Shaper(Ot03Header([Ot03Lookup(8, 0, sub.U16(1, x))], [("calt", [0])]));
         }
-        Assert.Equal(Ot03Glyphs("aab"), Ot03Shape(Shaper(true), "aab"));
-        Assert.Equal(Ot03Glyphs("a"), Ot03Shape(Shaper(false), "a"));
+        Assert.Equal(Ot03Glyphs("axb"), Ot03Shape(Shaper([], [b]), "aab"));
+        Assert.Equal(Ot03Glyphs("xxb"), Ot03Shape(Shaper([], [b, x]), "aab"));
+        Assert.Equal(Ot03Glyphs("x"), Ot03Shape(Shaper([], []), "a"));
+        Assert.Equal(Ot03Glyphs("cxb"), Ot03Shape(Shaper([c], [b]), "cab"));
+        Assert.Equal(Ot03Glyphs("dab"), Ot03Shape(Shaper([c], [b]), "dab"));
+    }
+
+    /// <summary>
+    /// OT 21.4.9 sentences 1–6: type 8 substitutes one glyph and runs over the whole run backwards, so it is not applied as a nested lookup of a
+    /// context. A chained context (format 3, input {a}) whose record names a type 8 lookup (coverage {a} → x) leaves „ab“; the type 8 lookup
+    /// reached from the extension type (7) applies.
+    /// </summary>
+    [Fact]
+    public void Ot24_ReverseChaining_NotNested_ButAsExtension()
+    {
+        int a = Ot03G('a'), x = Ot03G('x');
+        var reverse = new Ot03Part().U16(1).Off(Ot03Cov(a)).U16(0, 0, 1, x);
+        var nested = Ot03Shaper(Ot03Header([Ot03Lookup(6, 0, Ot03ChainF3([], [[a]], [], (0, 1))), Ot03Lookup(8, 0, reverse)], [("calt", [0])]));
+        Assert.Equal(Ot03Glyphs("ab"), Ot03Shape(nested, "ab"));
+        var extension = Ot03Shaper(Ot03Header([Ot03Lookup(7, 0, Ot24Extension(8, new Ot03Part().U16(1).Off(Ot03Cov(a)).U16(0, 0, 1, x)))], [("calt", [0])]));
+        Assert.Equal(Ot03Glyphs("xb"), Ot03Shape(extension, "ab"));
     }
 
     /// <summary>

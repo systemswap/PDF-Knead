@@ -76,7 +76,11 @@ internal static class PdfACMaps
         IReadOnlyCollection<(uint Code, int Bytes, int Cid)> entries)
     {
         var text = new StringBuilder();
-        text.Append("%!PS-Adobe-3.0 Resource-CMap\n/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n");
+        // the structure comments of a CMap file as the example of ISO 32000-2, 9.7.5.4 and Adobe TN 5014, 5.2 have them (for spoolers; a
+        // reader passes over comments) — before only the first line (docs/FEHLERGEDAECHTNIS.md, No. 1166)
+        text.Append("%!PS-Adobe-3.0 Resource-CMap\n%%DocumentNeededResources: ProcSet (CIDInit)\n%%IncludeResource: ProcSet (CIDInit)\n");
+        text.Append(CultureInfo.InvariantCulture, $"%%BeginResource: CMap ({name})\n%%Title: ({name} {registry} {ordering} {supplement})\n%%Version: 1\n%%EndComments\n");
+        text.Append("/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n");
         text.Append(CultureInfo.InvariantCulture,
             $"/CIDSystemInfo 3 dict dup begin\n/Registry ({registry}) def\n/Ordering ({ordering}) def\n/Supplement {supplement} def\nend def\n");
         text.Append(CultureInfo.InvariantCulture, $"/CMapName /{name} def\n/CMapType 1 def\n/WMode {wMode} def\n");
@@ -89,7 +93,7 @@ internal static class PdfACMaps
             foreach (var (code, bytes, cid) in block) text.Append(CultureInfo.InvariantCulture, $"<{Hex(code, bytes)}> {cid}\n");
             text.Append("endcidchar\n");
         }
-        text.Append("endcmap\nCMapName currentdict /CMap defineresource pop\nend\nend\n");
+        text.Append("endcmap\nCMapName currentdict /CMap defineresource pop\nend\nend\n%%EndResource\n%%EOF\n");
         var dict = new PdfDictionary();
         dict.Set(PdfName.Type, PdfName.Get("CMap"));
         dict.Set(PdfName.Get("CMapName"), PdfName.Get(name));

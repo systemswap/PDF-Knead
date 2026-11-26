@@ -19,9 +19,9 @@ internal sealed class CbdtImages : IGlyphImages
 
     private readonly byte[] _data;
     private readonly int _locationStart, _locationEnd, _dataStart, _dataEnd;
-    private readonly (int Array, int SubTables, int Ppem)[] _strikes;   // largest first
+    private readonly (int Array, int SubTables, int Ppem, int PpemX, int Flags)[] _strikes;   // largest first
 
-    private CbdtImages(byte[] data, (int Offset, int Length) location, (int Offset, int Length) bitmaps, (int, int, int)[] strikes)
+    private CbdtImages(byte[] data, (int Offset, int Length) location, (int Offset, int Length) bitmaps, (int, int, int, int, int)[] strikes)
     {
         _data = data;
         (_locationStart, _locationEnd) = (location.Offset, location.Offset + location.Length);
@@ -44,7 +44,7 @@ internal sealed class CbdtImages : IGlyphImages
         var start = location.Offset;
         if (t.U16(start) is not (2 or 3)) return null;
         var sizes = Math.Min((uint)t.U32(start + 4), MaxStrikes);
-        var found = new List<(int Array, int SubTables, int Ppem)>();
+        var found = new List<(int Array, int SubTables, int Ppem, int PpemX, int Flags)>();
         for (var i = 0; i < sizes; i++)
         {
             var record = start + 8 + i * BitmapSizeLength;
@@ -54,7 +54,8 @@ internal sealed class CbdtImages : IGlyphImages
             var ppem = data[record + 45];
             // Only colour strikes (32 bits per pixel) with an index subtable array inside the table
             if (data[record + 46] != 32 || ppem == 0 || count == 0 || count > MaxIndexSubTables || array + 8L * count > location.Length) continue;
-            found.Add((start + (int)array, (int)count, ppem));
+            // ppemX (+44) and the flags (+47) too: pixels need not be square, and small metrics may be vertical ones (OpenType 14.1; No. 1160)
+            found.Add((start + (int)array, (int)count, ppem, data[record + 44] == 0 ? ppem : data[record + 44], data[record + 47]));
         }
         // every colour strike, largest first — before only the largest, and a glyph it does not hold (or holds in a format not read) had no
         // image although a smaller strike had one (5.2, 5.6; docs/FEHLERGEDAECHTNIS.md, No. 1152)
@@ -64,15 +65,26 @@ internal sealed class CbdtImages : IGlyphImages
     /// <inheritdoc/>
     public (int X, int Y, RgbaImage Image)? Load(int glyph)
     {
-        foreach (var (array, subTables, ppem) in _strikes)
+        foreach (var (array, subTables, ppem, ppemX, flags) in _strikes)
         {
-            if (Load(array, subTables, glyph) is not { } image) continue;
+            if (Load(array, subTables, glyph, flags) is not { } image) continue;
+            // pixels of another width than height (ppemX ≠ ppemY, 14.1): the image widened or narrowed to square pixels of the strike's ppemY
+            if (ppemX != ppem && Stretched(image, (double)ppem / ppemX) is { } square) image = square;
+            else if (ppemX != ppem) continue;
             return ppem == PixelsPerEm ? image : ColorGlyphs.Scaled(image, (double)PixelsPerEm / ppem);
         }
         return null;
     }
 
-    private (int X, int Y, RgbaImage Image)? Load(int array, int subTables, int glyph)
+    /// <summary>A glyph image stretched horizontally by <paramref name="factor"/>; null if it would exceed the pixel limit.</summary>
+    private static (int X, int Y, RgbaImage Image)? Stretched((int X, int Y, RgbaImage Image) glyph, double factor)
+    {
+        var width = Math.Max(1, (int)Math.Round(glyph.Image.Width * factor));
+        if ((long)width * glyph.Image.Height > ColorGlyphs.MaxGlyphPixels) return null;
+        return ((int)Math.Round(glyph.X * factor), glyph.Y, Lanczos.Resize(glyph.Image, width, glyph.Image.Height));
+    }
+
+    private (int X, int Y, RgbaImage Image)? Load(int array, int subTables, int glyph, int flags)
     {
         var t = new Layout.TableData(_data);
         for (var i = 0; i < subTables; i++)
@@ -80,16 +92,20 @@ internal sealed class CbdtImages : IGlyphImages
             var entry = array + i * 8;
             if (glyph < t.U16(entry) || glyph > t.U16(entry + 2)) continue;
             var header = array + (long)(uint)t.U32(entry + 4);
-            return header + 8 > _locationEnd ? null : Image(t, (int)header, glyph - t.U16(entry), glyph);
+            return header + 8 > _locationEnd ? null : Image(t, (int)header, glyph - t.U16(entry), glyph, flags);
         }
         return null;
     }
 
     /// <summary>Finds the image data of a glyph through one index subtable and decodes it.</summary>
-    private (int X, int Y, RgbaImage Image)? Image(Layout.TableData t, int header, int index, int glyph)
+    private (int X, int Y, RgbaImage Image)? Image(Layout.TableData t, int header, int index, int glyph, int flags)
     {
         var indexFormat = t.U16(header);
         var imageFormat = t.U16(header + 2);
+        // small glyph metrics (image formats 1, 2, 17) of a strike whose flags name them vertical only (0x02 without 0x01) give no place in
+        // horizontal text: no image from this strike, the glyph shows its outline or the image of another strike (14.1; before read as
+        // horizontal ones, No. 1160)
+        if ((flags & 3) == 2 && imageFormat is 1 or 2 or 17) return null;
         var imageData = (uint)t.U32(header + 4);
         long offset, length;
         var metrics = -1;   // bigGlyphMetrics in the index subtable (formats 2 and 5), used by image format 19

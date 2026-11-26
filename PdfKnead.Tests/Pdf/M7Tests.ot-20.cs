@@ -1296,17 +1296,18 @@ public sealed partial class M7NormTests
     }
 
     /// <summary>
-    /// OT 20.3 sentences 30–31 (open question 11: GPOS 7 and 8): types 7 and 8 are contextual and chained contextual positioning. A lookup of
-    /// type 7 (format 3, coverages {T} {A} {V}) applying the pair A–V −80 only after T: today „TAV“ is set as without it (after the norm A
-    /// advances 80 less), without an exception. Test of the present behaviour until the question is decided.
+    /// OT 20.3 sentences 30–31: types 7 and 8 are contextual and chained contextual positioning. A lookup of type 7 (format 3, coverages {T} {A}
+    /// {V}) applying the pair A–V −80 only after T: in „TAV“ A advances 80 less, as the pair lookup named directly gives; in „AV“ alone the
+    /// context does not match (docs/FEHLERGEDAECHTNIS.md, No. 1161; before the lookup was passed over).
     /// </summary>
     [Fact]
-    public void Ot20_ContextualPairAfterAGlyph_TodayWithoutEffect()
+    public void Ot20_ContextualPairAfterAGlyph_OnlyAfterIt()
     {
-        var (context, without, direct) = Ot22Contextual(7, Ot22Context3([[Ot20G('T')], [Ot20G('A')], [Ot20G('V')]], (1, 1)), "TAV", 1,
-            Ot20Lookup(2, Ot20Pair1(4, 0, (Ot20G('A'), Ot20G('V'), [-80], []))));
-        Ot22SamePositions(without, context);
+        var pair = Ot20Lookup(2, Ot20Pair1(4, 0, (Ot20G('A'), Ot20G('V'), [-80], [])));
+        var (context, _, direct) = Ot22Contextual(7, Ot22Context3([[Ot20G('T')], [Ot20G('A')], [Ot20G('V')]], (1, 1)), "TAV", 1, pair);
         Assert.Equal(Ot20Adv('A') - 80, direct[1].XAdvance);
+        Ot22SamePositions(direct, context);
+        Assert.Equal(Ot20Adv('A'), Ot22Contextual(7, Ot22Context3([[Ot20G('T')], [Ot20G('A')], [Ot20G('V')]], (1, 1)), "AV", 1, pair).Context[0].XAdvance);
     }
 
     /// <summary>

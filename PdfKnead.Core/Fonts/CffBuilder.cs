@@ -232,6 +232,30 @@ internal static class CffBuilder
     {
         var d = new List<byte>();
         if (advance != 0) Number(d, advance);
+        AppendPath(d, outline);
+        d.Add(14);   // endchar
+        // a charstring holds at most 65 535 bytes (Adobe TN 5177, Appendix B): a longer outline is not built (No. 1148)
+        if (d.Count > 65535) throw new FontFormatException("CFF: Glyphe zu lang");
+        return [.. d];
+    }
+
+    /// <summary>
+    /// A CFF2 charstring of an outline (OpenType 8.10): the relative moves, lines and curves alone — no width, no endchar (No. 1158).
+    /// </summary>
+    /// <param name="outline">The outline in glyph space.</param>
+    /// <returns>The charstring; empty for an empty outline.</returns>
+    /// <exception cref="FontFormatException">The charstring would exceed 65 535 bytes.</exception>
+    internal static byte[] Path(GlyphOutline outline)
+    {
+        var d = new List<byte>();
+        AppendPath(d, outline);
+        if (d.Count > 65535) throw new FontFormatException("CFF2: Glyphe zu lang");
+        return [.. d];
+    }
+
+    /// <summary>The outline as relative moves, lines and curves (rmoveto, rlineto, rrcurveto).</summary>
+    private static void AppendPath(List<byte> d, GlyphOutline outline)
+    {
         double x = 0, y = 0;
         var points = outline.Points;
         var p = 0;
@@ -270,14 +294,10 @@ internal static class CffBuilder
                     break;
             }
         }
-        d.Add(14);   // endchar
-        // a charstring holds at most 65 535 bytes (Adobe TN 5177, Appendix B): a longer outline is not built (No. 1148)
-        if (d.Count > 65535) throw new FontFormatException("CFF: Glyphe zu lang");
-        return [.. d];
     }
 
     /// <summary>A charstring number: an integer in its short forms, otherwise 16.16 fixed point.</summary>
-    private static void Number(List<byte> d, double v)
+    internal static void Number(List<byte> d, double v)
     {
         if (v == Math.Round(v) && v is >= short.MinValue and <= short.MaxValue)
         {

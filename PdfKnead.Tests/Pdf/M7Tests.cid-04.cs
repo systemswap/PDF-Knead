@@ -91,12 +91,12 @@ public sealed partial class M7NormTests
     }
 
     /// <summary>
-    /// CID B.3 sentence 8: what stands in a procedure { … } is not executed when the CMap is read. Open question (FRAGEN.md 30, finding B68): this
-    /// test holds today's behaviour — CMap.Parse treats braces as delimiters only, so „{ 1 begincidchar &lt;41&gt; 9 endcidchar } pop“ beside a
-    /// codespace 00–FF still maps 41 to CID 9 (the text: CID 0).
+    /// CID B.3 sentence 8 (reader, special rule A199): what stands in a procedure { … } would not be executed when the CMap is read — but two of
+    /// three reference readers take the mappings inside it (probe K23b, 26.11.2026), and so does PDF-Knead: CMap.Parse treats braces as
+    /// delimiters only, so „{ 1 begincidchar &lt;41&gt; 9 endcidchar } pop“ beside a codespace 00–FF maps 41 to CID 9 (the text: CID 0).
     /// </summary>
     [Fact]
-    public void Cid04_ProcedureBodies_TheirMappingsCountToday()
+    public void Cid04_ProcedureBodies_TheirMappingsCount_AsTwoOfThreeReaders()
     {
         var cmap = Cid03Parse("1 begincodespacerange <00> <FF> endcodespacerange { 1 begincidchar <41> 9 endcidchar } pop");
         Assert.Equal(9, cmap.ToCid(0x41, 1));   // the text: 0 (FRAGEN.md 30)
