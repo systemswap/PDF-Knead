@@ -869,4 +869,25 @@ public sealed partial class M7NormTests
         Assert.Equal(0, priv[0]);
         Assert.True(priv[1] > 0);
     }
+
+    /// <summary>
+    /// TN 5176, 3 sentences 7–14 (Table 2: OffSize is 1 to 4): an INDEX whose OffSize is 0 or 5 is refused (FontFormatException), one of 1 reads
+    /// its single item.
+    /// </summary>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(5)]
+    public void Cff01_IndexOffSizeOutside1To4_IsRefused(int offSize)
+    {
+        byte[] data = [0, 1, (byte)offSize, 1, 2, 0x41];
+        Assert.Throws<FontFormatException>(() =>
+        {
+            var reader = new FontReader(data);
+            CffFont.CffIndex.Read(data, ref reader);
+        });
+        byte[] valid = [0, 1, 1, 1, 2, 0x41];
+        var r = new FontReader(valid);
+        var index = CffFont.CffIndex.Read(valid, ref r);
+        Assert.Equal([0x41], index.Item(valid, 0).ToArray());
+    }
 }
