@@ -180,6 +180,8 @@ public static class RichFonts
         var os2 = font.TableData("OS/2");
         if (os2.Length < 10) return true;   // no entry: installable
         var fsType = BinaryPrimitives.ReadUInt16BigEndian(os2[8..]);
+        // versions 0 and 1 know only bits 0–3 (OpenType OS/2 31.2.5; before bits 8 and 9 counted there too, No. 1152)
+        if (BinaryPrimitives.ReadUInt16BigEndian(os2) < 2) fsType &= 0x000F;
         var restricted = (fsType & 0x000F) == 0x0002;
         var noSubset = (fsType & 0x0100) != 0;
         var bitmapOnly = (fsType & 0x0200) != 0;
@@ -195,6 +197,8 @@ public static class RichFonts
         if (os2.Length < 64) return (false, false);
         var weight = BinaryPrimitives.ReadUInt16BigEndian(os2[4..]);
         var selection = BinaryPrimitives.ReadUInt16BigEndian(os2[62..]);
-        return (weight >= 600 || (selection & 0x20) != 0, (selection & 0x01) != 0 || (selection & 0x200) != 0);
+        // bit 9 (oblique) from version 4 (31.2.20: versions 0–3 ignore bits 7–15; before always, No. 1152)
+        var oblique = BinaryPrimitives.ReadUInt16BigEndian(os2) >= 4 && (selection & 0x200) != 0;
+        return (weight >= 600 || (selection & 0x20) != 0, (selection & 0x01) != 0 || oblique);
     }
 }

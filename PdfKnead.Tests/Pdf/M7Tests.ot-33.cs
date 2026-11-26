@@ -201,7 +201,7 @@ public sealed partial class M7NormTests
     /// OT 34 sentence 9 and OT 34.2 sentences 15–16, 18: strikes need not cover every glyph, and a glyph that has an image in any strike must
     /// be drawn with one — strikes of 64 and 128 ppem, „A“ only in the 64 strike: <c>ColorGlyphs.Glyph(A)</c> must give an image.
     /// </summary>
-    [Fact(Skip = "M7-Befund: sbix — nur der größte Strike wird gelesen, eine Glyphe nur im kleineren Strike bekommt kein Bild (SbixImages.TryCreate/Load)")]
+    [Fact]
     public void Ot33_SbixGlyphOnlyInTheSmallerStrike_GetsAnImage()
     {
         var font = Ot33WithTable("sbix", Ot33Sbix(1,
@@ -238,7 +238,7 @@ public sealed partial class M7NormTests
     /// OT 34.1 sentence 13 and OT 35.6 sentence 6: a glyph without a bitmap or SVG description is drawn with its outline — „M€x“ in a colour
     /// font without an image for „€“: in the composed image something must stand in the advance of „€“ (its outline); the place stays empty.
     /// </summary>
-    [Theory(Skip = "M7-Befund: Glyphen ohne Farbbild bleiben in ColorGlyphs.Compose (und der Unterschrift) leer statt ihren Umriss zu zeigen")]
+    [Theory]
     [InlineData(ColorFontBuilder.Kind.Sbix, 128)]
     [InlineData(ColorFontBuilder.Kind.Svg, 200)]
     public void Ot33_GlyphWithoutColourImage_ShowsItsOutline(ColorFontBuilder.Kind kind, int ppem)
@@ -333,7 +333,7 @@ public sealed partial class M7NormTests
     /// OT 34.3 sentences 14–15: the standard graphic types are JPEG, PNG and TIFF — a glyph whose data are a JPEG („jpg “) must give an image
     /// (a JPEG decoder is part of the program).
     /// </summary>
-    [Fact(Skip = "M7-Befund: sbix — nur „png “ wird dekodiert, JPEG- und TIFF-Bilder ergeben kein Bild (SbixImages.Load)")]
+    [Fact]
     public void Ot33_SbixJpegImage_IsDecoded()
     {
         using var bitmap = new SKBitmap(8, 8);
@@ -454,7 +454,7 @@ public sealed partial class M7NormTests
     /// OT 35.2 sentence 21: svgDocOffset must not be 0 — a record with offset 0 (its length up to the end of the table) gives that glyph no
     /// image and throws nothing; the other glyph keeps its image.
     /// </summary>
-    [Fact(Skip = "M7-Befund: SVG — svgDocOffset 0 wird nicht abgewiesen, das „Dokument“ ab dem Listenanfang liefert das Bild einer anderen Glyphe (SvgPngImages.Picture)")]
+    [Fact]
     public void Ot33_SvgDocOffsetZero_GivesNoImage()
     {
         var (a, b) = (Ot33Gid('A'), Ot33Gid('B'));
@@ -492,7 +492,7 @@ public sealed partial class M7NormTests
     /// document for glyphs 2, 13, 14 (the image of glyph13 first), records [2,2] and [13,14]: glyph 2 must get the image of the element
     /// glyph2 (8 px), not that of glyph13 (32 px).
     /// </summary>
-    [Fact(Skip = "M7-Befund: SVG — bei einem Einzeleintrag auf ein gemeinsames Dokument wird nicht nach id=\"glyph<N>\" gesucht, Glyphe 2 bekommt das Bild von glyph13 (SvgPngImages.Picture)")]
+    [Fact]
     public void Ot33_SvgDocumentForSeveralGlyphs_SingleRecordFindsItsOwnElement()
     {
         var doc = Ot33Doc($"""<g id="glyph13">{Ot33Image(32)}</g><g id="glyph2">{Ot33Image(8)}</g><g id="glyph14">{Ot33Image(16)}</g>""");
@@ -506,7 +506,7 @@ public sealed partial class M7NormTests
     /// OT 35.3.2 sentences 7–12: documents are XML and the application must handle the XML form — an image element inside a comment is no
     /// element; the real image after it (8 px) must be used, not the commented one (32 px).
     /// </summary>
-    [Fact(Skip = "M7-Befund: SVG — kein XML-Zerleger, ein auskommentiertes image-Element wird als Bild genommen (SvgPngImages.Picture)")]
+    [Fact]
     public void Ot33_SvgCommentedImageElement_IsNotTheImage()
     {
         var a = Ot33Gid('A');
@@ -561,7 +561,7 @@ public sealed partial class M7NormTests
     /// OT 35.3.3 sentences 3–17: elements inside a and switch are restricted and to be ignored — an image inside a, and one inside switch,
     /// must give no image.
     /// </summary>
-    [Fact(Skip = "M7-Befund: SVG — ein image innerhalb von a bzw. switch wird gezeigt statt übergangen (SvgPngImages.Picture)")]
+    [Fact]
     public void Ot33_SvgImageInsideAOrSwitch_IsIgnored()
     {
         var (a, b, c) = (Ot33Gid('A'), Ot33Gid('B'), Ot33Gid('C'));
@@ -613,7 +613,7 @@ public sealed partial class M7NormTests
     /// OT 35.5 sentences 9–10, 14–15: the element with the glyph id is rendered as if referenced by use, with its own content only — an
     /// empty &lt;g id="glyph5"/&gt; followed by &lt;g id="glyph6"&gt; with an image, record [5,6]: glyph 5 must have no image (it gets glyph 6's).
     /// </summary>
-    [Fact(Skip = "M7-Befund: SVG — das Element mit der id wird nicht abgegrenzt, glyph5 bekommt das image des folgenden glyph6 (SvgPngImages.Picture)")]
+    [Fact]
     public void Ot33_SvgEmptyElementWithTheId_HasNoImage()
     {
         var doc = Ot33Doc($"""<g id="glyph5"/><g id="glyph6">{Ot33Image(16)}</g>""");
@@ -651,7 +651,7 @@ public sealed partial class M7NormTests
     /// OT 35.7 sentences 4–5: width and height on the svg element act as a scaling — width and height of twice the em: the image must come out
     /// half as large as without them.
     /// </summary>
-    [Fact(Skip = "M7-Befund: SVG — width/height am svg-Element werden übergangen, das Bild bleibt unverkleinert (SvgPngImages.Picture)")]
+    [Fact]
     public void Ot33_SvgRootWidthAndHeight_ScaleTheImage()
     {
         var (a, b) = (Ot33Gid('A'), Ot33Gid('B'));

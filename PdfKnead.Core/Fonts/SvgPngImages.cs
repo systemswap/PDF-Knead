@@ -32,6 +32,7 @@ internal sealed partial class SvgPngImages : IGlyphImages
 
     private readonly byte[] _data;
     private readonly int _list, _entries, _end;
+    private readonly int _unitsPerEm;
     private readonly double _scale;   // px per font unit
 
     private SvgPngImages(byte[] data, int list, int entries, int end, int ppem, int unitsPerEm)
@@ -40,6 +41,7 @@ internal sealed partial class SvgPngImages : IGlyphImages
         _list = list;
         _entries = entries;
         _end = end;
+        _unitsPerEm = unitsPerEm;
         PixelsPerEm = ppem;
         _scale = (double)ppem / unitsPerEm;
     }
@@ -115,22 +117,31 @@ internal sealed partial class SvgPngImages : IGlyphImages
     {
         var t = new Layout.TableData(_data);
         var record = _list + 2 + entry * RecordLength;
+        // an svgDocOffset of 0 names no document (35.2; before the document list itself was read as one, No. 1152)
+        if ((uint)t.U32(record + 4) == 0) return null;
         var at = _list + (long)(uint)t.U32(record + 4);
         var length = (uint)t.U32(record + 8);
         if (length == 0 || at + length > _end) return null;
         if (Document(at, length) is not { } text) return null;
         // Anything besides one image (shapes, references, transforms, an own coordinate system) is not a plain PNG glyph
         if (Unsupported().IsMatch(text)) return null;
-        var from = 0;
-        if (t.U16(record) != t.U16(record + 2))
+        // the element of the glyph, id="glyph<ID>", in every document (35.5; before only in one for several glyphs): its content only — an
+        // empty element has no image; without it a document of this glyph alone is the glyph (No. 1152)
+        var (from, to) = (0, text.Length);
+        if (Element(text, glyph) is { } element) (from, to) = element;
+        else if (t.U16(record) != t.U16(record + 2) || ElementOfAnother(text)) return null;
+        if (from >= to) return null;
+        // the first image of it that is not inside a link or a switch (only static content counts, 35.3.3)
+        var tag = from;
+        while (true)
         {
-            // A document for several glyphs: the image after the element with id="glyph<ID>"
-            from = text.IndexOf($"id=\"glyph{glyph}\"", StringComparison.Ordinal);
-            if (from < 0) from = text.IndexOf($"id='glyph{glyph}'", StringComparison.Ordinal);
-            if (from < 0) return null;
+            tag = text.IndexOf("<image", tag, StringComparison.Ordinal);
+            if (tag < 0 || tag >= to) return null;
+            if (tag + 6 < text.Length && (char.IsWhiteSpace(text[tag + 6]) || text[tag + 6] is '/' or '>') && Depth(text, "a", tag) == 0 &&
+                Depth(text, "switch", tag) == 0)
+                break;
+            tag += 6;
         }
-        var tag = text.IndexOf("<image", from, StringComparison.Ordinal);
-        if (tag < 0) return null;
         var close = text.IndexOf('>', tag);
         if (close < 0) return null;
         double x = 0, y = 0, w = 0, h = 0;
@@ -146,6 +157,12 @@ internal sealed partial class SvgPngImages : IGlyphImages
                 case "height": h = Number(value); break;
                 case "href" or "xlink:href": href = value; break;
             }
+        }
+        // width and height on the <svg> element scale the em square they stand for (35.7; before passed over, No. 1152)
+        if (RootSize(text) is var (rootWidth, rootHeight))
+        {
+            var (sx, sy) = (rootWidth > 0 ? _unitsPerEm / rootWidth : 1, rootHeight > 0 ? _unitsPerEm / rootHeight : 1);
+            (x, w, y, h) = (x * sx, w * sx, y * sy, h * sy);
         }
         const string prefix = "data:image/png;base64,";
         if (!(w > 0 && h > 0) || !double.IsFinite(x) || !double.IsFinite(y) || href is null || !href.StartsWith(prefix, StringComparison.Ordinal))
@@ -170,7 +187,8 @@ internal sealed partial class SvgPngImages : IGlyphImages
         {
             if (_document is { } kept && kept.At == at && kept.Length == length) return kept.Text;
         }
-        var text = Text(_data.AsSpan((int)at, (int)length));
+        // without comments (and CDATA sections, which hold no elements): an image in a comment is none (35.3.2; No. 1152)
+        var text = Text(_data.AsSpan((int)at, (int)length)) is { } raw ? Comments().Replace(raw, " ") : null;
         lock (_lock) _document = (at, length, text);
         return text;
     }
@@ -205,8 +223,84 @@ internal sealed partial class SvgPngImages : IGlyphImages
     private static double Number(string text) =>
         double.TryParse(text.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var value) ? value : double.NaN;
 
+    /// <summary>
+    /// The content of the element with id="glyph<paramref name="glyph"/>": from behind its start tag to its end tag (an empty element gives
+    /// an empty range); null if the document has no such element.
+    /// </summary>
+    private static (int From, int To)? Element(string text, int glyph)
+    {
+        var id = text.IndexOf($"id=\"glyph{glyph}\"", StringComparison.Ordinal);
+        if (id < 0) id = text.IndexOf($"id='glyph{glyph}'", StringComparison.Ordinal);
+        if (id < 0) return null;
+        var open = text.LastIndexOf('<', id);
+        var close = text.IndexOf('>', id);
+        if (open < 0 || close < 0) return (0, 0);
+        if (text[close - 1] == '/') return (close + 1, close + 1);
+        var nameEnd = open + 1;
+        while (nameEnd < text.Length && !char.IsWhiteSpace(text[nameEnd]) && text[nameEnd] is not ('>' or '/')) nameEnd++;
+        var name = text[(open + 1)..nameEnd];
+        // its end tag, counting elements of the same name inside it
+        var depth = 1;
+        for (var at = close + 1; at < text.Length;)
+        {
+            var next = text.IndexOf('<', at);
+            if (next < 0) break;
+            if (text.AsSpan(next + 1).StartsWith("/" + name) && Ends(text, next + 2 + name.Length) && --depth == 0) return (close + 1, next);
+            if (text.AsSpan(next + 1).StartsWith(name) && Ends(text, next + 1 + name.Length))
+            {
+                var end = text.IndexOf('>', next);
+                if (end > 0 && text[end - 1] != '/') depth++;
+            }
+            at = next + 1;
+        }
+        return (close + 1, text.Length);
+    }
+
+    /// <summary>Whether the document has glyph elements (id="glyph…") — then a glyph without its own has none.</summary>
+    private static bool ElementOfAnother(string text) => text.Contains("id=\"glyph", StringComparison.Ordinal) || text.Contains("id='glyph", StringComparison.Ordinal);
+
+    private static bool Ends(string text, int at) => at >= text.Length || char.IsWhiteSpace(text[at]) || text[at] is '>' or '/';
+
+    /// <summary>How many elements named <paramref name="name"/> are open at <paramref name="position"/> (self-closing ones not counted).</summary>
+    private static int Depth(string text, string name, int position)
+    {
+        var depth = 0;
+        for (var at = text.IndexOf('<'); at >= 0 && at < position; at = text.IndexOf('<', at + 1))
+        {
+            if (text.AsSpan(at + 1).StartsWith("/" + name) && Ends(text, at + 2 + name.Length)) depth = Math.Max(0, depth - 1);
+            else if (text.AsSpan(at + 1).StartsWith(name) && Ends(text, at + 1 + name.Length))
+            {
+                var end = text.IndexOf('>', at);
+                if (end > 0 && text[end - 1] != '/') depth++;
+            }
+        }
+        return depth;
+    }
+
+    /// <summary>The plain numbers of width and height of the &lt;svg&gt; element, null where it has neither.</summary>
+    private static (double Width, double Height)? RootSize(string text)
+    {
+        var root = text.IndexOf("<svg", StringComparison.Ordinal);
+        if (root < 0) return null;
+        var close = text.IndexOf('>', root);
+        if (close < 0) return null;
+        double width = 0, height = 0;
+        foreach (Match m in Attribute().Matches(text[(root + 4)..close]))
+        {
+            var value = m.Groups[3].Success ? m.Groups[3].Value : m.Groups[4].Value;
+            if (m.Groups[1].Value == "width") width = Number(value);
+            else if (m.Groups[1].Value == "height") height = Number(value);
+        }
+        width = double.IsFinite(width) ? width : 0;
+        height = double.IsFinite(height) ? height : 0;
+        return width > 0 || height > 0 ? (width, height) : null;
+    }
+
     [GeneratedRegex("""<(path|rect|circle|ellipse|line|polyline|polygon|text|use|clipPath|mask|filter|pattern)[\s/>]|\s(transform|viewBox|clip-path|mask|filter)\s*=""")]
     private static partial Regex Unsupported();
+
+    [GeneratedRegex("""<!--.*?-->|<!\[CDATA\[.*?\]\]>""", RegexOptions.Singleline)]
+    private static partial Regex Comments();
 
     [GeneratedRegex("""\s([A-Za-z_][\w:.-]*)\s*=\s*("([^"]*)"|'([^']*)')""")]
     private static partial Regex Attribute();

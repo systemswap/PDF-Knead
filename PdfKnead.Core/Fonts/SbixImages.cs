@@ -3,23 +3,23 @@ using PdfKnead.Core.Imaging;
 namespace PdfKnead.Core.Fonts;
 
 /// <summary>
-/// Images from the 'sbix' table (Apple, OpenType 1.9 "sbix — Standard Bitmap Graphics Table"): strikes of PNG images per size; the
-/// largest strike (sharpest image) is used.
+/// Images from the 'sbix' table (Apple, OpenType 1.9 "sbix — Standard Bitmap Graphics Table"): strikes of PNG or JPEG images per size; a
+/// glyph takes its image from the largest strike that has one (strikes need not cover every glyph, 34.2), scaled to the largest.
 /// </summary>
 internal sealed class SbixImages : IGlyphImages
 {
     // The font file itself (no copy of the sbix table, which can take several MB); _strike is an absolute offset, _end the end of the table
     private readonly byte[] _data;
-    private readonly int _strike;
+    private readonly (int Offset, int Ppem)[] _strikes;   // largest first, of one size in the order of the table
     private readonly int _end;
     private readonly int _glyphCount;
 
-    private SbixImages(byte[] data, int strike, int end, int ppem, int glyphCount)
+    private SbixImages(byte[] data, (int Offset, int Ppem)[] strikes, int end, int glyphCount)
     {
         _data = data;
-        _strike = strike;
+        _strikes = strikes;
         _end = end;
-        PixelsPerEm = ppem;
+        PixelsPerEm = strikes[0].Ppem;
         _glyphCount = glyphCount;
     }
 
@@ -39,40 +39,48 @@ internal sealed class SbixImages : IGlyphImages
         var (start, end) = (table.Offset, table.Offset + table.Length);
         var strikes = t.U32(start + 4);
         if (strikes <= 0) return null;
-        int best = -1, bestPpem = 0;
+        var found = new List<(int Offset, int Ppem)>();
         for (var i = 0; i < strikes && i < 64; i++)
         {
             var at = t.U32(start + 8 + i * 4);
             var ppem = t.U16(start + at);
-            if (ppem > bestPpem && at > 0 && at < table.Length)
-            {
-                best = start + at;
-                bestPpem = ppem;
-            }
+            if (ppem > 0 && at > 0 && at < table.Length) found.Add((start + at, ppem));
         }
-        return best < 0 ? null : new SbixImages(data, best, end, bestPpem, font.GlyphCount);
+        // every strike, largest first (stable: of two strikes of one size the first) — before only the largest, and a glyph only in a
+        // smaller one had no image (OpenType sbix 34.2; docs/FEHLERGEDAECHTNIS.md, No. 1152)
+        return found.Count == 0 ? null : new SbixImages(data, [.. found.OrderByDescending(s => s.Ppem)], end, font.GlyphCount);
     }
 
     /// <inheritdoc/>
-    public (int X, int Y, RgbaImage Image)? Load(int glyph) => Load(glyph, 0);
+    public (int X, int Y, RgbaImage Image)? Load(int glyph)
+    {
+        foreach (var (strike, ppem) in _strikes)
+        {
+            if (Load(strike, glyph, 0) is not { } image) continue;
+            return ppem == PixelsPerEm ? image : ColorGlyphs.Scaled(image, (double)PixelsPerEm / ppem);
+        }
+        return null;
+    }
 
-    private (int X, int Y, RgbaImage Image)? Load(int glyph, int depth)
+    private (int X, int Y, RgbaImage Image)? Load(int strike, int glyph, int depth)
     {
         if (glyph < 0 || glyph >= _glyphCount || depth > 4) return null;
         var t = new Layout.TableData(_data);
-        var start = t.U32(_strike + 4 + glyph * 4);
-        var end = t.U32(_strike + 4 + (glyph + 1) * 4);
+        var start = t.U32(strike + 4 + glyph * 4);
+        var end = t.U32(strike + 4 + (glyph + 1) * 4);
         // Offset32 from the strike: one of 2³¹ or more, read as negative, pointed before the strike (No. 1138)
         if (start < 0 || end < 0 || end - start <= 8) return null;
-        var at = _strike + start;
-        if (at < 0 || (long)_strike + end > _end) return null;
+        var at = strike + start;
+        if (at < 0 || (long)strike + end > _end) return null;
         var type = t.Tag(at + 4);
-        if (type == "dupe") return Load(t.U16(at + 8), depth + 1);
-        if (type != "png " || !ColorGlyphs.Fits(_data.AsSpan(at + 8, end - start - 8))) return null;
+        if (type == "dupe") return Load(strike, t.U16(at + 8), depth + 1);
+        var bytes = _data.AsSpan(at + 8, end - start - 8);
         try
         {
-            var image = PngDecoder.Decode(_data.AsSpan(at + 8, end - start - 8));
-            return (t.I16(at), t.I16(at + 2), image);
+            // PNG, and JPEG as the table allows (34.3; before only PNG, No. 1152)
+            if (type == "png " && ColorGlyphs.Fits(bytes)) return (t.I16(at), t.I16(at + 2), PngDecoder.Decode(bytes));
+            if (type == "jpg " && ColorGlyphs.Jpeg(bytes) is { } jpeg) return (t.I16(at), t.I16(at + 2), jpeg);
+            return null;
         }
         catch (Exception e) when (e is InvalidDataException or IOException)
         {

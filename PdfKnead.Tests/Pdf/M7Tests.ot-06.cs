@@ -402,7 +402,7 @@ public sealed partial class M7NormTests
     /// OT 5.2 sentences 1–4 (reader): bit depth 32 means BGRA, premultiplied, and the image formats of EBDT hold in CBDT too — a strike of
     /// image format 1 (small metrics, one row of one pixel 00 80 00 80, half transparent green) gives that pixel.
     /// </summary>
-    [Fact(Skip = "M7-Befund: unkomprimierte BGRA-Bilder (Bildformat 1) werden nicht gelesen, nur PNG (CbdtImages.Image)")]
+    [Fact]
     public void Cbdt_UncompressedBgraImage_IsRead()
     {
         byte[] record = [1, 1, 0, 1, 1, 0x00, 0x80, 0x00, 0x80];
@@ -422,7 +422,7 @@ public sealed partial class M7NormTests
     /// OT 5.2 sentences 1–4 and 5.6 sentences 1–3 (reader): a 32-bit strike of 96 ppem with only image format 1 and one of 48 ppem with PNG
     /// images — the glyph still has an image (from either strike), not none.
     /// </summary>
-    [Fact(Skip = "M7-Befund: ein 32-Bit-Strike nur mit Bildformat 1 verdrängt den kleineren PNG-Strike, die Glyphe hat kein Bild (CbdtImages.TryCreate)")]
+    [Fact]
     public void Cbdt_StrikeWithoutPngImages_DoesNotHideASmallerPngStrike()
     {
         byte[] record = [1, 1, 0, 1, 1, 0x00, 0x80, 0x00, 0x80];
@@ -458,7 +458,7 @@ public sealed partial class M7NormTests
     /// OT 5.3 sentence 5 (reader): each image has the size its metrics give — a format 17 glyph with metrics 10 × 10 and a PNG of 20 × 20 is
     /// left out or drawn at 10 × 10, not at 20 × 20.
     /// </summary>
-    [Fact(Skip = "M7-Befund: die Bildgröße wird nicht mit der Metrik verglichen, das PNG von 20 × 20 wird in seiner Größe gesetzt (CbdtImages.Image)")]
+    [Fact]
     public void CbdtPng_LargerThanItsMetrics_NotDrawnAtItsOwnSize()
     {
         var color = ColorGlyphs.For(Ot06ColorFont([new Ot06Strike(96, 96, 32, 1, 1, 17, Ot06Format17(Ot06Png(20, 20), 10, 10, 0, 10))]));

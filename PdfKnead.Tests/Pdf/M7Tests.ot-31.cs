@@ -286,7 +286,7 @@ public sealed partial class M7NormTests
     /// OT 31.2.20 sentence 64: in versions 0–3 bits 7–15 are to be ignored — a system font with OS/2 version 3 and only bit 9 should need a faked
     /// italic.
     /// </summary>
-    [Fact(Skip = "M7-Befund: RichFonts.StyleOf wertet fsSelection-Bit 9 auch bei OS/2-Fassung 0–3 aus (kein nachgeahmtes Kursiv)")]
+    [Fact]
     public void Ot31_ObliqueBitInVersion3_Ignored()
     {
         Assert.True(Ot30Fakes(Ot30WithOs2(o => Ot30Set(o, 62, 0x0200), 3), false, true).FakeItalic);

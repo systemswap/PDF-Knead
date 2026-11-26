@@ -4,8 +4,9 @@ namespace PdfKnead.Core.Fonts;
 
 /// <summary>
 /// Images from the 'CBLC'/'CBDT' tables (OpenType 1.9, "CBLC — Color Bitmap Location Table" and "CBDT — Color Bitmap Data
-/// Table"): per size one BitmapSize record with index subtables (formats 1 to 5) that point to PNG images (formats 17, 18, 19).
-/// The largest 32-bit strike is used.
+/// Table"): per size one BitmapSize record with index subtables (formats 1 to 5) that point to PNG images (formats 17, 18, 19) or to
+/// uncompressed BGRA images (the EBDT formats 1, 2, 5, 6, 7 with 32 bits per pixel, 5.2). A glyph takes its image from the largest 32-bit
+/// strike that has one, scaled to the largest.
 /// </summary>
 /// <remarks>
 /// Every offset is checked against its table, so a damaged or prepared font only loses glyph images and never reads outside the file.
@@ -18,16 +19,15 @@ internal sealed class CbdtImages : IGlyphImages
 
     private readonly byte[] _data;
     private readonly int _locationStart, _locationEnd, _dataStart, _dataEnd;
-    private readonly int _array, _subTables;
+    private readonly (int Array, int SubTables, int Ppem)[] _strikes;   // largest first
 
-    private CbdtImages(byte[] data, (int Offset, int Length) location, (int Offset, int Length) bitmaps, int array, int subTables, int ppem)
+    private CbdtImages(byte[] data, (int Offset, int Length) location, (int Offset, int Length) bitmaps, (int, int, int)[] strikes)
     {
         _data = data;
         (_locationStart, _locationEnd) = (location.Offset, location.Offset + location.Length);
         (_dataStart, _dataEnd) = (bitmaps.Offset, bitmaps.Offset + bitmaps.Length);
-        _array = array;
-        _subTables = subTables;
-        PixelsPerEm = ppem;
+        _strikes = strikes;
+        PixelsPerEm = strikes[0].Item3;
     }
 
     /// <inheritdoc/>
@@ -44,7 +44,7 @@ internal sealed class CbdtImages : IGlyphImages
         var start = location.Offset;
         if (t.U16(start) is not (2 or 3)) return null;
         var sizes = Math.Min((uint)t.U32(start + 4), MaxStrikes);
-        int bestArray = -1, bestCount = 0, bestPpem = 0;
+        var found = new List<(int Array, int SubTables, int Ppem)>();
         for (var i = 0; i < sizes; i++)
         {
             var record = start + 8 + i * BitmapSizeLength;
@@ -53,22 +53,33 @@ internal sealed class CbdtImages : IGlyphImages
             var count = (uint)t.U32(record + 8);
             var ppem = data[record + 45];
             // Only colour strikes (32 bits per pixel) with an index subtable array inside the table
-            if (data[record + 46] != 32 || count == 0 || count > MaxIndexSubTables || array + 8L * count > location.Length) continue;
-            if (ppem <= bestPpem) continue;
-            (bestArray, bestCount, bestPpem) = (start + (int)array, (int)count, ppem);
+            if (data[record + 46] != 32 || ppem == 0 || count == 0 || count > MaxIndexSubTables || array + 8L * count > location.Length) continue;
+            found.Add((start + (int)array, (int)count, ppem));
         }
-        return bestArray < 0 ? null : new CbdtImages(data, location, bitmaps, bestArray, bestCount, bestPpem);
+        // every colour strike, largest first — before only the largest, and a glyph it does not hold (or holds in a format not read) had no
+        // image although a smaller strike had one (5.2, 5.6; docs/FEHLERGEDAECHTNIS.md, No. 1152)
+        return found.Count == 0 ? null : new CbdtImages(data, location, bitmaps, [.. found.OrderByDescending(s => s.Ppem)]);
     }
 
     /// <inheritdoc/>
     public (int X, int Y, RgbaImage Image)? Load(int glyph)
     {
-        var t = new Layout.TableData(_data);
-        for (var i = 0; i < _subTables; i++)
+        foreach (var (array, subTables, ppem) in _strikes)
         {
-            var entry = _array + i * 8;
+            if (Load(array, subTables, glyph) is not { } image) continue;
+            return ppem == PixelsPerEm ? image : ColorGlyphs.Scaled(image, (double)PixelsPerEm / ppem);
+        }
+        return null;
+    }
+
+    private (int X, int Y, RgbaImage Image)? Load(int array, int subTables, int glyph)
+    {
+        var t = new Layout.TableData(_data);
+        for (var i = 0; i < subTables; i++)
+        {
+            var entry = array + i * 8;
             if (glyph < t.U16(entry) || glyph > t.U16(entry + 2)) continue;
-            var header = _array + (long)(uint)t.U32(entry + 4);
+            var header = array + (long)(uint)t.U32(entry + 4);
             return header + 8 > _locationEnd ? null : Image(t, (int)header, glyph - t.U16(entry), glyph);
         }
         return null;
@@ -127,18 +138,26 @@ internal sealed class CbdtImages : IGlyphImages
         if (length <= 0 || at < _dataStart || at + length > _dataEnd) return null;
         var p = (int)at;
         var end = (int)(at + length);
-        int bearingX, bearingY, png;
+        int bearingX, bearingY, png, metricHeight, metricWidth;
         switch (imageFormat)
         {
+            // uncompressed BGRA, premultiplied (5.2: the EBDT formats with 32 bits per pixel, where bit and byte alignment agree): small
+            // metrics before the data (1, 2), big ones (6, 7), or those of the index subtable (5) — before not read (No. 1152)
+            case 1 or 2 when length >= 5:
+                return Bgra(_data[p + 1], _data[p], (sbyte)_data[p + 2], (sbyte)_data[p + 3], p + 5, end);
+            case 6 or 7 when length >= 8:
+                return Bgra(_data[p + 1], _data[p], (sbyte)_data[p + 2], (sbyte)_data[p + 3], p + 8, end);
+            case 5 when metrics >= 0:
+                return Bgra(_data[metrics + 1], _data[metrics], (sbyte)_data[metrics + 2], (sbyte)_data[metrics + 3], p, end);
             // the metrics only when the image data hold them: read before, they lay behind the file when the table ended there (No. 1138)
             case 17 when length >= 5:   // smallGlyphMetrics: height, width, bearingX, bearingY, advance
-                (bearingX, bearingY, png) = ((sbyte)_data[p + 2], (sbyte)_data[p + 3], p + 5);
+                (metricHeight, metricWidth, bearingX, bearingY, png) = (_data[p], _data[p + 1], (sbyte)_data[p + 2], (sbyte)_data[p + 3], p + 5);
                 break;
             case 18 when length >= 8:   // bigGlyphMetrics: height, width, horiBearingX, horiBearingY, horiAdvance, vertical metrics
-                (bearingX, bearingY, png) = ((sbyte)_data[p + 2], (sbyte)_data[p + 3], p + 8);
+                (metricHeight, metricWidth, bearingX, bearingY, png) = (_data[p], _data[p + 1], (sbyte)_data[p + 2], (sbyte)_data[p + 3], p + 8);
                 break;
             case 19 when metrics >= 0:
-                (bearingX, bearingY, png) = ((sbyte)_data[metrics + 2], (sbyte)_data[metrics + 3], p);
+                (metricHeight, metricWidth, bearingX, bearingY, png) = (_data[metrics], _data[metrics + 1], (sbyte)_data[metrics + 2], (sbyte)_data[metrics + 3], p);
                 break;
             default:
                 return null;
@@ -151,6 +170,10 @@ internal sealed class CbdtImages : IGlyphImages
         try
         {
             var image = PngDecoder.Decode(_data.AsSpan(png + 4, (int)size));
+            // the image has the size of its metrics (5.3): one of another size is set at that size — before at its own (No. 1152); metrics of
+            // no size describe no image
+            if (metricWidth == 0 || metricHeight == 0) return null;
+            if (image.Width != metricWidth || image.Height != metricHeight) image = Lanczos.Resize(image, metricWidth, metricHeight);
             // The bearing gives the top edge above the baseline; callers expect the lower left corner
             return (bearingX, bearingY - image.Height, image);
         }
@@ -161,4 +184,21 @@ internal sealed class CbdtImages : IGlyphImages
     }
 
     private bool Inside(long at, int length) => at >= _locationStart && at + length <= _locationEnd;
+
+    /// <summary>An uncompressed image of <paramref name="width"/> × <paramref name="height"/> BGRA pixels, premultiplied, at <paramref name="p"/>.</summary>
+    private (int X, int Y, RgbaImage Image)? Bgra(int width, int height, int bearingX, int bearingY, int p, int end)
+    {
+        if (width == 0 || height == 0 || p + width * height * 4L > end) return null;
+        var image = RgbaImage.Blank(width, height);
+        for (var i = 0; i < width * height; i++)
+        {
+            int b = _data[p + i * 4], g = _data[p + i * 4 + 1], r = _data[p + i * 4 + 2], a = _data[p + i * 4 + 3];
+            // to straight alpha (a premultiplied component above its alpha is damage: clamped)
+            image.Pixels[i * 4] = (byte)(a == 0 ? 0 : Math.Min(255, (r * 255 + a / 2) / a));
+            image.Pixels[i * 4 + 1] = (byte)(a == 0 ? 0 : Math.Min(255, (g * 255 + a / 2) / a));
+            image.Pixels[i * 4 + 2] = (byte)(a == 0 ? 0 : Math.Min(255, (b * 255 + a / 2) / a));
+            image.Pixels[i * 4 + 3] = (byte)a;
+        }
+        return (bearingX, bearingY - height, image);
+    }
 }

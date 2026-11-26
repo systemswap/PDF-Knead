@@ -354,7 +354,7 @@ public sealed partial class M7NormTests
     /// OT 31.2.5 sentences 36–37: versions 0 and 1 know only bits 0–3, bits 4–15 are to be ignored there — Liberation Sans with OS/2 version 1 and
     /// fsType 0x0100 should be embeddable.
     /// </summary>
-    [Fact(Skip = "M7-Befund: Bit 8 (und 9) von fsType wird auch bei OS/2-Fassung 0/1 ausgewertet, die Schrift gilt als nicht einbettbar (RichFonts.Embeddable, SystemFonts.Names)")]
+    [Fact]
     public void Ot30_FsTypeBit8_IgnoredInVersion1()
     {
         var font = Ot30WithFsType(0x0100, 1);

@@ -211,9 +211,14 @@ internal static class SystemFonts
             for (var i = 0; i < tables; i++)
             {
                 if (!directory.AsSpan(i * 16, 4).SequenceEqual("OS/2"u8)) continue;
-                stream.Position = BinaryPrimitives.ReadUInt32BigEndian(directory.AsSpan(i * 16 + 8)) + 8;
-                Span<byte> type = stackalloc byte[2];
-                if (stream.Read(type) == 2) fsType = BinaryPrimitives.ReadUInt16BigEndian(type);
+                stream.Position = BinaryPrimitives.ReadUInt32BigEndian(directory.AsSpan(i * 16 + 8));
+                Span<byte> os2 = stackalloc byte[10];
+                if (stream.Read(os2) == 10)
+                {
+                    fsType = BinaryPrimitives.ReadUInt16BigEndian(os2[8..]);
+                    // versions 0 and 1 know only bits 0–3 (31.2.5; No. 1152)
+                    if (BinaryPrimitives.ReadUInt16BigEndian(os2) < 2) fsType &= 0x000F;
+                }
                 break;
             }
             // Restricted licence (this computer only), no subsetting, bitmap embedding only: cannot be embedded

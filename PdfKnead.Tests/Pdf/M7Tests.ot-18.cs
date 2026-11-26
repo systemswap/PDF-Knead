@@ -527,7 +527,8 @@ public sealed partial class M7NormTests
 
     /// <summary>
     /// OT 14.3 sentences 23–29: index format 2 — one imageSize for three consecutive glyphs and one bigGlyphMetrics (horiBearingX 2,
-    /// horiBearingY 40) for all, image format 19 — gives the three images with their lower left corner at x 2 and y 40 − image height.
+    /// horiBearingY 40, 60 × 60) for all, image format 19 — gives the three images in the size of the metrics (5.3: each image has the size its
+    /// metrics give; FG 1152) with their lower left corner at x 2 and y 40 − 60.
     /// </summary>
     [Fact]
     public void Ot18_IndexFormat2_SameSizeImagesShareTheBigMetrics()
@@ -542,8 +543,8 @@ public sealed partial class M7NormTests
         {
             var glyph = color.Glyph(image.Glyph);
             Assert.NotNull(glyph);
-            Assert.Equal((image.Width, image.Height), (glyph.Value.Image.Width, glyph.Value.Image.Height));
-            Assert.Equal((2, 40 - image.Height), (glyph.Value.X, glyph.Value.Y));
+            Assert.Equal((60, 60), (glyph.Value.Image.Width, glyph.Value.Image.Height));
+            Assert.Equal((2, 40 - 60), (glyph.Value.X, glyph.Value.Y));
         }
         Assert.Null(color.Glyph(run[2].Glyph + 1));
     }
@@ -574,7 +575,7 @@ public sealed partial class M7NormTests
 
     /// <summary>
     /// OT 14.3 sentences 51–58: index format 5 (one imageSize, one bigGlyphMetrics, a sorted list of the glyphs of „A“, „M“ and „x“), image format
-    /// 19 — the three images at the place the metrics give; „a“, not in the list, has none.
+    /// 19 — the three images at the place and in the size (60 × 60, 5.3; FG 1152) the metrics give; „a“, not in the list, has none.
     /// </summary>
     [Fact]
     public void Ot18_IndexFormat5_SparseGlyphsShareTheBigMetrics()
@@ -591,8 +592,8 @@ public sealed partial class M7NormTests
         {
             var glyph = color.Glyph(image.Glyph);
             Assert.NotNull(glyph);
-            Assert.Equal((image.Width, image.Height), (glyph.Value.Image.Width, glyph.Value.Image.Height));
-            Assert.Equal((-3, 50 - image.Height), (glyph.Value.X, glyph.Value.Y));
+            Assert.Equal((60, 60), (glyph.Value.Image.Width, glyph.Value.Image.Height));
+            Assert.Equal((-3, 50 - 60), (glyph.Value.X, glyph.Value.Y));
         }
         Assert.Null(color.Glyph(font.GlyphForUnicode('a')));
     }
