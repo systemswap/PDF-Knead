@@ -434,16 +434,26 @@ public static class TrueTypeSubsetter
                 : source + 6 <= data.Length ? BinaryPrimitives.ReadUInt16BigEndian(data.AsSpan(source + 4)) : 0;
             if (!bodyOf.TryGetValue((source, wide), out var body))
             {
-                var map = new List<(int Code, int Glyph)>();
+                var read = new List<(int Code, int Glyph)>();
                 foreach (var m in font.Mappings(platform, encoding))
                 {
                     if (--budget < 0) break;
-                    if (keep.Contains(m.Glyph)) map.Add(m);
+                    if (keep.Contains(m.Glyph)) read.Add(m);
                 }
+                // each code once, the first mapping of it (overlapping groups of a damaged source were written overlapping, cmap 9.4.8)
+                var map = read.DistinctBy(m => m.Code).OrderBy(m => m.Code).ToList();
                 var runs = Runs(map);
-                var long12 = wide || map.Any(m => m.Code > 0xFFFF) || runs.Count > 8000;
                 bodyOf[(source, wide)] = body = bodies.Count;
-                bodies.Add(long12 ? Format12Of(runs, language) : Format4Of(runs, language));
+                // formats 4 and 12 as for new fonts (cmap 9.1; not 4 and 6 together, 9.3), with the exceptions the norm makes: a format 13 of a
+                // last-resort font stays 13 (9.3.2, 9.1), the custom platform 4 keeps format 0 or 6 like its CFF encoding (9.3.6); codes above
+                // 0xFFFF and the full repertoire in format 12; else format 4 — with a glyph array where runs alone would not fit (9.3.5: (3,1)
+                // is format 4; before format 12 beyond 8 000 runs) (No. 1150)
+                var beyond = map.Any(m => m.Code > 0xFFFF);
+                bodies.Add(format == 13 ? Format13Of(map, language)
+                    : platform == 4 && format is 0 or 6 && !beyond && Format6Of(map, language) is { } trimmed ? trimmed
+                    : wide || beyond ? Format12Of(runs, language)
+                    : runs.Count <= 8000 ? Format4Of(runs, language)
+                    : Format4WithArray(map, language) ?? Format12Of(runs, language));
             }
             records.Add((platform, encoding, body));
         }
@@ -508,6 +518,103 @@ public static class TrueTypeSubsetter
                 (short)(first == 0xFFFF ? 1 : (glyph - first) & 0xFFFF));
             // idRangeOffset stays 0
         }
+        return body;
+    }
+
+    /// <summary>
+    /// Format 4 for many runs: a segment per span of consecutive codes, with idDelta where its glyphs are consecutive and else an entry per
+    /// code in the glyph array (idRangeOffset, cmap 9.4.4); null if even that exceeds the 64 KB of the format.
+    /// </summary>
+    private static byte[]? Format4WithArray(List<(int Code, int Glyph)> map, int language)
+    {
+        var bmp = map.Where(m => m.Code < 0xFFFF).ToList();
+        var segments = new List<(int First, int Last, int Delta, int[]? Glyphs)>();
+        for (var i = 0; i < bmp.Count;)
+        {
+            var j = i;
+            while (j + 1 < bmp.Count && bmp[j + 1].Code == bmp[j].Code + 1) j++;
+            var runs = new List<(int From, int To)>();
+            for (var k = i; k <= j;)
+            {
+                var e = k;
+                while (e + 1 <= j && bmp[e + 1].Glyph == bmp[e].Glyph + 1) e++;
+                runs.Add((k, e));
+                k = e + 1;
+            }
+            // the smaller form: a segment per run, or one segment with an entry per code
+            if (runs.Count * 8 <= 8 + 2 * (j - i + 1))
+                foreach (var (from, to) in runs) segments.Add((bmp[from].Code, bmp[to].Code, (bmp[from].Glyph - bmp[from].Code) & 0xFFFF, null));
+            else
+                segments.Add((bmp[i].Code, bmp[j].Code, 0, bmp.Skip(i).Take(j - i + 1).Select(m => m.Glyph).ToArray()));
+            i = j + 1;
+        }
+        segments.Add((0xFFFF, 0xFFFF, 1, null));   // the closing segment
+        var n = segments.Count;
+        var length = 16 + n * 8 + 2 * segments.Sum(s => s.Glyphs?.Length ?? 0);
+        if (length > 0xFFFF) return null;
+        var body = new byte[length];
+        var entrySelector = (int)Math.Floor(Math.Log2(n));
+        var searchRange = 2 * (1 << entrySelector);
+        BinaryPrimitives.WriteUInt16BigEndian(body, 4);
+        BinaryPrimitives.WriteUInt16BigEndian(body.AsSpan(2), (ushort)length);
+        BinaryPrimitives.WriteUInt16BigEndian(body.AsSpan(4), (ushort)language);
+        BinaryPrimitives.WriteUInt16BigEndian(body.AsSpan(6), (ushort)(n * 2));
+        BinaryPrimitives.WriteUInt16BigEndian(body.AsSpan(8), (ushort)searchRange);
+        BinaryPrimitives.WriteUInt16BigEndian(body.AsSpan(10), (ushort)entrySelector);
+        BinaryPrimitives.WriteUInt16BigEndian(body.AsSpan(12), (ushort)(n * 2 - searchRange));
+        var array = 16 + n * 8;
+        for (var s = 0; s < n; s++)
+        {
+            var (first, last, delta, glyphs) = segments[s];
+            BinaryPrimitives.WriteUInt16BigEndian(body.AsSpan(14 + s * 2), (ushort)last);
+            BinaryPrimitives.WriteUInt16BigEndian(body.AsSpan(16 + n * 2 + s * 2), (ushort)first);
+            BinaryPrimitives.WriteUInt16BigEndian(body.AsSpan(16 + n * 4 + s * 2), (ushort)delta);
+            if (glyphs is null) continue;
+            var rangeOffsetAt = 16 + n * 6 + s * 2;
+            BinaryPrimitives.WriteUInt16BigEndian(body.AsSpan(rangeOffsetAt), (ushort)(array - rangeOffsetAt));   // from the entry itself
+            foreach (var g in glyphs)
+            {
+                BinaryPrimitives.WriteUInt16BigEndian(body.AsSpan(array), (ushort)g);
+                array += 2;
+            }
+        }
+        return body;
+    }
+
+    /// <summary>Format 13 (many-to-one, cmap 9.4.9): a group per span of consecutive codes with the same glyph.</summary>
+    private static byte[] Format13Of(List<(int Code, int Glyph)> map, int language)
+    {
+        var groups = new List<(int First, int Last, int Glyph)>();
+        foreach (var (code, glyph) in map)
+            if (groups.Count > 0 && groups[^1].Last == code - 1 && groups[^1].Glyph == glyph) groups[^1] = (groups[^1].First, code, glyph);
+            else groups.Add((code, code, glyph));
+        var body = new byte[16 + groups.Count * 12];
+        BinaryPrimitives.WriteUInt16BigEndian(body, 13);
+        BinaryPrimitives.WriteUInt32BigEndian(body.AsSpan(4), (uint)body.Length);
+        BinaryPrimitives.WriteUInt32BigEndian(body.AsSpan(8), (uint)language);
+        BinaryPrimitives.WriteUInt32BigEndian(body.AsSpan(12), (uint)groups.Count);
+        for (var i = 0; i < groups.Count; i++)
+        {
+            BinaryPrimitives.WriteUInt32BigEndian(body.AsSpan(16 + i * 12), (uint)groups[i].First);
+            BinaryPrimitives.WriteUInt32BigEndian(body.AsSpan(20 + i * 12), (uint)groups[i].Last);
+            BinaryPrimitives.WriteUInt32BigEndian(body.AsSpan(24 + i * 12), (uint)groups[i].Glyph);
+        }
+        return body;
+    }
+
+    /// <summary>Format 6 (trimmed table, cmap 9.4.5) from the first to the last code; null if it would exceed 64 KB or nothing is mapped.</summary>
+    private static byte[]? Format6Of(List<(int Code, int Glyph)> map, int language)
+    {
+        if (map.Count == 0) return null;
+        int first = map[0].Code, count = map[^1].Code - first + 1;
+        if (10 + 2L * count > 0xFFFF) return null;
+        var body = new byte[10 + 2 * count];
+        BinaryPrimitives.WriteUInt16BigEndian(body, 6);
+        BinaryPrimitives.WriteUInt16BigEndian(body.AsSpan(2), (ushort)body.Length);
+        BinaryPrimitives.WriteUInt16BigEndian(body.AsSpan(4), (ushort)language);
+        BinaryPrimitives.WriteUInt16BigEndian(body.AsSpan(6), (ushort)first);
+        BinaryPrimitives.WriteUInt16BigEndian(body.AsSpan(8), (ushort)count);
+        foreach (var (code, glyph) in map) BinaryPrimitives.WriteUInt16BigEndian(body.AsSpan(10 + 2 * (code - first)), (ushort)glyph);
         return body;
     }
 

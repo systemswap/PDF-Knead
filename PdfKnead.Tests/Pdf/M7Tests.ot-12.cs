@@ -387,7 +387,7 @@ public sealed partial class M7NormTests
     /// 9.3.6 sentence 12 (writer): the subtable of platform 4 needs format 0 or 6 — an OpenType font with CFF outlines (Noto Sans CJK) with a further
     /// (4,0) format 6 subtable, scrubbed: the (4,0) subtable should still be format 0 or 6.
     /// </summary>
-    [Fact(Skip = "M7-Befund: TrueTypeSubsetter.CmapOf schreibt die (4,0)-Teiltabelle einer CFF-Schrift als Format 4 statt 0 oder 6")]
+    [Fact]
     public void ScrubbedCustomPlatformSubtable_StaysFormat0Or6()
     {
         var noto = OpenTypeFont.Parse(Ot12NotoFile.Value);
@@ -432,7 +432,7 @@ public sealed partial class M7NormTests
     /// or 6 — Liberation Sans whose (0,3) and (3,1) map 9 000 consecutive codes to glyphs that never follow each other (one format 4 segment with a
     /// glyph array in the source), scrubbed with all those glyphs kept: (3,1) should stay format 4, (0,3) format 4 or 6.
     /// </summary>
-    [Fact(Skip = "M7-Befund: TrueTypeSubsetter.CmapOf schreibt (3,1) und (0,3) bei mehr als 8 000 Läufen als Format 12 (Muss: (3,1) Format 4)")]
+    [Fact]
     public void ScrubbedBmpSubtableWithManyRuns_StaysFormat4()
     {
         const int count = 9000;
@@ -441,9 +441,13 @@ public sealed partial class M7NormTests
         var many = Ot12Format4([(0x4E00, 0x4E00 + count - 1, 0, 4), (0xFFFF, 0xFFFF, 1, 0)], glyphs);
         var font = Ot12With(Ot12SansFile.Value, (0, 3, many), (3, 1, many));
         Assert.Equal(glyphs[8999], OpenTypeFont.Parse(font).Lookup(3, 1, 0x4E00 + 8999));
-        var records = Ot12Records(TrueTypeSubsetter.Scrub(font, Enumerable.Range(0, 2001)));
+        var scrubbed = TrueTypeSubsetter.Scrub(font, Enumerable.Range(0, 2001));
+        var records = Ot12Records(scrubbed);
         Assert.Equal(4, records.Single(r => (r.Platform, r.Encoding) == (3, 1)).Format);
         Assert.Contains(records.Single(r => (r.Platform, r.Encoding) == (0, 3)).Format, (int[])[4, 6]);
+        // the glyph array carries every mapping (FG 1150)
+        var read = OpenTypeFont.Parse(scrubbed);
+        for (var i = 0; i < count; i++) Assert.Equal(glyphs[i], read.Lookup(3, 1, 0x4E00 + i));
     }
 
     /// <summary>
@@ -478,7 +482,7 @@ public sealed partial class M7NormTests
     /// 9.3.2 sentence 15 (writer): encoding 6 only with format 13 and format 13 only under (0,6) — Liberation Sans with a further (0,6) format 13
     /// subtable mapping 0x41–0x5A to „A“, scrubbed: (0,6) should still be format 13 (one group).
     /// </summary>
-    [Fact(Skip = "M7-Befund: TrueTypeSubsetter.CmapOf schreibt (0,6) als Format 12 mit einer Gruppe je Code statt Format 13")]
+    [Fact]
     public void ScrubbedFormat13Subtable_StaysFormat13()
     {
         var a = Ot12Gid('A');
@@ -766,7 +770,7 @@ public sealed partial class M7NormTests
     /// 9.4.8 sentences 22–23 (writer): the groups the scrubber writes must not overlap — Liberation Sans with a further (3,10) format 12 subtable whose
     /// groups 0x41–0x50 and 0x48–0x60 overlap, scrubbed: the groups of the new (3,10) subtable should be strictly ascending and without overlap.
     /// </summary>
-    [Fact(Skip = "M7-Befund: überlappende Gruppen der Quelle ergeben in TrueTypeSubsetter.CmapOf doppelte Codes und überlappende Gruppen (Runs)")]
+    [Fact]
     public void OverlappingSourceGroups_AreNotWrittenOverlapping()
     {
         var a = Ot12Gid('A');

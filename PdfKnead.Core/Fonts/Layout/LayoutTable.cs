@@ -163,7 +163,10 @@ internal sealed class LayoutTable
             {
                 // Extension: real lookup type and 32-bit offset
                 if (i == 0) type = T.U16(sub + 2);
-                sub += T.U32(sub + 4);
+                // unsigned and inside the table: an offset of 2 GB or more was added as a negative number and pointed before the subtable
+                // (No. 1150); beyond the table it is no subtable
+                var offset = (uint)T.U32(sub + 4);
+                sub = sub < T.Length && offset < (uint)(T.Length - sub) ? sub + (int)offset : T.Length;
             }
             subtables[i] = sub;
         }

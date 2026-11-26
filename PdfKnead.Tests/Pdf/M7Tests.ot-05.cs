@@ -308,7 +308,7 @@ public sealed partial class M7NormTests
     /// OT 3.6 sentences 8–9 (writer): a last resort font keeps its single (0,6) subtable of format 13 when it is scrubbed — one group, not
     /// one run per code in format 12.
     /// </summary>
-    [Fact(Skip = "M7-Befund: Bereinigen faltet die (0,6)-Teiltabelle Format 13 zu Format 12 mit 65 535 Läufen auf (TrueTypeSubsetter.CmapOf)")]
+    [Fact]
     public void ScrubbedLastResortFont_KeepsFormat13WithOneGroup()
     {
         var scrubbed = OpenTypeFont.Parse(TrueTypeSubsetter.Scrub(Ot05SansWith(("cmap", Ot05LastResortCmap())), [5]));
