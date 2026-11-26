@@ -14,13 +14,16 @@ internal sealed class SbixImages : IGlyphImages
     private readonly int _end;
     private readonly int _glyphCount;
 
-    private SbixImages(byte[] data, (int Offset, int Ppem)[] strikes, int end, int glyphCount)
+    private readonly OpenTypeFont _font;
+
+    private SbixImages(OpenTypeFont font, (int Offset, int Ppem)[] strikes, int end)
     {
-        _data = data;
+        _font = font;
+        _data = font.FileData;
         _strikes = strikes;
         _end = end;
         PixelsPerEm = strikes[0].Ppem;
-        _glyphCount = glyphCount;
+        _glyphCount = font.GlyphCount;
     }
 
     /// <inheritdoc/>
@@ -48,7 +51,7 @@ internal sealed class SbixImages : IGlyphImages
         }
         // every strike, largest first (stable: of two strikes of one size the first) — before only the largest, and a glyph only in a
         // smaller one had no image (OpenType sbix 34.2; docs/FEHLERGEDAECHTNIS.md, No. 1152)
-        return found.Count == 0 ? null : new SbixImages(data, [.. found.OrderByDescending(s => s.Ppem)], end, font.GlyphCount);
+        return found.Count == 0 ? null : new SbixImages(font, [.. found.OrderByDescending(s => s.Ppem)], end);
     }
 
     /// <inheritdoc/>
@@ -57,6 +60,13 @@ internal sealed class SbixImages : IGlyphImages
         foreach (var (strike, ppem) in _strikes)
         {
             if (Load(strike, glyph, 0) is not { } image) continue;
+            // a glyph with contours: the image origin lies at the lower left corner of its box, (xMin, yMin), not at the pen (OpenType 34.3
+            // — before always the pen; docs/FEHLERGEDAECHTNIS.md, No. 1156)
+            if (_font.ContourCorner(glyph) is var (xMin, yMin))
+            {
+                var k = (double)ppem / Math.Max(1, _font.UnitsPerEm);
+                image = (image.X + (int)Math.Round(xMin * k), image.Y + (int)Math.Round(yMin * k), image.Image);
+            }
             return ppem == PixelsPerEm ? image : ColorGlyphs.Scaled(image, (double)PixelsPerEm / ppem);
         }
         return null;

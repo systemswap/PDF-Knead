@@ -121,20 +121,32 @@ internal static class CffScrubber
         var charsetBytes = new List<byte> { 0 };
         for (var g = 1; g < count; g++) CffSubsetter.AddU16(charsetBytes, keep.Contains(g) ? isCid ? charset[g] : Sid(charset[g]) : 0);
 
-        // Encoding (plain fonts): the predefined ones stay (they name glyphs by name); a custom one becomes supplements code → name for
-        // the kept glyphs only
+        // Encoding (plain fonts): the predefined ones stay (they name glyphs by name); a custom one is written again for the kept glyphs only:
+        // a main table (format 0) with the first code of each kept glyph, code 0 for the others, and supplements for further codes of a glyph
+        // the main table encodes (TN 5176, 12 — before the main table was empty and every code a supplement, No. 1156)
         var encodingOffset = top.Int(16) ?? 0;
         byte[]? encodingBytes = null;
         if (!isCid && encodingOffset > 1)
         {
-            var entries = new List<(int Code, int Sid)>();
-            for (var c = 0; c < 256 && entries.Count < 255; c++)
-                if (font.Encoding[c] is > 0 and var g && keep.Contains(g)) entries.Add((c, Sid(charset[g])));
-            var e = new List<byte> { 0x80, 0, (byte)entries.Count };
-            foreach (var (c, sid) in entries)
+            var codes = new SortedDictionary<int, List<int>>();
+            for (var c = 0; c < 256; c++)
+                if (font.Encoding[c] is > 0 and var g && keep.Contains(g))
+                    (codes.TryGetValue(g, out var list) ? list : codes[g] = []).Add(c);
+            var mainCount = codes.Count == 0 ? 0 : Math.Min(codes.Keys.Max(), 255);
+            var supplements = new List<(int Code, int Sid)>();
+            foreach (var (g, list) in codes)
+                foreach (var c in g <= mainCount ? list.Skip(1) : list)
+                    if (supplements.Count < 255) supplements.Add((c, Sid(charset[g])));
+            var e = new List<byte> { (byte)(supplements.Count > 0 ? 0x80 : 0), (byte)mainCount };
+            for (var g = 1; g <= mainCount; g++) e.Add((byte)(codes.TryGetValue(g, out var list) ? list[0] : 0));
+            if (supplements.Count > 0)
             {
-                e.Add((byte)c);
-                CffSubsetter.AddU16(e, sid);
+                e.Add((byte)supplements.Count);
+                foreach (var (c, sid) in supplements)
+                {
+                    e.Add((byte)c);
+                    CffSubsetter.AddU16(e, sid);
+                }
             }
             encodingBytes = [.. e];
         }

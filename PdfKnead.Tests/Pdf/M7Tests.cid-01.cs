@@ -418,4 +418,31 @@ public sealed partial class M7NormTests
 
     /// <summary>A box outline of 110 × 100 (glyph 1 of a CID-keyed probe font).</summary>
     private static GlyphOutline Cid01CidCffOutline() => CffFont.Parse(Cid01CidCff([1])).Outline(1);
+
+    /// <summary>
+    /// CID 3.1: a CIDFont program in PostScript form (CIDFontType 0 with StartData) is not a font program PDF embeds (FontFile3 takes CFF) —
+    /// given as an embedded program it is not read (null: the font counts as not embedded and is replaced by name).
+    /// </summary>
+    [Fact]
+    public void Cid01_PostScriptCidFontProgram_CountsAsNotEmbedded()
+    {
+        string[] lines =
+        [
+            "%!PS-Adobe-3.0 Resource-CIDFont",
+            "%%DocumentNeededResources: ProcSet (CIDInit)",
+            "/CIDInit /ProcSet findresource begin",
+            "20 dict begin",
+            "/CIDFontName /Muster-Ideo def",
+            "/CIDFontType 0 def",
+            "/CIDSystemInfo 3 dict dup begin /Registry (Adobe) def /Ordering (Identity) def /Supplement 0 def end def",
+            "/FontMatrix [0.001 0 0 0.001 0 0] def",
+            "/CIDCount 2 def",
+            "/GDBytes 2 def",
+            "/FDBytes 0 def",
+            "/CIDMapOffset 0 def",
+            "(Binary) 4 StartData ",
+        ];
+        byte[] program = [.. Encoding.ASCII.GetBytes(string.Join("\n", lines)), 0, 0, 0, 0, (byte)'\n'];
+        Assert.Null(FontProgram.FromBytes(program));
+    }
 }

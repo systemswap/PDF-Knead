@@ -315,8 +315,9 @@ public sealed partial class PageInterpreter
             inUser.Finish();
             path = _builder.AddPath(inUser.VerbSpan, inUser.PointSpan);
             matrix = _gs.Ctm;
-            // like the current style (colours, patterns, overprint), but without dashes
-            paint = _builder.AddPaint(_builder.PaintAt(CurrentPaint()) with { LineWidth = (float)_gs.LineWidth, Dash = -1 });
+            // like the current style (colours, patterns, overprint) and with its dash pattern, which applies in user space as the width does
+            // (9.3.6; before the dashes were dropped, as one of three reference readers does — probe K19, docs/FEHLERGEDAECHTNIS.md, No. 1156)
+            paint = _builder.AddPaint(_builder.PaintAt(CurrentPaint()) with { LineWidth = (float)_gs.LineWidth });
             bounds = bounds.Inflate(_gs.LineWidth * _gs.Ctm.MeanScale);
         }
         EnsureMask();

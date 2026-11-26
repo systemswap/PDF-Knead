@@ -692,8 +692,9 @@ public static class TrueTypeSubsetter
             var offset = (long)BinaryPrimitives.ReadUInt32BigEndian(font.AsSpan(at + 8));
             var length = (long)BinaryPrimitives.ReadUInt32BigEndian(font.AsSpan(at + 12));
             // of two records with one tag the first, as the display reads it — before the last, and a subset or a cleaned font could take
-            // another table than the one shown (docs/FEHLERGEDAECHTNIS.md, No. 1149)
-            if (offset + length <= font.Length) tables.TryAdd(tag, ((int)offset, (int)length));
+            // another table than the one shown (docs/FEHLERGEDAECHTNIS.md, No. 1149); one that reaches beyond the file cut to its end, as the
+            // display reads it too — before passed over, and the writers took a second record of the tag (No. 1156)
+            if (offset <= font.Length) tables.TryAdd(tag, ((int)offset, (int)Math.Min(length, font.Length - offset)));
         }
         return tables;
     }

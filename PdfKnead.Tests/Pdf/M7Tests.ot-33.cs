@@ -306,6 +306,22 @@ public sealed partial class M7NormTests
     }
 
     /// <summary>
+    /// OT 34.3 sentence 13 (FG 1156): for a glyph with contours the image origin lies at the lower left corner of its box (xMin, yMin) — the
+    /// hyphen of Liberation Sans (a rectangle above the baseline) with originOffset 0 at 128 ppem: the image starts at xMin and yMin in pixels.
+    /// </summary>
+    [Fact]
+    public void Ot33_SbixGlyphWithContour_ImageStartsAtTheBoxCorner()
+    {
+        var hyphen = Ot33Gid('-');
+        var box = Ot33LiberationFont.Value.Outline(hyphen).Bounds;
+        Assert.True(box.Top > 100);
+        var font = Ot33WithTable("sbix", Ot33Sbix(1, new Ot33Strike(128, 72, Ot33Png((hyphen, 8)))));
+        var k = 128.0 / font.UnitsPerEm;
+        var glyph = ColorGlyphs.For(font)!.Glyph(hyphen)!.Value;
+        Assert.Equal(((int)Math.Round(box.Left * k), (int)Math.Round(box.Top * k)), (glyph.X, glyph.Y));
+    }
+
+    /// <summary>
     /// OT 34.3 sentences 10–12: for a glyph without contours the image origin lies at the pen, the lsb of hmtx does not apply — the space of
     /// Liberation Sans (empty) with lsb 200 and originOffsetX 0: its image starts at the pen, two such glyphs compose to one advance plus one
     /// image width.
@@ -347,8 +363,8 @@ public sealed partial class M7NormTests
     }
 
     /// <summary>
-    /// OT 34.3 sentences 16–17: „dupe“ data are a glyph ID whose image is used — B as dupe of A gives A's image; a dupe of itself and a chain
-    /// of six dupes end without an image (no endless loop).
+    /// OT 34.3 sentences 16–17: „dupe“ data are a glyph ID whose image is used — B as dupe of A gives A's image (placed at B's own box corner,
+    /// 34.3 S13; FG 1156); a dupe of itself and a chain of six dupes end without an image (no endless loop).
     /// </summary>
     [Fact]
     public void Ot33_SbixDupe_UsesTheOtherImage_LoopsEndWithoutImage()
@@ -362,7 +378,12 @@ public sealed partial class M7NormTests
         var chain = "DEFGHI".Select(Ot33Gid).ToArray();
         for (var i = 0; i < chain.Length; i++) glyphs[chain[i]] = ("dupe", Id(i + 1 < chain.Length ? chain[i + 1] : a));
         var color = ColorGlyphs.For(Ot33WithTable("sbix", Ot33Sbix(1, new Ot33Strike(128, 72, glyphs))))!;
-        Ot33SameImage(color.Glyph(a), color.Glyph(b));
+        var (ia, ib) = (color.Glyph(a)!.Value, color.Glyph(b)!.Value);
+        var k = 128.0 / Ot33LiberationFont.Value.UnitsPerEm;
+        var (ca, cb) = (Ot33LiberationFont.Value.ContourCorner(a)!.Value, Ot33LiberationFont.Value.ContourCorner(b)!.Value);
+        Assert.Equal((ia.X - (int)Math.Round(ca.XMin * k) + (int)Math.Round(cb.XMin * k), ia.Y - (int)Math.Round(ca.YMin * k) + (int)Math.Round(cb.YMin * k)),
+            (ib.X, ib.Y));
+        Assert.Equal(ia.Image.Pixels, ib.Image.Pixels);
         Assert.Null(color.Glyph(c));
         Assert.Null(color.Glyph(chain[0]));
     }

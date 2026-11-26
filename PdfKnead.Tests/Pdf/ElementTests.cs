@@ -65,6 +65,9 @@ public sealed class ElementTests
             .GetStream(PdfName.Get("FontFile2"))!;
         Assert.True(file.DataLength < 40_000, $"Schrift {file.DataLength} Bytes");
         Assert.NotNull(font.GetStream(PdfName.Get("ToUnicode")));
+        // a composite font with the identity encoding (ISO 32000-2, 9.5 S1: /Subtype and /Encoding of the written font)
+        Assert.Equal("Type0", font.GetName(PdfName.Subtype)?.Value);
+        Assert.Equal("Identity-H", font.GetName(PdfName.Get("Encoding"))?.Value);
         // Other pages untouched
         Assert.DoesNotContain("Mustermann", TextOf(copy, 1));
     }

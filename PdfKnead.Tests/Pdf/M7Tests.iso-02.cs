@@ -312,6 +312,35 @@ public sealed partial class M7NormTests
         }
     }
 
+    /// <summary>
+    /// 9.6.4 sentences 52–53: a glyph procedure finds named resources in the font's /Resources, without them in those of the page — the glyph
+    /// paints the form X1; with /Resources in the font its X1 (red) is painted, without them the page's X1 (blue).
+    /// </summary>
+    [Fact]
+    public void Iso02_Type3Glyph_NamedResourcesFromTheFontFirstThenThePage()
+    {
+        PdfStream Form(string colour)
+        {
+            var form = TestPdf.FlateStream(Encoding.ASCII.GetBytes(colour + " rg 0 0 1000 1000 re f"));
+            form.Dictionary.Set(PdfName.Type, TestPdf.N("XObject"));
+            form.Dictionary.Set(PdfName.Subtype, TestPdf.N("Form"));
+            form.Dictionary.Set(PdfName.Get("BBox"), TestPdf.Box(0, 0, 1000, 1000));
+            return form;
+        }
+        uint FillOf(bool fontResources)
+        {
+            var (doc, list) = InterpreterTests.Page("BT /F 50 Tf 20 20 Td (a) Tj ET", pdf =>
+            {
+                var font = Type3Iso02(pdf, 97, [1000], [(97, "a")], [("a", "1000 0 d0 /X1 Do")]);
+                if (fontResources) font.Set(PdfName.Resources, TestPdf.Dict(("XObject", TestPdf.Dict(("X1", TestPdf.Ref(pdf.Add(Form("1 0 0"))))))));
+                return TestPdf.Dict(("Font", TestPdf.Dict(("F", font))), ("XObject", TestPdf.Dict(("X1", TestPdf.Ref(pdf.Add(Form("0 0 1")))))));
+            });
+            using (doc) return list.Paints[list.Items.Span[0].Paint].Fill;
+        }
+        Assert.Equal(0xFFFF0000u, FillOf(true));
+        Assert.Equal(0xFF0000FFu, FillOf(false));
+    }
+
     // ------------------------------------------------------------ 9.6.5 encodings
 
     /// <summary>

@@ -621,6 +621,20 @@ public sealed class OpenTypeFont
         Cff is { } cff ? glyph >= 0 && glyph < cff.GlyphCount
         : glyph >= 0 && glyph < _loca.Length - 1 && _loca[glyph + 1] > _loca[glyph] && Table("glyf") is { } glyf && _loca[glyph] < glyf.Length;
 
+    /// <summary>
+    /// The lower left corner (xMin, yMin) of the glyf header of a glyph with contours (simple or composite); null for one without data or
+    /// contours and in a font without glyf. sbix places the image of such a glyph there (OpenType 34.3).
+    /// </summary>
+    internal (int XMin, int YMin)? ContourCorner(int glyph)
+    {
+        if (Cff is not null || !HasGlyphData(glyph) || Table("glyf") is not { } glyf) return null;
+        var at = glyf.Offset + _loca[glyph];
+        if (_loca[glyph] + 10 > glyf.Length || at + 10 > _data.Length) return null;
+        var r = new FontReader(_data, at);
+        if (r.I16() == 0) return null;
+        return (r.I16(), r.I16());
+    }
+
     /// <summary>Returns the outline of a glyph in font units.</summary>
     /// <param name="glyph">Glyph index.</param>
     /// <returns>The outline; empty for unknown glyphs, recursive composites and glyphs above the work limits.</returns>

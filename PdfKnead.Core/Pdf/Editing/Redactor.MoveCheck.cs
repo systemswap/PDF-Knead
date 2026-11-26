@@ -497,7 +497,11 @@ public static partial class Redactor
         private readonly int[] _left;         // slot + 1 → the next slot + 1 not taken from it to the left (0: before the start)
         private readonly Dictionary<(string Text, int Family, long Cell), Group> _groups = [];
         private readonly Dictionary<(string Text, int Family), List<int>> _overflowing = [];
-        private int _visits;
+        private long _visits;
+        // the work of all searches together: far above what real pages need (a few characters per search), below the hang of a crafted page
+        // (No. 1157); when it is spent no search finds anything, and the check fails — nothing is saved
+        private readonly long _budget;
+        private bool _spent;
         // the search under way: the character looked for, its place in its frame, how far along its line, the best so far
         private Seen _g;
         private int _gFamily, _best;
@@ -509,6 +513,7 @@ public static partial class Redactor
             Func<Seen, Seen, bool> sameShape, CancellationToken cancel)
         {
             (_after, _present, _framed, _family, _sameShape, _cancel) = (after, present, framed, family, sameShape, cancel);
+            _budget = 16_000_000 + 64L * present.Count;
             _taken = new bool[present.Count];
             _slotOf = new int[present.Count];
             var ids = new Dictionary<(string, int, long), int>();
@@ -586,7 +591,8 @@ public static partial class Redactor
         private void Consider(int i)
         {
             if ((++_visits & 4095) == 0) _cancel.ThrowIfCancellationRequested();
-            if (_taken[i]) return;
+            if (_visits > _budget) _spent = true;
+            if (_spent || _taken[i]) return;
             var a = _after[_present[i]];
             var (au, av) = _framed(a);
             if (a.Text != _g.Text || _family(a) != _gFamily || Math.Abs(au - _gu) > _reach || Math.Abs(av - _gv) > 0.6) return;
@@ -623,7 +629,7 @@ public static partial class Redactor
                 foreach (var (key, group) in _groups)
                     if (key.Text == g.Text && key.Family == family)
                         for (var s = Right(group.Start); s < group.End; s = Right(s + 1)) Consider(_bySlot[s]);
-                return _best;
+                return _spent ? -1 : _best;
             }
             var distance = Math.Sqrt(g.X * g.X + g.Y * g.Y);
             var margin = 1e-9 * (1 + Math.Abs(gu) + along);
@@ -650,14 +656,18 @@ public static partial class Redactor
                             var away = toRight ? _along[r] - gu : gu - _along[l];
                             if (away - slack > Math.Sqrt(_nearest)) break;
                             Consider(_bySlot[toRight ? r : l]);
+                            // one in the very place: none can be nearer, and ties are as good as each other (same text, place and shape) —
+                            // before every further one in that place was tried for the lowest number, and a page of 143 000 stacked
+                            // characters took minutes (fuzzing; docs/FEHLERGEDAECHTNIS.md, No. 1157)
+                            if (_nearest == 0 || _spent) break;
                             if (toRight) r = Right(r + 1);
                             else l = Left(l - 1);
                         }
                     }
                 }
-                if (cell == last) break;
+                if (cell == last || _nearest == 0 || _spent) break;
             }
-            return _best;
+            return _spent ? -1 : _best;
         }
     }
 }

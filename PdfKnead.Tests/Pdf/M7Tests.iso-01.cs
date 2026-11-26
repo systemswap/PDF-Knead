@@ -495,6 +495,32 @@ public sealed partial class M7NormTests
         }
     }
 
+    /// <summary>
+    /// 9.3.6 sentences 2–3 (FG 1156): stroking text uses the stroking parameters of the graphics state like a path, the dash pattern too — a
+    /// stroked I with [12 8] 0 d: down the middle of its left edge dark and light alternate (several dashes), not one solid run.
+    /// </summary>
+    [Fact]
+    public void Iso01_StrokedText_KeepsTheDashPattern()
+    {
+        var (doc, list) = PageIso01("BT /F1 100 Tf 1 Tr 4 w [12 8] 0 d 10 10 Td (I) Tj ET");
+        using (doc)
+        {
+            var item = list.Items.Span[0];
+            using var bitmap = RenderIso01(doc, list, 2);
+            // the bounds are inflated by the line width: the left edge of the outline lies 4 inside
+            var x = (int)((item.Left + 4) * 2);
+            var runs = 0;
+            var dark = false;
+            for (var y = 0; y < bitmap.Height; y++)
+            {
+                var now = bitmap.GetPixel(x, y).Red < 128;
+                if (now && !dark) runs++;
+                dark = now;
+            }
+            Assert.True(runs >= 3, $"{runs} dunkle Abschnitte auf der linken Kante (gestrichelt erwartet)");
+        }
+    }
+
     /// <summary>Measures the run of dark pixels starting at (x, y) along a direction (device pixels).</summary>
     private static int DarkRunIso01(SKBitmap b, int x, int y, int dx, int dy)
     {

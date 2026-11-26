@@ -567,6 +567,35 @@ public sealed partial class M7NormTests
         Assert.Equal(shown.Points, OpenTypeFont.Parse(TrueTypeSubsetter.Scrub(doubled, [a])).Outline(a).Points);
     }
 
+    /// <summary>
+    /// OT 1.4.1 sentences 44–45 (FG 1156): the first of two glyf records reaches beyond the file — the display reads it cut to the end of the
+    /// file and draws „A“; the subset and the scrubbed font take the same record (before they passed it over and took the second, with „A“
+    /// empty).
+    /// </summary>
+    [Fact]
+    public void Ot01_DuplicateTags_FirstRecordBeyondTheFile_DisplayAndWritersAgree()
+    {
+        var font = OpenTypeFont.Parse(Ot01Liberation);
+        var a = font.GlyphForUnicode('A');
+        var glyphs = Ot01Glyphs(Ot01Liberation);
+        var source = Ot01WithGlyphs(Ot01Liberation, glyphs);
+        var tables = Ot01Tables(source);
+        var glyf = tables.First(t => t.Tag == "glyf").Data;
+        var second = (byte[])glyf.Clone();
+        var start = (int)BinaryPrimitives.ReadUInt32BigEndian(Ot01Table(source, "loca").AsSpan(a * 4));
+        second.AsSpan(start, glyphs[a].Length).Clear();
+        tables.Insert(tables.FindIndex(t => t.Tag == "glyf") + 1, ("glyf", second));
+        var doubled = Ot01Sfnt(tables);
+        // the length of the first glyf record: far beyond the end of the file
+        int count = BinaryPrimitives.ReadUInt16BigEndian(doubled.AsSpan(4));
+        var record = Enumerable.Range(0, count).Select(i => 12 + i * 16).First(r => System.Text.Encoding.ASCII.GetString(doubled, r, 4) == "glyf");
+        BinaryPrimitives.WriteUInt32BigEndian(doubled.AsSpan(record + 12), (uint)doubled.Length * 2);
+        var shown = OpenTypeFont.Parse(doubled).Outline(a);
+        Assert.False(shown.IsEmpty);
+        Assert.Equal(shown.Points, OpenTypeFont.Parse(TrueTypeSubsetter.Subset(doubled, [a])).Outline(a).Points);
+        Assert.Equal(shown.Points, OpenTypeFont.Parse(TrueTypeSubsetter.Scrub(doubled, [a])).Outline(a).Points);
+    }
+
     /// <summary>OT 1.4.1 sentences 46–49: tables of other specifications are allowed — a table „zzzz“ stays unchanged in a subset with all tables and in the scrubbed font.</summary>
     [Fact]
     public void Ot01_UnknownTable_StaysUnchanged()

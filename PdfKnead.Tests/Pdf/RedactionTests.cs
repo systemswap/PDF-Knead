@@ -346,6 +346,8 @@ public sealed class RedactionTests
         var descendant = (PdfDictionary)standIn.GetArray(PdfName.Get("DescendantFonts"))!.Get(0)!;
         Assert.Equal("CIDFontType2", descendant.GetName(PdfName.Subtype)?.Value);
         Assert.NotNull(descendant.GetDictionary(PdfName.Get("FontDescriptor"))!.Get(PdfName.Get("FontFile2")) as PdfStream);
+        // its /Descent is negative (ISO 32000-2, 9.8.1; FG 1156 — before 0)
+        Assert.True(descendant.GetDictionary(PdfName.Get("FontDescriptor"))!.GetNumber(PdfName.Get("Descent")) < 0);
         // (the page's own Helvetica, /F1, is not embedded in this test file and is reported — the stand-in is not)
         Assert.DoesNotContain(Core.Pdf.Accessibility.AccessibilityCheck.Check(after, Core.Pdf.Accessibility.AccessibilityProfile.PdfUa1).Findings,
             f => f.Id.StartsWith("7.21.4.1", StringComparison.Ordinal) && f.Text.Contains("LiberationSans", StringComparison.Ordinal));

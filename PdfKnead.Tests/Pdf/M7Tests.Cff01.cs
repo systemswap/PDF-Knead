@@ -871,6 +871,60 @@ public sealed partial class M7NormTests
     }
 
     /// <summary>
+    /// TN 5176, 12 sentences 43 (FG 1156): a supplement adds a code to a glyph the main encoding table already encodes — a custom encoding
+    /// (A: 65 and, as a supplement, 97; B: 66) scrubbed to keep A: the main table encodes A with 65, 97 stays a supplement, B's 66 is gone.
+    /// </summary>
+    [Fact]
+    public void Cff01_ScrubbedCustomEncoding_MainTableWithSupplementsOnTop()
+    {
+        var cff = Cff01Build(new Cff01Spec
+        {
+            CharStrings = [[14], [14], [14]], Charset = [0, 0, 34, 0, 35], Encoding = [0x80, 2, 65, 66, 1, 97, 0, 34],
+        });
+        var (scrubbed, _) = CffScrubber.Scrub(cff, [1]);
+        var font = CffFont.Parse(scrubbed);
+        Assert.Equal((1, 1, 0), (font.Encoding[65], font.Encoding[97], font.Encoding[66]));
+        var reader = new FontReader(scrubbed);
+        reader.U8();
+        reader.U8();
+        reader.Position = reader.U8();
+        _ = CffFont.CffIndex.Read(scrubbed, ref reader);
+        var tops = CffFont.CffIndex.Read(scrubbed, ref reader);
+        var at = CffFont.Dict.Parse(tops.Item(scrubbed, 0)).Int(16)!.Value;
+        Assert.Equal(0x80, scrubbed[at] & 0x80);   // with supplements
+        Assert.Equal(1, scrubbed[at + 1]);         // a main table of one glyph
+        Assert.Equal(65, scrubbed[at + 2]);
+    }
+
+    /// <summary>
+    /// TN 5176, 11 sentences 5–7: GID 0 is always .notdef (CID 0), the charset begins with GID 1 — the subset (CID-keyed, its charset holds the
+    /// CIDs, which are the glyph indices of the source) of a font with A (GID 1) and B (GID 2) that keeps only B: two glyphs, GID 0 is CID 0,
+    /// GID 1 is CID 2 (B), and no other glyph claims CID 0.
+    /// </summary>
+    [Fact]
+    public void Cff01_Subset_NotdefAtGid0_CharsetFromGid1()
+    {
+        var cff = Cff01Build(new Cff01Spec { CharStrings = [[14], [14], [14]], Charset = [0, 0, 34, 0, 35] });
+        var subset = CffFont.Parse(CffSubsetter.Subset(cff, [2]));
+        Assert.True(subset.IsCidKeyed);
+        Assert.Equal(2, subset.GlyphCount);
+        Assert.Equal(0, subset.GlyphByCid(0));
+        Assert.Equal(1, subset.GlyphByCid(2));
+    }
+
+    /// <summary>
+    /// TN 5177, 4.5 (writer): a charstring with put/get cannot be flattened — the subset and the scrubber refuse it (FontFormatException);
+    /// what happens to such a program when redacting is question 6 (the reader draws it: <c>T201_TransientArray_PerGlyph</c>).
+    /// </summary>
+    [Fact]
+    public void Cff01_PutGet_SubsetAndScrubberRefuse()
+    {
+        var cff = Cff01Glyphs([Cff01Cs(25, 3, "put", 3, "get", 0, "rmoveto", 1, 0, "rlineto", "endchar")]);
+        Assert.Throws<FontFormatException>(() => CffSubsetter.Subset(cff, [1]));
+        Assert.Throws<FontFormatException>(() => CffScrubber.Scrub(cff, [1]));
+    }
+
+    /// <summary>
     /// TN 5176, 3 sentences 7–14 (Table 2: OffSize is 1 to 4): an INDEX whose OffSize is 0 or 5 is refused (FontFormatException), one of 1 reads
     /// its single item.
     /// </summary>

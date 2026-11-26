@@ -46,7 +46,7 @@ public static class ColorFontBuilder
         var images = Images(font, pixelsPerEm);
         var tables = kind switch
         {
-            Kind.Sbix => new Dictionary<string, byte[]?> { ["sbix"] = Sbix(images, font.GlyphCount, pixelsPerEm) },
+            Kind.Sbix => new Dictionary<string, byte[]?> { ["sbix"] = Sbix(images, font, pixelsPerEm) },
             Kind.Cbdt or Kind.CbdtSparse => Cbdt(images, pixelsPerEm, kind == Kind.CbdtSparse),
             _ => new Dictionary<string, byte[]?> { ["SVG "] = Svg(images, font.UnitsPerEm, pixelsPerEm, kind == Kind.SvgShared) },
         };
@@ -105,9 +105,11 @@ public static class ColorFontBuilder
 
     // ------------------------------------------------------------ Tables
 
-    private static byte[] Sbix(List<Image> images, int glyphCount, int ppem)
+    private static byte[] Sbix(List<Image> images, OpenTypeFont font, int ppem)
     {
+        var glyphCount = font.GlyphCount;
         var byGlyph = images.ToDictionary(i => i.Glyph);
+        var k = (double)ppem / font.UnitsPerEm;
         var strike = new Writer();
         strike.U16(ppem);
         strike.U16(72);
@@ -118,8 +120,10 @@ public static class ColorFontBuilder
         {
             offsets.Add(header + data.Length);
             if (!byGlyph.TryGetValue(g, out var image)) continue;
-            data.I16(image.Left);
-            data.I16(image.Bottom);
+            // the origin offset counts from the lower left corner of the glyph box for a glyph with contours (OpenType 34.3), from the pen otherwise
+            var (xMin, yMin) = font.ContourCorner(g) ?? (0, 0);
+            data.I16(image.Left - (int)Math.Round(xMin * k));
+            data.I16(image.Bottom - (int)Math.Round(yMin * k));
             data.Bytes("png "u8);
             data.Bytes(image.Png);
         }

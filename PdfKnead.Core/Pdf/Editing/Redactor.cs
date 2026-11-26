@@ -2986,7 +2986,9 @@ public static partial class Redactor
             descriptor.Set(PdfName.Get("FontName"), PdfName.Get(name));
             descriptor.Set(PdfName.Get("Flags"), PdfInteger.Of(4));   // symbolic: its codes name no standard characters
             descriptor.Set(PdfName.Get("FontBBox"), new PdfArray([PdfInteger.Of(0), PdfInteger.Of(0), PdfInteger.Of(0), PdfInteger.Of(0)]));
-            foreach (var key in (ReadOnlySpan<string>)["ItalicAngle", "Ascent", "Descent", "CapHeight", "StemV"]) descriptor.Set(PdfName.Get(key), PdfInteger.Of(0));
+            foreach (var key in (ReadOnlySpan<string>)["ItalicAngle", "Ascent", "CapHeight", "StemV"]) descriptor.Set(PdfName.Get(key), PdfInteger.Of(0));
+            // /Descent is negative (ISO 32000-2, 9.8.1; before 0, docs/FEHLERGEDAECHTNIS.md, No. 1156) — as the font of the text recognition (No. 773)
+            descriptor.Set(PdfName.Get("Descent"), PdfInteger.Of(-1));
             descriptor.Set(PdfName.Get("FontFile2"), program);
             var info = new PdfDictionary();
             info.Set(PdfName.Get("Registry"), new PdfString("Adobe"u8.ToArray()));
