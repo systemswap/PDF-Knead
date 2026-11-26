@@ -343,7 +343,39 @@ internal static class StandardFontEmbedding
             return null;
         var result = new PdfDictionary(font.Count + 4);
         foreach (var (key, value) in font.Entries) result.Set(key, value);
-        if (font.Get(PdfName.Get("Widths")) is not PdfArray || font.GetInteger(PdfName.Get("FirstChar")) is null)
+        if (font.Get(PdfName.Get("Widths")) is not PdfArray || font.GetInteger(PdfName.Get("FirstChar")) is null) AddWidths(result, font, doc);
+        var (file, symbol, dingbats) = StandardFonts.Choose(baseFont, null);
+        var name = PdfName.Get(baseFont);
+        result.Set(PdfName.Get("FontDescriptor"), symbol || dingbats || !file.EndsWith(".ttf", StringComparison.Ordinal)
+            ? SymbolicDescriptor(name)
+            : Descriptor(EmbeddedFonts.StandardOpenType(file), name, file));
+        return result;
+    }
+
+    /// <summary>
+    /// A standard font with a /FontDescriptor but without /Widths (or /FirstChar), with /FirstChar, /LastChar and /Widths as the display sets
+    /// it: for the standard 14 fonts the four entries stand all or none (ISO 32000-2, 9.6.2.1; in every version written — before such a font
+    /// was saved as it was, No. 1151).
+    /// </summary>
+    /// <param name="font">A font dictionary as read.</param>
+    /// <param name="doc">The document it belongs to.</param>
+    /// <returns>A copy with the widths; null if it is no such font.</returns>
+    public static PdfDictionary? WithWidths(PdfDictionary font, PdfDocument doc)
+    {
+        if (font.GetName(PdfName.Subtype)?.Value is not ("Type1" or "MMType1" or "TrueType") || !font.ContainsKey(PdfName.Get("FontDescriptor")) ||
+            font.GetName(PdfName.Type)?.Value is not (null or "Font") || font.GetName(PdfName.Get("BaseFont"))?.Value is not { } baseFont ||
+            !StandardFonts.IsStandard14(baseFont) ||
+            (font.Get(PdfName.Get("Widths")) is PdfArray && font.GetInteger(PdfName.Get("FirstChar")) is not null))
+            return null;
+        var result = new PdfDictionary(font.Count + 3);
+        foreach (var (key, value) in font.Entries) result.Set(key, value);
+        AddWidths(result, font, doc);
+        return result.ContainsKey(PdfName.Get("Widths")) ? result : null;
+    }
+
+    /// <summary>/FirstChar, /LastChar and /Widths of the codes the display draws, set in <paramref name="result"/>.</summary>
+    private static void AddWidths(PdfDictionary result, PdfDictionary font, PdfDocument doc)
+    {
         {
             var shown = PdfFont.Get(font, doc) as SimpleFont;
             var drawn = shown?.DrawnTrueType(substitute: true);
@@ -370,12 +402,6 @@ internal static class StandardFontEmbedding
                 result.Set(PdfName.Get("Widths"), array);
             }
         }
-        var (file, symbol, dingbats) = StandardFonts.Choose(baseFont, null);
-        var name = PdfName.Get(baseFont);
-        result.Set(PdfName.Get("FontDescriptor"), symbol || dingbats || !file.EndsWith(".ttf", StringComparison.Ordinal)
-            ? SymbolicDescriptor(name)
-            : Descriptor(EmbeddedFonts.StandardOpenType(file), name, file));
-        return result;
     }
 
     /// <summary>The font descriptor of Symbol and ZapfDingbats (symbolic: the encoding of the font program names the glyphs).</summary>

@@ -586,17 +586,23 @@ public static partial class PdfWriter
                 .Order().ToList();
             if (faulty.Count == 0) return;
             var newProcs = CloneWithResolver(procs);
-            var differences = new PdfArray();
+            // the names of the codes as /Differences gives them (a later entry for a code wins, as the display reads it), the new glyphs in
+            // place of the old ones: each code once (ISO 32000-2, 9.6.5.1 — before the new entries were appended and named a code twice, No. 1151)
+            var names = new SortedDictionary<int, PdfName>();
             var encoding = dict.Get(PdfName.Get("Encoding")) as PdfDictionary;
             if (encoding?.Get(PdfName.Get("Differences")) is PdfArray old)
-                for (var i = 0; i < old.Count; i++) differences.Add(old[i]);
+            {
+                var next = -1;
+                for (var i = 0; i < old.Count; i++)
+                    if (old.Get(i).AsNumber() is { } n) next = (int)n;
+                    else if (old.Get(i) is PdfName oldName && next is >= 0 and <= 255) names[next++] = oldName;
+            }
             foreach (var code in faulty)
             {
                 var glyph = font.Strict((uint)code, 1)!.Value;
                 var width = PdfSerializer.FormatReal(glyph.DictionaryWidth);
                 var name = PdfName.Get($"PDFKneadGlyph{code}");
-                differences.Add(PdfInteger.Of(code));
-                differences.Add(name);
+                names[code] = name;
                 var shown = font.ProcOf((uint)code);
                 // a procedure the display cannot read (a filter no reader knows) draws nothing either
                 byte[]? original = null;
@@ -637,6 +643,15 @@ public static partial class PdfWriter
                 var procDict = new PdfDictionary();
                 if (shown?.Dictionary.GetRaw(PdfName.Resources) is { } procResources) procDict.Set(PdfName.Resources, procResources);
                 newProcs.Set(name, Fresh(new PdfStream(procDict, data)));
+            }
+            // runs of consecutive codes under one number
+            var differences = new PdfArray();
+            var last = -2;
+            foreach (var (code, glyphName) in names)
+            {
+                if (code != last + 1) differences.Add(PdfInteger.Of(code));
+                differences.Add(glyphName);
+                last = code;
             }
             var newEncoding = encoding is null ? new PdfDictionary() : CloneWithResolver(encoding);
             newEncoding.Set(PdfName.Get("Differences"), differences);

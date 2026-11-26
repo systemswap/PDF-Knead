@@ -181,7 +181,7 @@ public sealed partial class M7NormTests
     /// 9.6.2.1 sentence 31: for the standard 14 fonts FirstChar, LastChar, Widths and FontDescriptor stand all or none — Helvetica with a
     /// /FontDescriptor but without /Widths, saved as 2.0 and as 1.7: the copy has all four.
     /// </summary>
-    [Fact(Skip = "M7-Befund: Standardschrift mit /FontDescriptor ohne /Widths wird beim Speichern nicht vervollständigt (B18)")]
+    [Fact]
     public void Iso02_StandardFontWithDescriptorButNoWidths_SavedWithAllFour()
     {
         var pdf = TestPdf.Simple(1);
@@ -318,7 +318,7 @@ public sealed partial class M7NormTests
     /// 9.6.5.1 sentence 42: the ranges of /Differences may stand in any order but must not overlap — the PDF/A copy of a damaged Type 3 font
     /// (Differences [97 /a], the glyph of 97 with another width than /Widths) names code 97 only once.
     /// </summary>
-    [Fact(Skip = "M7-Befund: CompleteType3 hängt die neuen Differences an die alten an, Code 97 steht doppelt (B17)")]
+    [Fact]
     public void Iso02_PdfACopyOfDamagedType3_DifferencesWithoutDuplicateCode()
     {
         var pdf = TestPdf.Simple(1);

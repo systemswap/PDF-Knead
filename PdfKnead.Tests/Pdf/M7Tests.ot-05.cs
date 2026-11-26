@@ -574,7 +574,8 @@ public sealed partial class M7NormTests
         var name = Ot05GlyphlessTable("name");
         var count = Ot05U16(name, 2);
         Assert.True(count > 0);
-        for (var i = 0; i < count; i++) Assert.Equal(0x0409, Ot05U16(name, 6 + 12 * i + 4));
+        // US English: 0x0409 on Windows, 0 (English) on the Macintosh
+        for (var i = 0; i < count; i++) Assert.Equal(Ot05U16(name, 6 + 12 * i) == 1 ? 0 : 0x0409, Ot05U16(name, 6 + 12 * i + 4));
     }
 
     /// <summary>OT 3.19 sentence 8 (writer): name records sorted by platform, encoding, language and name ID — the text recognition font.</summary>
@@ -606,7 +607,7 @@ public sealed partial class M7NormTests
     /// OT 3.19.1 sentences 17–24 (writer): name ID 6 in exactly two records, (1,0,0) and (3,1,0x409), with the same text — the font of the text
     /// recognition.
     /// </summary>
-    [Fact(Skip = "M7-Befund: die OCR-Textschrift hat Name-ID 6 nur für (3,1,0x409), ohne Mac-Eintrag (1,0,0) (OcrTextLayer.BuildGlyphless)")]
+    [Fact]
     public void GlyphlessFont_PostScriptNameForMacAndWindows()
     {
         var name = Ot05GlyphlessTable("name");
@@ -768,13 +769,13 @@ public sealed partial class M7NormTests
 
     /// <summary>
     /// OT 3.26 sentences 1–4 (writer): the recommended order of the table data for TrueType outlines — in a subset of Liberation Sans head, hhea,
-    /// maxp, OS/2, hmtx, cvt, fpgm, prep, loca and glyf follow each other in this order.
+    /// maxp, OS/2, hmtx, fpgm, prep, cvt, loca and glyf follow each other in this order (the order of sentence 2; the directory stays sorted by tag).
     /// </summary>
-    [Fact(Skip = "M7-Befund: die Tabellendaten liegen nach Kennung sortiert statt in der empfohlenen Reihenfolge (TrueTypeSubsetter.Assemble)")]
+    [Fact]
     public void Subset_TableDataInTheRecommendedOrder()
     {
         var directory = Ot05Directory(TrueTypeSubsetter.Subset(Ot05SansFile.Value, Ot05Glyphs("AB")));
-        string[] order = ["head", "hhea", "maxp", "OS/2", "hmtx", "cvt ", "fpgm", "prep", "loca", "glyf"];
+        string[] order = ["head", "hhea", "maxp", "OS/2", "hmtx", "fpgm", "prep", "cvt ", "loca", "glyf"];
         var offsets = order.Select(t => directory[t].Offset).ToList();
         Assert.Equal(offsets.Order(), offsets);
     }

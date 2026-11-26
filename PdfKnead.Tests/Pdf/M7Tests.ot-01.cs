@@ -594,7 +594,7 @@ public sealed partial class M7NormTests
 
     /// <summary>
     /// OT 1.4.1 sentences 52–54 and 55–58: each table starts on a four-byte boundary, padded with zeros, the record giving the real length; the
-    /// tables follow one another without gaps or overlap — lengths 5, 2 and 54.
+    /// tables follow one another without gaps or overlap — lengths 5, 2 and 54 (the data in the recommended order, head first: OT 3.26, FG 1151).
     /// </summary>
     [Fact]
     public void Ot01_Assemble_TablesAlignedPaddedAndContiguous()
@@ -603,8 +603,8 @@ public sealed partial class M7NormTests
         {
             ["aaaa"] = [1, 1, 1, 1, 1], ["bbbb"] = [2, 2], ["head"] = Enumerable.Repeat((byte)3, 54).ToArray(),
         });
-        var records = Ot01Directory(file);
-        Assert.Equal([5, 2, 54], records.Select(r => r.Length));
+        Assert.Equal([5, 2, 54], Ot01Directory(file).Select(r => r.Length));
+        var records = Ot01Directory(file).OrderBy(r => r.Offset).ToList();
         Assert.Equal(12 + 16 * 3, records[0].Offset);
         for (var i = 0; i < records.Count; i++)
         {

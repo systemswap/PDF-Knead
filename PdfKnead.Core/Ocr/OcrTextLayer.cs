@@ -274,23 +274,29 @@ public static class OcrTextLayer
             U16(b, 30, 0xFFFF);                 // start code
             U16(b, 32, 1);                      // delta: 0xFFFF → glyph 0
         });
+        // the PostScript name (ID 6) in the two records the norm names, Macintosh (1,0,0) in Roman and Windows (3,1,0x409) in UTF-16 (OpenType
+        // name 3.19.1 — before Windows alone, No. 1151); the family name for Windows; sorted by platform, encoding, language and ID
         var nameText = Encoding.BigEndianUnicode.GetBytes(FontName);
-        var name = Table(6 + 2 * 12 + 2 * nameText.Length, b =>
+        var macText = Encoding.ASCII.GetBytes(FontName);
+        var name = Table(6 + 3 * 12 + macText.Length + 2 * nameText.Length, b =>
         {
-            U16(b, 2, 2);
-            U16(b, 4, 6 + 2 * 12);
-            for (var i = 0; i < 2; i++)
+            U16(b, 2, 3);
+            U16(b, 4, 6 + 3 * 12);
+            (int Platform, int Encoding, int Language, int Id, int Length, int Offset)[] records =
+                [(1, 0, 0, 6, macText.Length, 0), (3, 1, 0x409, 1, nameText.Length, macText.Length), (3, 1, 0x409, 6, nameText.Length, macText.Length + nameText.Length)];
+            for (var i = 0; i < records.Length; i++)
             {
                 var r = 6 + i * 12;
-                U16(b, r, 3);
-                U16(b, r + 2, 1);
-                U16(b, r + 4, 0x409);
-                U16(b, r + 6, i == 0 ? 1 : 6);  // family, PostScript name
-                U16(b, r + 8, nameText.Length);
-                U16(b, r + 10, i * nameText.Length);
+                U16(b, r, records[i].Platform);
+                U16(b, r + 2, records[i].Encoding);
+                U16(b, r + 4, records[i].Language);
+                U16(b, r + 6, records[i].Id);
+                U16(b, r + 8, records[i].Length);
+                U16(b, r + 10, records[i].Offset);
             }
-            nameText.CopyTo(b[(6 + 2 * 12)..]);
-            nameText.CopyTo(b[(6 + 2 * 12 + nameText.Length)..]);
+            macText.CopyTo(b[(6 + 3 * 12)..]);
+            nameText.CopyTo(b[(6 + 3 * 12 + macText.Length)..]);
+            nameText.CopyTo(b[(6 + 3 * 12 + macText.Length + nameText.Length)..]);
         });
         var os2 = Table(96, b =>
         {

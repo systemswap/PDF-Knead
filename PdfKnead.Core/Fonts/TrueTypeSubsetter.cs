@@ -45,7 +45,23 @@ public static class TrueTypeSubsetter
             else if (tag == "loca") data[tag] = newLoca;
             else if (tables.TryGetValue(tag, out var t)) data[tag] = font.AsSpan(t.Offset, t.Length).ToArray();
         }
+        if (data.TryGetValue("hmtx", out var hmtx) && data.TryGetValue("hhea", out var hhea) && hhea.Length >= 36)
+            EmptyGlyphsWithoutBearing(hmtx, BinaryPrimitives.ReadUInt16BigEndian(hhea.AsSpan(34)), newLoca);
         return Finish(data);
+    }
+
+    /// <summary>
+    /// The glyphs without outline (in a long <paramref name="loca"/>) get left side bearing 0 (OpenType hmtx 25: should be 0 for an empty glyph)
+    /// — a subset and a rebuild kept the bearing of the glyph they emptied (docs/FEHLERGEDAECHTNIS.md, No. 1151).
+    /// </summary>
+    private static void EmptyGlyphsWithoutBearing(byte[] hmtx, int full, byte[] loca)
+    {
+        for (var g = 0; g + 1 < loca.Length / 4; g++)
+        {
+            if (BinaryPrimitives.ReadUInt32BigEndian(loca.AsSpan(g * 4)) != BinaryPrimitives.ReadUInt32BigEndian(loca.AsSpan(g * 4 + 4))) continue;
+            var at = g < full ? g * 4 + 2 : full * 4 + (g - full) * 2;
+            if (at + 2 <= hmtx.Length) BinaryPrimitives.WriteInt16BigEndian(hmtx.AsSpan(at), 0);
+        }
     }
 
     /// <summary>
@@ -227,6 +243,7 @@ public static class TrueTypeSubsetter
             if (tables.TryGetValue(tag, out var t)) data[tag] = font.AsSpan(t.Offset, t.Length).ToArray();
         data["hhea"] = newHhea;
         data["maxp"] = newMaxp;
+        EmptyGlyphsWithoutBearing(newMetrics, total, newLoca);
         data["hmtx"] = newMetrics;
         data["loca"] = newLoca;
         data["glyf"] = newGlyf.ToArray();
@@ -744,24 +761,38 @@ public static class TrueTypeSubsetter
         BinaryPrimitives.WriteUInt16BigEndian(result.AsSpan(6), (ushort)searchRange);
         BinaryPrimitives.WriteUInt16BigEndian(result.AsSpan(8), (ushort)entrySelector);
         BinaryPrimitives.WriteUInt16BigEndian(result.AsSpan(10), (ushort)(n * 16 - searchRange));
+        // the data in the order OpenType recommends for TrueType or CFF outlines (OpenType 3.26), the other tables after them by tag — before
+        // sorted by tag like the directory (docs/FEHLERGEDAECHTNIS.md, No. 1151)
+        var recommended = cff ? CffOrder : TrueTypeOrder;
+        var dataOrder = tags.OrderBy(t => Array.IndexOf(recommended, t) is >= 0 and var at ? at : recommended.Length).ThenBy(t => t, StringComparer.Ordinal);
+        var offsets = new Dictionary<string, int>(StringComparer.Ordinal);
         var offset = headerLength;
         var headOffset = -1;
+        foreach (var tag in dataOrder)
+        {
+            offsets[tag] = offset;
+            tables[tag].CopyTo(result, offset);
+            if (tag == "head") headOffset = offset;
+            offset += (tables[tag].Length + 3) & ~3;
+        }
         for (var i = 0; i < n; i++)
         {
             var bytes = tables[tags[i]];
             var entry = 12 + i * 16;
             System.Text.Encoding.ASCII.GetBytes(tags[i], result.AsSpan(entry, 4));
             BinaryPrimitives.WriteUInt32BigEndian(result.AsSpan(entry + 4), Checksum(bytes));
-            BinaryPrimitives.WriteUInt32BigEndian(result.AsSpan(entry + 8), (uint)offset);
+            BinaryPrimitives.WriteUInt32BigEndian(result.AsSpan(entry + 8), (uint)offsets[tags[i]]);
             BinaryPrimitives.WriteUInt32BigEndian(result.AsSpan(entry + 12), (uint)bytes.Length);
-            bytes.CopyTo(result, offset);
-            if (tags[i] == "head") headOffset = offset;
-            offset += (bytes.Length + 3) & ~3;
         }
         if (headOffset >= 0)
             BinaryPrimitives.WriteUInt32BigEndian(result.AsSpan(headOffset + 8), 0xB1B0AFBA - Checksum(result));
         return result;
     }
+
+    private static readonly string[] TrueTypeOrder =
+        ["head", "hhea", "maxp", "OS/2", "hmtx", "LTSH", "VDMX", "hdmx", "cmap", "fpgm", "prep", "cvt ", "loca", "glyf", "kern", "name", "post", "gasp", "PCLT", "DSIG"];
+
+    private static readonly string[] CffOrder = ["head", "hhea", "maxp", "OS/2", "name", "cmap", "post", "CFF "];
 
     private static uint Checksum(ReadOnlySpan<byte> data)
     {

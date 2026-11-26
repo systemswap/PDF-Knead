@@ -1153,7 +1153,8 @@ public static partial class PdfWriter
                 case PdfDictionary d:
                     // PDF 2.0: a standard font that is not embedded with the entries every simple font needs there (as read for PDF/A, which
                     // decides by the font as read; docs/FEHLERGEDAECHTNIS.md, No. 372)
-                    var entries = Pdf20 && StandardFontEmbedding.Described(d, source.Doc) is { } described ? described : d;
+                    // and in every version a standard font with a descriptor but no widths (No. 1151)
+                    var entries = (Pdf20 ? StandardFontEmbedding.Described(d, source.Doc) : null) ?? StandardFontEmbedding.WithWidths(d, source.Doc) ?? d;
                     var dict = new PdfDictionary(entries.Count);
                     foreach (var (key, value) in entries.Entries)
                         // PDF/A rebuilds the descriptors of the fonts of the file itself; a described standard font's is written here
@@ -5098,7 +5099,7 @@ public static partial class PdfWriter
                     return array;
                 case PdfDictionary d:
                     // PDF 2.0: the standard fonts of fields (/DR) and elements as above (No. 372)
-                    var entries = Pdf20 && StandardFontEmbedding.Described(d, _main) is { } described ? described : d;
+                    var entries = (Pdf20 ? StandardFontEmbedding.Described(d, _main) : null) ?? StandardFontEmbedding.WithWidths(d, _main) ?? d;
                     var dict = new PdfDictionary(entries.Count);
                     foreach (var (key, value) in entries.Entries)
                         dict.Set(key, key == FontDescriptorKey && value is PdfDictionary descriptor ? IndirectDescriptor(descriptor) : Fresh(value, depth + 1));
@@ -5478,6 +5479,8 @@ public static partial class PdfWriter
             // file specifications as ISO 32000-2, Table 43 asks of writers — after PDF/A, which judges embedded files by the objects as read
             // (docs/FEHLERGEDAECHTNIS.md, No. 780); a stream's dictionary in WriteStream
             if (obj is not PdfStream) obj = PartsAsWritten(obj, source);
+            // a standard font with a descriptor but no widths gets them, in every version (ISO 32000-2, 9.6.2.1; No. 1151)
+            if (obj is PdfDictionary withoutWidths && StandardFontEmbedding.WithWidths(withoutWidths, source?.Doc ?? _main) is { } completed) obj = completed;
             // PDF 2.0: a standard font that is not embedded with the entries every simple font needs there — after PDF/A, which embeds the
             // fonts text is shown with (docs/FEHLERGEDAECHTNIS.md, No. 372)
             if (Pdf20 && obj is PdfDictionary font && StandardFontEmbedding.Described(font, source?.Doc ?? _main) is { } described)
