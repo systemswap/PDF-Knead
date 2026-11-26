@@ -275,6 +275,8 @@ internal sealed partial class SimpleFont : PdfFont
     private readonly string?[] _names = new string?[256];
     private readonly double[] _widths = new double[256];
     private readonly bool[] _hasWidth = new bool[256];
+    private readonly bool _hasWidths;
+    private readonly bool[] _fromDifferences = new bool[256];
     private readonly double _missingWidth;
     private readonly FontProgram _program;
     private readonly bool _symbolic;
@@ -344,11 +346,14 @@ internal sealed partial class SimpleFont : PdfFont
         {
             var name = differences[c] ?? (baseTable is { } t && t[c].Length > 0 ? t[c] : null);
             _names[c] = name;
+            _fromDifferences[c] = differences[c] is not null;
+            _fromDifferences[c] = differences[c] is not null;
         }
         _namesFromPdf = baseTable is not null || hasDifferences;
 
         // widths (1/1000 em)
         var first = (int)(dict.GetInteger(PdfName.Get("FirstChar")) ?? 0);
+        _hasWidths = dict.GetArray(PdfName.Get("Widths")) is not null;
         if (dict.GetArray(PdfName.Get("Widths")) is { } widths)
             for (var i = 0; i < widths.Count; i++)
             {
@@ -378,7 +383,11 @@ internal sealed partial class SimpleFont : PdfFont
         var name = _names[c];
         var (outline, programWidth, glyphName) = Select(c, name);
         var toText = _program.FontMatrix;
+        // a font with /Widths gives a code without one /MissingWidth (0 by default; ISO 32000-2, 9.6.2.1 — before the width of the program,
+        // where all three reference readers take /MissingWidth or 0: probes K10, K10b, docs/FEHLERGEDAECHTNIS.md, No. 1153); without /Widths
+        // (the standard 14 fonts) the program's
         var width = _hasWidth[c] ? _widths[c]
+            : _hasWidths ? _missingWidth
             : programWidth > 0 ? (_standardMetrics ? Math.Round(programWidth * 1000) / 1000 : programWidth)
             : _missingWidth;
 
@@ -442,8 +451,9 @@ internal sealed partial class SimpleFont : PdfFont
         var names = new List<string>(2);
         if (_program.Type1 is { } t1)
         {
+            // the glyph the display draws (see Select): the named one, else .notdef for a name of /Differences, else the built-in encoding's
             if (name is not null && t1.HasGlyph(name)) names.Add(name);
-            if (t1.Encoding[c] is { Length: > 0 } builtin) names.Add(builtin);
+            else if (!(name is not null && _fromDifferences[c]) && t1.Encoding[c] is { Length: > 0 } builtin) names.Add(builtin);
             return (gids, names);
         }
         if (_program.Cff is { } cff && !_program.IsTrueType)
@@ -467,7 +477,11 @@ internal sealed partial class SimpleFont : PdfFont
         var scale = _program.FontMatrix.A;
         if (_program.Type1 is { } t1)
         {
-            var n = name is not null && t1.HasGlyph(name) ? name : t1.Encoding[code] is { Length: > 0 } builtin ? builtin : name ?? ".notdef";
+            // a name of /Differences the program lacks is replaced by .notdef (9.6.5.2; before the glyph of the built-in encoding at the code,
+            // as one of three reference readers — probe K11, No. 1153); other codes without a glyph keep the built-in encoding
+            var n = name is not null && t1.HasGlyph(name) ? name
+                : name is not null && _fromDifferences[code] ? ".notdef"
+                : t1.Encoding[code] is { Length: > 0 } builtin ? builtin : name ?? ".notdef";
             return (t1.Outline(n), t1.AdvanceWidth(n) * scale, n);
         }
 
@@ -577,6 +591,7 @@ internal sealed partial class CompositeFont : PdfFont
     private readonly bool _cidFontType2;
     private readonly byte[]? _cidToGid;
     private readonly ushort[]? _glyphOrder;
+    /// <summary>The ordering of an Adobe character collection; null for another registry (CID 3.2: registry and ordering together name it).</summary>
     private readonly string? _ordering;
     private readonly double _defaultWidth = 1;
     // W and W2: ranges such as "1 65535 500" stay ranges (binary search); expanded they would be
@@ -605,7 +620,11 @@ internal sealed partial class CompositeFont : PdfFont
         var descriptor = cidFont.GetDictionary(PdfName.Get("FontDescriptor"));
         ReadMetrics(descriptor);
         _cidFontType2 = cidFont.GetName(PdfName.Subtype)?.Value == "CIDFontType2";
-        _ordering = cidFont.GetDictionary(PdfName.Get("CIDSystemInfo"))?.Get(PdfName.Get("Ordering")) is PdfString ordering ? ordering.ToText() : null;
+        // an ordering counts only with the registry Adobe: another registry may use the name Japan1 for its own collection (CID 3.2 — before
+        // its codes got the glyphs and text of Adobe-Japan1, unlike all three reference readers: probes K15, K15b, No. 1153)
+        var systemInfo = cidFont.GetDictionary(PdfName.Get("CIDSystemInfo"));
+        _ordering = systemInfo?.Get(PdfName.Get("Registry")) is PdfString { } registry && registry.ToText() == "Adobe" &&
+                    systemInfo.Get(PdfName.Get("Ordering")) is PdfString ordering ? ordering.ToText() : null;
         _program = FontProgram.Embedded(descriptor, doc);
         if (_program is null)
         {
@@ -657,10 +676,10 @@ internal sealed partial class CompositeFont : PdfFont
     {
         try
         {
-            var cmap = ParseUsing(stream, doc, 0);
-            if (stream.Dictionary.GetInteger(PdfName.Get("WMode")) == 1 && cmap.WMode == 0)
-                return CMap.Parse(doc.GetStreamData(stream), _ => CMap.Identity(true));
-            return cmap;
+            // the program decides the writing mode and its usecmap the CIDs — before a /WMode 1 of the dictionary against 0 in the program
+            // replaced the CMap it uses by Identity-V (wrong CIDs). Measured (probes K12, K13): two of three reference readers write such a
+            // font horizontally, and those that draw the glyphs take the CIDs of the base (special rule; docs/FEHLERGEDAECHTNIS.md, No. 1153)
+            return ParseUsing(stream, doc, 0);
         }
         catch (PdfException)
         {
@@ -826,7 +845,9 @@ internal sealed partial class CompositeFont : PdfFont
             if (text is { Length: > 0 })
                 return (sub.GlyphForUnicode(char.ConvertToUtf32(text, 0)) is > 0 and var g ? sub.Outline(g) : GlyphOutline.Empty, toText, null);
             // without text: glyph IDs of the installed font, otherwise through the glyph order of the family
-            var number = _cidToGid is { } numbers && _cidFontType2 ? MappedGid(numbers, cid) : cid;
+            // the CID itself: a CIDToGIDMap belongs to an embedded program (ISO 32000-2, 9.7.4.2 — before it was applied to the installed
+            // font too, unlike two of three reference readers: probe K14, No. 1153)
+            var number = cid;
             if (program.IsSystem) return (sub.Outline(number), toText, ReverseCmap(sub, number));
             if (_glyphOrder is { } order && number > 0 && number < order.Length && order[number] > 0)
                 return (sub.Outline(sub.GlyphForUnicode(order[number])), toText, ((char)order[number]).ToString());

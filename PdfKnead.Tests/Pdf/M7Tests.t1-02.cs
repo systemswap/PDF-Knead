@@ -12,7 +12,8 @@ public sealed partial class M7NormTests
 {
     /// <summary>
     /// T1 4.1 sentences 1–2: a half circle as a single rrcurveto without an end point at its extreme stays one cubic curve with the points of the
-    /// charstring; the bounds enclose its control points.
+    /// charstring; the bounds are the smallest rectangle around the curve, its top at 0.75 × 133 (ISO 32000-2, 9.2.4; FG 1153 — before the
+    /// control points).
     /// </summary>
     [Fact]
     public void Type1_HalfCircleAsOneCurve_KeepsItsPoints()
@@ -21,7 +22,7 @@ public sealed partial class M7NormTests
         var outline = font.Outline("A");
         Assert.Equal([PathVerb.Move, PathVerb.Cubic, PathVerb.Close], outline.Verbs);
         Assert.Equal([(100f, 0f), (100f, 133f), (300f, 133f), (300f, 0f)], T1Paket.Points(outline));
-        Assert.Equal(133, outline.Bounds.Bottom, 3);
+        Assert.Equal(99.75, outline.Bounds.Bottom, 3);
     }
 
     /// <summary>

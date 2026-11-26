@@ -339,7 +339,7 @@ public sealed partial class M7NormTests
     /// Adobe-Japan1 are expected. PredefinedCMaps.IsCjk and Text look at the ordering alone (CompositeFont): the code gets the text of
     /// Adobe-Japan1 (finding B40).
     /// </summary>
-    [Fact(Skip = "M7-Befund: fremde Registry mit Ordering Japan1 gilt als Adobe-Japan1 (B40)")]
+    [Fact]
     public void Cid01_ForeignRegistryWithOrderingJapan1_IsNotTakenForAdobeJapan1()
     {
         var file = DocumentStructureNormTests.FileOf("<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Kids [] /Count 0 >>",

@@ -173,16 +173,66 @@ public sealed class GlyphOutline
     /// <remarks>Cached after <see cref="Finish"/>; computed on each call before that.</remarks>
     public RectD Bounds => _finished ? _bounds : ComputeBounds();
 
+    /// <summary>
+    /// The smallest rectangle around the outline (ISO 32000-2, 9.2.4): the end points and the extremes of each curve — before the control
+    /// points, which a curve need not reach (docs/FEHLERGEDAECHTNIS.md, No. 1153).
+    /// </summary>
     private RectD ComputeBounds()
     {
         if (_points.Count == 0) return RectD.Empty;
-        float l = float.MaxValue, t = float.MaxValue, r = float.MinValue, b = float.MinValue;
-        for (var i = 0; i + 1 < _points.Count; i += 2)
+        double l = double.MaxValue, t = double.MaxValue, r = double.MinValue, b = double.MinValue;
+        void Add(double x, double y)
         {
-            l = Math.Min(l, _points[i]); r = Math.Max(r, _points[i]);
-            t = Math.Min(t, _points[i + 1]); b = Math.Max(b, _points[i + 1]);
+            l = Math.Min(l, x); r = Math.Max(r, x);
+            t = Math.Min(t, y); b = Math.Max(b, y);
         }
-        return RectD.FromLtrb(l, t, r, b);
+        var p = 0;
+        double cx = 0, cy = 0;
+        foreach (var verb in _verbs)
+        {
+            switch (verb)
+            {
+                case PathVerb.Move or PathVerb.Line when p + 1 < _points.Count:
+                    (cx, cy) = (_points[p], _points[p + 1]);
+                    Add(cx, cy);
+                    p += 2;
+                    break;
+                case PathVerb.Cubic when p + 5 < _points.Count:
+                {
+                    double x1 = _points[p], y1 = _points[p + 1], x2 = _points[p + 2], y2 = _points[p + 3], x3 = _points[p + 4], y3 = _points[p + 5];
+                    Add(x3, y3);
+                    foreach (var s in Extremes(cx, x1, x2, x3)) Add(Cubic(cx, x1, x2, x3, s), Cubic(cy, y1, y2, y3, s));
+                    foreach (var s in Extremes(cy, y1, y2, y3)) Add(Cubic(cx, x1, x2, x3, s), Cubic(cy, y1, y2, y3, s));
+                    (cx, cy) = (x3, y3);
+                    p += 6;
+                    break;
+                }
+            }
+        }
+        return l > r ? RectD.Empty : RectD.FromLtrb((float)l, (float)t, (float)r, (float)b);
+    }
+
+    private static double Cubic(double a, double b, double c, double d, double s)
+    {
+        var u = 1 - s;
+        return u * u * u * a + 3 * u * u * s * b + 3 * u * s * s * c + s * s * s * d;
+    }
+
+    /// <summary>The parameters in (0, 1) where one coordinate of a cubic curve has a zero derivative.</summary>
+    private static IEnumerable<double> Extremes(double a, double b, double c, double d)
+    {
+        // derivative / 3: (b − a)(1 − s)² + 2(c − b)(1 − s)s + (d − c)s² = qa s² + qb s + qc
+        double qa = -a + 3 * b - 3 * c + d, qb = 2 * (a - 2 * b + c), qc = b - a;
+        if (Math.Abs(qa) < 1e-12)
+        {
+            if (Math.Abs(qb) > 1e-12 && -qc / qb is > 0 and < 1 and var s) yield return s;
+            yield break;
+        }
+        var disc = qb * qb - 4 * qa * qc;
+        if (disc < 0) yield break;
+        var root = Math.Sqrt(disc);
+        foreach (var s in new[] { (-qb + root) / (2 * qa), (-qb - root) / (2 * qa) })
+            if (s is > 0 and < 1) yield return s;
     }
 
     private void EnsureStarted()

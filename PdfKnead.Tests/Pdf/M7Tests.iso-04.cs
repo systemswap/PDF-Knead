@@ -277,17 +277,16 @@ public sealed partial class M7NormTests
     }
 
     /// <summary>
-    /// 9.8.1 sentences 64–67 (reader, today's behaviour): /MissingWidth 250 for codes without a /Widths entry — where the embedded program has a
-    /// width („B“, 667 units) that width applies; where it has none (code 01h, no glyph) /MissingWidth.
+    /// 9.8.1 sentences 64–67 (reader): /MissingWidth 250 for codes without a /Widths entry — also where the embedded program has a width („B“,
+    /// 667 units) and where it has no glyph (code 01h); as all three reference readers (probe K10; FG 1153 — before the program's width).
     /// </summary>
     [Fact]
-    public void MissingWidth_OnlyWhereTheProgramHasNoWidth()
+    public void MissingWidth_ForEveryCodeWithoutAWidth()
     {
         using var doc = PdfDocument.Open(PdfARuleCases.WithTrueType(f => f.Replace("/LastChar 66/Widths[667 667]", "/LastChar 65/Widths[667]", StringComparison.Ordinal),
             d => d.Replace("/FontFile2 7 0 R", "/FontFile2 7 0 R/MissingWidth 250", StringComparison.Ordinal))());
         var font = PdfFont.Get(Iso04F1(doc), doc);
-        var sans = OpenTypeFont.Parse(Iso04SansFile.Value);
-        Assert.Equal(sans.AdvanceWidth(PdfARuleCases.Gid('B')) / sans.UnitsPerEm, font.Glyph('B', 1).Width, 6);
+        Assert.Equal(0.25, font.Glyph('B', 1).Width, 6);
         Assert.Equal(0.25, font.Glyph(0x01, 1).Width, 6);
     }
 

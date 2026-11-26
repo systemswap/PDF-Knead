@@ -298,25 +298,31 @@ public sealed partial class PageInterpreter
         // Otherwise a line of 2 million characters far beyond the edge occupied 2.3 GB. Masks and pattern cells have no page edge;
         // they use their own area
         if (!bounds.Inflate(1).Intersects(_currentPageBox)) return;
-        var path = GlyphPath(outline);
-        int paint;
+        int path, paint;
+        var matrix = glyphToPage;
         if (k == DisplayItemKind.Fill)
         {
+            path = GlyphPath(outline);
             paint = CurrentPaint();
         }
         else
         {
-            // the line width applies in user space; the entry draws in glyph space
-            var glyphToUser = glyph.ToText * textToUser;
-            var width = _gs.LineWidth / Math.Max(glyphToUser.MeanScale, 1e-9);
-            // like the current style (colours, patterns, overprint), but without dashes and with the width in glyph space
-            paint = _builder.AddPaint(_builder.PaintAt(CurrentPaint()) with { LineWidth = (float)width, Dash = -1 });
+            // the line width applies in user space (9.3.6): the outline is taken into user space and stroked there, then the CTM — before the
+            // width was scaled into glyph space by its mean scale, and a horizontal scaling (Tz 300) made the vertical edges of a glyph 7 and
+            // the horizontal ones 2.5 wide for 4 w (two of three reference readers stroke in user space: probe K16, No. 1153)
+            var inUser = new GlyphOutline();
+            inUser.Append(outline, glyph.ToText * textToUser);
+            inUser.Finish();
+            path = _builder.AddPath(inUser.VerbSpan, inUser.PointSpan);
+            matrix = _gs.Ctm;
+            // like the current style (colours, patterns, overprint), but without dashes
+            paint = _builder.AddPaint(_builder.PaintAt(CurrentPaint()) with { LineWidth = (float)_gs.LineWidth, Dash = -1 });
             bounds = bounds.Inflate(_gs.LineWidth * _gs.Ctm.MeanScale);
         }
         EnsureMask();
         var patternGroup = BeginPatternGroup(k is DisplayItemKind.Fill or DisplayItemKind.FillStroke, k is DisplayItemKind.Stroke or DisplayItemKind.FillStroke);
         // filled and stroked text is text as well: the renderer draws its outline in its real width, never enhanced to a full pixel (No. 816)
-        _builder.Add(k, false, path, _builder.AddUniqueMatrix(glyphToPage), paint, _gs.Clip, -1, bounds, glyph: k is DisplayItemKind.Fill or DisplayItemKind.FillStroke);
+        _builder.Add(k, false, path, _builder.AddUniqueMatrix(matrix), paint, _gs.Clip, -1, bounds, glyph: k is DisplayItemKind.Fill or DisplayItemKind.FillStroke);
         EndPatternGroup(patternGroup);
     }
 

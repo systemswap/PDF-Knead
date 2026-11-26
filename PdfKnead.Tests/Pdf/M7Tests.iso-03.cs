@@ -273,7 +273,7 @@ public sealed partial class M7NormTests
     /// 9.7.4.2 sentence 17 (reader): a CIDToGIDMap of a CIDFontType2 that is not embedded is ignored. Without /ToUnicode a map that sends CID 36
     /// to glyph 37 changes nothing: the glyph is the one of CID 36, as without the map.
     /// </summary>
-    [Fact(Skip = "M7-Befund: nicht eingebettete CIDFontType2 ohne /ToUnicode folgt noch der CIDToGIDMap (CompositeFont.Select)")]
+    [Fact]
     public void NonEmbeddedCidTrueType_WithoutText_IgnoresTheCidToGidMap()
     {
         var map = new byte[2 * 40];
@@ -633,7 +633,7 @@ public sealed partial class M7NormTests
     /// 9.7.5.3 sentences 15–18 (reader): /WMode 1 in the dictionary of an embedded CMap whose program says 0 and uses UniJIS-UCS2-H — the codes
     /// keep the CIDs of the CMap they use.
     /// </summary>
-    [Fact(Skip = "M7-Befund: /WMode 1 im Wörterbuch, 0 im Programm — usecmap-Basis wird durch Identity-V ersetzt (CompositeFont.ParseCMap)")]
+    [Fact]
     public void EmbeddedCMap_DictionaryWMode1_UsecmapKeepsTheCidsOfItsBase()
     {
         var (doc, _, font) = Iso03PageFont("", pdf => Iso03CidTrueType(pdf, TestPdf.Ref(pdf.Add(Iso03WModeCMap("/UniJIS-UCS2-H usecmap\n")))));
@@ -646,15 +646,16 @@ public sealed partial class M7NormTests
     }
 
     /// <summary>
-    /// 9.7.5.3 sentences 15–18 (reader): /WMode 1 in the dictionary of an embedded CMap whose program says 0 and uses no other CMap — the font
-    /// writes vertically.
+    /// 9.7.5.3 sentences 15–18 (reader): /WMode 1 in the dictionary of an embedded CMap whose program says 0 and uses no other CMap — the
+    /// dictionary would make the font vertical; two of three reference readers write it horizontally as its program says (special rule;
+    /// probes K13, K13c, 26.11.2026; FG 1153), and so does PDF-Knead.
     /// </summary>
-    [Fact(Skip = "M7-Befund: /WMode 1 im Wörterbuch, 0 im Programm ohne usecmap — die Anzeige schreibt waagerecht (CompositeFont.ParseCMap)")]
-    public void EmbeddedCMap_DictionaryWMode1_WithoutUsecmap_WritesVertically()
+    [Fact]
+    public void EmbeddedCMap_DictionaryWMode1_WithoutUsecmap_WritesAsTheProgramSays()
     {
         var (doc, _, font) = Iso03PageFont("", pdf => Iso03CidTrueType(pdf, TestPdf.Ref(pdf.Add(Iso03WModeCMap(
             "1 begincodespacerange\n<0000> <FFFF>\nendcodespacerange\n1 begincidrange\n<0000> <FFFF> 0\nendcidrange\n")))));
-        using (doc) Assert.True(font.Vertical);
+        using (doc) Assert.False(font.Vertical);
     }
 
     /// <summary>

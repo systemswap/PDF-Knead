@@ -180,7 +180,7 @@ public sealed partial class M7NormTests
     /// 9.2.4 sentences 38, 39: the glyph bounding box is the smallest rectangle around the glyph — for a curve whose control points rise above
     /// it (0 0 → control points at height 1000 → 1000 0), the box ends at the top of the curve (750), not at the control points.
     /// </summary>
-    [Fact(Skip = "M7-Befund: GlyphOutline.Bounds ist der Rahmen der Kontrollpunkte (1000), nicht der kleinste um die Kurve (750)")]
+    [Fact]
     public void Iso01_GlyphBounds_AreTheSmallestRectangleAroundTheCurves()
     {
         var outline = new GlyphOutline();
@@ -512,7 +512,7 @@ public sealed partial class M7NormTests
     /// 9.3.6 sentence 3: the parameters of stroking (the line width) apply in user space — a stroked I at 300 Tz with 4 w: its vertical and its
     /// horizontal edges are both 4 wide (measured at twice the resolution: 8 pixels).
     /// </summary>
-    [Fact(Skip = "M7-Befund: Strichbreite gestrichenen Texts über den mittleren Maßstab im Glyphenraum, bei 300 Tz senkrecht 7, waagerecht 2,5 statt je 4 (B9)")]
+    [Fact]
     public void Iso01_StrokedText_LineWidthInUserSpace()
     {
         var (doc, list) = PageIso01("BT /F1 100 Tf 300 Tz 1 Tr 4 w 10 10 Td (I) Tj ET");

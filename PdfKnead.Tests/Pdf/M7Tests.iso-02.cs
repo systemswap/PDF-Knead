@@ -165,7 +165,7 @@ public sealed partial class M7NormTests
     /// 9.6.2.1 sentence 24: a code outside FirstChar to LastChar takes /MissingWidth of the descriptor — embedded TrueType with /FirstChar 65,
     /// /LastChar 65, /Widths [500] and /MissingWidth 250: code 66 is 0.25 wide.
     /// </summary>
-    [Fact(Skip = "M7-Befund: Codes außerhalb FirstChar–LastChar nehmen die Breite des Programms (0,667) vor /MissingWidth (B13)")]
+    [Fact]
     public void Iso02_CodeOutsideFirstLast_TakesMissingWidth()
     {
         var (doc, _, font) = PageIso02("BT /F 10 Tf 10 10 Td (AB) Tj ET", pdf =>
@@ -367,7 +367,7 @@ public sealed partial class M7NormTests
     /// 9.6.5.2 sentences 8–10: every Type 1 program has a .notdef, and a name the program lacks is replaced by it — /Differences names
     /// „fehlt“ for 65 while the built-in encoding has A there: code 65 shows the .notdef (empty, 500 wide), not the A.
     /// </summary>
-    [Fact(Skip = "M7-Befund: ein Name, den das eingebettete Type-1-Programm nicht hat, zeichnet die Glyphe der eingebauten Kodierung statt .notdef (B14)")]
+    [Fact]
     public void Iso02_EmbeddedType1_NameMissingInTheProgram_ShowsNotdef()
     {
         var (doc, _, font) = PageIso02("BT /F 10 Tf 10 10 Td (A) Tj ET", Type1Iso02((65, "fehlt")));
