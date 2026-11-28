@@ -23,6 +23,8 @@ using SkiaSharp;
 //   pdf-knead bilder <file> [<page>] [--ablegen <folder>] [--speichern <folder>] [--passwort <p>]   — image info: format, pixels, colour space, bit depth, resolution on the page, EXIF, origin (--ablegen: JPEGs and data for comparison; --speichern: every image as „Bild speichern“ writes it)
 //   pdf-knead verborgen <file> [<page>] [--passwort <p>]   — spots of hidden text as "redact hidden content" finds them
 //   pdf-knead bloecke <file> [<page>] [--ohne-text] [--passwort <p>]   — text blocks as "edit text" detects them (--ohne-text: content masked)
+//   pdf-knead textzeilen <file> [--seiten a-b] [--lesezeichen | --anmerkungen] [--passwort <p>]   — every text line with font, size and
+//                                     position as JSON, or the outline, or the notes and text markup (into a pipe only)
 //   pdf-knead felder <file> [--passwort <p>]   — form fields and labels per page (kind, name, value, position, properties)
 //   pdf-knead messen <file> [--dpi <n>] [--passwort <p>]   — times per page
 //   pdf-knead leistung <file|folder> [--seiten <n>] [--dpi <n>] [--csv <file>] [--operatoren] [--allokationen] [--pruefsummen <file>] — whole chain over many files
@@ -86,6 +88,7 @@ if (args.Length < 2)
     Console.WriteLine("  pdf-knead codes <datei> [<seite>] [--zeit] [--bild <png>]");
     Console.WriteLine("  pdf-knead verborgen <datei> [<seite>] [--passwort <p>]");
     Console.WriteLine("  pdf-knead bloecke <datei> [<seite>] [--ohne-text] [--passwort <p>]");
+    Console.WriteLine("  pdf-knead textzeilen <datei> [--seiten a-b] [--lesezeichen | --anmerkungen] [--passwort <p>]");
     Console.WriteLine("  pdf-knead messen <datei> [--dpi <n>] [--passwort <p>]");
     Console.WriteLine("  pdf-knead leistung <datei|ordner> [--seiten <n>] [--dpi <n>] [--csv <datei>] [--operatoren] [--allokationen]");
     Console.WriteLine("  pdf-knead speichern <datei> <ausgabe> [--version 1.7] [--seiten 1-3,7] [--passwort <p>]");
@@ -579,6 +582,14 @@ try
                     BatchSize: int.TryParse(Option("--stapel"), out var ob) && ob > 0 ? ob : 6, Arena: args.Contains("--arena"),
                     MaxSide: int.TryParse(Option("--maxseite"), out var om) && om >= 64 ? om : 1600),
                 Option("--ablegen"), args.Contains("--alle"));
+        case "textzeilen" or "textlines":
+            // every text line with font, size and position (the second count of the standards; output only into a pipe)
+            var (fromPage, toPage) = (1, doc.PageCount);
+            if (Option("--seiten") is { } span && span.Split('-') is [var lo, var hi] && int.TryParse(lo, out var l) && int.TryParse(hi, out var h))
+                (fromPage, toPage) = (l, h);
+            return args.Contains("--lesezeichen") ? TextLinesCheck.Outline(doc)
+                : args.Contains("--anmerkungen") ? TextLinesCheck.Annotations(doc, fromPage, toPage)
+                : TextLinesCheck.Run(doc, fromPage, toPage);
         case "bloecke" or "blocks":
             return BlockCheck.Run(doc, args.Length >= 3 && int.TryParse(args[2], out var bp) ? bp : 0, args.Contains("--ohne-text"));
         case "bild" or "image" when args.Length >= 3 && int.TryParse(args[2], out var pageNumber) && pageNumber >= 1 && pageNumber <= doc.PageCount:

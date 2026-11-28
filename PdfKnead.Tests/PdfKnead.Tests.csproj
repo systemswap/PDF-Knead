@@ -32,6 +32,7 @@
     <Compile Include="..\PdfKnead.Cli\LeakSearch.cs" Link="Cli\LeakSearch.cs" />
     <Compile Include="..\PdfKnead.Cli\SignatureList.cs" Link="Cli\SignatureList.cs" />
     <Compile Include="..\PdfKnead.Cli\ReleaseTools.cs" Link="Cli\ReleaseTools.cs" />
+    <Compile Include="..\PdfKnead.Cli\TextLinesCheck.cs" Link="Cli\TextLinesCheck.cs" />
   </ItemGroup>
 
   <ItemGroup>
