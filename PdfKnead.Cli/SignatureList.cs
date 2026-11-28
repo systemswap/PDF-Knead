@@ -3,6 +3,7 @@ using PdfKnead.Core.Pdf;
 using PdfKnead.Core.Pdf.Document;
 using PdfKnead.Core.Pdf.Signatures;
 using PdfKnead.Core.Platform;
+using PdfKnead.Core.Security;
 
 namespace PdfKnead.Cli;
 
@@ -34,6 +35,9 @@ internal static class SignatureList
     /// <returns>0 if all signatures are valid, 3 if one is not, 1 on a read error.</returns>
     public static int Run(string path, string? password)
     {
+        // the names from the file (field, signer, issuer, authority, the notes that name them) with their directional formatting characters
+        // shown (Unicode 9, UTR #36; docs/FEHLERGEDAECHTNIS.md, No. 1217)
+        static void Say(string line) => Console.WriteLine(DisplayNames.Safe(line));
         var folder = Directory.Exists(path);
         var files = folder ? Directory.GetFiles(path, "*.pdf", SearchOption.AllDirectories).Order(StringComparer.Ordinal).ToArray() : [path];
         var result = 0;
@@ -48,37 +52,37 @@ internal static class SignatureList
                 using var doc = PdfDocument.Open(file, password);
                 var checks = SignatureVerifier.Verify(doc, password);
                 if (files.Length > 1 && checks.Count == 0) continue;
-                Console.WriteLine($"== {(folder ? Path.GetRelativePath(path, file) : Path.GetFileName(file))}");
+                Say($"== {(folder ? Path.GetRelativePath(path, file) : Path.GetFileName(file))}");
                 if (checks.Count > 0) signed++;
-                if (checks.Count == 0) Console.WriteLine(Tr.T("Keine digitalen Signaturen."));
+                if (checks.Count == 0) Say(Tr.T("Keine digitalen Signaturen."));
                 foreach (var check in checks)
                 {
-                    Console.WriteLine($"   {check.FieldName}: {SignatureTexts.Outcome(check)}" + (check.IsDocumentTimestamp ? " · " + Tr.T("Dokument-Zeitstempel") : ""));
-                    if (check.Problem is { } problem) Console.WriteLine($"      {problem}");
-                    if (check.UnconfirmedReason is { } reason) Console.WriteLine($"      {reason}");
-                    Console.WriteLine($"      EN 319 102-1: {SignatureTexts.Indication(check)}");
-                    foreach (var warning in check.Warnings) Console.WriteLine($"      ! {warning}");
-                    Console.WriteLine($"      {check.SignerName} · {check.SigningTime:yyyy-MM-dd HH:mm:ss zzz} · {check.Method}" +
+                    Say($"   {check.FieldName}: {SignatureTexts.Outcome(check)}" + (check.IsDocumentTimestamp ? " · " + Tr.T("Dokument-Zeitstempel") : ""));
+                    if (check.Problem is { } problem) Say($"      {problem}");
+                    if (check.UnconfirmedReason is { } reason) Say($"      {reason}");
+                    Say($"      EN 319 102-1: {SignatureTexts.Indication(check)}");
+                    foreach (var warning in check.Warnings) Say($"      ! {warning}");
+                    Say($"      {check.SignerName} · {check.SigningTime:yyyy-MM-dd HH:mm:ss zzz} · {check.Method}" +
                                       $" · {(check.CoversWholeFile ? Tr.T("ganze Datei") : Tr.T("frühere Fassung"))}");
                     if (check.Timestamp is { } stamp)
-                        Console.WriteLine($"      Zeitstempel {stamp.Time:yyyy-MM-dd HH:mm:ss zzz} von {stamp.Authority} · {(stamp.Valid ? "passt" : "PASST NICHT")}{(stamp.Trusted ? ", Dienst vertraut" : "")}");
-                    if (SignatureTexts.TrustList(check) is { } trustList) Console.WriteLine($"      {Tr.T("EU-Vertrauensliste")}: {trustList}");
+                        Say($"      Zeitstempel {stamp.Time:yyyy-MM-dd HH:mm:ss zzz} von {stamp.Authority} · {(stamp.Valid ? "passt" : "PASST NICHT")}{(stamp.Trusted ? ", Dienst vertraut" : "")}");
+                    if (SignatureTexts.TrustList(check) is { } trustList) Say($"      {Tr.T("EU-Vertrauensliste")}: {trustList}");
                     if (check.TimestampService is { Qualified: true } qualified)
-                        Console.WriteLine($"      {Tr.T("qualifizierter Zeitstempel ({0})", qualified.Service.Territory)}: {qualified.Service.Provider}");
-                    if (SignatureTexts.LongTerm(check) is { } longTerm) Console.WriteLine($"      {Tr.T("Langzeitprüfung")}: {longTerm}");
-                    if (SignatureTexts.PadesLevel(check) is { } pades) Console.WriteLine($"      {Tr.T("PAdES-Stufe")}: {pades}");
-                    if (check.Commitment is { } commitment) Console.WriteLine($"      {Tr.T("Zweck")}: {commitment}");
-                    if (SignatureTexts.RenewBefore(check) is { } renew) Console.WriteLine($"      {Tr.T("Schutz erneuern bis spätestens")}: {renew}");
+                        Say($"      {Tr.T("qualifizierter Zeitstempel ({0})", qualified.Service.Territory)}: {qualified.Service.Provider}");
+                    if (SignatureTexts.LongTerm(check) is { } longTerm) Say($"      {Tr.T("Langzeitprüfung")}: {longTerm}");
+                    if (SignatureTexts.PadesLevel(check) is { } pades) Say($"      {Tr.T("PAdES-Stufe")}: {pades}");
+                    if (check.Commitment is { } commitment) Say($"      {Tr.T("Zweck")}: {commitment}");
+                    if (SignatureTexts.RenewBefore(check) is { } renew) Say($"      {Tr.T("Schutz erneuern bis spätestens")}: {renew}");
                     if (check.Certificate is { } certificate)
                     {
-                        Console.WriteLine($"      {Tr.T("Ausgestellt von {0}", certificate.Issuer)}{(certificate.SelfSigned ? " (" + Tr.T("selbst ausgestellt") + ")" : "")} · {certificate.Fingerprint}");
-                        Console.WriteLine($"      {Tr.T("Stufe")}: {SignatureTexts.Level(check)}");
-                        foreach (var note in SignatureTexts.NatureNotes(check)) Console.WriteLine($"      · {note}");
+                        Say($"      {Tr.T("Ausgestellt von {0}", certificate.Issuer)}{(certificate.SelfSigned ? " (" + Tr.T("selbst ausgestellt") + ")" : "")} · {certificate.Fingerprint}");
+                        Say($"      {Tr.T("Stufe")}: {SignatureTexts.Level(check)}");
+                        foreach (var note in SignatureTexts.NatureNotes(check)) Say($"      · {note}");
                     }
-                    if (check.Certification is { } level) Console.WriteLine($"      {Tr.T("Zertifiziert")}: {Tr.T("danach erlaubt: {0}", SignatureTexts.Allowed(level))}");
-                    if (check.Lock is { } fieldLock) Console.WriteLine($"      {Tr.T("Sperrt")}: {SignatureTexts.Locked(fieldLock)}");
-                    if (SignatureTexts.Later(check) is { } later) Console.WriteLine($"      {later}");
-                    foreach (var detail in check.LaterDetails) Console.WriteLine($"        – {detail}");
+                    if (check.Certification is { } level) Say($"      {Tr.T("Zertifiziert")}: {Tr.T("danach erlaubt: {0}", SignatureTexts.Allowed(level))}");
+                    if (check.Lock is { } fieldLock) Say($"      {Tr.T("Sperrt")}: {SignatureTexts.Locked(fieldLock)}");
+                    if (SignatureTexts.Later(check) is { } later) Say($"      {later}");
+                    foreach (var detail in check.LaterDetails) Say($"        – {detail}");
                     if (!SignatureTexts.IsValid(check)) result = 3;
                     var outcome = SignatureTexts.Outcome(check) + (check.IsDocumentTimestamp ? " (Zeitstempel)" : "");
                     outcomes[outcome] = outcomes.GetValueOrDefault(outcome) + 1;
@@ -89,7 +93,7 @@ internal static class SignatureList
             }
             catch (Exception e) when (e is PdfException or IOException or UnauthorizedAccessException or InvalidDataException)
             {
-                Console.WriteLine($"== {(folder ? Path.GetRelativePath(path, file) : Path.GetFileName(file))}: {e.Message}");
+                Say($"== {(folder ? Path.GetRelativePath(path, file) : Path.GetFileName(file))}: {e.Message}");
                 unreadable++;
                 result = result == 0 ? 1 : result;
             }

@@ -534,33 +534,39 @@ public sealed partial class M7NormTests
 
     /// <summary>
     /// OT 2.4.1 sentence 16 and OT 2.4.2 sentence 10: without a default language system (offset NULL; required of DFLT, allowed elsewhere) the
-    /// reader does not fail — it takes the first language system of the script („TRK “ under DFLT, „ROM “ under latn), and with none there are no
-    /// lookups.
+    /// reader does not fail — a text without a language, or of another language, gets no lookups, as the shaping library; the language system
+    /// applies only to text of its language („TRK “ under DFLT, „ROM “ under latn). Before, the first language system applied to text of any
+    /// language (docs/FEHLERGEDAECHTNIS.md, No. 1204).
     /// </summary>
     [Theory]
     [InlineData("DFLT", "TRK ", true)]
     [InlineData("DFLT", "TRK ", false)]
     [InlineData("latn", "ROM ", true)]
     [InlineData("latn", "ROM ", false)]
-    public void Ot02_NoDefaultLanguageSystem_TakesTheFirstOrNone(string script, string language, bool withLanguage)
+    public void Ot02_NoDefaultLanguageSystem_OnlyTheTextLanguageChoosesOne(string script, string language, bool withLanguage)
     {
         var langs = withLanguage ? new[] { new Ot02Lang(language, [0]) } : [];
         var table = new LayoutTable(Ot02Layout([new Ot02Script(script, null, langs)], [new Ot02Feature("liga", [0])],
             [Ot02Lookup(1, Ot02Single((Ot02G('a'), Ot02G('b'))))]), 7);
+        Assert.Equal([], table.LookupsFor(["liga"]));
+        Assert.Equal([], table.LookupsFor(["liga"], [script], "DEU "));
         int[] expected = withLanguage ? [0] : [];
-        Assert.Equal(expected, table.LookupsFor(["liga"]));
+        Assert.Equal(expected, table.LookupsFor(["liga"], [script], language));
     }
 
     /// <summary>
-    /// OT 2.4.1 sentences 19–20 (today's behaviour): DFLT with a default language system („liga“ → lookup 0) and „TRK “ („liga“ → lookup 1) —
-    /// PDF-Knead names no language when shaping, so the default language system applies: [0].
+    /// OT 2.4.1 sentences 19–20, OT 40.2.3 (docs/FEHLERGEDAECHTNIS.md, No. 1162): DFLT with a default language system („liga“ → lookup 0) and
+    /// „TRK “ („liga“ → lookup 1) — for Turkish text the language system „TRK “ applies ([1]); without a language, or for one the script has no
+    /// language system for, the default one ([0]).
     /// </summary>
     [Fact]
-    public void Ot02_DfltWithLanguageSystems_TheDefaultOneApplies()
+    public void Ot02_DfltWithLanguageSystems_TheTextLanguageChoosesOne()
     {
         var table = new LayoutTable(Ot02Layout([new Ot02Script("DFLT", new Ot02Lang("", [0]), new Ot02Lang("TRK ", [1]))],
             [new Ot02Feature("liga", [0]), new Ot02Feature("liga", [1])], [Ot02Lookup(1), Ot02Lookup(1)]), 7);
+        Assert.Equal([1], table.LookupsFor(["liga"], ["DFLT"], "TRK "));
         Assert.Equal([0], table.LookupsFor(["liga"], "DFLT"));
+        Assert.Equal([0], table.LookupsFor(["liga"], ["DFLT"], "DEU "));
     }
 
     /// <summary>

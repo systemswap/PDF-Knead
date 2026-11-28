@@ -109,13 +109,13 @@ public class BarcodeMeaningTests
     public void HiddenAndDirectionCharacters_Visible_AndWarned()
     {
         // "Rechnung<RLO>fdp.exe" looks like "Rechnungexe.pdf"
-        var m = BarcodeInterpreter.Interpret(BarcodeFormat.Qr, "Rechnung‮fdp.exe\u0007​");
+        var m = BarcodeInterpreter.Interpret(BarcodeFormat.Qr, "Rechnung\u202Efdp.exe\u0007\u200B");
         Assert.NotEmpty(m.Warnings);
         var shown = m.Rows.Single().Value;
         Assert.Contains("⟨U+202E⟩", shown);
         Assert.Contains("⟨U+200B⟩", shown);
         Assert.Contains("␇", shown);
-        Assert.DoesNotContain('‮', shown);
+        Assert.DoesNotContain('\u202E', shown);
         // very long contents are cut for display
         Assert.True(BarcodeInterpreter.Safe(new string('x', 100_000)).Length < 2100);
     }

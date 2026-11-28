@@ -8,7 +8,9 @@ namespace PdfKnead.Core.Fonts;
 /// <summary>
 /// Colour glyphs as bitmaps: one PNG image per glyph, from the first usable of the OpenType tables 'sbix' (Apple), 'CBDT'/'CBLC'
 /// (Google) and 'SVG ' documents that embed a single PNG. Handwriting fonts made from scanned ink get their look only this way;
-/// their outlines may be placeholders. If a font has several of these tables, the one with the highest resolution is used.
+/// their outlines may be placeholders. If a font has several of these tables, the one with the highest resolution is used; a font with
+/// none of them but with COLR version 0 gets its layers filled into images (<see cref="ColrImages"/>). SVG documents with vector content
+/// (paths, gradients, <c>use</c>, <c>currentColor</c>) are not interpreted on purpose — a large new attack surface; such a glyph shows its outline.
 /// </summary>
 /// <remarks>
 /// Instances are shared per <see cref="OpenTypeFont"/> and are safe to use from several threads. Decoded glyph images are cached
@@ -85,7 +87,8 @@ public sealed class ColorGlyphs
 
     /// <summary>Returns the colour glyphs of a font.</summary>
     /// <param name="font">The font.</param>
-    /// <returns>The shared instance for the font, or null if the font has no usable sbix, CBDT/CBLC or SVG table with PNG images.</returns>
+    /// <returns>The shared instance for the font, or null if the font has no usable sbix, CBDT/CBLC or SVG table with PNG images and no usable
+    /// COLR version 0 records with CPAL.</returns>
     public static ColorGlyphs? For(OpenTypeFont font) => All.GetValue(font, Create);
 
     private static ColorGlyphs? Create(OpenTypeFont font)
@@ -94,6 +97,9 @@ public sealed class ColorGlyphs
         foreach (var source in (IGlyphImages?[])[SbixImages.TryCreate(font), CbdtImages.TryCreate(font), SvgPngImages.TryCreate(font)])
             if (source is not null && (best is null || source.PixelsPerEm > best.PixelsPerEm))
                 best = source;
+        // without images the layers of COLR version 0, filled in their palette colours — before such a font had no colour glyphs
+        // (docs/FEHLERGEDAECHTNIS.md, No. 1168); the images of a font made from scanned ink stay first, they are its true look
+        best ??= ColrImages.TryCreate(font);
         return best is null ? null : new ColorGlyphs(best, font);
     }
 

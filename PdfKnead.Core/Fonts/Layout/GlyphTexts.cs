@@ -3,7 +3,7 @@ using System.Runtime.CompilerServices;
 namespace PdfKnead.Core.Fonts.Layout;
 
 /// <summary>
-/// The text a reader derives for a glyph of a font that has no ToUnicode: the inverted cmap (glyph → Unicode, code points U+0020 to U+2FFF, the
+/// The text a reader derives for a glyph of a font that has no ToUnicode: the inverted cmap (glyph → Unicode, all code points from U+0020, the
 /// lowest code point first) and, for a font with Arabic, the joining forms and lam-alef ligatures its shaping puts in place of letters. The
 /// display reads such fonts so (PdfFont), and formatted text built by PDF-Knead gives a glyph that reads otherwise its text as /ActualText
 /// (ElementAppearance.RichText) — the shared display font of formatted text has no ToUnicode (docs/FEHLERGEDAECHTNIS.md, No. 920).
@@ -17,13 +17,34 @@ internal static class GlyphTexts
     /// <returns>Glyph → text; a glyph not in it reads as nothing.</returns>
     public static IReadOnlyDictionary<int, string> Of(OpenTypeFont font) => Cache.GetValue(font, Build);
 
+    /// <summary>
+    /// The most codes read from the Unicode subtables of one font for the inversion (all assigned characters of Unicode 16.0.0 are about
+    /// 155 000; a crafted subtable may claim every code point): the work stays bounded per font.
+    /// </summary>
+    internal const int MaxCodes = 400_000;
+
     private static Dictionary<int, string> Build(OpenTypeFont ot)
     {
         var reverse = new Dictionary<int, string>();
         if (!(ot.HasCmap(3, 1) || ot.HasCmap(0, 3) || ot.HasCmap(3, 10))) return reverse;
-        for (var cp = 0x20; cp < 0x3000; cp++)
-            if (ot.GlyphForUnicode(cp) is > 0 and var g) reverse.TryAdd(g, char.ConvertFromUtf32(cp));
+        // the whole cmap, from the codes its Unicode subtables map (before only U+0020–U+2FFF were tried, so kana, Hangul, Han, Bopomofo, Yi
+        // and the halfwidth forms of an embedded TrueType font without ToUnicode read as nothing; docs/FEHLERGEDAECHTNIS.md, No. 1187): the
+        // codes below U+3000 first, then the forms of the Arabic shaping, then the rest — so a glyph keeps the text it had before
+        // (only glyphs the font has: a crafted cmap may name any number, and the table would grow with it)
+        var glyphs = ot.GlyphCount > 0 ? ot.GlyphCount : 65536;
+        var codes = new SortedSet<int>();
+        var budget = MaxCodes;
+        foreach (var (platform, encoding) in (ReadOnlySpan<(int, int)>)[(3, 10), (0, 4), (3, 1), (0, 3), (0, 6), (0, 1), (0, 0), (0, 2)])
+            foreach (var (code, _) in ot.Mappings(platform, encoding))
+            {
+                if (budget-- <= 0) break;
+                if (code is >= 0x20 and <= 0x10FFFF and (< 0xD800 or > 0xDFFF)) codes.Add(code);
+            }
+        foreach (var cp in codes.GetViewBetween(0x20, 0x2FFF))
+            if (ot.GlyphForUnicode(cp) is > 0 and var g && g < glyphs) reverse.TryAdd(g, char.ConvertFromUtf32(cp));
         ArabicForms(ot, reverse);
+        foreach (var cp in codes.GetViewBetween(0x3000, 0x10FFFF))
+            if (ot.GlyphForUnicode(cp) is > 0 and var g && g < glyphs) reverse.TryAdd(g, char.ConvertFromUtf32(cp));
         return reverse;
     }
 

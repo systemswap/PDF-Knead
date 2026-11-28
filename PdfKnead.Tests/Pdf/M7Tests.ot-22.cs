@@ -242,10 +242,10 @@ public sealed partial class M7NormTests
     [Fact]
     public void Ot22_Context_PlacesInTheInputPassOverSkippedMarks()
     {
-        var acute = Ot20G('́');
+        var acute = Ot20G('\u0301');
         var gpos = Ot20Kern(Ot20Lookup(7, 8, Ot22Context3([[Ot20G('A')], [Ot20G('V')]], (1, 1))),
             Ot20Lookup(1, Ot20Single1([Ot20G('V'), acute], 2, 70)));
-        var shaped = Ot20Shaper(gpos, Ot20Gdef(new Dictionary<int, int> { [acute] = 3 })).Shape("ÁV");
+        var shaped = Ot20Shaper(gpos, Ot20Gdef(new Dictionary<int, int> { [acute] = 3 })).Shape("A\u0301V");
         Assert.Equal([Ot20G('A'), acute, Ot20G('V')], shaped.Select(g => g.Glyph));
         Assert.Equal([0.0, 0, 70], shaped.Select(g => g.YOffset));
     }
@@ -321,7 +321,7 @@ public sealed partial class M7NormTests
         var stripped = Hebrew(Ot22WithoutType8(gpos));
         // the marks of one base letter: x from the origin of the base, y
         static (int Glyph, double X, double Y)[] Marks(ShapedGlyph[] g) => [.. g.Skip(1).Select(m => (m.Glyph, g[0].XAdvance + m.XOffset, m.YOffset)).OrderBy(m => m.Glyph)];
-        foreach (var text in new[] { "בָ֑", "דְ֚" })
+        foreach (var text in new[] { "ב\u05B8\u0591", "ד\u05B0\u059A" })
         {
             var own = shaper.Shape(text);
             // the library sets Hebrew right to left: in its visual order the marks (no advance) stand before their base, at its origin
@@ -496,9 +496,9 @@ public sealed partial class M7NormTests
     public void Ot22_ExtensionLookup_KeepsItsFlags()
     {
         var pair = Ot20Pair1(4, 0, (Ot20G('A'), Ot20G('V'), [-80], []));
-        var gdef = Ot20Gdef(new Dictionary<int, int> { [Ot20G('́')] = 3 });
-        var packed = Ot20Shaper(Ot20Kern(Ot20Lookup(9, 8, Ot20Extension(2, pair))), gdef).Shape("ÁV");
-        var direct = Ot20Shaper(Ot20Kern(Ot20Lookup(2, 8, pair)), gdef).Shape("ÁV");
+        var gdef = Ot20Gdef(new Dictionary<int, int> { [Ot20G('\u0301')] = 3 });
+        var packed = Ot20Shaper(Ot20Kern(Ot20Lookup(9, 8, Ot20Extension(2, pair))), gdef).Shape("A\u0301V");
+        var direct = Ot20Shaper(Ot20Kern(Ot20Lookup(2, 8, pair)), gdef).Shape("A\u0301V");
         Assert.Equal(Ot20Adv('A') - 80, packed[0].XAdvance);
         Ot22SamePositions(direct, packed);
     }
@@ -610,7 +610,7 @@ public sealed partial class M7NormTests
     private static TextShaper Ot22MarkShaper(Action<Ot20Bytes> markBase) =>
         Ot20Shaper(Ot20Layout([("mark", [0])], [Ot20Lookup(4, markBase)]), Ot20Gdef(new Dictionary<int, int>
         {
-            [Ot20G('a')] = 1, [Ot20G('́')] = 3, [Ot20G('̂')] = 3,
+            [Ot20G('a')] = 1, [Ot20G('\u0301')] = 3, [Ot20G('\u0302')] = 3,
         }));
 
     /// <summary>
@@ -627,7 +627,7 @@ public sealed partial class M7NormTests
             b.U16(3).U16(100).U16(0).Off16(device, 0).U16(0);
             b.Label(device).Bytes(Ot20Device());
         });
-        var shaped = Ot22MarkShaper(Ot20MarkAttach([(Ot20G('́'), 0, anchor3)], [(Ot20G('a'), [Ot20Anchor(500, 600)])], 1)).Shape("á");
+        var shaped = Ot22MarkShaper(Ot20MarkAttach([(Ot20G('\u0301'), 0, anchor3)], [(Ot20G('a'), [Ot20Anchor(500, 600)])], 1)).Shape("a\u0301");
         Assert.Equal((500 - 100 - Ot20Adv('a'), 600.0), (shaped[1].XOffset, shaped[1].YOffset));
     }
 
@@ -640,7 +640,7 @@ public sealed partial class M7NormTests
     public void Ot22_AnchorFormat3_CoordinatesRead()
     {
         var anchor = Ot20Raw(b => b.U16(3).U16(100).U16(0xFFCE).U16(0).U16(10).Bytes(Ot20Device()));
-        var shaped = Ot22MarkShaper(Ot20MarkAttach([(Ot20G('́'), 0, anchor)], [(Ot20G('a'), [Ot20Anchor(500, 600)])], 1)).Shape("á");
+        var shaped = Ot22MarkShaper(Ot20MarkAttach([(Ot20G('\u0301'), 0, anchor)], [(Ot20G('a'), [Ot20Anchor(500, 600)])], 1)).Shape("a\u0301");
         Assert.Equal((500 - 100 - Ot20Adv('a'), 650.0), (shaped[1].XOffset, shaped[1].YOffset));
     }
 
@@ -651,8 +651,8 @@ public sealed partial class M7NormTests
     [Fact]
     public void Ot22_MarkRecordOfClassZero_AnchorOfClassZero()
     {
-        var shaped = Ot22MarkShaper(Ot20MarkAttach([(Ot20G('́'), 0, Ot20Anchor(0, 0))], [(Ot20G('a'), [Ot20Anchor(300, 700), Ot20Anchor(300, -100)])], 2))
-            .Shape("á");
+        var shaped = Ot22MarkShaper(Ot20MarkAttach([(Ot20G('\u0301'), 0, Ot20Anchor(0, 0))], [(Ot20G('a'), [Ot20Anchor(300, 700), Ot20Anchor(300, -100)])], 2))
+            .Shape("a\u0301");
         Assert.Equal((300 - Ot20Adv('a'), 700.0), (shaped[1].XOffset, shaped[1].YOffset));
     }
 
@@ -664,10 +664,10 @@ public sealed partial class M7NormTests
     [Fact]
     public void Ot22_MarkArrayShorterThanTheCoverage_MarkBeyondStays()
     {
-        var shaper = Ot22MarkShaper(Ot20MarkAttach([(Ot20G('́'), 0, Ot20Anchor(0, 0)), (Ot20G('̂'), 0, Ot20Anchor(0, 0))],
+        var shaper = Ot22MarkShaper(Ot20MarkAttach([(Ot20G('\u0301'), 0, Ot20Anchor(0, 0)), (Ot20G('\u0302'), 0, Ot20Anchor(0, 0))],
             [(Ot20G('a'), [Ot20Anchor(500, 600)])], 1, markCount: 1));
-        var beyond = shaper.Shape("â");
+        var beyond = shaper.Shape("a\u0302");
         Assert.Equal((0.0, 0.0, 0), (beyond[1].XOffset, beyond[1].YOffset, beyond[1].AttachBack));
-        Assert.Equal(600, shaper.Shape("á")[1].YOffset);
+        Assert.Equal(600, shaper.Shape("a\u0301")[1].YOffset);
     }
 }

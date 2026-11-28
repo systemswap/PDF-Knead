@@ -171,7 +171,7 @@
                         <TextBlock Classes="caption" Text="{l:T 'Zeilenabstand'}" />
                         <ComboBox ItemsSource="{x:Static vm:RichTextPropertiesViewModel.Spacings}" SelectedItem="{Binding Spacing}"
                                   ItemTemplate="{StaticResource LabelTemplate}" AutomationProperties.Name="{l:T 'Zeilenabstand'}">
-                            <ToolTip.Tip><l:T Text="Abstand der Zeilen im Verhältnis zur Schriftgröße — vorgewählt ist der Abstand aus der Datei" /></ToolTip.Tip>
+                            <ToolTip.Tip><l:T Text="Abstand der Zeilen als Vielfaches der Zeilenhöhe der Schrift (Einfach: so hoch, wie die Schrift es vorsieht) — vorgewählt ist der Abstand aus der Datei, bei älterem oder bearbeitetem Text im Verhältnis zur Schriftgröße" /></ToolTip.Tip>
                         </ComboBox>
                     </StackPanel>
                 </Border>

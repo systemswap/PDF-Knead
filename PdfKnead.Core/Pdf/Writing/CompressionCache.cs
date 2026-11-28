@@ -49,6 +49,9 @@ public sealed class CompressionCache
     /// <summary>Font subset per object and packing kind; null = stays as it is.</summary>
     internal Dictionary<(PdfDocument, int, int), (byte[] Data, PdfDictionary Dict)?> Subsets { get; } = [];
 
+    /// <summary>The fonts per object left as they were because their licence forbids changing them, by name (<see cref="PdfSaveResult.LicenceKeptFonts"/>).</summary>
+    internal Dictionary<(PdfDocument, int), string> LicenceKept { get; } = [];
+
     /// <summary>Black-and-white encoding per image, strictness (nearly black-and-white yes/no) and codec; null = the image is not black-and-white.</summary>
     internal Dictionary<(PdfDocument, int, bool, BilevelMethod), (byte[] Data, PdfDictionary Dict)?> Bilevel { get; } = [];
 

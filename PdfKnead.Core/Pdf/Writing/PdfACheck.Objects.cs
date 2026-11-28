@@ -327,7 +327,9 @@ public static partial class PdfACheck
                 if (primary == transfer)
                     Add(PdfARules.HalftoneTransfer, Tr.T("Ein Raster hat eine Transferfunktion (/TransferFunction), wo ISO 32000 keine vorsieht, oder keine, wo sie verlangt ist."));
             }
-            if (type == 5)
+            // only the colourants of the halftone of the graphics state: a type 5 halftone within one is not allowed (ISO 32000-2, 10.6.5.6) —
+            // going down into it let one halftone naming itself 64 times make 64^5 calls (docs/FEHLERGEDAECHTNIS.md, No. 1252)
+            if (type == 5 && depth == 0)
                 foreach (var (key, _) in halftone.Entries.Take(64))
                     if (key.Value is not ("Type" or "HalftoneType" or "HalftoneName") && halftone.Get(key) is PdfDictionary component)
                         Halftone(component, key.Value, depth + 1);

@@ -25,7 +25,7 @@ public sealed class PdfUaClaimTests
         var content = pdf.Add(TestPdf.FlateStream("/P <</MCID 0>> BDC BT /F1 12 Tf 72 700 Td (Max Mustermann wohnt hier.) Tj ET EMC"u8.ToArray()));
         var pagesNumber = pdf.Add(new PdfDictionary());
         var pageNumber = pdf.Add(new PdfDictionary());
-        var xmp = "<?xpacket begin=\"﻿\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?><x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">" +
+        var xmp = "<?xpacket begin=\"\uFEFF\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?><x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">" +
                   claims + "</rdf:RDF></x:xmpmeta><?xpacket end=\"w\"?>";
         var metadata = pdf.Add(new PdfStream(TestPdf.Dict(("Type", TestPdf.N("Metadata")), ("Subtype", TestPdf.N("XML"))), Encoding.UTF8.GetBytes(xmp)));
         var catalog = TestPdf.Dict(("Type", TestPdf.N("Catalog")), ("Pages", TestPdf.Ref(pagesNumber)), ("Metadata", TestPdf.Ref(metadata)), ("Lang", new PdfString("de"u8.ToArray())));
@@ -249,7 +249,7 @@ public sealed class PdfUaClaimTests
     [Fact]
     public void PdfA_KeepsTheLanguageVersionsOfTheTitle()
     {
-        var xmp = "<?xpacket begin=\"﻿\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?><x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">" +
+        var xmp = "<?xpacket begin=\"\uFEFF\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?><x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">" +
                   "<rdf:Description rdf:about=\"\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\" xmlns:pdfuaid=\"http://www.aiim.org/pdfua/ns/id/\"><pdfuaid:part>1</pdfuaid:part>" +
                   "<dc:title><rdf:Alt><rdf:li xml:lang=\"x-default\">Mustermappe</rdf:li><rdf:li xml:lang=\"en-US\">Mustermappe</rdf:li></rdf:Alt></dc:title>" +
                   "</rdf:Description></rdf:RDF></x:xmpmeta><?xpacket end=\"w\"?>";
@@ -292,7 +292,7 @@ public sealed class PdfUaClaimTests
         static string Schema(string uri, string prefix, string property) =>
             $"<rdf:li rdf:parseType=\"Resource\"><pdfaSchema:schema>{prefix}</pdfaSchema:schema><pdfaSchema:namespaceURI>{uri}</pdfaSchema:namespaceURI>" +
             $"<pdfaSchema:prefix>{prefix}</pdfaSchema:prefix><pdfaSchema:property><rdf:Seq>{property}</rdf:Seq></pdfaSchema:property></rdf:li>";
-        var xmp = "<?xpacket begin=\"﻿\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?><x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">" +
+        var xmp = "<?xpacket begin=\"\uFEFF\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?><x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">" +
                   "<rdf:Description rdf:about=\"\" xmlns:pdfaExtension=\"http://www.aiim.org/pdfa/ns/extension/\" xmlns:pdfaSchema=\"http://www.aiim.org/pdfa/ns/schema#\" " +
                   "xmlns:pdfaProperty=\"http://www.aiim.org/pdfa/ns/property#\"><pdfaExtension:schemas><rdf:Bag>" +
                   Schema(ns, "mu", Property("Ablage", "external", correct)) + Schema(pdfx, "pdfxid", Property("GTS_PDFXVersion", "internal", true)) +
@@ -328,7 +328,7 @@ public sealed class PdfUaClaimTests
     [InlineData(PdfAConformance.A2a, false)]
     public void PdfA1a_OfAPdfUa1FileWithATableHead_ClaimGoes(PdfAConformance part, bool goes)
     {
-        var xmp = "<?xpacket begin=\"﻿\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?><x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">" +
+        var xmp = "<?xpacket begin=\"\uFEFF\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?><x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">" +
                   Description("<pdfuaid:part>1</pdfuaid:part>") + "</rdf:RDF></x:xmpmeta><?xpacket end=\"w\"?>";
         var bytes = CraftedFileTests.Build(new Dictionary<int, object>
         {

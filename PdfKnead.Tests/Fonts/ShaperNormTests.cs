@@ -105,12 +105,12 @@ public sealed class ShaperNormTests
         {
             t.U16(1).U16(12).U16(18).U16(1).U16(24).U16(36);
             t.U16(1).U16(1).U16(acute);                                   // mark coverage
-            t.U16(1).U16(1).U16(G('a'));                                  // base coverage
+            t.U16(1).U16(1).U16(G('x'));                                  // base coverage (x: no composed character with the acute, No. 1197)
             t.U16(1).U16(0).U16(markAnchorOffset);                       // mark array: class 0, its anchor at +6 (or NULL)
             t.U16(markAnchorFormat).U16(0).U16(500);                     // the mark anchor
             t.U16(1).U16(4);                                              // base array: one record, its anchor at +4
             t.U16(1).U16(300).U16(700);                                  // base anchor (format 1)
         });
-        Assert.Equal(0, shaper.Shape("a\u0301")[1].XOffset);
+        Assert.Equal(0, shaper.Shape("x\u0301")[1].XOffset);
     }
 }

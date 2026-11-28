@@ -326,16 +326,19 @@ public sealed partial class M7NormTests
     }
 
     /// <summary>
-    /// 9.3.1 sentence 36 (the reader's side; V14 vorgemerkt): without Tf the display shows the character with the substitute font in size 1.
+    /// 9.3.1 sentence 36 (the reader's side): without Tf the display draws nothing, as none of the three reference readers (probe B12d;
+    /// docs/FEHLERGEDAECHTNIS.md, No. 1165) — the character is still read, as invisible text in size 1.
     /// </summary>
     [Fact]
-    public void Iso01_ShowWithoutTf_UsesTheSubstituteFontInSizeOne()
+    public void Iso01_ShowWithoutTf_NotDrawn_ReadAsInvisibleTextInSizeOne()
     {
         var (doc, list) = PageIso01("BT 10 10 Td (A) Tj ET");
         using (doc)
         {
             Assert.Equal("A", TextIso01(list));
             Assert.Equal(1, list.Text[0].Size, 3);
+            Assert.False(list.Text[0].Visible);
+            Assert.Equal(0, list.Count);
         }
     }
 

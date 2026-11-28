@@ -32,8 +32,10 @@ public sealed class ElementFace
         Font = font;
         _data = Font.FileData;   // the same file, not loaded a second time
         var units = (double)Font.UnitsPerEm;
-        Ascent = Font.Ascent / units;
-        Descent = Font.Descent / units;
+        // the line metrics of the font: the typographic ones of OS/2 with USE_TYPO_METRICS, else those of hhea (OpenType 31.2.20; No. 1162)
+        Ascent = Font.LineAscent / units;
+        Descent = Font.LineDescent / units;
+        LineHeight = NaturalLineHeight(Font.LineAscent, Font.LineDescent, Font.LineGap, Font.UnitsPerEm);
         BaseName = OpenTypeFont.PostScriptSafe(Font.PostScriptName.Length > 0 ? Font.PostScriptName : name);
     }
 
@@ -113,11 +115,51 @@ public sealed class ElementFace
     /// <summary>PostScript name of the font, or the file or key name if the font has none.</summary>
     public string BaseName { get; }
 
-    /// <summary>Ascender in em units (1 = font size).</summary>
+    /// <summary>Ascender of a line in em units (1 = font size): <see cref="OpenTypeFont.LineAscent"/>.</summary>
     public double Ascent { get; }
 
-    /// <summary>Descender in em units (1 = font size); usually negative.</summary>
+    /// <summary>Descender of a line in em units (1 = font size; usually negative): <see cref="OpenTypeFont.LineDescent"/>.</summary>
     public double Descent { get; }
+
+    /// <summary>
+    /// The natural line height of the font in em units (the distance of the baselines for single spacing): ascender − descender + line gap,
+    /// the typographic ones of OS/2 with USE_TYPO_METRICS, else those of hhea (OpenType 3.20.2, 31.2.20, 31.2.25;
+    /// docs/FEHLERGEDAECHTNIS.md, No. 1211); <see cref="FallbackLineHeight"/> where the values are unusable (<see cref="NaturalLineHeight"/>).
+    /// </summary>
+    public double LineHeight { get; }
+
+    /// <summary>
+    /// The line height where a font gives none that can be used, in em units: the factor all text had before No. 1211 (the line spacing of
+    /// form fields to this day, <see cref="ElementAppearance.LineSpacing"/>).
+    /// </summary>
+    public const double FallbackLineHeight = ElementAppearance.LineSpacing;
+
+    /// <summary>The smallest and the largest natural line height taken from a font, in em units; beyond them a font is taken as unusable.</summary>
+    internal const double MinLineHeight = 0.5, MaxLineHeight = 3;
+
+    /// <summary>
+    /// The natural line height from the line metrics of a font (font units): (ascender − descender + line gap) / units per em — a negative line
+    /// gap counted as 0 —, or <see cref="FallbackLineHeight"/> if there are no units per em, the ascender is not above the baseline, the
+    /// descender not at or below it, or the height lies outside <see cref="MinLineHeight"/>–<see cref="MaxLineHeight"/> (a crafted or broken
+    /// font must not spread the lines over pages or put them on top of each other).
+    /// </summary>
+    internal static double NaturalLineHeight(int ascent, int descent, int lineGap, int unitsPerEm)
+    {
+        if (unitsPerEm <= 0 || ascent <= 0 || descent > 0) return FallbackLineHeight;
+        var height = (ascent - (double)descent + Math.Max(0, lineGap)) / unitsPerEm;
+        return height is >= MinLineHeight and <= MaxLineHeight ? height : FallbackLineHeight;
+    }
+
+    /// <summary>
+    /// The underline of the font in em units: the top of the stroke above the baseline (negative: below) and its thickness, from the post table
+    /// (OpenType 32.2); null if the font gives no thickness. Before, every underline lay at a fixed share of the size (No. 1162).
+    /// </summary>
+    public (double Top, double Thickness)? Underline =>
+        Font.UnderlineThickness > 0 ? ((double)Font.UnderlinePosition / Font.UnitsPerEm, (double)Font.UnderlineThickness / Font.UnitsPerEm) : null;
+
+    /// <summary>The strikeout of the font in em units: the top of the stroke above the baseline and its thickness, from OS/2 (OpenType 31.2.14, 31.2.15); null if the font gives no thickness.</summary>
+    public (double Top, double Thickness)? Strikeout =>
+        Font.StrikeoutSize > 0 ? ((double)Font.StrikeoutPosition / Font.UnitsPerEm, (double)Font.StrikeoutSize / Font.UnitsPerEm) : null;
 
     /// <summary>Determines whether the font has every character of a text (white space and control characters do not count).</summary>
     /// <param name="text">The text to check.</param>
@@ -207,11 +249,24 @@ public sealed class ElementFace
     /// Builds the font for saving: a subset with the given glyphs and widths for these glyphs only.
     /// </summary>
     /// <param name="glyphs">Glyph numbers mapped to their text, for ToUnicode (copying and searching in other programs).</param>
+    /// <param name="openType">
+    /// For CFF and CFF2 outlines: the subset as an OpenType file (FontFile3 /OpenType, PDF 1.6) that keeps OS/2 with the embedding rights; false
+    /// for the bare CFF (FontFile3 /CIDFontType0C), as PDF/A-1 asks (ISO 19005-1 knows no OpenType font programs).
+    /// </param>
     /// <returns>A new Type0 font dictionary with the embedded subset.</returns>
-    public PdfDictionary SavedFont(IReadOnlyDictionary<int, string> glyphs)
+    public PdfDictionary SavedFont(IReadOnlyDictionary<int, string> glyphs, bool openType = true)
     {
         var used = glyphs.Keys.Order().ToList();
         var subset = IsCff ? CffSubsetter.Subset(CffData(), used) : IsCff2 ? Cff2Subset(used) : TrueTypeSubsetter.Subset(_data, used);
+        // CFF outlines in an OpenType file with OS/2, so that fsType goes with the font (OpenType 31.2.5 sentence 24; ISO 32000-2, 9.9.1, Table 124)
+        // — before the bare CFF, and the embedding rights were lost (docs/FEHLERGEDAECHTNIS.md, No. 1168). The subset's glyph i is the glyph of
+        // the font its charset names as CID (Identity-H: CID = glyph number of the font)
+        var wrapped = openType && (IsCff || IsCff2);
+        if (wrapped)
+        {
+            var cff = CffFont.Parse(subset);
+            subset = TrueTypeSubsetter.CffAsOpenType(Font, subset, [.. Enumerable.Range(0, cff.GlyphCount).Select(cff.CidOf)]);
+        }
         var widths = new PdfArray();
         for (var i = 0; i < used.Count;)
         {
@@ -226,7 +281,7 @@ public sealed class ElementFace
         // Symbolic (bit 3) when a character lies outside the Standard Latin character set, else Nonsymbolic (bit 6) (ISO 32000-2, 9.8.2) —
         // before always Nonsymbolic, also for Greek or Chinese text (docs/FEHLERGEDAECHTNIS.md, No. 1147)
         var symbolic = glyphs.Values.Any(t => t.EnumerateRunes().Any(r => !FontTables.StandardLatin.Contains(r.Value)));
-        return Type0(SubsetTag(used) + "+" + BaseName, subset, widths, ToUnicode(glyphs), symbolic, IsCff || IsCff2);
+        return Type0(SubsetTag(used) + "+" + BaseName, subset, widths, ToUnicode(glyphs), symbolic, IsCff || IsCff2, wrapped);
     }
 
     /// <summary>Six capital letters derived from the glyphs (9.9.2): the same subset gets the same name.</summary>
@@ -243,7 +298,7 @@ public sealed class ElementFace
         return new string(tag);
     }
 
-    private PdfDictionary Type0(string name, byte[] fontFile, PdfArray widths, PdfStream? toUnicode, bool symbolic, bool cff)
+    private PdfDictionary Type0(string name, byte[] fontFile, PdfArray widths, PdfStream? toUnicode, bool symbolic, bool cff, bool openType = false)
     {
         var units = 1000.0 / Font.UnitsPerEm;
         var head = Font.TableData("head");
@@ -255,13 +310,13 @@ public sealed class ElementFace
                 PdfInteger.Of((long)Math.Round(BinaryPrimitives.ReadInt16BigEndian(head[42..]) * units)),
             ])
             : new PdfArray([PdfInteger.Of(-200), PdfInteger.Of(-300), PdfInteger.Of(1200), PdfInteger.Of(1000)]);
-        var os2 = Font.TableData("OS/2");
-        var capHeight = os2.Length >= 90 && BinaryPrimitives.ReadUInt16BigEndian(os2) >= 2
-            ? BinaryPrimitives.ReadInt16BigEndian(os2[88..]) * units
-            : Ascent * 700;
+        // one rule for the cap height of every font written (OpenTypeFont.CapHeight; No. 1162)
+        var capHeight = Font.CapHeight * units;
+        // the slant of the font program from post (OpenType 32.2), without a post table that of an italic style; before always -12 for italic (No. 1162)
+        var italicAngle = Font.ItalicAngle is { } angle && double.IsFinite(angle) ? Math.Round(angle, 2) : _italic ? -12 : 0;
 
         var file = new PdfDictionary();
-        if (cff) file.Set(PdfName.Subtype, PdfName.Get("CIDFontType0C"));
+        if (cff) file.Set(PdfName.Subtype, PdfName.Get(openType ? "OpenType" : "CIDFontType0C"));
         else file.Set(PdfName.Get("Length1"), PdfInteger.Of(fontFile.Length));
         var descriptor = new PdfDictionary();
         descriptor.Set(PdfName.Type, PdfName.Get("FontDescriptor"));
@@ -269,9 +324,10 @@ public sealed class ElementFace
         // 32 = non-symbolic, 4 = symbolic; plus 1 = fixed pitch, 2 = serif, 64 = italic
         descriptor.Set(PdfName.Get("Flags"), PdfInteger.Of((symbolic ? 4 : 32) | (_fixedPitch ? 1 : 0) | (_serif ? 2 : 0) | (_italic ? 64 : 0)));
         descriptor.Set(PdfName.Get("FontBBox"), bbox);
-        descriptor.Set(PdfName.Get("ItalicAngle"), PdfInteger.Of(_italic ? -12 : 0));
-        descriptor.Set(PdfName.Get("Ascent"), PdfInteger.Of((long)Math.Round(Ascent * 1000)));
-        descriptor.Set(PdfName.Get("Descent"), PdfInteger.Of((long)Math.Round(Descent * 1000)));
+        descriptor.Set(PdfName.Get("ItalicAngle"), italicAngle == Math.Floor(italicAngle) ? PdfInteger.Of((long)italicAngle) : new PdfReal(italicAngle));
+        // the heights of the glyphs (hhea), not the line metrics
+        descriptor.Set(PdfName.Get("Ascent"), PdfInteger.Of((long)Math.Round(Font.Ascent * units)));
+        descriptor.Set(PdfName.Get("Descent"), PdfInteger.Of((long)Math.Round(Font.Descent * units)));
         descriptor.Set(PdfName.Get("CapHeight"), PdfInteger.Of((long)Math.Round(capHeight)));
         descriptor.Set(PdfName.Get("StemV"), PdfInteger.Of(80));
         descriptor.Set(PdfName.Get(cff ? "FontFile3" : "FontFile2"), new PdfStream(file, fontFile));

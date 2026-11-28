@@ -51,7 +51,12 @@ public sealed partial class RichTextPropertiesViewModel : ObservableObject
 
     public static IReadOnlyList<FieldColorOption> Colors => ColorList;
 
-    private static readonly ObservableCollection<Choice<double>> SpacingList =
+    /// <summary>
+    /// The line spacings to choose from: multiples of the natural line height of the fonts (as in office programs; docs/FEHLERGEDAECHTNIS.md,
+    /// No. 1211). After them at most one entry for the spacing of the block shown, if it is none of them — for a block of an earlier version or
+    /// edited text of the page a multiple of the font size („1,15 × Schriftgröße“); choosing a value of the list gives it the new kind.
+    /// </summary>
+    private static readonly ObservableCollection<SpacingChoice> SpacingList =
     [
         new(1.0, "Einfach (1,0)"),
         new(1.15, "1,15"),
@@ -61,7 +66,7 @@ public sealed partial class RichTextPropertiesViewModel : ObservableObject
 
     private static readonly int StandardSpacings = SpacingList.Count;
 
-    public static IReadOnlyList<Choice<double>> Spacings => SpacingList;
+    public static IReadOnlyList<SpacingChoice> Spacings => SpacingList;
 
     /// <summary>All German labels of the lists (for the translation check).</summary>
     public static IEnumerable<string> AllLabels =>
@@ -217,13 +222,15 @@ public sealed partial class RichTextPropertiesViewModel : ObservableObject
         ChangeBlock(e => e with { Alignment = alignment }, Tr.T("Ausrichtung ändern"));
     }
 
-    public Choice<double>? Spacing
+    /// <summary>The line spacing of the block: an entry of <see cref="Spacings"/> of its kind (of the line height of the fonts or of the font size).</summary>
+    public SpacingChoice? Spacing
     {
-        get => Element is { } e ? SpacingList.FirstOrDefault(s => Math.Abs(s.Value - e.LineGap) < 0.005) : null;
+        get => Element is { } e ? SpacingList.FirstOrDefault(s => s.Matches(e)) : null;
         set
         {
-            if (value is null || Element is not { } element || Math.Abs(value.Value - element.LineGap) < 0.005) return;
-            ChangeBlock(e => e with { LineGap = value.Value }, Tr.T("Zeilenabstand ändern"));
+            if (value is null || Element is not { } element || value.Matches(element)) return;
+            // a value chosen from the list is a multiple of the line height of the fonts, also for a block that had a multiple of the font size
+            ChangeBlock(e => e with { LineGap = value.Value, FontLineHeight = !value.OfFontSize }, Tr.T("Zeilenabstand ändern"));
         }
     }
 
@@ -317,10 +324,13 @@ public sealed partial class RichTextPropertiesViewModel : ObservableObject
                 if (!SystemFamilies.Contains(oldest)) FamilyList.Remove(oldest);
             }
         }
-        if (!SpacingList.Any(s => Math.Abs(s.Value - element.LineGap) < 0.005))
+        if (!SpacingList.Any(s => s.Matches(element)))
         {
             if (SpacingList.Count > StandardSpacings) SpacingList.RemoveAt(StandardSpacings);
-            SpacingList.Add(new Choice<double>(element.LineGap, element.LineGap.ToString("0.##", System.Globalization.CultureInfo.CurrentCulture)));
+            var value = element.LineGap.ToString("0.##", System.Globalization.CultureInfo.CurrentCulture);
+            SpacingList.Add(element.FontLineHeight
+                ? new SpacingChoice(element.LineGap, value)
+                : new SpacingChoice(element.LineGap, Tr.T("{0} × Schriftgröße", value), OfFontSize: true));
         }
     }
 
@@ -350,4 +360,14 @@ public sealed partial class RichTextPropertiesViewModel : ObservableObject
             });
         });
     }
+}
+
+/// <summary>
+/// A line spacing in the properties panel: the factor, the German label (shown translated) and whether it multiplies the font size (a block of
+/// an earlier version or edited text of the page) instead of the natural line height of the fonts (docs/FEHLERGEDAECHTNIS.md, No. 1211).
+/// </summary>
+public sealed record SpacingChoice(double Value, string Label, bool OfFontSize = false) : ILabeled
+{
+    /// <summary>Whether this is the spacing of <paramref name="element"/>: the same kind and (to 0.005) the same factor.</summary>
+    public bool Matches(RichTextElement element) => element.FontLineHeight != OfFontSize && Math.Abs(Value - element.LineGap) < 0.005;
 }

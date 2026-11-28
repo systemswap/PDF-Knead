@@ -92,8 +92,8 @@ internal readonly struct TableData(byte[] data)
     }
 }
 
-/// <summary>One lookup: type, flags and its subtables (absolute positions, extension subtables resolved).</summary>
-internal sealed record Lookup(int Type, int Flag, int[] Subtables, int MarkFilteringSet);
+/// <summary>One lookup: type, flags and its subtables (absolute positions, extension subtables resolved); whether it is one of GPOS.</summary>
+internal sealed record Lookup(int Type, int Flag, int[] Subtables, int MarkFilteringSet, bool Positioning = false);
 
 /// <summary>
 /// Common structure of GSUB and GPOS (OpenType "Common Table Formats"): scripts with their
@@ -189,6 +189,16 @@ internal sealed class LayoutTable
 
     public TableData T { get; }
 
+    /// <summary>Whether the FeatureList has a record of one of the tags given (in whatever language system; at most its records are read).</summary>
+    public bool HasFeature(params string[] tags)
+    {
+        if (_features == 0) return false;
+        var count = Math.Min(T.U16(_features), Math.Max(0, (T.Length - _features - 2) / 6));
+        for (var i = 0; i < count; i++)
+            if (Array.IndexOf(tags, T.Tag(_features + 2 + i * 6)) >= 0) return true;
+        return false;
+    }
+
     public int LookupCount => _lookups == 0 ? 0 : T.U16(_lookups);
 
     public Lookup Lookup(int index)
@@ -233,38 +243,89 @@ internal sealed class LayoutTable
             subtables[i] = sub;
         }
         var filteringSet = (flag & 0x10) != 0 ? T.U16(at + 6 + declared * 2) : -1;
-        return _byOffset[at] = new Lookup(type, flag, subtables, filteringSet);
+        return _byOffset[at] = new Lookup(type, flag, subtables, filteringSet, _extensionType == 9);
     }
 
-    /// <summary>Language system (LangSys) for a script: the requested script, otherwise "DFLT", otherwise the first one.</summary>
-    private int LangSys(string script)
+    /// <summary>
+    /// Language system (LangSys) for a script: the first of the requested script tags the font has (OpenType 2.4.1; the text's script, the new
+    /// Indic tag before the old one), otherwise "DFLT" — also for a text without a script of its own, which requests none —, otherwise "latn"
+    /// (as common shaping engines do: older fonts keep their features there), otherwise none — no lookups, as the shaping library does (before,
+    /// the first script of the font, so that its lookups worked on runs of other scripts: docs/FEHLERGEDAECHTNIS.md, No. 1189). Within it the language system of the
+    /// first of <paramref name="languages"/> the script has (OpenType 2.4.1, 2.11.2: the text's language selects it), else the default one, and
+    /// without a default none — no lookups, as the shaping library does (OpenType 2.4.2: defaultLangSysOffset may be NULL, the language systems
+    /// belong to their languages). Before, only „latn“ or „arab“ was requested and a language system was never chosen by its tag
+    /// (docs/FEHLERGEDAECHTNIS.md, No. 1162); without a default the first one applied to text of any language, so Courier New, whose „latn“ has
+    /// only „LTH “ and „ROM “, drew í with the Lithuanian dotted i (No. 1204).
+    /// </summary>
+    private int LangSys(IReadOnlyList<string> scripts, IReadOnlyList<string> languages)
     {
         if (_scripts == 0) return -1;
         var count = T.U16(_scripts);
         var chosen = -1;
-        for (var pass = 0; pass < 3 && chosen < 0; pass++)
+        for (var pass = 0; pass < scripts.Count + 2 && chosen < 0; pass++)
+        {
+            var wanted = pass < scripts.Count ? scripts[pass] : pass == scripts.Count ? "DFLT" : pass == scripts.Count + 1 ? "latn" : null;
             for (var i = 0; i < count; i++)
             {
-                var tag = T.Tag(_scripts + 2 + i * 6);
-                if (pass == 0 && tag != script || pass == 1 && tag != "DFLT") continue;
+                if (wanted is not null && T.Tag(_scripts + 2 + i * 6) != wanted) continue;
                 chosen = _scripts + T.U16(_scripts + 2 + i * 6 + 4);
                 break;
             }
+        }
         if (chosen < 0) return -1;
+        var records = T.U16(chosen + 2);
+        foreach (var language in languages)
+            for (var i = 0; i < records && language.Length == 4; i++)
+                if (T.Tag(chosen + 4 + i * 6) == language && T.U16(chosen + 4 + i * 6 + 4) is var offset and > 0) return chosen + offset;
         var defaultLang = T.U16(chosen);
-        if (defaultLang != 0) return chosen + defaultLang;
-        // Without a default language system: the first one
-        return T.U16(chosen + 2) > 0 ? chosen + T.U16(chosen + 4 + 4) : -1;
+        // without a default language system: none (a language system holds the conventions of its language only)
+        return defaultLang != 0 ? chosen + defaultLang : -1;
+    }
+
+    /// <summary>The first of the script tags given that the table has (the new or the old Indic tag, docs/FEHLERGEDAECHTNIS.md, No. 1175); null for none.</summary>
+    public string? ScriptTag(IReadOnlyList<string> scripts)
+    {
+        if (_scripts == 0) return null;
+        var count = T.U16(_scripts);
+        foreach (var wanted in scripts)
+            for (var i = 0; i < count; i++)
+                if (T.Tag(_scripts + 2 + i * 6) == wanted) return wanted;
+        return null;
     }
 
     /// <summary>Lookups of the requested features (plus the required feature), in LookupList order, which is the order in which they are applied.</summary>
     /// <param name="features">The feature tags.</param>
     /// <param name="script">The script tag (its language system, else DFLT, else the first).</param>
     /// <param name="required">Whether the required feature comes along (once per shaping: false for the later stages of Arabic, No. 910).</param>
-    public int[] LookupsFor(IReadOnlyCollection<string> features, string script = "latn", bool required = true)
+    public int[] LookupsFor(IReadOnlyCollection<string> features, string script = "latn", bool required = true) =>
+        LookupsFor(features, [script], [], required);
+
+    /// <summary>Lookups of the requested features in the language system of one language system tag (four characters) or none.</summary>
+    public int[] LookupsFor(IReadOnlyCollection<string> features, IReadOnlyList<string> scripts, string? language, bool required = true) =>
+        LookupsFor(features, scripts, language is null ? [] : [language], required);
+
+    /// <summary>The lookups found so far, by features, scripts, languages and required feature: a text alternating between scripts asks for
+    /// them once per run, and each search walks script, language and feature records of up to 65 535 entries (No. 1162). Bounded in size.</summary>
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, int[]> _found = new(StringComparer.Ordinal);
+
+    /// <summary>Lookups of the requested features (plus the required feature) in the language system <see cref="LangSys"/> chooses, in LookupList order.</summary>
+    /// <param name="features">The feature tags.</param>
+    /// <param name="scripts">The script tags to try in this order (empty for a text without a script of its own: DFLT).</param>
+    /// <param name="languages">The language system tags of the text's language to try in this order (empty: the default language system).</param>
+    /// <param name="required">Whether the required feature comes along.</param>
+    public int[] LookupsFor(IReadOnlyCollection<string> features, IReadOnlyList<string> scripts, IReadOnlyList<string> languages, bool required = true)
+    {
+        var key = string.Join(",", features.Order(StringComparer.Ordinal)) + "|" + string.Join(",", scripts) + "|" + string.Join(",", languages) + "|" + required;
+        if (_found.TryGetValue(key, out var known)) return known;
+        var result = Find(features, scripts, languages, required);
+        if (_found.Count < 1024) _found.TryAdd(key, result);
+        return result;
+    }
+
+    private int[] Find(IReadOnlyCollection<string> features, IReadOnlyList<string> scripts, IReadOnlyList<string> languages, bool required)
     {
         var lookups = new SortedSet<int>();
-        if (_features == 0 || LangSys(script) is var lang && lang < 0) return [];
+        if (_features == 0 || LangSys(scripts, languages) is var lang && lang < 0) return [];
         var requiredIndex = required ? T.U16(lang + 2) : 0xFFFF;
         var count = T.U16(lang + 4);
         var indices = new List<int>(count + 1);

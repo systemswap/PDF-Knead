@@ -299,9 +299,10 @@ internal static class CffScrubber
     }
 
     /// <summary>
-    /// The names of the removed glyphs of a name-keyed font: "removed." and the glyph index (with ".x" appended while a kept glyph has the name)
-    /// — unique (TN 5176, 11), telling nothing but the number the glyph keeps anyway, and mapping to no character (no name of the Adobe Glyph
-    /// List before the period), so text extraction finds none in them.
+    /// The names of the removed glyphs of a name-keyed font: "_" and the glyph index (with "_" appended while a kept glyph has the name) —
+    /// unique (TN 5176, 11), telling nothing but the number the glyph keeps anyway, and mapping to no character (no component of the Adobe
+    /// Glyph List), so text extraction finds none in them. Without letters: "removed." and the index made the leak search find a redacted word
+    /// „removed“ in the font program again (docs/FEHLERGEDAECHTNIS.md, No. 1256).
     /// </summary>
     /// <returns>Per glyph index the neutral name (null for kept glyphs and glyph 0).</returns>
     internal static string?[] NeutralNames(int count, HashSet<int> keep, CffFont font)
@@ -313,8 +314,8 @@ internal static class CffScrubber
         for (var g = 1; g < count; g++)
         {
             if (keep.Contains(g)) continue;
-            var name = "removed." + g.ToString(System.Globalization.CultureInfo.InvariantCulture);
-            while (kept.Contains(name)) name += ".x";
+            var name = "_" + g.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            while (kept.Contains(name)) name += "_";
             result[g] = name;
         }
         return result;

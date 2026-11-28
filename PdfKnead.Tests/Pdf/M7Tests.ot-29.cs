@@ -336,9 +336,10 @@ public sealed partial class M7NormTests
     }
 
     /// <summary>
-    /// OT 30.4 sentences 73–78, 80–81 and 123–124 (reader and cleaning): typographic names go first — ID 16 „Probe“ and 17 „Kursiv“ beside ID 1
-    /// „Probe Alt“ and 2 „Regular“: system font key „probekursiv“ and family „Probe“; without 16 and 17 the key comes from 1 and 2 („probealt“);
-    /// cleaning the notices leaves 16 and 17.
+    /// OT 30.4 sentences 73–78, 80–81 and 123–124 (reader and cleaning): typographic names go first for the keys — ID 16 „Probe“ and 17
+    /// „Kursiv“ beside ID 1 „Probe Alt“ and 2 „Regular“: system font key „probekursiv“; without 16 and 17 the key comes from 1 and 2
+    /// („probealt“); the font list, which offers regular, bold and italic, takes the family of ID 1 („Probe Alt“, OT 57.2; before „Probe“,
+    /// FG 1176); cleaning the notices leaves 16 and 17.
     /// </summary>
     [Fact]
     public void Ot29_TypographicNames_KeyFrom16And17_Otherwise1And2_CleaningKeepsThem()
@@ -349,7 +350,7 @@ public sealed partial class M7NormTests
         var (keys, family, _) = Ot29SystemFontNames(typographic);
         Assert.Contains("probekursiv", keys);
         Assert.DoesNotContain("probealt", keys);
-        Assert.Equal("Probe", family);
+        Assert.Equal("Probe Alt", family);
         Assert.Contains("probealt", Ot29SystemFontNames(Ot29Font(common)).Keys);
         var clean = Assert.IsType<byte[]>(ObjectMetadata.FontNotices(typographic));
         Assert.Equal(Ot29Text(typographic, 3, 16), Ot29Text(clean, 3, 16));

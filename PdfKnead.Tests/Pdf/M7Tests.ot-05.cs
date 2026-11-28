@@ -186,6 +186,35 @@ public sealed partial class M7NormTests
         return Ot05SansWith(("glyf", [.. newGlyf]), ("loca", newLoca), ("head", head));
     }
 
+    /// <summary>
+    /// OT 19 with OT 16 (reader, security; docs/FEHLERGEDAECHTNIS.md, No. 1171): a simple glyph whose instruction length reaches to the end of
+    /// its loca range has no flags or coordinates of its own — the reader stays within the glyph and draws nothing, it does not take the flags
+    /// and coordinates from the bytes of the next glyph (before it read on to the end of the file; the subset and the scrubber copy by loca, so
+    /// display and redaction read alike again).
+    /// </summary>
+    [Fact]
+    public void Ot05_InstructionLengthBeyondTheGlyph_ReadsNothingOfTheNextGlyph()
+    {
+        var font = Ot05SansFile.Value;
+        var head = Ot05Table(font, "head");
+        var loca = Ot05Table(font, "loca");
+        var glyf = Ot05Table(font, "glyf");
+        var longLoca = BinaryPrimitives.ReadInt16BigEndian(head.AsSpan(50)) != 0;
+        int Offset(int g) => longLoca ? (int)Ot05U32(loca, g * 4) : Ot05U16(loca, g * 2) * 2;
+        var glyph = Ot05Sans.Value.GlyphForUnicode('H');
+        var next = glyph + 1;
+        Assert.False(Ot05Sans.Value.Outline(next).IsEmpty);
+        var patched = (byte[])glyf.Clone();
+        var start = Offset(glyph);
+        var contours = BinaryPrimitives.ReadInt16BigEndian(patched.AsSpan(start));
+        var at = start + 10 + 2 * contours;
+        // the instructions run to the end of the glyph: nothing of its own is left for flags and coordinates
+        BinaryPrimitives.WriteUInt16BigEndian(patched.AsSpan(at), (ushort)(Offset(next) - at - 2));
+        var crafted = OpenTypeFont.Parse(Ot05SansWith(("glyf", patched)));
+        Assert.True(crafted.Outline(glyph).IsEmpty);
+        Assert.Equal(Ot05Sans.Value.Outline(next).Bounds, crafted.Outline(next).Bounds);
+    }
+
     /// <summary>A kern table (version 0) of the subtables given, each with its coverage and body.</summary>
     private static byte[] Ot05Kern(params (int Coverage, byte[] Body)[] subtables)
     {
@@ -360,11 +389,11 @@ public sealed partial class M7NormTests
 
     /// <summary>
     /// OT 3.9 sentences 1–2, 3.33 sentences 1–7 and 4.2 sentences 1–10 (writer): variations are not read — a subset of a variable font (fvar,
-    /// gvar, avar) has none of these tables and its outlines are those of the default instance; kept with all tables (compressing), avar stays
-    /// byte for byte.
+    /// gvar, avar) has none of these tables and its outlines are those of the default instance; kept with all other tables (compressing), it
+    /// is the static default instance as well, without avar (FG 1159; before avar stayed byte for byte).
     /// </summary>
     [Fact]
-    public void SubsetOfVariableFont_DropsVariationTables_KeepAllTablesKeepsAvar()
+    public void SubsetOfVariableFont_DropsVariationTables_AlsoWithAllTables()
     {
         var (fvar, gvar) = Ot05VariationTables(Ot05Sans.Value.GlyphCount);
         var avar = Ot05Avar((-1, -1), (0, 0), (0.5, 0.75), (1, 1));
@@ -373,8 +402,9 @@ public sealed partial class M7NormTests
         var subset = OpenTypeFont.Parse(TrueTypeSubsetter.Subset(variable, glyphs));
         foreach (var tag in (string[])["fvar", "gvar", "avar"]) Assert.False(subset.HasTable(tag), tag);
         foreach (var g in glyphs) Assert.True(Ot05SameOutline(Ot05Sans.Value.Outline(g), subset.Outline(g)));
-        var all = TrueTypeSubsetter.Subset(variable, glyphs, keepAllTables: true);
-        Assert.Equal(avar, Ot05Table(all, "avar"));
+        var all = OpenTypeFont.Parse(TrueTypeSubsetter.Subset(variable, glyphs, keepAllTables: true));
+        foreach (var tag in (string[])["fvar", "gvar", "avar"]) Assert.False(all.HasTable(tag), tag);
+        foreach (var g in glyphs) Assert.True(Ot05SameOutline(Ot05Sans.Value.Outline(g), all.Outline(g)));
     }
 
     /// <summary>
@@ -500,30 +530,33 @@ public sealed partial class M7NormTests
     }
 
     /// <summary>
-    /// OT 3.15 sentence 6 (reader): without kern lookups in GPOS, the kern table comes before the other GPOS features — a font with a kern pair
-    /// (A, acute) and a GPOS of only a mark lookup: the acute lands at the base anchor of the kerned A (x 300), as when kerning came first.
+    /// OT 3.15 sentence 6 (reader; docs/FEHLERGEDAECHTNIS.md, No. 1162): without kern lookups in GPOS, the kern table comes before the other GPOS
+    /// features — a font with a kern pair (A, B) −200 and a GPOS of only a mark lookup attaching B to A: B lands at the base anchor of the kerned
+    /// A (x 300 from the origin of A), as when kerning came first; kerning after the marks (before) moved it by the kerning value. B, a glyph of
+    /// class 1, stands for the mark, since a pair of the kern table passes over glyphs of class 3.
     /// </summary>
-    [Fact(Skip = "M7-Frage 16 (offen): die kern-Tabelle wirkt nach den GPOS-Marken, die Marke verrutscht um den Unterschneidungswert (TextShaper.Shape)")]
+    [Fact]
     public void KernTable_AppliedBeforeMarkPositioning()
     {
         var a = Ot05Sans.Value.GlyphForUnicode('A');
-        var acute = Ot05Sans.Value.GlyphForUnicode('́');
-        Assert.True(acute > 0);
+        var attached = Ot05Sans.Value.GlyphForUnicode('B');
+        Assert.True(attached > 0);
         var gpos = ShaperLimitTests.Gsub(1, [0], t =>
         {
             t.U16(1).U16(4);
             t.U16(4).U16(0).U16(1).U16(8);                               // lookup type 4 (mark to base), one subtable at +8
             t.U16(1).U16(12).U16(18).U16(1).U16(24).U16(36);             // MarkBasePos format 1
-            t.U16(1).U16(1).U16(acute);                                   // mark coverage
+            t.U16(1).U16(1).U16(attached);                                // mark coverage
             t.U16(1).U16(1).U16(a);                                       // base coverage
             t.U16(1).U16(0).U16(6);                                       // mark array: class 0, anchor at +6
             t.U16(1).U16(0).U16(0);                                       // mark anchor (0, 0)
             t.U16(1).U16(4);                                              // base array: one record, its anchor at +4
             t.U16(1).U16(300).U16(700);                                   // base anchor (300, 700)
         }, "mark");
-        var kern = Ot05Kern((0x0001, Ot05KernPair(a, acute, -200)));
+        var kern = Ot05Kern((0x0001, Ot05KernPair(a, attached, -200)));
         var shaper = TextShaper.For(OpenTypeFont.Parse(Ot05SansWith(("kern", kern), ("GPOS", gpos), ("GSUB", null))));
-        var shaped = shaper.Shape("Á");
+        var shaped = shaper.Shape("AB");
+        Assert.Equal(Ot05Sans.Value.AdvanceWidth(a) - 200, shaped[0].XAdvance);
         Assert.Equal(300, shaped[0].XAdvance + shaped[1].XOffset, 3);
         Assert.Equal(700, shaped[1].YOffset, 3);
     }
@@ -590,16 +623,18 @@ public sealed partial class M7NormTests
     }
 
     /// <summary>
-    /// OT 3.19.1 sentences 10–16 (reader): the typographic family name (ID 16) goes before ID 1 — a font with ID 16 „Muster“ and ID 1
-    /// „Muster Light“ is offered as the family „Muster“.
+    /// OT 3.19.1 sentences 10–16, OT 57.2 sentences 7–14 (reader): the typographic names (IDs 16 and 17) go before IDs 1 and 2 for the keys
+    /// that find a font by name, while the font list, which offers regular, bold and italic, takes the family of ID 1 — a font with ID 16
+    /// „Muster“, 17 „Light“ and ID 1 „Muster Light“ has the key „musterlight“ and is offered as the family „Muster Light“ (before as „Muster“,
+    /// where its light face could not be chosen; FG 1176).
     /// </summary>
     [Fact]
-    public void SystemFont_TypographicFamilyNameGoesFirst()
+    public void SystemFont_KeysFromTheTypographicNames_FamilyFromId1()
     {
         var font = Ot05SansWith(("name", Ot05Name((3, 1, 0x409, 1, "Muster Light"), (3, 1, 0x409, 2, "Regular"), (3, 1, 0x409, 6, "Muster-Light"),
             (3, 1, 0x409, 16, "Muster"), (3, 1, 0x409, 17, "Light"))));
         var (keys, family, _) = Ot05SystemFontNames(font);
-        Assert.Equal("Muster", family);
+        Assert.Equal("Muster Light", family);
         Assert.Contains("musterlight", keys);
     }
 

@@ -1195,7 +1195,7 @@
                                       IsVisible="{Binding SelectedDocument.HasOutline, FallbackValue=False}">
                                 <TreeView.ItemTemplate>
                                     <TreeDataTemplate x:DataType="doc:OutlineItem" ItemsSource="{Binding Children}">
-                                        <TextBlock Text="{Binding Title}" TextTrimming="CharacterEllipsis" Padding="0,2" />
+                                        <TextBlock Text="{Binding Title, Converter={x:Static cv:IsolatedName.Instance}}" TextTrimming="CharacterEllipsis" Padding="0,2" />
                                     </TreeDataTemplate>
                                 </TreeView.ItemTemplate>
                             </TreeView>
@@ -1214,7 +1214,7 @@
                                 <ListBox.ItemTemplate>
                                     <DataTemplate x:DataType="vm:FieldListItem">
                                         <StackPanel Spacing="1" Margin="2,2">
-                                            <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" FontWeight="Medium" />
+                                            <TextBlock Text="{Binding Name, Converter={x:Static cv:IsolatedName.Instance}}" TextTrimming="CharacterEllipsis" FontWeight="Medium" />
                                             <StackPanel Orientation="Horizontal" Spacing="6">
                                                 <TextBlock Classes="muted small" Text="{Binding Kind}" />
                                                 <TextBlock Classes="muted small" Text="{Binding PageText}" />
@@ -1987,7 +1987,7 @@
                                                 </MultiBinding>
                                             </TextBlock.Text>
                                         </TextBlock>
-                                        <SelectableTextBlock Grid.Column="1" Text="{Binding Value}" TextWrapping="Wrap" />
+                                        <SelectableTextBlock Grid.Column="1" Text="{Binding Value, Converter={x:Static cv:IsolatedName.Instance}}" TextWrapping="Wrap" />
                                     </Grid>
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>

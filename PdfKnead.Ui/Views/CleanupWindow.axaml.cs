@@ -112,7 +112,7 @@ public partial class CleanupWindow : Window
         var panel = new StackPanel { Spacing = 1 };
         panel.Children.Add(new TextBlock { Text = CleanupLabels.Title(finding), TextWrapping = Avalonia.Media.TextWrapping.Wrap });
         if (finding.Detail.Length > 0)
-            panel.Children.Add(new TextBlock { Text = finding.Detail, Classes = { "muted" }, FontSize = 12, TextWrapping = Avalonia.Media.TextWrapping.Wrap });
+            panel.Children.Add(new TextBlock { Text = Core.Security.DisplayNames.Isolated(finding.Detail), Classes = { "muted" }, FontSize = 12, TextWrapping = Avalonia.Media.TextWrapping.Wrap });
         if (CleanupLabels.Note(finding.Item) is { } note)
             panel.Children.Add(new TextBlock { Text = note, Classes = { "muted" }, FontSize = 11, TextWrapping = Avalonia.Media.TextWrapping.Wrap });
         return panel;

@@ -33,6 +33,12 @@ internal sealed class FontUsage(PdfDocument doc, IReadOnlyDictionary<int, PdfObj
     /// <summary>Fonts that must stay whole: those of the form (/DR) that are not a subset with a ToUnicode map (<see cref="FormFont"/>).</summary>
     public HashSet<PdfDictionary> WholeFonts { get; } = new(ReferenceEqualityComparer.Instance);
 
+    /// <summary>
+    /// The object number of each font dictionary found as an indirect object — redaction rewrites a font whose program cannot be scrubbed
+    /// (<see cref="FontScrub"/>; docs/FEHLERGEDAECHTNIS.md, No. 1164).
+    /// </summary>
+    public Dictionary<PdfDictionary, int> Numbers { get; } = new(ReferenceEqualityComparer.Instance);
+
     /// <summary>A content stream was unreadable: nothing is subset in this document then.</summary>
     public bool Failed { get; private set; }
 
@@ -230,7 +236,8 @@ internal sealed class FontUsage(PdfDocument doc, IReadOnlyDictionary<int, PdfObj
                     current = saved.Pop();
                     break;
                 case "Tf" when operands.Count >= 2:
-                    current = operands[0].Name is { } name && resources?.GetDictionary(Font)?.Get(name) is PdfDictionary font ? Resolve(font) : null;
+                    current = operands[0].Name is { } name && resources?.GetDictionary(Font) is { } fonts && fonts.Get(name) is PdfDictionary font
+                        ? Resolve(font, fonts.GetRaw(name)) : null;
                     break;
                 case "Tj" or "'" when operands.Count >= 1 && operands[0].Object is PdfString shown:
                     Add(current, shown);
@@ -294,9 +301,11 @@ internal sealed class FontUsage(PdfDocument doc, IReadOnlyDictionary<int, PdfObj
 
     /// <summary>The font of a dictionary; <c>File</c> is the object number of its embedded TrueType file (FontFile2) if that is not yet
     /// subset (for compression), otherwise -1.</summary>
-    private (PdfFont Font, int File, PdfDictionary Dict)? Resolve(PdfObject fontObject)
+    /// <param name="raw">The entry as written, where <paramref name="fontObject"/> is already resolved (its object number is noted).</param>
+    private (PdfFont Font, int File, PdfDictionary Dict)? Resolve(PdfObject fontObject, PdfObject? raw = null)
     {
         if (Deref(fontObject) is not PdfDictionary dict) return null;
+        if ((raw ?? fontObject) is PdfReference indirect) Numbers.TryAdd(dict, indirect.Id.Number);
         if (_fonts.TryGetValue(dict, out var known)) return known;
         var file = -1;
         var descriptorHolder = dict.GetArray(DescendantFonts) is { Count: >= 1 } kids && kids.Get(0) is PdfDictionary cid ? cid : dict;

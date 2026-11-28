@@ -151,9 +151,10 @@ public sealed partial class M7NormTests
     /// <summary>
     /// OT 31.1.1 sentences 28–41, 31.1.2 sentences 31–42, 31.1.3–31.1.5, 31.1.6 sentences 29–36, 31.2.1 sentences 1–5 (and ot-32: 31.2.28
     /// sentences 43–47, 31.2.29–31.2.35 on the versions, 31.2.30 sentences 1–3): sCapHeight at offset 88 is read only from version 2 on and only
-    /// where the table holds it — then /CapHeight is 1409 × 1000 / 2048 = 688 (StandardFontEmbedding and typed text alike); a table of version 0
-    /// or 1 (also one of 96 or 102 bytes) or one too short gives /CapHeight from the ascender of hhea. A table cut after usLastCharIndex (68 bytes)
-    /// is read and the font stays embeddable.
+    /// where the table holds it — then /CapHeight is 1500 × 1000 / 2048 = 732 (StandardFontEmbedding and typed text alike); a table of version 0
+    /// or 1 (also one of 96 or 102 bytes) or one too short gives, by one rule for both writers, the top of „H“ (1409 → 688; before the one took
+    /// the ascender, the other 0.7 of it, docs/FEHLERGEDAECHTNIS.md, No. 1162). A table cut after usLastCharIndex (68 bytes) is read and the
+    /// font stays embeddable.
     /// </summary>
     [Theory]
     [InlineData(5, 100, true)]
@@ -172,7 +173,7 @@ public sealed partial class M7NormTests
     {
         var font = Ot30WithOs2(o =>
         {
-            if (o.Length >= 90) Ot30Set(o, 88, 1409);
+            if (o.Length >= 90) Ot30Set(o, 88, 1500);
         }, version, length);
         var parsed = OpenTypeFont.Parse(font);
         Assert.True(RichFonts.Embeddable(parsed));
@@ -180,13 +181,13 @@ public sealed partial class M7NormTests
         var typed = Ot30SavedDescriptor(font).GetNumber(PdfName.Get("CapHeight"));
         if (fromOs2)
         {
-            Assert.Equal(688, standard);
-            Assert.Equal(688, typed);
+            Assert.Equal(732, standard);
+            Assert.Equal(732, typed);
         }
         else
         {
-            Assert.Equal(Math.Round(parsed.Ascent * 1000.0 / parsed.UnitsPerEm), standard);
-            Assert.Equal(Math.Round(parsed.Ascent * 1000.0 / parsed.UnitsPerEm * 0.7), typed);
+            Assert.Equal(688, standard);
+            Assert.Equal(688, typed);
         }
     }
 
@@ -262,14 +263,24 @@ public sealed partial class M7NormTests
     // ------------------------------------------------------------ 31.2.2 xAvgCharWidth
 
     /// <summary>
-    /// OT 31.2.2 sentences 1–5 (today's behaviour, question 7 open): scrubbing Liberation Sans down to the glyphs of „Text“ clears the advances
-    /// of the others, but xAvgCharWidth stays 1187 from the source.
+    /// OT 31.2.2 sentences 1–5 (writer): xAvgCharWidth is the mean of the advances other than 0 — scrubbing Liberation Sans down to the glyphs
+    /// of „Text“ clears the advances of the others, and rebuilding it with „A“ at 1000 and „B“ at 2000 gives the others 0: both write the mean of
+    /// their own hmtx (rounded), no longer the 1187 of the source (FG 1159).
     /// </summary>
     [Fact]
-    public void Ot30_Scrub_KeepsXAvgCharWidthOfTheSource()
+    public void Ot30_ScrubAndRebuild_RecomputeXAvgCharWidth()
     {
-        var scrubbed = TrueTypeSubsetter.Scrub(Ot30File(), Ot05Glyphs("Text"));
-        Assert.Equal(1187, Ot30U16(Ot30Os2Of(scrubbed), 2));
+        var source = Ot30File();
+        var ab = Ot05Glyphs("AB");
+        foreach (var written in (byte[][])[TrueTypeSubsetter.Scrub(source, Ot05Glyphs("Text")),
+                     TrueTypeSubsetter.Rebuild(source, new Dictionary<int, int> { [ab[0]] = 1000, [ab[1]] = 2000 }, [], null)])
+        {
+            var parsed = OpenTypeFont.Parse(written);
+            var advances = Enumerable.Range(0, parsed.GlyphCount).Select(g => parsed.AdvanceWidth(g)).Where(a => a > 0).ToList();
+            Assert.NotEmpty(advances);
+            Assert.Equal((int)Math.Floor(advances.Average() + 0.5), Ot30U16(Ot30Os2Of(written), 2));
+            Assert.NotEqual(1187, Ot30U16(Ot30Os2Of(written), 2));
+        }
     }
 
     /// <summary>
@@ -381,23 +392,6 @@ public sealed partial class M7NormTests
         Assert.Equal(0x0008, Ot30U16(Ot30Os2Of(TrueTypeSubsetter.Rebuild(font, glyphs.ToDictionary(g => g, _ => 1000), [], null)), 8));
     }
 
-    /// <summary>
-    /// OT 31.2.5 sentence 24 (today's behaviour, question 29 open): an installed font with CFF outlines is saved as a bare CFF — typed text in an
-    /// OpenType font with CFF outlines and fsType 0x0004 becomes FontFile3 /CIDFontType0C without OS/2, so without fsType.
-    /// </summary>
-    [Fact]
-    public void Ot30_CffFontSaved_AsBareCffWithoutFsType()
-    {
-        var tables = new Dictionary<string, byte[]?> { ["OS/2"] = Ot30WithFsTypeTable(Ot05NotoExcerpt.Value, 0x0004) };
-        var font = ColorFontBuilder.WithTables(Ot05NotoExcerpt.Value, tables);
-        var face = ElementFace.For($"probe-m7-ot30-cff-{Guid.NewGuid():N}", () => OpenTypeFont.Parse(font), false, false, false);
-        var descriptor = Iso04Descriptor(face.SavedFont(new Dictionary<int, string> { [face.Glyph('A')] = "A" }));
-        var program = descriptor.GetStream(PdfName.Get("FontFile3"));
-        Assert.NotNull(program);
-        Assert.Equal("CIDFontType0C", program!.Dictionary.GetName(PdfName.Subtype)?.Value);
-        Assert.Equal(1, program.RawData![0]);   // a CFF header, not an OpenType file with an OS/2
-    }
-
     private static byte[] Ot30WithFsTypeTable(byte[] font, int fsType)
     {
         var os2 = Ot30Os2Of(font);
@@ -406,44 +400,50 @@ public sealed partial class M7NormTests
     }
 
     /// <summary>
-    /// OT 31.2.5 sentence 8 (today's behaviour, question 8 open): an embedded TrueType font with fsType 0x0002 is still subset when compressing
-    /// losslessly — the saved program differs from the source and the outline of „C“ (not shown) is empty.
+    /// OT 31.2.5 sentence 8 with question 8 (docs/FEHLERGEDAECHTNIS.md, No. 1164): an embedded TrueType font with fsType 0x0002 (restricted
+    /// licence: not to be modified) is not subset when compressing losslessly — the saved program is the source byte for byte, the outline of
+    /// „C“ (not shown) is still there, and the result names the font. Before it was subset.
     /// </summary>
     [Fact]
-    public void Ot30_RestrictedEmbeddedFont_SubsetWhenCompressing()
+    public void Ot30_RestrictedEmbeddedFont_KeptWhenCompressing()
     {
-        var (source, saved) = Ot30CompressedProgram(0x0002);
-        Assert.NotEqual(source, saved);
+        var (source, saved, note) = Ot30CompressedProgram(0x0002);
+        Assert.Equal(source, saved);
         var c = OpenTypeFont.Parse(source).GlyphForUnicode('C');
-        Assert.False(OpenTypeFont.Parse(source).Outline(c).IsEmpty);
-        Assert.True(OpenTypeFont.Parse(saved).Outline(c).IsEmpty);
+        Assert.False(OpenTypeFont.Parse(saved).Outline(c).IsEmpty);
+        Assert.Contains("LiberationSans", note);
     }
 
     /// <summary>
-    /// OT 31.2.5 sentences 13–14 (today's behaviour, question 8 open): an embedded TrueType font with fsType bit 8 (no subsetting) is subset
-    /// when compressing losslessly — the outline of „C“ (not shown) is empty afterwards. A system font with bit 8 is not offered for new text.
+    /// OT 31.2.5 sentences 13–14 with question 8 (docs/FEHLERGEDAECHTNIS.md, No. 1164): an embedded TrueType font with fsType bit 8 (no
+    /// subsetting) is not subset when compressing losslessly — the program stays byte for byte with the outline of „C“, the result names the
+    /// font. A system font with bit 8 is not offered for new text. Before it was subset.
     /// </summary>
     [Fact]
-    public void Ot30_NoSubsettingEmbeddedFont_SubsetWhenCompressing()
+    public void Ot30_NoSubsettingEmbeddedFont_KeptWhenCompressing()
     {
-        var (source, saved) = Ot30CompressedProgram(0x0100);
+        var (source, saved, note) = Ot30CompressedProgram(0x0100);
+        Assert.Equal(source, saved);
         var c = OpenTypeFont.Parse(source).GlyphForUnicode('C');
-        Assert.True(OpenTypeFont.Parse(saved).Outline(c).IsEmpty);
-        Assert.Equal(0x0100, Ot30U16(Ot30Os2Of(saved), 8));
+        Assert.False(OpenTypeFont.Parse(saved).Outline(c).IsEmpty);
+        Assert.Contains("LiberationSans", note);
         Assert.False(RichFonts.Embeddable(OpenTypeFont.Parse(source)));
         Assert.False(Ot05SystemFontNames(source).Usable);
     }
 
-    /// <summary>„AB“ in an embedded Liberation Sans with the fsType given, saved with lossless compression: the program before and after.</summary>
-    private static (byte[] Source, byte[] Saved) Ot30CompressedProgram(int fsType)
+    /// <summary>
+    /// „AB“ in an embedded Liberation Sans with the fsType given, saved with lossless compression: the program before and after, and the fonts the
+    /// result names as left unchanged for their licence (read by name, so the test also runs where the result has no such entry).
+    /// </summary>
+    private static (byte[] Source, byte[] Saved, IEnumerable<string> LicenceKept) Ot30CompressedProgram(int fsType)
     {
         var program = Ot30WithFsType(fsType);
         using var doc = PdfDocument.Open(PdfARuleCases.WithTrueType(program: () => program)());
         using var output = new MemoryStream();
-        PdfWriter.Write(doc, PageItem.From(doc), output, new PdfSaveOptions { Compression = CompressionSettings.For(CompressionPreset.Lossless) });
+        var result = PdfWriter.Write(doc, PageItem.From(doc), output, new PdfSaveOptions { Compression = CompressionSettings.For(CompressionPreset.Lossless) });
         using var saved = PdfDocument.Open(output.ToArray());
         var stream = Iso04F1(saved).GetDictionary(PdfName.Get("FontDescriptor"))!.GetStream(PdfName.Get("FontFile2"))!;
-        return (program, saved.GetStreamData(stream));
+        return (program, saved.GetStreamData(stream), result.GetType().GetProperty("LicenceKeptFonts")?.GetValue(result) as IEnumerable<string> ?? []);
     }
 
     /// <summary>

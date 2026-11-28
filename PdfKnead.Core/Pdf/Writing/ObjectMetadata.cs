@@ -831,6 +831,16 @@ internal static class ObjectMetadata
         if (12 + tables * 16 > font.Length) return false;
         var changed = false;
         var head = -1;
+        // the names STAT and fvar refer to stay while those tables stay in the font (docs/FEHLERGEDAECHTNIS.md, No. 1172)
+        var referenced = new HashSet<int>();
+        for (var i = 0; i < tables; i++)
+        {
+            var entry = 12 + i * 16;
+            if (SfntTable(font, entry) is not { } at) continue;
+            var tag = System.Text.Encoding.ASCII.GetString(font, entry, 4);
+            if (tag == "STAT") StatNames(font.AsSpan(at.Offset, at.Length), referenced);
+            else if (tag == "fvar") FvarNames(font.AsSpan(at.Offset, at.Length), referenced);
+        }
         for (var i = 0; i < tables; i++)
         {
             var entry = 12 + i * 16;
@@ -841,7 +851,7 @@ internal static class ObjectMetadata
             var table = font.AsSpan((int)offset, (int)length);
             var tableChanged = tag switch
             {
-                "name" => NameNotices(table),
+                "name" => NameNotices(table, referenced),
                 "CFF " => CffNotices(table),
                 _ => false,
             };
@@ -859,7 +869,64 @@ internal static class ObjectMetadata
         return changed;
     }
 
-    private static bool NameNotices(Span<byte> table)
+    /// <summary>Offset and length of the table of the directory entry at <paramref name="entry"/>; null if it lies beyond the file.</summary>
+    private static (int Offset, int Length)? SfntTable(byte[] font, int entry)
+    {
+        var offset = BinaryPrimitives.ReadUInt32BigEndian(font.AsSpan(entry + 8));
+        var length = BinaryPrimitives.ReadUInt32BigEndian(font.AsSpan(entry + 12));
+        return offset > font.Length || length > font.Length - offset ? null : ((int)offset, (int)length);
+    }
+
+    /// <summary>
+    /// The name IDs a STAT table refers to (OpenType 57: axisNameID of each design axis, valueNameID of each axis value — at byte 6 in all four
+    /// formats — and elidedFallbackNameID from version 1.1), font-specific IDs (256 … 32767) only: the predefined ones are kept or cleaned as
+    /// they are, so a reference cannot keep a copyright or licence text. Counts and offsets are bounded by the table.
+    /// </summary>
+    private static void StatNames(ReadOnlySpan<byte> stat, HashSet<int> names)
+    {
+        if (stat.Length < 18) return;
+        int minor = BinaryPrimitives.ReadUInt16BigEndian(stat[2..]), axisSize = BinaryPrimitives.ReadUInt16BigEndian(stat[4..]);
+        int axisCount = BinaryPrimitives.ReadUInt16BigEndian(stat[6..]), valueCount = BinaryPrimitives.ReadUInt16BigEndian(stat[12..]);
+        long axesAt = BinaryPrimitives.ReadUInt32BigEndian(stat[8..]), valuesAt = BinaryPrimitives.ReadUInt32BigEndian(stat[14..]);
+        if (minor >= 1 && stat.Length >= 20) AddFontName(names, BinaryPrimitives.ReadUInt16BigEndian(stat[18..]));
+        for (var a = 0; axisSize >= 6 && a < axisCount && axesAt + (long)a * axisSize + 6 <= stat.Length; a++)
+            AddFontName(names, BinaryPrimitives.ReadUInt16BigEndian(stat[(int)(axesAt + (long)a * axisSize + 4)..]));
+        for (var v = 0; v < valueCount && valuesAt + v * 2L + 2 <= stat.Length; v++)
+        {
+            var at = valuesAt + BinaryPrimitives.ReadUInt16BigEndian(stat[(int)(valuesAt + v * 2)..]);
+            if (at + 8 <= stat.Length) AddFontName(names, BinaryPrimitives.ReadUInt16BigEndian(stat[(int)(at + 6)..]));
+        }
+    }
+
+    /// <summary>
+    /// The name IDs an fvar table refers to (OpenType 59: axisNameID of each axis, subfamilyNameID and, where the record holds it,
+    /// postScriptNameID of each named instance), font-specific IDs only as in <see cref="StatNames"/>; bounded by the table.
+    /// </summary>
+    private static void FvarNames(ReadOnlySpan<byte> fvar, HashSet<int> names)
+    {
+        if (fvar.Length < 16) return;
+        int axesAt = BinaryPrimitives.ReadUInt16BigEndian(fvar[4..]), axisCount = BinaryPrimitives.ReadUInt16BigEndian(fvar[8..]);
+        int axisSize = BinaryPrimitives.ReadUInt16BigEndian(fvar[10..]), instanceCount = BinaryPrimitives.ReadUInt16BigEndian(fvar[12..]);
+        int instanceSize = BinaryPrimitives.ReadUInt16BigEndian(fvar[14..]);
+        if (axisSize < 20) return;
+        for (var a = 0; a < axisCount && axesAt + (long)a * axisSize + 20 <= fvar.Length; a++)
+            AddFontName(names, BinaryPrimitives.ReadUInt16BigEndian(fvar[(int)(axesAt + (long)a * axisSize + 18)..]));
+        var instancesAt = axesAt + (long)axisCount * axisSize;
+        if (instanceSize < 4) return;
+        for (var i = 0; i < instanceCount && instancesAt + (long)i * instanceSize + instanceSize <= fvar.Length; i++)
+        {
+            var at = (int)(instancesAt + (long)i * instanceSize);
+            AddFontName(names, BinaryPrimitives.ReadUInt16BigEndian(fvar[at..]));
+            if (instanceSize >= axisCount * 4 + 6) AddFontName(names, BinaryPrimitives.ReadUInt16BigEndian(fvar[(at + axisCount * 4 + 4)..]));
+        }
+    }
+
+    private static void AddFontName(HashSet<int> names, int id)
+    {
+        if (id is >= 256 and < 32768) names.Add(id);
+    }
+
+    private static bool NameNotices(Span<byte> table, IReadOnlySet<int> referenced)
     {
         if (table.Length < 6) return false;
         int count = BinaryPrimitives.ReadUInt16BigEndian(table[2..]);
@@ -876,12 +943,12 @@ internal static class ObjectMetadata
         // records may share their text: a kept name stays whole even where a cleaned one names the same bytes — before, a family name
         // stored with the copyright became spaces with it (No. 1143)
         var kept = new bool[table.Length];
-        foreach (var r in records.Where(r => KeptNames.Contains(r.Name)))
+        foreach (var r in records.Where(r => KeptNames.Contains(r.Name) || referenced.Contains(r.Name)))
             Array.Fill(kept, true, r.Start, r.Length);
         var changed = false;
         foreach (var (platform, name, start, length) in records)
         {
-            if (KeptNames.Contains(name)) continue;
+            if (KeptNames.Contains(name) || referenced.Contains(name)) continue;
             var wide = platform is 0 or 3;
             // ID 5 begins with „Version <number>.<number>“ (OpenType name, 30.4): that stays, the rest becomes spaces
             var from = name == 5 ? VersionPrefix(table.Slice(start, length), wide) : 0;

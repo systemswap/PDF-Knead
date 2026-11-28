@@ -13,7 +13,8 @@ namespace PdfKnead.Tests.Pdf;
 
 /// <summary>
 /// M7, package ot-34 (OpenType: vhea, vmtx, VORG). PDF-Knead reads none of the three: vertical metrics come from /W2 and /DW2 of the CIDFont;
-/// scrubbing clears vmtx entries of glyphs not kept and hands vhea and VORG on unchanged. Fonts from Noto Sans CJK and Liberation Sans.
+/// scrubbing clears vmtx entries of glyphs not kept, computes the limits of vhea anew and keeps only the VORG entries of the glyphs kept
+/// (FG 1159). Fonts from Noto Sans CJK and Liberation Sans.
 /// </summary>
 public sealed partial class M7NormTests
 {
@@ -124,18 +125,49 @@ public sealed partial class M7NormTests
     // ------------------------------------------------------------ OT 36 (vhea)
 
     /// <summary>
-    /// OT 36.1 sentences 6–7, OT 36.2 sentences 13–18, 35–46, 48–53 and the scrubbing part of 19–33 and 54–68 (today's behaviour, question 7
-    /// of the M7 questions: residues in tables): scrubbing the Noto font (vhea 1.1) with „漢字A“ kept hands vhea on byte for byte —
-    /// advanceHeightMax, the minimum side bearings, yMaxExtent, the vertTypo values, caret, reserved fields and metricDataFormat are not
-    /// recomputed from the scrubbed vmtx.
+    /// <summary>
+    /// The limits vhea should give for <paramref name="font"/> (OT 36.2): the largest advance of vmtx; over the glyphs with contours the
+    /// smallest top side bearing, the smallest advance − (bearing + height) and the largest bearing + height, the height from the outline.
+    /// </summary>
+    private static (int AdvanceMax, int MinTop, int MinBottom, int MaxExtent) Ot34VerticalLimits(OpenTypeFont font)
+    {
+        byte[] vhea = font.TableData("vhea").ToArray(), vmtx = font.TableData("vmtx").ToArray();
+        var full = Ot34U16(vhea, 34);
+        var advanceMax = Enumerable.Range(0, full).Max(g => Ot34U16(vmtx, g * 4));
+        int minTop = int.MaxValue, minBottom = int.MaxValue, maxExtent = int.MinValue;
+        for (var g = 0; g < font.GlyphCount; g++)
+        {
+            var outline = font.Outline(g);
+            if (outline.IsEmpty) continue;
+            var advance = Ot34U16(vmtx, Math.Min(g, full - 1) * 4);
+            int top = BinaryPrimitives.ReadInt16BigEndian(vmtx.AsSpan(g < full ? g * 4 + 2 : full * 4 + (g - full) * 2));
+            var height = (int)Math.Ceiling(outline.Bounds.Bottom) - (int)Math.Floor(outline.Bounds.Top);
+            minTop = Math.Min(minTop, top);
+            minBottom = Math.Min(minBottom, advance - (top + height));
+            maxExtent = Math.Max(maxExtent, top + height);
+        }
+        return minTop == int.MaxValue ? (advanceMax, 0, 0, 0) : (advanceMax, minTop, minBottom, maxExtent);
+    }
+
+    /// <summary>
+    /// OT 36.1 sentences 6–7, OT 36.2 sentences 13–18, 35–46, 48–53 and the scrubbing part of 19–33 and 54–68 (writer): scrubbing the Noto font
+    /// (vhea 1.1) with „漢字A“ kept computes advanceHeightMax, minTopSideBearing, minBottomSideBearing and yMaxExtent anew from the scrubbed vmtx
+    /// and the outlines kept, so that vhea fits vmtx (FG 1159; before the values of the full font stayed); version, the vertTypo values, caret,
+    /// reserved fields, metricDataFormat and numOfLongVerMetrics stay as in the source.
     /// </summary>
     [Fact]
-    public void Ot34_ScrubOfNotoCjk_VheaStaysAsInTheSource()
+    public void Ot34_ScrubOfNotoCjk_VheaLimitsFitTheScrubbedVmtx()
     {
         var (source, result, _) = Ot34Scrubbed.Value;
         var vhea = source.TableData("vhea").ToArray();
         Assert.Equal(0x00011000u, BinaryPrimitives.ReadUInt32BigEndian(vhea));
-        Assert.Equal(vhea, result.TableData("vhea").ToArray());
+        var scrubbed = result.TableData("vhea").ToArray();
+        Assert.Equal(vhea[..10], scrubbed[..10]);
+        Assert.Equal(vhea[18..], scrubbed[18..]);
+        var limits = (Ot34U16(scrubbed, 10), (int)BinaryPrimitives.ReadInt16BigEndian(scrubbed.AsSpan(12)),
+            (int)BinaryPrimitives.ReadInt16BigEndian(scrubbed.AsSpan(14)), (int)BinaryPrimitives.ReadInt16BigEndian(scrubbed.AsSpan(16)));
+        Assert.Equal(Ot34VerticalLimits(result), limits);
+        Assert.NotEqual(vhea[12..18], scrubbed[12..18]);
     }
 
     /// <summary>
@@ -173,12 +205,12 @@ public sealed partial class M7NormTests
 
     /// <summary>
     /// OT 36.2 sentences 1–7 and 8–12: vhea 1.0 and 1.1 differ only in the meaning of three fields — scrubbing the Noto font with vhea 1.1 and
-    /// the same font with version 1.0 (ascent 880, descent −120, lineGap 0) clears the same vmtx entries, and vhea stays byte for byte as in its
-    /// source in both cases. (The vertical metrics PDF-Knead draws with come from /W2 and /DW2:
+    /// the same font with version 1.0 (ascent 880, descent −120, lineGap 0) clears the same vmtx entries and computes the same limits; the other
+    /// fields of vhea stay as in its source in both cases. (The vertical metrics PDF-Knead draws with come from /W2 and /DW2:
     /// <c>FontWidthTests.CidFont_UsesListsRangesAndDefaults</c>.)
     /// </summary>
     [Fact]
-    public void Ot34_ScrubOfVhea10And11_SameVmtx_VheaUnchanged()
+    public void Ot34_ScrubOfVhea10And11_SameVmtxAndLimits()
     {
         var (source, result, kept) = Ot34Scrubbed.Value;
         var vhea10 = source.TableData("vhea").ToArray();
@@ -187,9 +219,11 @@ public sealed partial class M7NormTests
         BinaryPrimitives.WriteInt16BigEndian(vhea10.AsSpan(6), -120);
         BinaryPrimitives.WriteInt16BigEndian(vhea10.AsSpan(8), 0);
         var font10 = ColorFontBuilder.WithTables(Ot34Noto.Value, new Dictionary<string, byte[]?> { ["vhea"] = vhea10 });
-        var result10 = OpenTypeFont.Parse(TrueTypeSubsetter.Scrub(font10, kept));
-        Assert.Equal(vhea10, result10.TableData("vhea").ToArray());
-        Assert.Equal(result.TableData("vmtx").ToArray(), result10.TableData("vmtx").ToArray());
+        var result10 = OpenTypeFont.Parse(TrueTypeSubsetter.Scrub(font10, kept)).TableData("vhea").ToArray();
+        Assert.Equal(vhea10[..10], result10[..10]);
+        Assert.Equal(vhea10[18..], result10[18..]);
+        Assert.Equal(result.TableData("vhea")[10..18].ToArray(), result10[10..18]);
+        Assert.Equal(result.TableData("vmtx").ToArray(), OpenTypeFont.Parse(TrueTypeSubsetter.Scrub(font10, kept)).TableData("vmtx").ToArray());
     }
 
     /// <summary>
@@ -274,11 +308,12 @@ public sealed partial class M7NormTests
     // ------------------------------------------------------------ OT 38 (VORG)
 
     /// <summary>
-    /// OT 38 sentences 1–2, OT 38.1 sentences 1–8 and 9–13 (today's behaviour, question 7 of the M7 questions): VORG is not read; scrubbing the
-    /// Noto font (VORG 1.0, default 880) hands it on byte for byte — also the entries of glyphs not kept (a full-width Latin letter).
+    /// OT 38 sentences 1–2, OT 38.1 sentences 1–8 and 9–13 (writer): VORG is not read; scrubbing the Noto font (VORG 1.0, default 880) keeps
+    /// version and default and only the entries of the glyphs kept, each as in the source — the entries of glyphs not kept (a full-width Latin
+    /// letter among them) are gone (FG 1159; before VORG stayed byte for byte with them).
     /// </summary>
     [Fact]
-    public void Ot34_ScrubOfNotoCjk_VorgStaysByteForByte_AlsoEntriesOfRemovedGlyphs()
+    public void Ot34_ScrubOfNotoCjk_VorgKeepsOnlyEntriesOfKeptGlyphs()
     {
         var (source, result, kept) = Ot34Scrubbed.Value;
         var vorg = source.TableData("VORG").ToArray();
@@ -286,9 +321,13 @@ public sealed partial class M7NormTests
         Assert.Equal(880, BinaryPrimitives.ReadInt16BigEndian(vorg.AsSpan(4)));
         var count = Ot34U16(vorg, 6);
         Assert.True(count > 0);
-        var removed = Enumerable.Range(0, count).Select(i => Ot34U16(vorg, 8 + 4 * i)).First(g => !kept.Contains(g));
-        Assert.Equal(vorg, result.TableData("VORG").ToArray());
-        Assert.Contains(removed, Enumerable.Range(0, count).Select(i => Ot34U16(result.TableData("VORG"), 8 + 4 * i)));
+        var entries = Enumerable.Range(0, count).Select(i => vorg.AsSpan(8 + 4 * i, 4).ToArray()).ToList();
+        Assert.Contains(entries, e => !kept.Contains(Ot34U16(e, 0)));
+        var expected = entries.Where(e => kept.Contains(Ot34U16(e, 0))).ToList();
+        var scrubbed = result.TableData("VORG").ToArray();
+        Assert.Equal(vorg[..6], scrubbed[..6]);
+        Assert.Equal(expected.Count, Ot34U16(scrubbed, 6));
+        Assert.Equal(expected.SelectMany(e => e), scrubbed[8..]);
     }
 
     /// <summary>OT 38 sentences 1–2: a subset carries no VORG (Liberation Sans with a VORG added: the subset lists no such table).</summary>
@@ -333,16 +372,14 @@ public sealed partial class M7NormTests
 
     /// <summary>
     /// OT 38.1 sentence 14: the entries are sorted by glyph ID without duplicates — a rule for the font builder; scrubbing a font whose VORG has
-    /// entries for glyphs 10, 12 and 13 gives the same entries in the same order.
+    /// entries for glyphs 10, 12 and 13 with 10 and 12 kept gives the entries of 10 and 12 in that order, the one of 13 is gone (FG 1159).
     /// </summary>
     [Fact]
-    public void Ot34_Scrub_VorgEntriesKeepTheirOrder()
+    public void Ot34_Scrub_VorgKeepsTheEntriesOfKeptGlyphsInOrder()
     {
-        var vorg = Ot34Vorg(880, (10, 900), (12, 870), (13, 860));
-        var font = ColorFontBuilder.WithTables(Ot34Liberation, new Dictionary<string, byte[]?> { ["VORG"] = vorg });
+        var font = ColorFontBuilder.WithTables(Ot34Liberation, new Dictionary<string, byte[]?> { ["VORG"] = Ot34Vorg(880, (10, 900), (12, 870), (13, 860)) });
         var scrubbed = OpenTypeFont.Parse(TrueTypeSubsetter.Scrub(font, [10, 12])).TableData("VORG").ToArray();
-        Assert.Equal(vorg, scrubbed);
-        Assert.Equal(new[] { 10, 12, 13 }, Enumerable.Range(0, 3).Select(k => Ot34U16(scrubbed, 8 + 4 * k)));
+        Assert.Equal(Ot34Vorg(880, (10, 900), (12, 870)), scrubbed);
     }
 
     /// <summary>

@@ -1,3 +1,5 @@
+using PdfKnead.Core.Pdf.Objects;
+
 namespace PdfKnead.Core.Pdf.Graphics;
 
 /// <summary>
@@ -495,6 +497,92 @@ public sealed class DisplayListBuilder
             // another group blend mode the backdrop would be blended twice, it stays as before (docs/FEHLERGEDAECHTNIS.md, No. 567)
             InnerBlend = !g.Isolated && g.BlendMode == 0 && HasBlendMode(index, g.Start, _count),
         };
+    }
+
+    /// <summary>
+    /// Ends the knockout group of a text object (ISO 32000-2, 9.3.8). If none of its entries is translucent, blends or is an image that can be partly
+    /// transparent (No. 1258) and it holds no group, its glyphs look the same without it — a later opaque glyph covers an earlier one either way —:
+    /// then the group is dropped (it is the last one, nothing refers to it), neither a layer nor an element of a knockout group around it, and costs no
+    /// memory — also for empty text objects, which a crafted page can hold by the million. Nearly all text is like that; only translucent text keeps
+    /// its group and pays for the layer (docs/FEHLERGEDAECHTNIS.md, No. 1165). Likewise where no two of its entries overlap: knockout then changes
+    /// nothing — each glyph composited with the backdrop of the group is each glyph composited onto it — and the glyphs are drawn as before, not as
+    /// paths in a layer of their own (No. 1200: translucent text in normal groups came out up to 38 levels different at the edges of its glyphs).
+    /// </summary>
+    /// <param name="index">The group index returned by <see cref="BeginGroup"/>; the last group begun.</param>
+    public void EndTextGroup(int index)
+    {
+        var g = _groups[index];
+        if (_groups.Count - 1 > index || Translucent(index, g.Start, _count) && Overlapping(g.Start, _count))
+        {
+            EndGroup(index);
+            // kept only because its entries overprint (and not as an element of a knockout group around it): without the simulation of
+            // overprinting the renderer draws it as no group — before, its glyphs were drawn as paths in a layer, at the edges up to 98 levels
+            // different from the same text cut into other text objects (a redacted line, No. 1257)
+            if (_groups.Count - 1 == index && !Translucent(index, g.Start, _count, overprint: false) && !(g.Parent >= 0 && _groups[g.Parent].Knockout))
+                _groups[index] = _groups[index] with { OverprintOnly = true };
+        }
+        else _groups.RemoveAt(index);   // no group after it, so it is the last one
+    }
+
+    /// <summary>Most pairs of entries <see cref="Overlapping"/> compares; beyond, the entries count as overlapping (the group stays, as before).</summary>
+    private const int MaxOverlapComparisons = 1_000_000;
+
+    /// <summary>
+    /// Whether the bounds of two entries in [<paramref name="start"/>, <paramref name="end"/>) overlap (touching edges do not): sorted by their left
+    /// edge, each entry is compared with those that start before its right edge.
+    /// </summary>
+    private bool Overlapping(int start, int end)
+    {
+        if (end - start < 2) return false;
+        var order = new int[end - start];
+        for (var i = 0; i < order.Length; i++) order[i] = start + i;
+        Array.Sort(order, (x, y) => _items[x].Left.CompareTo(_items[y].Left));
+        var comparisons = 0;
+        for (var i = 0; i < order.Length; i++)
+        {
+            ref readonly var a = ref _items[order[i]];
+            for (var j = i + 1; j < order.Length; j++)
+            {
+                ref readonly var b = ref _items[order[j]];
+                if (!(b.Left < a.Right)) break;
+                if (++comparisons > MaxOverlapComparisons) return true;
+                if (b.Top < a.Bottom && a.Top < b.Bottom) return true;
+            }
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Whether an entry of a group being ended is translucent, blends or is an image that can be partly transparent, or a group lies inside it (every
+    /// group begun after it lies inside it, since groups nest); with <paramref name="overprint"/> also whether one overprints.
+    /// </summary>
+    private bool Translucent(int group, int start, int end, bool overprint = true)
+    {
+        if (_groups.Count - 1 > group) return true;
+        for (var i = start; i < end; i++)
+        {
+            ref readonly var item = ref _items[i];
+            var paint = _paints[item.Paint];
+            if (paint.BlendMode != 0 || overprint && paint.Overprint != 0) return true;
+            // an image only where it can be partly transparent: its opacity, or a soft mask of its own (/SMask, the alpha of JPX with
+            // /SMaskInData) — a stencil mask, a hard mask (/Mask) and an opaque image cover like a glyph; before, any image kept the group,
+            // and the glyphs of a text object with Type 3 glyphs as stencil masks were drawn as paths in a layer (No. 1258)
+            if (item.Kind == DisplayItemKind.Image)
+            {
+                var image = _images[item.Image];
+                if (paint.Fill >> 24 != 255 || image.IsStencil && image.StencilColor >> 24 != 255 ||
+                    !image.IsStencil && (image.Dictionary.Get(PdfName.Get("SMask")) is PdfStream ||
+                                         (image.Dictionary.GetInteger(PdfName.Get("SMaskInData")) ?? 0) != 0))
+                    return true;
+                continue;
+            }
+            // a shading carries its opacity itself (the colour of its paint is unused)
+            if (item.Kind is DisplayItemKind.Fill or DisplayItemKind.FillStroke
+                && (paint.FillShading >= 0 ? _shadings[paint.FillShading].Alpha : paint.Fill >> 24) != 255) return true;
+            if (item.Kind is DisplayItemKind.Stroke or DisplayItemKind.FillStroke
+                && (paint.StrokeShading >= 0 ? _shadings[paint.StrokeShading].Alpha : paint.Stroke >> 24) != 255) return true;
+        }
+        return false;
     }
 
     /// <summary>

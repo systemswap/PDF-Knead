@@ -147,6 +147,8 @@ internal static class VersionKeys
                     if (dict.GetRaw(Tr2) is { } tr2 && IsTransfer(tr2, dict, true)) Drop(Tr2);
                 }
                 if (dict.GetRaw(Bm) is PdfArray choices) (set ??= []).Add((Bm, PdfName.Get(Content.BlendModes.Name(Content.BlendModes.From(choices)))));
+                // /Compatible is deprecated in 2.0: a writer names /Normal (ISO 32000-2, 11.3.5.2; docs/FEHLERGEDAECHTNIS.md, No. 1253)
+                else if (dict.GetRaw(Bm) is PdfName { Value: "Compatible" }) (set ??= []).Add((Bm, PdfName.Get("Normal")));
                 // OPI of images and forms is deprecated (8.9.5.1, 8.10.2): proxies for prepress, which no reader shows (No. 1131)
                 if (subtype is "Image" or "Form") Drop(Opi);
                 // NChannel with Lab as its process space: allowed in 1.x, not in 2.0 (8.6.6.5) — written as plain DeviceN attributes, its

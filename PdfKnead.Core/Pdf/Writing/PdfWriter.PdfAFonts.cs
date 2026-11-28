@@ -73,6 +73,9 @@ public static partial class PdfWriter
                     // standard font the bundled one matches is embedded as such when it is written
                     var standard = dict.GetName(PdfName.Subtype)?.Value is "Type1" or "MMType1" or "TrueType" && StandardEmbedding(dict, source, dict) is not null;
                     if (!standard && Substitute(dict, doc, source, codes)) _substitutedNames.Add(dict.GetName(PdfName.Get("BaseFont"))?.Value ?? "?");
+                    // a program whose licence forbids changing it (OS/2 fsType 2 or bit 8) stays as it is, said in the result; the check names
+                    // what it breaks (docs/FEHLERGEDAECHTNIS.md, No. 1164)
+                    else if (FontLicence.KeepsProgram(PdfFont.Get(dict, doc))) _licenceKept.Add(dict.GetName(PdfName.Get("BaseFont"))?.Value ?? "?");
                     else Rebuild(dict, doc, source, codes);
                     WriteToUnicode(dict, doc, codes);
                 }

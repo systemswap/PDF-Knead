@@ -91,7 +91,7 @@ public static partial class TextBlocks
             var next = segments[i + 1];
             var space = 0.3 * segments[i].Size;
             var fits = segments[i].End + space + FirstWordWidth(next) < right - 0.3 * segments[i].Size;
-            var hyphen = lines[i].Text.TrimEnd() is { Length: > 1 } t && t[^1] is '-' or '­' && char.IsLetter(t[^2]);
+            var hyphen = lines[i].Text.TrimEnd() is { Length: > 1 } t && t[^1] is '-' or '\u00AD' && char.IsLetter(t[^2]);
             // lines with tabs are tabular (price list, label and value): their end is always hard, even if they fill the margin
             var tabular = lines[i].Tabs.Count > 0 || lines[i + 1].Tabs.Count > 0;
             var soft = !fits && !tabular && Full(segments[i]) && (fullLines >= 2 || hyphen);

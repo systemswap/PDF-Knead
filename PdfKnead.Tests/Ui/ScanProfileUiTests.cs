@@ -658,7 +658,11 @@ public sealed class ScanProfileUiTests : IDisposable
                     foreach (var tile in scan.Pages) tile.IsSelected = indices.Contains(tile.Index);
                     scan.SelectionChanged();
                 }
+                // „Für alle übernehmen“ is on by default: then every change applies to all pages; switched off, to the selected ones
+                Assert.True(scan.ApplyToAll);
                 Select(0);
+                Assert.Equal(Tr.T("Alle Seiten"), scan.AdjustmentsTarget);
+                scan.ApplyToAll = false;
                 Assert.Equal(Tr.T("Seite {0}", 1), scan.AdjustmentsTarget);
                 var tileBefore = scan.ScanPages[0].Item.Id;
                 scan.Brightness = 40;
@@ -684,9 +688,10 @@ public sealed class ScanProfileUiTests : IDisposable
                 Assert.True(scan.BlackWhite);
                 Assert.Equal(40, scan.Brightness);
 
-                // for all, then back to the raw scan for the selected page
-                scan.ApplyAdjustmentsToAllCommand.Execute(null);
+                // switched on: all pages get the processing shown; then back to the raw scan for the selected page only (switched off again)
+                scan.ApplyToAll = true;
                 Assert.All(scan.ScanPages, p => Assert.Equal(scan.ScanPages[0].Adjustments, p.Adjustments));
+                scan.ApplyToAll = false;
                 scan.ResetAdjustmentsCommand.Execute(null);
                 Assert.Equal(Core.Scanning.Processing.ScanAdjustments.None, scan.ScanPages[0].Adjustments);
                 Assert.False(scan.AutoEnhance);

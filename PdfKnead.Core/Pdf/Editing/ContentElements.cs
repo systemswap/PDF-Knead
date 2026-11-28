@@ -28,7 +28,8 @@ public static class ContentElements
         Familie = PdfName.Get("Familie"), Fett = PdfName.Get("Fett"), Kursiv = PdfName.Get("Kursiv"), Unterstrichen = PdfName.Get("Unterstrichen"),
         Durchgestrichen = PdfName.Get("Durchgestrichen"), Groesse = PdfName.Get("Groesse"), Farbe = PdfName.Get("Farbe"), Hoch = PdfName.Get("Hoch"),
         Breite = PdfName.Get("Breite"), Zeichenabstand = PdfName.Get("Zeichenabstand"), Schrift = PdfName.Get("Schrift"),
-        NachgemachtFett = PdfName.Get("NachgemachtFett"), NachgemachtKursiv = PdfName.Get("NachgemachtKursiv"), Tabs = PdfName.Get("Tabs"), TabArten = PdfName.Get("TabArten");
+        NachgemachtFett = PdfName.Get("NachgemachtFett"), NachgemachtKursiv = PdfName.Get("NachgemachtKursiv"), Tabs = PdfName.Get("Tabs"), TabArten = PdfName.Get("TabArten"),
+        Sprache = PdfName.Get("Sprache"), ZeilenhoeheSchrift = PdfName.Get("ZeilenhoeheSchrift");
 
     private const string Kind = "FormatierterText";
 
@@ -46,12 +47,17 @@ public static class ContentElements
         data.Set(Art, PdfName.Get(Kind));
         data.Set(Ausrichtung, PdfName.Get(element.Alignment.ToString()));
         data.Set(Abstand, new PdfReal(element.LineGap));
+        // /Abstand multiplies the natural line height of the fonts (No. 1211); without this entry the font size, as in blocks of earlier versions
+        // and in edited text of the page — so a block of an earlier version keeps its lines
+        if (element.FontLineHeight) data.Set(ZeilenhoeheSchrift, PdfBoolean.Of(true));
         if (element.FirstBaseline is { } baseline) data.Set(Grundlinie, new PdfReal(baseline));
         if (element.HangingIndent != 0) data.Set(Einzug, new PdfReal(element.HangingIndent));
         if (element.TabStops.Count > 0) data.Set(Tabs, new PdfArray(element.TabStops.Select(t => (PdfObject)new PdfReal(t.Position))));
         // Right- and centre-aligned tab stops; files without this entry have all tab stops left-aligned
         if (element.TabStops.Any(t => t.Alignment != BlockAlignment.Left))
             data.Set(TabArten, new PdfArray(element.TabStops.Select(t => (PdfObject)PdfName.Get(t.Alignment.ToString()))));
+        // the language the text was shaped for (No. 1162); files without this entry have none
+        if (element.Language is { Length: > 0 } language) data.Set(Sprache, new PdfString(PdfTextEncoding.Encode(language)));
         var spans = new PdfArray();
         foreach (var span in element.Content.Spans)
         {
@@ -170,8 +176,8 @@ public static class ContentElements
         return result;
     }
 
-    /// <summary>Data read from a form: the block without position, the text the form must show (without white space), and the block's length in characters.</summary>
-    private sealed record Parsed(RichTextElement Element, string Visible, int Chars);
+    /// <summary>Data read from a form: the block without position, the text the form must show (<see cref="ShownText"/>), and the block's length in characters.</summary>
+    private sealed record Parsed(RichTextElement Element, ShownText Visible, int Chars);
 
     /// <summary>
     /// Puts a block in its place: position from /BBox and the form-to-page mapping, rotation from /Matrix. Only when the form is
@@ -240,16 +246,20 @@ public static class ContentElements
         if (spans.Count == 0) return null;
         var content = new RichText(spans);
         if (content.Length > budget) return null;
-        var visible = string.Concat(content.Text.Where(c => !char.IsWhiteSpace(c)));
+        // what the form must draw: the text in the order the appearance draws it — right-to-left lines in visual order, without directional
+        // formatting characters (docs/FEHLERGEDAECHTNIS.md, No. 1177)
+        var visible = new ShownText(content.Text);
         return new Parsed(new RichTextElement
         {
             Rect = default,   // Place sets the position for each invocation of the form
             Content = content,
             Alignment = Enum.TryParse<BlockAlignment>(data.GetName(Ausrichtung)?.Value, out var alignment) && Enum.IsDefined(alignment) ? alignment : BlockAlignment.Left,
             LineGap = Math.Clamp(data.GetNumber(Abstand) ?? 1.15, 0.5, 5),
+            FontLineHeight = data.GetBoolean(ZeilenhoeheSchrift) == true,
             FirstBaseline = data.GetNumber(Grundlinie) is { } baseline && double.IsFinite(baseline) ? Math.Clamp(baseline, 0, 1000) : null,
             HangingIndent = Math.Clamp(data.GetNumber(Einzug) ?? 0, -1000, 1000),
             TabStops = data.GetArray(Tabs) is { } tabs ? ReadTabStops(tabs, data.GetArray(TabArten)) : [],
+            Language = data.GetString(Sprache)?.ToText() is { Length: > 0 and <= 64 } language ? language : null,
         }, visible, content.Length);
     }
 

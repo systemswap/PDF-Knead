@@ -35,10 +35,24 @@ public sealed partial class EInvoiceModuleTests
     private static readonly string[] SkippedFolders =
         ["obj", "bin", ".git", "TestPDFs", "Normen-ISO", "Patente", "Modelle", "published", "pruefer", "node_modules", "Arbeitsunterlagen"];
 
+    /// <summary>
+    /// The folders at the top of the repository that .git/info/exclude leaves out („/name/“ or „name/“): local working copies of tools and
+    /// other things that are not part of the repository — an agent's working copy there holds a second copy of the sources and is no
+    /// dependency of the program.
+    /// </summary>
+    private static HashSet<string> ExcludedFolders(string repo)
+    {
+        var file = Path.Combine(repo, ".git", "info", "exclude");
+        if (!File.Exists(file)) return [];
+        return File.ReadAllLines(file).Select(l => l.Trim()).Where(l => l.Length > 1 && !l.StartsWith('#') && l.EndsWith('/'))
+            .Select(l => l.Trim('/')).Where(l => l.Length > 0 && !l.Contains('/') && !l.Contains('*')).ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
+
     [Fact]
     public void OutsideTheModule_OnlyMarkedDockingLines()
     {
         var repo = InvoiceSourceRulesTests.Repo();
+        var excluded = ExcludedFolders(repo);
         var breaches = new List<string>();
         var docking = 0;
         var pending = new Stack<string>();
@@ -51,6 +65,7 @@ public sealed partial class EInvoiceModuleTests
                 var name = Path.GetFileName(sub);
                 if (SkippedFolders.Contains(name, StringComparer.OrdinalIgnoreCase)) continue;
                 if (dir == repo && name.StartsWith("PdfKnead.EInvoice", StringComparison.Ordinal)) continue;   // the module itself
+                if (dir == repo && excluded.Contains(name)) continue;   // not part of the repository (.git/info/exclude)
                 pending.Push(sub);
             }
             foreach (var file in Directory.EnumerateFiles(dir))

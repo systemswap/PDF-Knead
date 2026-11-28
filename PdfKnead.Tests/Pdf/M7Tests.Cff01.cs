@@ -2,6 +2,9 @@ using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Text;
 using PdfKnead.Core.Fonts;
+using PdfKnead.Core.Pdf.Content;
+using PdfKnead.Core.Pdf.Document;
+using PdfKnead.Core.Pdf.Objects;
 using PdfKnead.Core.Pdf.Fonts;
 using PdfKnead.Core.Pdf.Graphics;
 
@@ -248,6 +251,8 @@ public sealed partial class M7NormTests
         ["dotsection"] = [12, 0], ["abs"] = [12, 9], ["add"] = [12, 10], ["sub"] = [12, 11], ["div"] = [12, 12], ["neg"] = [12, 14],
         ["drop"] = [12, 18], ["put"] = [12, 20], ["get"] = [12, 21], ["mul"] = [12, 24], ["sqrt"] = [12, 26], ["dup"] = [12, 27],
         ["exch"] = [12, 28], ["hflex"] = [12, 34], ["flex"] = [12, 35], ["hflex1"] = [12, 36], ["flex1"] = [12, 37],
+        ["and"] = [12, 3], ["or"] = [12, 4], ["not"] = [12, 5], ["eq"] = [12, 15], ["ifelse"] = [12, 22], ["random"] = [12, 23],
+        ["index"] = [12, 29], ["roll"] = [12, 30],
     };
 
     /// <summary>A name-keyed CFF with .notdef and the given glyphs, optional subroutines and the widths of the Private DICT.</summary>
@@ -808,6 +813,45 @@ public sealed partial class M7NormTests
     }
 
     /// <summary>
+    /// TN 5176, 9 sentences 6–10 (Table 9) and 14 sentences 5–8 with ISO 32000-2 9.9.1 sentences 69–71 (reader, special rule, measured): in
+    /// a CFF embedded in PDF, PaintType 2 with StrokeWidth does not stroke — the text rendering mode decides (mode 0: one fill, nothing stroked),
+    /// and CharstringType 1 does not make the program unreadable: its charstrings are read as Type 2, the same outline as without the entry.
+    /// All three reference readers draw both so (probes p20e–p20j: docs/FEHLERGEDAECHTNIS.md, No. 1163); no substitute font.
+    /// </summary>
+    [Fact]
+    public void Cff01_PaintType2AndCharstringType1_ReadLikeTheReferenceReaders()
+    {
+        var glyph = Cff01Cs(100, 0, "rmoveto", 400, 0, "rlineto", 0, 600, "rlineto", -400, 0, "rlineto", "endchar");
+        static byte[] File(byte[] cff)
+        {
+            var data = Encoding.Latin1.GetString(cff);
+            return DocumentStructureNormTests.FileOf("<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+                "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>",
+                "<< /Length 37 >>\nstream\nBT 0 Tr /F1 100 Tf 20 50 Td (A) Tj ET\nendstream",
+                "<< /Type /Font /Subtype /Type1 /BaseFont /KneadProbe /FirstChar 65 /LastChar 65 /Widths [600] /FontDescriptor 6 0 R >>",
+                "<< /Type /FontDescriptor /FontName /KneadProbe /Flags 32 /FontBBox [0 0 600 700] /ItalicAngle 0 /Ascent 700 /Descent 0 " +
+                "/CapHeight 700 /StemV 80 /FontFile3 7 0 R >>",
+                $"<< /Subtype /Type1C /Length {data.Length} >>\nstream\n{data}\nendstream");
+        }
+        byte[] Cff(byte[] topExtra) => Cff01Build(new Cff01Spec { TopExtra = topExtra, CharStrings = [[14], glyph], Charset = [0, 0, 34] });
+        GlyphOutline Shown(byte[] cff, out DisplayList list)
+        {
+            using var doc = PdfDocument.Open(File(cff));
+            list = PageInterpreter.Build(doc, doc.Pages[0]);
+            return PdfFont.Get((PdfDictionary)doc.GetObject(5), doc).Glyph(65, 1).Outline;
+        }
+        var plain = Shown(Cff([]), out _);
+        Assert.False(plain.IsEmpty);
+        foreach (var topExtra in new[] { Cff01Dict((1205, [2]), (1208, [20])), Cff01Dict((1206, [1])) })
+        {
+            var shown = Shown(Cff(topExtra), out var list);
+            Assert.Equal(plain.Points, shown.Points);
+            Assert.Single(list.Items.ToArray(), i => i.Kind == DisplayItemKind.Fill);
+            Assert.DoesNotContain(list.Items.ToArray(), i => i.Kind is DisplayItemKind.Stroke or DisplayItemKind.FillStroke);
+        }
+    }
+
+    /// <summary>
     /// TN 5176, 15 sentences 1–17: the width of a glyph is nominalWidthX plus the first number of its charstring, without one defaultWidthX.
     /// In FoxitSymbol.cff "alpha" begins with −52 at nominalWidthX 683 (631); a glyph without a width in its charstring has defaultWidthX 549.
     /// </summary>
@@ -960,8 +1004,9 @@ public sealed partial class M7NormTests
 
     /// <summary>
     /// TN 5176, 11 sentences 1–4 (redaction, question 9, docs/FEHLERGEDAECHTNIS.md, No. 1158): the names in the charset are unique — the scrubbed
-    /// symbol font names every removed glyph „removed.“ and its glyph index (no more SID 0, the name of .notdef, for all of them): all names
-    /// differ, none of a removed glyph maps to a character, and the names of the removed glyphs are gone.
+    /// symbol font names every removed glyph „_“ and its glyph index (no more SID 0, the name of .notdef, for all of them): all names
+    /// differ, none of a removed glyph maps to a character or holds a letter (No. 1256: a redacted word could be found in it), and the names of
+    /// the removed glyphs are gone.
     /// </summary>
     [Fact]
     public void Cff01_ScrubbedNameKeyed_RemovedGlyphsGetUniqueNeutralNames()
@@ -980,7 +1025,8 @@ public sealed partial class M7NormTests
                 Assert.Equal(font.GlyphName(g), scrubbed.GlyphName(g));
                 continue;
             }
-            Assert.Equal("removed." + g.ToString(CultureInfo.InvariantCulture), scrubbed.GlyphName(g));
+            Assert.Equal("_" + g.ToString(CultureInfo.InvariantCulture), scrubbed.GlyphName(g));
+            Assert.DoesNotContain(scrubbed.GlyphName(g)!, char.IsLetter);
             Assert.Null(GlyphNames.ToUnicode(scrubbed.GlyphName(g)!));
             Assert.Equal(-1, scrubbed.GlyphByName(font.GlyphName(g)!));
         }
@@ -988,17 +1034,17 @@ public sealed partial class M7NormTests
     }
 
     /// <summary>
-    /// TN 5176, 11 sentences 1–4 (redaction, question 9): a removed glyph whose neutral name a kept glyph already has gets „.x“ appended — a kept
-    /// glyph named „removed.2“ and the removed glyph 2: „removed.2.x“, the names stay unique.
+    /// TN 5176, 11 sentences 1–4 (redaction, question 9): a removed glyph whose neutral name a kept glyph already has gets „_“ appended — a kept
+    /// glyph named „_2“ and the removed glyph 2: „_2_“, the names stay unique (No. 1256).
     /// </summary>
     [Fact]
     public void Cff01_ScrubbedNameKeyed_NeutralNameOfAKeptGlyph_IsExtended()
     {
-        var data = CffBuilder.Build("Probe", Cff01Thousandth, [("removed.2", Cff01Square(100), 500), ("b", Cff01Square(200), 500)]);
+        var data = CffBuilder.Build("Probe", Cff01Thousandth, [("_2", Cff01Square(100), 500), ("b", Cff01Square(200), 500)]);
         var scrubbed = CffFont.Parse(CffScrubber.Scrub(data, [1]).Data);
-        Assert.Equal("removed.2", scrubbed.GlyphName(1));
-        Assert.Equal("removed.2.x", scrubbed.GlyphName(2));
-        Assert.Equal(1, scrubbed.GlyphByName("removed.2"));
+        Assert.Equal("_2", scrubbed.GlyphName(1));
+        Assert.Equal("_2_", scrubbed.GlyphName(2));
+        Assert.Equal(1, scrubbed.GlyphByName("_2"));
     }
 
     /// <summary>

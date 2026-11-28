@@ -2362,7 +2362,9 @@ public sealed class RedactionTests
         var page = doc.Pages[0];
         var dict = (PdfDictionary)page.Resources!.GetDictionary(PdfName.Get("Font"))!.Get(PdfName.Get("F1"));
         var before = Core.Pdf.Fonts.PdfFont.Get(dict, doc).Glyph('B', 1).Outline;
-        Assert.False(before.IsEmpty);   // glyph 0, the box of a missing character
+        // since No. 1171 the display reads a glyph only within its loca range, as the clearing copies it: glyph 0 cut short by loca draws
+        // nothing before and after (before, the display read it on to its full box and the clearing had to keep it so)
+        Assert.True(before.IsEmpty);
         using var after = PdfDocument.Open(WithBars(doc, (0, new PdfRectangle(70, 690, 87, 730))));   // over the A (72 … 88)
         var font = (PdfDictionary)after.Pages[0].Resources!.GetDictionary(PdfName.Get("Font"))!.Get(PdfName.Get("F1"));
         Assert.Equal(before.Points.ToArray(), Core.Pdf.Fonts.PdfFont.Get(font, after).Glyph('B', 1).Outline.Points.ToArray());

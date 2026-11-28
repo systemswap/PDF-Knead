@@ -157,6 +157,10 @@ public sealed class CffFont
             try
             {
                 var (outline, width) = new CharStringInterpreter(this, PrivateFor(g)).Run(g);
+                // FDSelect names no Font DICT of the FDArray (TN 5176, 19): the glyph draws nothing, as two of three reference readers (the
+                // other glyphs of the font are drawn; probes B36c, B36c2) — before with Font DICT 0. Its width stays that of Font DICT 0
+                // (docs/FEHLERGEDAECHTNIS.md, No. 1165)
+                if (!IsCff2 && _fdSelect is not null && g < _fdSelect.Length && _fdSelect[g] >= _privates.Length) return (GlyphOutline.Empty, width);
                 // Glyph of a Font DICT with its own FontMatrix: convert it to the scale of the font
                 if (_fdRelative is { } relative && _fdSelect is not null && g < _fdSelect.Length && _fdSelect[g] < relative.Length
                     && relative[_fdSelect[g]] is { } m)
@@ -251,8 +255,14 @@ public sealed class CffFont
             privates = [PrivateDict.Read(data, top)];
         }
 
-        // Charset: glyph → SID (or CID)
-        var sids = ReadCharset(data, top.Int(15) ?? 0, glyphCount, isCid);
+        // Charset: glyph → SID (or CID). A predefined one names 229 (ISOAdobe), 166 (Expert) or 87 (ExpertSubset) glyphs (TN 5176, 13 and
+        // Appendix C): a font with more glyphs is not read, as all three reference readers reject it and draw the substitute (probes B36d–B36i,
+        // B36b2; also without a charset in a CID-keyed font) — before the glyphs beyond took the SIDs that follow (docs/FEHLERGEDAECHTNIS.md,
+        // No. 1165)
+        var charsetOffset = top.Int(15) ?? 0;
+        if ((charsetOffset == 0 || !isCid && charsetOffset is 1 or 2) && glyphCount > PredefinedCharsetGlyphs(charsetOffset))
+            throw new FontFormatException("CFF: mehr Glyphen als der vordefinierte Zeichensatz nennt");
+        var sids = ReadCharset(data, charsetOffset, glyphCount, isCid);
         string[]? glyphNames = null;
         Dictionary<string, int>? nameToGlyph = null;
         int[]? glyphToCid = null;
@@ -274,6 +284,14 @@ public sealed class CffFont
             _fdRelative = fdRelative,
         };
     }
+
+    /// <summary>The glyphs a predefined charset names, .notdef included: ISOAdobe (0) 229, Expert (1) 166, ExpertSubset (2) 87 (TN 5176, Appendix C).</summary>
+    internal static int PredefinedCharsetGlyphs(int offset) => offset switch
+    {
+        1 => FontTables.ExpertCharset.Length,
+        2 => FontTables.ExpertSubsetCharset.Length,
+        _ => 229,
+    };
 
     /// <summary>The glyphs a CFF2 table may hold: numGlyphs of maxp is a uint16 and must equal the count of the CharStringINDEX (OpenType 8.10.2).</summary>
     private const int MaxCff2Glyphs = 65535;
@@ -364,8 +382,11 @@ public sealed class CffFont
             var counts = new int[count];
             for (var i = 0; i < count; i++)
             {
-                var at = (long)start + r.U32();
-                var d = new FontReader(data, at is >= 0 and <= int.MaxValue ? (int)at : -1);
+                // a NULL offset means there is no ItemVariationData (OpenType 42.3.4): its regions are unknown, as for one beyond the data —
+                // before, the start of the store was read as one, k taken from the offset of the region list (docs/FEHLERGEDAECHTNIS.md, No. 1172)
+                var dataOffset = r.U32();
+                var at = (long)start + dataOffset;
+                var d = new FontReader(data, dataOffset != 0 && at is >= 0 and <= int.MaxValue ? (int)at : -1);
                 if (!d.CanRead(6))
                 {
                     counts[i] = -1;
@@ -1222,9 +1243,73 @@ public sealed class CffFont
                 case 26: if (_sp >= 1) _stack[_sp - 1] = Math.Sqrt(Math.Abs(_stack[_sp - 1])); return;
                 case 27: if (_sp >= 1) Push(_stack[_sp - 1]); return;
                 case 28: if (_sp >= 2) (_stack[_sp - 1], _stack[_sp - 2]) = (_stack[_sp - 2], _stack[_sp - 1]); return;
+                // Conditional and stack operators (TN 5177, 4.4 and 4.6; before they cleared the stack and moved the outline,
+                // docs/FEHLERGEDAECHTNIS.md, No. 1163)
+                case 3: if (_sp >= 2) { _stack[_sp - 2] = _stack[_sp - 2] != 0 && _stack[_sp - 1] != 0 ? 1 : 0; _sp--; } return;   // and
+                case 4: if (_sp >= 2) { _stack[_sp - 2] = _stack[_sp - 2] != 0 || _stack[_sp - 1] != 0 ? 1 : 0; _sp--; } return;   // or
+                case 5: if (_sp >= 1) _stack[_sp - 1] = _stack[_sp - 1] == 0 ? 1 : 0; return;                                     // not
+                case 15: if (_sp >= 2) { _stack[_sp - 2] = _stack[_sp - 2] == _stack[_sp - 1] ? 1 : 0; _sp--; } return;           // eq
+                case 22:                        // ifelse: s1 s2 v1 v2 → s1 if v1 ≤ v2, otherwise s2
+                    if (_sp >= 4)
+                    {
+                        _stack[_sp - 4] = _stack[_sp - 2] <= _stack[_sp - 1] ? _stack[_sp - 4] : _stack[_sp - 3];
+                        _sp -= 3;
+                    }
+                    return;
+                case 23: Push(NextRandom()); return;   // random
+                case 29: Index(); return;
+                case 30: Roll(); return;
                 case 0: break;                  // dotsection (deprecated)
             }
             _sp = 0;
+        }
+
+        // random: a fixed start value for every glyph, so that a glyph always has the same outline (in the display, the text boxes, scrubbing
+        // and the comparison of outlines) — the readers draw it differently each time; a deliberate deviation from a true random number
+        private uint _random = 0x9E3779B9;
+
+        /// <summary>The next number of random (TN 5177, 4.4): greater than 0 and at most 1, in steps of 1/65536 (xorshift with a fixed start value).</summary>
+        private double NextRandom()
+        {
+            _random ^= _random << 13;
+            _random ^= _random >> 17;
+            _random ^= _random << 5;
+            return ((_random & 0xFFFF) + 1) / 65536.0;
+        }
+
+        /// <summary>index (TN 5177, 4.4): i on top; copies element i below it (0 the topmost), a negative i the topmost, an i beyond the stack
+        /// the lowest (undefined in the specification).</summary>
+        private void Index()
+        {
+            if (_sp < 2)
+            {
+                _sp = 0;
+                return;
+            }
+            var i = _stack[--_sp];
+            var at = !(i > 0) ? 0 : (int)Math.Min(i, _sp - 1);
+            Push(_stack[_sp - 1 - at]);
+        }
+
+        /// <summary>roll (TN 5177, 4.4): N and J on top; the N elements below turn by J places, positive upwards. An N that is negative, not
+        /// whole or larger than the stack leaves the elements as they are (undefined in the specification).</summary>
+        private void Roll()
+        {
+            if (_sp < 2)
+            {
+                _sp = 0;
+                return;
+            }
+            double j = _stack[_sp - 1], n = _stack[_sp - 2];
+            _sp -= 2;
+            if (n <= 0 || n != Math.Floor(n) || n > _sp) return;
+            var count = (int)n;
+            var shift = (int)(((long)Math.Truncate(Math.Clamp(j, int.MinValue, int.MaxValue)) % count + count) % count);
+            if (shift == 0) return;
+            var bottom = _sp - count;
+            Span<double> turned = stackalloc double[count];
+            for (var k = 0; k < count; k++) turned[(k + shift) % count] = _stack[bottom + k];
+            turned.CopyTo(_stack.AsSpan(bottom, count));
         }
 
         /// <summary>Builds an accented character from two glyphs of the StandardEncoding (like the Type 1 "seac" operator).</summary>

@@ -26,6 +26,22 @@ public sealed record PdfGlyph(GlyphOutline Outline, Matrix ToText, double Width,
 
     /// <summary>Vertical writing: y of the position vector v of the glyph relative to the horizontal origin, in text space.</summary>
     public double OriginY { get; init; }
+
+    /// <summary>
+    /// A glyph of an embedded font without outlines drawn from its bitmaps (EBLC/EBDT): the link to its strikes, of which the one nearest to the
+    /// shown size is drawn (<see cref="GlyphBitmap.At"/>); <see cref="Outline"/> is then the traced bitmap. Null for every other glyph.
+    /// </summary>
+    internal GlyphBitmap? Bitmap { get; init; }
+
+    /// <summary>A grey bitmap glyph: per grey level its contours and opacity, filled instead of <see cref="Outline"/>; null otherwise.</summary>
+    internal IReadOnlyList<(GlyphOutline Outline, byte Alpha)>? Levels { get; init; }
+
+    /// <summary>
+    /// A second reading of the glyph that a reference reader shows instead of <see cref="Text"/> (a font that is not embedded, drawn by the readers
+    /// in two ways): the search and „Suchen und schwärzen“ find the glyph by either reading, copying keeps <see cref="Text"/>
+    /// (docs/FEHLERGEDAECHTNIS.md, No. 1235). Null for almost every glyph, and never equal to <see cref="Text"/>.
+    /// </summary>
+    public string? AlternateText { get; init; }
 }
 
 /// <summary>
@@ -403,7 +419,10 @@ internal sealed partial class SimpleFont : PdfFont
                    ?? (name is not null ? GlyphNames.ToUnicode(name, _dingbats) : null)
                    ?? (glyphName is not null ? GlyphNames.ToUnicode(glyphName, _dingbats) : null)
                    ?? (!_symbolic && c >= 32 ? ((char)c).ToString() : null);
-        return new PdfGlyph(outline, toText, width, text);
+        var glyph = new PdfGlyph(outline, toText, width, text);
+        // an embedded font without outlines: the glyph from its bitmaps (EBLC/EBDT; docs/FEHLERGEDAECHTNIS.md, No. 1169)
+        return outline.IsEmpty && _program.Bitmaps is { } bitmaps && _program.OpenType is { } ot && DrawnGlyph(ot, c, name) is >= 0 and var gid
+            ? GlyphBitmap.Attach(glyph, bitmaps, gid) : glyph;
     }
 
     /// <summary>With /Widths only the codes that have a width (a subset lists only its characters), otherwise all 256.</summary>
@@ -532,9 +551,18 @@ internal sealed partial class SimpleFont : PdfFont
         if (gid <= 0 && name is not null && (!_symbolic || _namesFromPdf))
         {
             var cp = GlyphNames.CodePoint(name, _dingbats);
-            if (cp > 0 && ot.HasCmap(3, 1) || cp > 0 && ot.HasCmap(0, 3) || cp > 0 && ot.HasCmap(3, 10)) gid = ot.GlyphForUnicode(cp);
-            if (gid <= 0 && ot.HasCmap(1, 0) && FontTables.MacOsRomanCode(name) is >= 0 and var mac) gid = ot.Lookup(1, 0, mac);
+            // an embedded program with a (3,1) subtable: the name goes through it (and (3,10), its extension) and then through post — not through
+            // (1,0) or a Unicode subtable of platform 0 (ISO 32000-2, 9.6.5.4 sentences 27–31; OpenType 9.3 sentence 11), as the three reference
+            // readers (probes CM31, CM31p, CM31u; docs/FEHLERGEDAECHTNIS.md, No. 1165); a substitute keeps every way
+            var only31 = _program.IsEmbedded && ot.HasCmap(3, 1);
+            if (cp > 0 && only31) gid = ot.Lookup(3, 10, cp) is > 0 and var wide ? wide : Math.Max(0, ot.Lookup(3, 1, cp));
+            else if (cp > 0 && (ot.HasCmap(3, 1) || ot.HasCmap(0, 3) || ot.HasCmap(3, 10))) gid = ot.GlyphForUnicode(cp);
+            if (gid <= 0 && !only31 && ot.HasCmap(1, 0) && FontTables.MacOsRomanCode(name) is >= 0 and var mac) gid = ot.Lookup(1, 0, mac);
             if (gid <= 0) gid = Math.Max(0, ot.GlyphByName(name));
+            // neither the name's character in (3,1) nor its glyph in post (a name outside the glyph list, as „g5167“, or a character (3,1)
+            // lacks): the code itself through (3,1), as all three reference readers draw names outside the glyph list and two of three the
+            // others (probes N2a–N2h, real file issue13316; docs/FEHLERGEDAECHTNIS.md, No. 1199) — still not through (1,0)
+            if (gid <= 0 && only31 && !_symbolic) gid = ot.Lookup(3, 10, code) is > 0 and var wideCode ? wideCode : Math.Max(0, ot.Lookup(3, 1, code));
             if (gid <= 0 && !_program.IsEmbedded && _toUnicode?.ToUnicode((uint)code, 1) is { Length: > 0 } text) gid = ot.GlyphForText(text);
         }
         if (gid <= 0 && !_program.IsEmbedded)
@@ -551,7 +579,11 @@ internal sealed partial class SimpleFont : PdfFont
             if (gid <= 0) gid = ot.GlyphForUnicode(space ? 0x20 : code);
             return gid <= 0 ? -1 : gid;
         }
-        if (gid <= 0)
+        // the subtable the norm names decides alone: a symbolic font with (3,0) (without names of the file) takes the code from it only, a
+        // non-symbolic one with (3,1) the name through it and post — what they lack draws glyph 0 (it has a width) or nothing, as the reference
+        // readers (probes CM30, CM30p: not the glyph (1,0) gives); the further ways below only where that subtable is missing (9.6.5.4 sentence 54)
+        var alone = _symbolic ? ot.HasCmap(3, 0) && !_namesFromPdf : name is not null && ot.HasCmap(3, 1);
+        if (gid <= 0 && !alone)
         {
             if (ot.HasCmap(3, 0))
                 foreach (var prefix in (ReadOnlySpan<int>)[0, 0xF000, 0xF100, 0xF200])
@@ -593,6 +625,21 @@ internal sealed partial class CompositeFont : PdfFont
     private readonly ushort[]? _glyphOrder;
     /// <summary>The ordering of an Adobe character collection; null for another registry (CID 3.2: registry and ordering together name it).</summary>
     private readonly string? _ordering;
+    /// <summary>
+    /// A CIDFontType2 that is not embedded and whose CIDs select no glyph: its text is the CID read as Unicode (No. 1205), drawn is the CID as an
+    /// index into the standard Macintosh glyph order of the substitute (No. 1245).
+    /// </summary>
+    private readonly bool _cidAsText;
+    /// <summary>
+    /// The second reading of a glyph (<see cref="PdfGlyph.AlternateText"/>, No. 1235): <see cref="AlternateReading.CidAsUnicode"/> where the CID
+    /// draws a glyph of the installed font or the glyph order but a reference reader shows the CID as Unicode; <see cref="AlternateReading.CidAsGlyph"/>
+    /// where the codes are read as Unicode (/ToUnicode /Identity-H as a name) but a reference reader draws the CID as a glyph number;
+    /// <see cref="AlternateReading.CidAsStandardGlyph"/> where the CID selects no glyph of its own (<see cref="_cidAsText"/>) and is drawn, as by two
+    /// reference readers, as a glyph number of the substitute in the standard Macintosh glyph order, while its text is the CID as Unicode.
+    /// </summary>
+    private readonly AlternateReading _alternate;
+
+    private enum AlternateReading : byte { None, CidAsUnicode, CidAsGlyph, CidAsStandardGlyph }
     private readonly double _defaultWidth = 1;
     // W and W2: ranges such as "1 65535 500" stay ranges (binary search); expanded they would be
     // tens of thousands of entries per line. Single values are listed individually in the file anyway.
@@ -645,6 +692,39 @@ internal sealed partial class CompositeFont : PdfFont
                 if (cjk) doc.ReportMissingCjkFonts();
                 else if (_cidFontType2) _glyphOrder = GlyphOrder.For(BaseFont);
             }
+            // /ToUnicode /Identity-H or /Identity-V as a name instead of a CMap stream (ISO 32000-2, 9.10.3): the two-byte codes are read as
+            // Unicode, and the substitute draws those characters (Select) — measured: one reference reader draws so and two show the real file
+            // that way, all three reference readers read the text so (probes U1a, U1d, U1e; docs/FEHLERGEDAECHTNIS.md, No. 1198). Before, the
+            // name was passed over and the CID taken as a glyph of the installed font. Only for a font that is not embedded and not CJK:
+            // an embedded program draws by its codes, a CJK collection has the characters of its CIDs
+            if (_toUnicode is null && !cjk && dict.Get(PdfName.Get("ToUnicode")) is PdfName { Value: "Identity-H" or "Identity-V" })
+            {
+                _toUnicode = IdentityToUnicode();
+                // one reference reader draws the CID there as a glyph number (probes U1a–U1f): where the installed font or the glyph order says which
+                // character that glyph is, the search finds it by that reading as well (No. 1235)
+                if (_cidFontType2 && (_program.IsSystem || _glyphOrder is not null)) _alternate = AlternateReading.CidAsGlyph;
+            }
+            // No /ToUnicode, the collection Adobe-Identity or Adobe-UCS with Identity-H/-V, and neither an installed font nor the glyph order of
+            // the family, so the CID selects no glyph: the text is the CID read as Unicode (9.10.2 sentence 11 leaves the way to the reader) —
+            // measured: two of the three reference readers read such a CID so, the third through the glyph of its own substitute (probes T9,
+            // T13, T15, T17, T18), and one draws those characters, so „Suchen und schwärzen“ must find them. Drawn is what the other two draw: the
+            // CID as a glyph number of the substitute in the standard Macintosh order (Select, No. 1245; where the
+            // CIDs are glyph numbers the text is as unrelated as in those readers: real file ThuluthFeatures). Where a glyph is drawn (installed
+            // font, glyph order) the text stays the one of that glyph, so that copying and the search see what the page shows (special rule;
+            // docs/FEHLERGEDAECHTNIS.md, No. 1205)
+            var identity = _toUnicode is null && !cjk && _cidFontType2 && _ordering is "Identity" or "UCS"
+                           && dict.Get(PdfName.Get("Encoding")) is PdfName { Value: "Identity-H" or "Identity-V" };
+            _cidAsText = identity && !_program.IsSystem && _glyphOrder is null;
+            // Security: under the same conditions with an installed font or the glyph order the CID draws that glyph and the text is the one of
+            // the glyph (A258), but one reference reader draws and reads the CID as Unicode (probe T1: codes 0041 0042 show „AB“ there, „^_“ here) — a
+            // search for „AB“ must find the place, or „Suchen und schwärzen“ would leave it visible in that reader. The CID read as Unicode is
+            // therefore the second reading of each such glyph; a glyph without a text of its own takes it as its text, as two of the three
+            // reference readers read it (No. 1235)
+            if (identity && !_cidAsText) _alternate = AlternateReading.CidAsUnicode;
+            // there two of the three reference readers draw the CID as a glyph number of their substitute, whose first 258 glyphs follow the
+            // standard Macintosh order (probes T9, T13, T15, T17: codes 0041 0042 show „^_“ there, the third draws „AB“), and so does PDF-Knead
+            // (No. 1245): that is the second reading there (No. 1235)
+            if (_cidAsText) _alternate = AlternateReading.CidAsStandardGlyph;
         }
         if (cidFont.GetStream(PdfName.Get("CIDToGIDMap")) is { } map)
         {
@@ -775,11 +855,33 @@ internal sealed partial class CompositeFont : PdfFont
         var text = _toUnicode?.ToUnicode(code, length) ?? PredefinedCMaps.Text(_ordering, cid);
         var (outline, toText, glyphText) = Select(cid, text);
         text ??= glyphText;
+        // after Select: the text does not choose a glyph here, the display stays as it was (No. 1205)
+        if (text is null && _cidAsText) text = CidAsUnicode(cid);
+        string? alternate = null;
+        switch (_alternate)
+        {
+            case AlternateReading.CidAsUnicode:
+                alternate = CidAsUnicode(cid);
+                text ??= alternate;   // a drawn glyph without a text of its own (No. 1235)
+                break;
+            case AlternateReading.CidAsGlyph:
+                alternate = CidGlyphText(cid);
+                break;
+            case AlternateReading.CidAsStandardGlyph:
+                alternate = cid is > 0 and < 258 ? GlyphNames.ToUnicode(FontTables.MacGlyphNames[cid]) : null;
+                break;
+        }
 
-        var glyph = new PdfGlyph(outline, toText, width, text);
-        if (!Vertical) return glyph;
-        var (w1, vx, vy) = _vertical.TryGetValue(cid, out var v) || _verticalRanges.TryGet(cid, out v) ? v : (_defaultW1, width / 2, _defaultVy);
-        return glyph with { VerticalAdvance = w1, OriginX = vx, OriginY = vy };
+        var glyph = new PdfGlyph(outline, toText, width, text) { AlternateText = alternate == text ? null : alternate };
+        if (Vertical)
+        {
+            var (w1, vx, vy) = _vertical.TryGetValue(cid, out var v) || _verticalRanges.TryGet(cid, out v) ? v : (_defaultW1, width / 2, _defaultVy);
+            glyph = glyph with { VerticalAdvance = w1, OriginX = vx, OriginY = vy };
+        }
+        // an embedded font without outlines: the glyph from its bitmaps (EBLC/EBDT; docs/FEHLERGEDAECHTNIS.md, No. 1169), found as Select finds it
+        if (outline.IsEmpty && _program is { IsTrueType: true, Bitmaps: { } bitmaps })
+            glyph = GlyphBitmap.Attach(glyph, bitmaps, _cidToGid is { } map && _cidFontType2 ? MappedGid(map, cid) : cid);
+        return glyph;
     }
 
     /// <summary>The codes from ToUnicode (without it, it is unknown which code shows which character).</summary>
@@ -823,6 +925,13 @@ internal sealed partial class CompositeFont : PdfFont
         return (TrueTypeGlyphs(code, length), []);
     }
 
+    /// <summary>
+    /// A ToUnicode CMap that reads every two-byte code as the UTF-16 unit of the same value — for /ToUnicode /Identity-H given as a name. Without
+    /// the code 0 and the surrogates, which are no characters on their own.
+    /// </summary>
+    private static CMap IdentityToUnicode() => CMap.Parse(
+        "1 begincodespacerange <0000> <FFFF> endcodespacerange\n2 beginbfrange <0001> <D7FF> <0001> <E000> <FFFF> <E000> endbfrange\n"u8.ToArray());
+
     /// <summary>The glyph of a CID through a CIDToGIDMap; 0 for a CID outside the map — also a negative one, which a damaged CMap can give.</summary>
     private static int MappedGid(byte[] map, int cid) => InMap(map.Length, cid) ? map[2 * cid] << 8 | map[2 * cid + 1] : 0;
 
@@ -846,11 +955,17 @@ internal sealed partial class CompositeFont : PdfFont
                 return (sub.GlyphForText(text) is > 0 and var g ? sub.Outline(g) : GlyphOutline.Empty, toText, null);
             // without text: glyph IDs of the installed font, otherwise through the glyph order of the family
             // the CID itself: a CIDToGIDMap belongs to an embedded program (ISO 32000-2, 9.7.4.2 — before it was applied to the installed
-            // font too, unlike two of three reference readers: probe K14, No. 1153)
+            // font too, unlike two of three reference readers: probes K14, U1b, No. 1153; with /ToUnicode /Identity-H as a name the text above
+            // decides, No. 1198)
             var number = cid;
             if (program.IsSystem) return (sub.Outline(number), toText, ReverseCmap(sub, number));
             if (_glyphOrder is { } order && number > 0 && number < order.Length && order[number] > 0)
                 return (sub.Outline(sub.GlyphForUnicode(order[number])), toText, ((char)order[number]).ToString());
+            // the CID selects no glyph (_cidAsText): drawn as a glyph number of the substitute in the standard Macintosh order, as two of the
+            // three reference readers draw it (their substitutes follow that order in their first 258 glyphs; probes T9, T13, T15, T17, T18) —
+            // the glyph found by its name, else by its character; the text stays the CID as Unicode (special rule A258; docs/FEHLERGEDAECHTNIS.md,
+            // No. 1205, 1245)
+            if (_cidAsText && StandardOrderGlyph(sub, number) is > 0 and var standard) return (sub.Outline(standard), toText, null);
             return (GlyphOutline.Empty, toText, null);
         }
         if (program.Cff is { } cff && !program.IsTrueType)
@@ -893,6 +1008,32 @@ internal sealed partial class CompositeFont : PdfFont
     /// Text if ToUnicode is missing: the inverted cmap of the embedded font and, for a font with Arabic, the forms its shaping puts in place of a
     /// letter (<see cref="Core.Fonts.Layout.GlyphTexts"/>; docs/FEHLERGEDAECHTNIS.md, No. 920).
     /// </summary>
+    /// <summary>A CID read as a Unicode value (No. 1205, 1235); null for 0, surrogates and values beyond the basic plane.</summary>
+    private static string? CidAsUnicode(int cid) => cid is >= 1 and <= 0xD7FF or >= 0xE000 and <= 0xFFFF ? ((char)cid).ToString() : null;
+
+    /// <summary>
+    /// The character of the glyph a CID selects as a glyph number (No. 1235): through the cmap of the installed font, otherwise through the glyph
+    /// order of the family; null if neither knows it.
+    /// </summary>
+    private string? CidGlyphText(int cid)
+    {
+        if (_program is { IsSystem: true, OpenType: { } system })
+            return Core.Fonts.Layout.GlyphTexts.Of(system).TryGetValue(cid, out var text) ? text : null;
+        return _glyphOrder is { } order && cid > 0 && cid < order.Length && order[cid] > 0 ? ((char)order[cid]).ToString() : null;
+    }
+
+    /// <summary>
+    /// The glyph of <paramref name="sub"/> that a CID names as an index into the standard Macintosh glyph order (No. 1245): by the name at that
+    /// index, otherwise by its character; -1 for CID 0 (.notdef), a CID of 258 or more, or a name the substitute has no glyph for.
+    /// </summary>
+    private static int StandardOrderGlyph(OpenTypeFont sub, int cid)
+    {
+        if (cid is <= 0 or >= 258) return -1;
+        var name = FontTables.MacGlyphNames[cid];
+        if (sub.GlyphByName(name) is > 0 and var named) return named;
+        return GlyphNames.ToUnicode(name) is { Length: > 0 } text && sub.GlyphForText(text) is > 0 and var found ? found : -1;
+    }
+
     private string? ReverseCmap(OpenTypeFont ot, int gid) =>
         _toUnicode is null && Core.Fonts.Layout.GlyphTexts.Of(ot).TryGetValue(gid, out var text) ? text : null;
 }

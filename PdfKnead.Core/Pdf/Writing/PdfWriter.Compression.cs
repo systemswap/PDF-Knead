@@ -3,6 +3,7 @@ using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text;
 using PdfKnead.Core.Pdf.Filters;
+using PdfKnead.Core.Pdf.Fonts;
 using PdfKnead.Core.Pdf.Objects;
 
 namespace PdfKnead.Core.Pdf.Writing;
@@ -298,6 +299,12 @@ public static partial class PdfWriter
             if (CacheMatches) Cache!.Fonts = (_fontGlyphs, _wholeFonts);
         }
 
+        /// <summary>
+        /// The names of the embedded fonts left as they were because their licence forbids changing them (<see cref="PdfSaveResult.LicenceKeptFonts"/>):
+        /// compression does not subset them, PDF/A does not rebuild them.
+        /// </summary>
+        private readonly SortedSet<string> _licenceKept = new(StringComparer.Ordinal);
+
         /// <summary>Subsets an embedded TrueType font: only the outlines of unused glyphs become empty; null = stays.</summary>
         private (byte[] Data, PdfDictionary Dict)? SubsetFont(PdfStream stream, Source source, PdfDictionary dict)
         {
@@ -305,10 +312,25 @@ public static partial class PdfWriter
             var key = ContentKey(source, id.Number, 0, []) ?? $"{DocId(source.Doc)}:{id.Number}";
             if (_wholeFonts.Contains(key) || !_fontGlyphs.TryGetValue(key, out var glyphs)) return null;
             // With the cache: subset and pack each font only once (the glyphs depend only on the pages)
-            if (!CacheMatches || !Cacheable(source, stream, out var number)) return Subset(stream, source, dict, glyphs);
+            string? kept;
+            if (!CacheMatches || !Cacheable(source, stream, out var number))
+            {
+                var direct = Subset(stream, source, dict, glyphs, out kept);
+                if (kept is not null) _licenceKept.Add(kept);
+                return direct;
+            }
             var cacheKey = (source.Doc, number, _options.Compression!.PackKind);
-            if (Cache!.Subsets.TryGetValue(cacheKey, out var cached)) return cached is { } c ? (c.Data, Copy(c.Dict)) : null;
-            var result = Subset(stream, source, dict, glyphs);
+            if (Cache!.Subsets.TryGetValue(cacheKey, out var cached))
+            {
+                if (Cache.LicenceKept.TryGetValue((source.Doc, number), out var name)) _licenceKept.Add(name);
+                return cached is { } c ? (c.Data, Copy(c.Dict)) : null;
+            }
+            var result = Subset(stream, source, dict, glyphs, out kept);
+            if (kept is not null)
+            {
+                _licenceKept.Add(kept);
+                Cache.LicenceKept[(source.Doc, number)] = kept;
+            }
             if (Cache.Charge(result?.Data.Length ?? 0)) Cache.Subsets[cacheKey] = result is { } r ? (r.Data, Copy(r.Dict)) : null;
             return result;
         }
@@ -321,11 +343,19 @@ public static partial class PdfWriter
             return copy;
         }
 
-        private (byte[] Data, PdfDictionary Dict)? Subset(PdfStream stream, Source source, PdfDictionary dict, HashSet<int> glyphs)
+        /// <param name="kept">The name of the font if its licence forbids changing it (OS/2 fsType 2 or bit 8): it then stays as it is
+        /// (docs/FEHLERGEDAECHTNIS.md, No. 1164); null otherwise.</param>
+        private (byte[] Data, PdfDictionary Dict)? Subset(PdfStream stream, Source source, PdfDictionary dict, HashSet<int> glyphs, out string? kept)
         {
+            kept = null;
             try
             {
                 var font = source.Doc.GetStreamData(stream);
+                if (Core.Fonts.OpenTypeFont.LooksLikeSfnt(font) && Core.Fonts.OpenTypeFont.Parse(font) is var program && FontLicence.KeepsProgram(program))
+                {
+                    kept = program.PostScriptName is { Length: > 0 } name ? name : program.FamilyName is { Length: > 0 } family ? family : "?";
+                    return null;
+                }
                 var subset = Core.Fonts.TrueTypeSubsetter.Subset(font, glyphs, keepAllTables: true);
                 var packed = Pack(subset, _options.Compression!.Brotli);
                 if (packed.Length >= (source.Doc.IsStoredPlain(stream) ? stream.DataLength : font.Length)) return null;

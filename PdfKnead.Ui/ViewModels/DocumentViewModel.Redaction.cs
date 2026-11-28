@@ -80,6 +80,13 @@ public sealed record RedactionHit(int Page, TextRange Range, string Found, strin
 
     /// <summary>What the recognition of persons, companies and addresses found here (shown beside the hit); null for other hits.</summary>
     public Core.Pdf.Text.Entities.EntityKind? Entity { get; init; }
+
+    /// <summary>
+    /// Found only in the second reading of the page (<see cref="PageText.Alternate"/>: a font a reference reader shows otherwise): <see cref="Found"/>
+    /// and <see cref="Context"/> are that reading, the window says so (docs/FEHLERGEDAECHTNIS.md, No. 1246); <see cref="Range"/> stays a range of
+    /// the text.
+    /// </summary>
+    public bool SecondReading { get; init; }
 }
 
 /// <summary>Marking redactions: area, selected text, search and redact.</summary>
@@ -225,27 +232,46 @@ public sealed partial class DocumentViewModel
                 var ranges = new List<TextRange>();
                 var doubts = new Dictionary<TextRange, string>();
                 var kinds = new Dictionary<TextRange, Core.Pdf.Editing.RedactionFinds>();   // what a pattern found (a word searched for: none)
-                foreach (var found in source.FindAll(queries, matchCase)) ranges.AddRange(found);   // all terms in one pass
-                foreach (var (regex, check, kind) in regexes)
-                    foreach (Match m in regex.Matches(source.Text))
-                    {
-                        var (counts, doubt) = check?.Invoke(m.Value) ?? (true, null);
-                        if (!counts) continue;
-                        var found = new TextRange(m.Index, m.Length);
-                        ranges.Add(found);
-                        kinds.TryAdd(found, kind);
-                        if (doubt is not null) doubts[found] = doubt;
-                    }
+                foreach (var found in source.FindAll(queries, matchCase)) ranges.AddRange(found);   // all terms in one pass (both readings)
+                // the patterns and the recognizer read the text and, on a page with a second reading (a font a reference reader shows
+                // otherwise), that reading too — its hits as ranges of the text (docs/FEHLERGEDAECHTNIS.md, No. 1235)
+                var readings = source.Alternate is { } alternate
+                    ? new (Core.Pdf.Text.PageText Text, bool Alternate)[] { (source, false), (alternate, true) }
+                    : [(source, false)];
+                // there also what the text itself holds: a hit found only in the second reading shows that reading (No. 1246)
+                var inText = source.Alternate is null ? null : new List<TextRange>();
+                if (inText is not null)
+                    foreach (var found in source.FindAllInText(queries, matchCase)) inText.AddRange(found);
                 var entityKinds = new Dictionary<TextRange, Core.Pdf.Text.Entities.EntityKind>();
-                if (entities is not null)
-                    foreach (var e in await Task.Run(() => FindEntities(entities, source.Text, patterns, cancel), cancel))
-                    {
-                        var found = new TextRange(e.Start, e.Length);
-                        ranges.Add(found);
-                        kinds.TryAdd(found, FindOf(e.Kind));
-                        entityKinds.TryAdd(found, e.Kind);
-                        if (DoubtOf(e.Doubt) is { } doubt) doubts[found] = doubt;
-                    }
+                foreach (var (reading, isAlternate) in readings)
+                {
+                    // a match of the second reading counts where it covers a glyph read otherwise (elsewhere the text has it already)
+                    TextRange Here(int start, int length) => isAlternate ? source.FromAlternate(new TextRange(start, length)) ?? default : new TextRange(start, length);
+                    foreach (var (regex, check, kind) in regexes)
+                        foreach (Match m in regex.Matches(reading.Text))
+                        {
+                            var (counts, doubt) = check?.Invoke(m.Value) ?? (true, null);
+                            if (!counts) continue;
+                            var found = Here(m.Index, m.Length);
+                            if (found.IsEmpty) continue;
+                            ranges.Add(found);
+                            if (!isAlternate) inText?.Add(found);
+                            kinds.TryAdd(found, kind);
+                            if (doubt is not null) doubts[found] = doubt;
+                        }
+                    if (entities is not null)
+                        foreach (var e in await Task.Run(() => FindEntities(entities, reading.Text, patterns, cancel), cancel))
+                        {
+                            var found = Here(e.Start, e.Length);
+                            if (found.IsEmpty) continue;
+                            ranges.Add(found);
+                            if (!isAlternate) inText?.Add(found);
+                            kinds.TryAdd(found, FindOf(e.Kind));
+                            entityKinds.TryAdd(found, e.Kind);
+                            if (DoubtOf(e.Doubt) is { } doubt) doubts[found] = doubt;
+                        }
+                }
+                var textCovered = inText is null ? null : CoveredCount(inText, source.Text.Length);
                 // Merge overlapping hits (a name can be part of an e-mail address); a merged hit is doubtful only if all its parts are
                 foreach (var (range, parts) in Merge(ranges))
                 {
@@ -254,9 +280,15 @@ public sealed partial class DocumentViewModel
                     if (inPlace && glyphs.All(taken.Contains)) continue;
                     if (keep is not null && !keep(page, source, range)) continue;
                     taken.UnionWith(glyphs);
-                    var (context, inContext) = Context(source, range, marks);
-                    hits.Add(new RedactionHit(page, range, source.Text.Substring(range.Start, range.Length).ReplaceLineEndings(" "), context, inPlace)
+                    // a hit no part of which stands in the text itself was found in the second reading: shown as it reads there („ABCD“, not
+                    // the „^_`a“ of the glyphs drawn; No. 1246) — its range, and so what is marked, stays the one of the text
+                    var there = textCovered is not null && Math.Min(range.End, source.Text.Length) is var end && end > range.Start
+                                && textCovered[end] == textCovered[range.Start] ? source.ToAlternate(range) : null;
+                    var (shown, shownRange) = there is { } alternateRange ? (source.Alternate!, alternateRange) : (source, range);
+                    var (context, inContext) = Context(shown, shownRange, marks);
+                    hits.Add(new RedactionHit(page, range, shown.Text.Substring(shownRange.Start, shownRange.Length).ReplaceLineEndings(" "), context, inPlace)
                     {
+                        SecondReading = there is not null,
                         // recognised text over a scan is not hidden: the ink it stands for shows (docs/FEHLERGEDAECHTNIS.md, No. 352)
                         Invisible = AllInvisible(source, range) && !InkUnder(page, source, range, lists),
                         InContext = inContext,
@@ -272,6 +304,30 @@ public sealed partial class DocumentViewModel
             }
         }
         return hits;
+    }
+
+    /// <summary>
+    /// Per position of a text of <paramref name="length"/> characters how many characters before it lie in one of <paramref name="ranges"/>
+    /// (length + 1 entries): whether a range holds such a character in constant time, linear in the text and the ranges also on crafted pages.
+    /// </summary>
+    private static int[] CoveredCount(List<TextRange> ranges, int length)
+    {
+        var change = new int[length + 1];
+        foreach (var r in ranges)
+        {
+            var start = Math.Clamp(r.Start, 0, length);
+            var end = Math.Clamp(r.End, start, length);
+            if (end == start) continue;
+            change[start]++;
+            change[end]--;
+        }
+        var counts = new int[length + 1];
+        for (int c = 0, depth = 0; c < length; c++)
+        {
+            depth += change[c];
+            counts[c + 1] = counts[c] + (depth > 0 ? 1 : 0);
+        }
+        return counts;
     }
 
     /// <summary>Longest stretch of page text the recognition reads at once; a longer text is read in pieces cut at line ends.</summary>
@@ -845,7 +901,8 @@ public sealed partial class DocumentViewModel
         if (result == AttachmentSearch.NotSearchable)
         {
             var name = ((spec.Get(Core.Pdf.Objects.PdfName.Get("UF")) ?? spec.Get(Core.Pdf.Objects.PdfName.Get("F"))) as Core.Pdf.Objects.PdfString)?.ToText();
-            unsearched.Add(string.IsNullOrWhiteSpace(name) ? Tr.T("ohne Namen") : name.Length > 60 ? name[..60] + "…" : name);
+            // the file name of an attachment with its directional formatting characters shown (No. 1217)
+            unsearched.Add(string.IsNullOrWhiteSpace(name) ? Tr.T("ohne Namen") : Core.Security.DisplayNames.Safe(name.Length > 60 ? name[..60] + "…" : name));
         }
         return result;
     }
@@ -881,29 +938,34 @@ public sealed partial class DocumentViewModel
         {
             var areas = MarkAreas(page, withHidden: false);
             if (areas.Count == 0) continue;
-            var text = await GetTextAsync(page);
-            var run = new System.Text.StringBuilder();
-            var pending = new System.Text.StringBuilder();   // spaces without an area of their own: included if the run continues
-            for (var c = 0; c <= text.Text.Length; c++)
+            var pageText = await GetTextAsync(page);
+            // the text under the marks in both readings: what a reference reader shows of a font drawn otherwise there is searched for
+            // elsewhere as well (docs/FEHLERGEDAECHTNIS.md, No. 1235)
+            foreach (var text in pageText.Alternate is { } alternate ? [pageText, alternate] : new[] { pageText })
             {
-                if (c < text.Text.Length)
+                var run = new System.Text.StringBuilder();
+                var pending = new System.Text.StringBuilder();   // spaces without an area of their own: included if the run continues
+                for (var c = 0; c <= text.Text.Length; c++)
                 {
-                    var range = new TextRange(c, 1);
-                    if (text.Quads(range).Count == 0)
+                    if (c < text.Text.Length)
                     {
-                        if (run.Length > 0) pending.Append(text.Text[c]);
-                        continue;
+                        var range = new TextRange(c, 1);
+                        if (text.Quads(range).Count == 0)
+                        {
+                            if (run.Length > 0) pending.Append(text.Text[c]);
+                            continue;
+                        }
+                        if (Covered(text, range, areas))
+                        {
+                            run.Append(pending).Append(text.Text[c]);
+                            pending.Clear();
+                            continue;
+                        }
                     }
-                    if (Covered(text, range, areas))
-                    {
-                        run.Append(pending).Append(text.Text[c]);
-                        pending.Clear();
-                        continue;
-                    }
+                    AddPhrases(run.ToString(), phrases, pieces);
+                    run.Clear();
+                    pending.Clear();
                 }
-                AddPhrases(run.ToString(), phrases, pieces);
-                run.Clear();
-                pending.Clear();
             }
         }
         return (phrases, pieces);
@@ -1256,7 +1318,7 @@ public sealed partial class DocumentViewModel
     {
         if (!HasTextSelection || TryGetText(SelectionPage) is not { } text) return ("", false);
         var areas = MarkAreas(SelectionPage);
-        if (areas.Count == 0) return (text.GetText(Selection), false);
+        if (areas.Count == 0) return (PageText.ForPlainText(text.GetText(Selection)), false);
         var result = new System.Text.StringBuilder();
         var omitted = false;
         var start = Selection.Start;
@@ -1268,7 +1330,7 @@ public sealed partial class DocumentViewModel
             if (c < Selection.End) omitted = true;
             start = c + 1;
         }
-        return (result.ToString(), omitted);
+        return (PageText.ForPlainText(result.ToString()), omitted);
     }
 }
 

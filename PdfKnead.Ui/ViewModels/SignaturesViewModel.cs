@@ -1,6 +1,7 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using PdfKnead.Core.Pdf.Signatures;
+using PdfKnead.Core.Security;
 
 namespace PdfKnead.ViewModels;
 
@@ -56,7 +57,9 @@ public sealed class SignatureRow
                 details.Add(new SignatureDetail(Tr.T("Sichere Signaturerstellungseinheit"), qscd));
         }
         details.Add(new SignatureDetail(Tr.T("Verfahren"), check.Method.Length > 0 ? check.Method : "–"));
-        Details = details;
+        // names from the file (signer, issuer, reason, place, field, time-stamp authority) with their directional formatting characters
+        // shown: a name with U+202E cannot pass for another (Unicode 9, UTR #36; docs/FEHLERGEDAECHTNIS.md, No. 1217)
+        Details = [.. details.Select(d => d with { Value = DisplayNames.Safe(d.Value) })];
         var notes = new List<string>();
         if (check.UnconfirmedReason is { } unconfirmed) notes.Add(unconfirmed);   // why it is yellow, first
         if (check.Problem is { } problem) notes.Add(problem);
@@ -71,16 +74,16 @@ public sealed class SignatureRow
         // only validation data after it: the calm sentence of SignatureTexts.Later says so already (docs/ABLAUFPLAN.md, 2.1, step 10)
         if (!check.CoversWholeFile && check.Later == LaterChanges.None && SignatureTexts.IsValid(check))
             notes.Add(Tr.T("Unterschrieben wurde eine frühere Fassung der Datei."));
-        Notes = notes;
+        Notes = [.. notes.Select(DisplayNames.Safe)];
     }
 
     /// <summary>The result.</summary>
     public SignatureCheck Check { get; }
 
     /// <summary>Who signed (or the field, if the name is unknown).</summary>
-    public string Title => Check.IsDocumentTimestamp
+    public string Title => DisplayNames.Safe(Check.IsDocumentTimestamp
         ? Tr.T("Dokument-Zeitstempel von {0}", Check.SignerName is { Length: > 0 } service ? service : Tr.T("einem Zeitstempeldienst"))
-        : Check.SignerName is { Length: > 0 } name ? name : Check.FieldName;
+        : Check.SignerName is { Length: > 0 } name ? name : Check.FieldName);
 
     /// <summary>The overall result in a few words.</summary>
     public string Outcome => SignatureTexts.Outcome(Check);

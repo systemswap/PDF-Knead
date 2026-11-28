@@ -35,6 +35,9 @@ internal sealed partial class SimpleFont
     /// </summary>
     internal bool HasEmbeddedProgram => _program.IsEmbedded && _program.OpenType is not { Intact: false };
 
+    /// <summary>The display draws the font from its embedded program, however damaged or unusual (redaction: otherwise the program is not read; docs/FEHLERGEDAECHTNIS.md, No. 1164).</summary>
+    internal bool DrawsEmbeddedProgram => _program.IsEmbedded;
+
     /// <summary>The font matrix of the program: glyph space → text space.</summary>
     internal Graphics.Matrix ProgramMatrix => _program.FontMatrix;
 
@@ -127,6 +130,9 @@ internal sealed partial class CompositeFont
 
     /// <summary>The font has an embedded program the display reads and a strict reader would read too (see the simple font's).</summary>
     internal bool HasEmbeddedProgram => _program is { IsEmbedded: true } && _program.OpenType is not { Intact: false };
+
+    /// <summary>The display draws the font from its embedded program (see the simple font's).</summary>
+    internal bool DrawsEmbeddedProgram => _program is { IsEmbedded: true };
 
     /// <summary>The font matrix of the program the display draws with (glyph space → text space).</summary>
     internal Graphics.Matrix ProgramMatrix => _program?.FontMatrix ?? new Graphics.Matrix(0.001, 0, 0, 0.001, 0, 0);

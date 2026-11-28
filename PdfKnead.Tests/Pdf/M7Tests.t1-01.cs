@@ -301,11 +301,13 @@ public sealed partial class M7NormTests
     }
 
     /// <summary>
-    /// T1 2.1 sentence 12 and 6.4 sentences 13–15, today's behaviour (open question 20 of FRAGEN.md: PaintType 2 as a stroke with StrokeWidth):
-    /// /PaintType 2 and /StrokeWidth 40 in the clear text are not read; text in mode 0 fills the glyph and nothing is stroked.
+    /// T1 2.1 sentence 12 and 6.4 sentences 13–15 with ISO 32000-2 9.9.1 sentences 69–70: for a program embedded in PDF, PaintType is passed
+    /// over and the text rendering mode decides — /PaintType 2 and /StrokeWidth 40 in the clear text: text in mode 0 fills the glyph and nothing
+    /// is stroked, as two of the three reference readers draw it (measured, probes p20a–p20d: docs/FEHLERGEDAECHTNIS.md, No. 1163; the third
+    /// strokes with the program's stroke width).
     /// </summary>
     [Fact]
-    public void Type1_PaintType2_IsFilledByTheTextModeToday()
+    public void Type1_PaintType2_PassedOverTheTextModeDecides()
     {
         var program = T1Paket.Build(new T1Paket.Spec { ClearExtra = "/PaintType 2 def\n/StrokeWidth 40 def\n" });
         using var doc = PdfDocument.Open(T1Paket.Pdf(program, "BT /F1 100 Tf 0 Tr 20 50 Td (A) Tj ET"));

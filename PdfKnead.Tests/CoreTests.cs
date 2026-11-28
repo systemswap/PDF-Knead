@@ -8,7 +8,7 @@ public sealed class PdfHeaderTests
     [Theory]
     [InlineData("%PDF-1.7\n", "1.7")]
     [InlineData("%PDF-2.0\r\n%âãÏÓ", "2.0")]
-    [InlineData("﻿%PDF-1.4\n", "1.4")]                 // preceded by a byte-order mark
+    [InlineData("\uFEFF%PDF-1.4\n", "1.4")]                 // preceded by a byte-order mark
     [InlineData("From: x@y\r\n\r\n%PDF-1.5\n", "1.5")]       // preceded by remnants of an e-mail header
     public void FindsVersion(string start, string expected) =>
         Assert.Equal(expected, PdfHeader.FindVersion(Encoding.UTF8.GetBytes(start)));

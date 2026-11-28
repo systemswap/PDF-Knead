@@ -106,12 +106,12 @@ public sealed partial class M7NormTests
     [InlineData(0)]
     public void Ot24_LigatureWithIgnoreMarks_KeepsTheSkippedMark(int flag)
     {
-        var acute = Ot03Font.GlyphForUnicode('́');
+        var acute = Ot03Font.GlyphForUnicode('\u0301');
         Assert.NotEqual(0, acute);
         var gdef = new Ot03Part().U16(1, 0).Off(Ot03Classes((acute, 3))).U16(0, 0, 0).Build();
         var shaper = Ot03Shaper(Ot03Liga(Ot03Ligature("fi", 'X', flag)), gdef);
         int[] expected = flag == 8 ? [Ot03G('X'), acute] : [Ot03G('f'), acute, Ot03G('i')];
-        Assert.Equal(expected, Ot03Shape(shaper, "f́i"));
+        Assert.Equal(expected, Ot03Shape(shaper, "f\u0301i"));
     }
 
     /// <summary>
@@ -195,18 +195,18 @@ public sealed partial class M7NormTests
     // ------------------------------------------------------------ 21.3
 
     /// <summary>
-    /// OT 21.3 sentences 10 (today's behaviour, question 10): the current script is not taken from the text — only Arabic is recognized,
-    /// other text is set under „latn“. A GSUB with „liga“ for latn (Cyrillic а → X) and „liga“ for cyrl (а → Y): the Cyrillic „а“ becomes X
-    /// (by the specification Y, the lookups of cyrl).
+    /// OT 21.3 sentence 10 (docs/FEHLERGEDAECHTNIS.md, No. 1162): the current script is taken from the text. A GSUB with „liga“ for latn
+    /// (Cyrillic а → X) and „liga“ for cyrl (а → Y): the Cyrillic „а“ becomes Y, the lookups of cyrl (before X: everything but Arabic ran
+    /// under latn).
     /// </summary>
     [Fact]
-    public void Ot24_ScriptIsNotTakenFromTheText_CyrillicIsSetUnderLatn()
+    public void Ot24_ScriptFromTheText_CyrillicIsSetUnderCyrl()
     {
         var cyrillicA = Ot03Font.GlyphForUnicode('а');
         Assert.NotEqual(0, cyrillicA);
         var gsub = Ot24Layout([Ot24Single((cyrillicA, Ot03G('X'))), Ot24Single((cyrillicA, Ot03G('Y')))],
             [("liga", [0]), ("liga", [1])], [("latn", [0]), ("cyrl", [1])]);
-        Assert.Equal(Ot03Glyphs("X"), Ot03Shape(Ot03Shaper(gsub), "а"));
+        Assert.Equal(Ot03Glyphs("Y"), Ot03Shape(Ot03Shaper(gsub), "а"));
     }
 
     /// <summary>

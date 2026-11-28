@@ -82,14 +82,15 @@ public sealed class RichTextEditor
     // ------------------------------------------------------------ Writing
 
     /// <summary>Typed (or pasted plain) text: replaces the selection, in the formatting at that position.</summary>
-    /// <param name="text">The text; line endings are normalised and control characters other than line break and tab removed.</param>
+    /// <param name="text">The text; line endings and the separators among the control codes are taken as breaks, other control characters removed
+    /// (<see cref="EditUnits.Clean"/>); its directional formatting characters are paired on their own (<see cref="EditUnits.Balanced"/>).</param>
     public void Type(string text)
     {
-        text = Clean(text);
+        text = EditUnits.Balanced(EditUnits.Clean(text));
         if (text.Length == 0) return;
         var style = _pending ?? Current.Content.StyleAt(SelectionStart);
-        var start = SelectionStart;
-        Apply(Current.Content.Replace(start, SelectionEnd - start, text, style), start + text.Length, typing: !HasSelection && text.Length == 1);
+        var content = WithoutOrphans(Current.Content, SelectionStart, SelectionEnd - SelectionStart, out var start);
+        Apply(content.Replace(start, SelectionEnd - SelectionStart, text, style), start + text.Length, typing: !HasSelection && text.Length == 1);
         _pending = null;
     }
 
@@ -105,14 +106,19 @@ public sealed class RichTextEditor
             text = new RichText(text.Spans.Select(s => s.Style.Original is { } o && !ReferenceEquals(o.Document, home)
                 ? s with { Style = s.Style with { Original = null } }
                 : s));
-        var start = SelectionStart;
-        Apply(Current.Content.Replace(start, SelectionEnd - start, text), start + text.Length);
+        text = BalancedRich(text);
+        var content = WithoutOrphans(Current.Content, SelectionStart, SelectionEnd - SelectionStart, out var start);
+        Apply(content.Replace(start, SelectionEnd - SelectionStart, text), start + text.Length);
     }
 
     /// <summary>Starts a new paragraph (Enter).</summary>
     public void NewParagraph() => Type("\n");
 
-    /// <summary>Backspace: deletes the selection or the character (with Ctrl the word) before the caret.</summary>
+    /// <summary>
+    /// Backspace: deletes the selection or the character (with Ctrl the word) before the caret. After Arabic marks it deletes the outermost
+    /// mark as they are stacked (UAX #53, 5.6) — beh, fatha, shadda loses the fatha, which stands outside the shadda — rather than the one typed
+    /// last; before, it deleted in the order of the text (docs/FEHLERGEDAECHTNIS.md, No. 1180).
+    /// </summary>
     /// <param name="word">true = delete the word (Ctrl).</param>
     public void Backspace(bool word)
     {
@@ -122,8 +128,19 @@ public sealed class RichTextEditor
             return;
         }
         if (Caret == 0) return;
-        var from = word ? WordStart(Caret) : PreviousStop(Caret);
-        Apply(Current.Content.Delete(from, Caret - from), from);
+        if (!word && Core.Fonts.Layout.TextShaper.OutermostMark(Current.Content.Text, Caret) is { } outer)
+        {
+            var content = Current.Content;
+            Apply(outer.Replacement.Length == 0
+                ? content.Delete(outer.Start, outer.Length)
+                : content.Replace(outer.Start, outer.Length, outer.Replacement, content.StyleAt(outer.Start + outer.Length)),
+                Caret - outer.Length + outer.Replacement.Length);
+            return;
+        }
+        // a mark alone, a consonant after a virama or coeng together with it (EditUnits.PreviousForDeletion; No. 1185)
+        var from = word ? WordStart(Caret) : EditUnits.PreviousForDeletion(Current.Content.Text, Caret);
+        var remaining = WithoutOrphans(Current.Content, from, Caret - from, out var at);
+        Apply(remaining.Delete(at, Caret - from), at);
     }
 
     /// <summary>Delete: deletes the selection or the character (with Ctrl the word) after the caret.</summary>
@@ -138,15 +155,58 @@ public sealed class RichTextEditor
         var text = Current.Content.Text;
         if (Caret >= text.Length) return;
         var to = word ? WordEnd(Caret) : NextStop(Caret);
-        Apply(Current.Content.Delete(Caret, to - Caret), Caret);
+        var content = WithoutOrphans(Current.Content, Caret, to - Caret, out var at);
+        Apply(content.Delete(at, to - Caret), at);
     }
 
     /// <summary>Deletes the selection, if any.</summary>
     public void DeleteSelection()
     {
         if (!HasSelection) return;
-        var start = SelectionStart;
-        Apply(Current.Content.Delete(start, SelectionEnd - start), start);
+        var content = WithoutOrphans(Current.Content, SelectionStart, SelectionEnd - SelectionStart, out var start);
+        Apply(content.Delete(start, SelectionEnd - SelectionStart), start);
+    }
+
+    /// <summary>
+    /// The text without the partners, outside a range about to be deleted or replaced, of the paired directional formatting characters inside it
+    /// (Unicode 23.2.5: a text process that changes text keeps the pairs; before an unpaired PDF or PDI stayed behind; docs/FEHLERGEDAECHTNIS.md,
+    /// No. 1185). <paramref name="newStart"/>: where the range starts in the returned text.
+    /// </summary>
+    private static RichText WithoutOrphans(RichText content, int start, int length, out int newStart)
+    {
+        newStart = start;
+        foreach (var place in EditUnits.OrphanedPartners(content.Text, start, length).OrderByDescending(p => p))
+        {
+            content = content.Delete(place, 1);
+            if (place < start) newStart--;
+        }
+        return content;
+    }
+
+    /// <summary>Pasted formatted text with its directional formatting characters paired on their own (<see cref="EditUnits.Balanced"/>).</summary>
+    private static RichText BalancedRich(RichText text)
+    {
+        var balanced = EditUnits.Balanced(text.Text);
+        if (balanced == text.Text) return text;
+        // the unpaired closing ones dropped, the missing closing ones appended in the style of the end
+        var kept = new List<int>();
+        int i = 0, j = 0;
+        var original = text.Text;
+        while (i < original.Length)
+        {
+            if (j < balanced.Length && original[i] == balanced[j])
+            {
+                i++;
+                j++;
+            }
+            else
+            {
+                kept.Add(i++);
+            }
+        }
+        for (var k = kept.Count - 1; k >= 0; k--) text = text.Delete(kept[k], 1);
+        if (j < balanced.Length && text.Length > 0) text = text.Replace(text.Length, 0, balanced[j..], text.StyleAt(text.Length - 1));
+        return text;
     }
 
     /// <summary>
@@ -250,15 +310,15 @@ public sealed class RichTextEditor
         var text = Current.Content.Text;
         at = Math.Clamp(at, 0, text.Length);
         if (text.Length == 0) return;
-        var probe = at < text.Length && IsWord(text[at]) ? at : at > 0 && IsWord(text[at - 1]) ? at - 1 : -1;
+        var probe = at < text.Length && EditUnits.IsWordAt(text, at) ? at : at > 0 && EditUnits.IsWordBefore(text, at, out var back) ? at - back : -1;
         if (probe < 0)
         {
-            Select(at, Math.Min(text.Length, at + 1));
+            Select(at, EditUnits.Next(text, at));
             return;
         }
-        int start = probe, end = probe + 1;
-        while (start > 0 && IsWord(text[start - 1])) start--;
-        while (end < text.Length && IsWord(text[end])) end++;
+        int start = probe, end = probe;
+        while (start > 0 && EditUnits.IsWordBefore(text, start, out var length)) start -= length;
+        while (end < text.Length && EditUnits.IsWordAt(text, end)) end += char.IsSurrogatePair(text, end) ? 2 : 1;
         Select(start, end);
     }
 
@@ -353,31 +413,26 @@ public sealed class RichTextEditor
 
     // ------------------------------------------------------------ Helpers
 
-    private static bool IsWord(char c) => char.IsLetterOrDigit(c) || c is '_' or '\'' or '’';
+    /// <summary>
+    /// Previous position: not within a surrogate pair, not before a mark, not between a virama or coeng and its consonant, not within an extended
+    /// grapheme cluster (<see cref="EditUnits"/>; before each code point was a stop, and the coeng could stay alone; docs/FEHLERGEDAECHTNIS.md,
+    /// No. 1185, No. 1195).
+    /// </summary>
+    private int PreviousStop(int at) => EditUnits.Previous(Current.Content.Text, at);
 
-    /// <summary>Previous position (a surrogate pair counts as one character).</summary>
-    private int PreviousStop(int at)
-    {
-        var text = Current.Content.Text;
-        if (at <= 0) return 0;
-        return at >= 2 && char.IsLowSurrogate(text[at - 1]) && char.IsHighSurrogate(text[at - 2]) ? at - 2 : at - 1;
-    }
+    private int NextStop(int at) => EditUnits.Next(Current.Content.Text, at);
 
-    private int NextStop(int at)
-    {
-        var text = Current.Content.Text;
-        if (at >= text.Length) return text.Length;
-        return at + 1 < text.Length && char.IsHighSurrogate(text[at]) && char.IsLowSurrogate(text[at + 1]) ? at + 2 : at + 1;
-    }
-
-    /// <summary>Word start to the left of the position (Ctrl+Left, Ctrl+Backspace): skips non-word characters (stopping at a line break), then the word.</summary>
+    /// <summary>
+    /// Word start to the left of the position (Ctrl+Left, Ctrl+Backspace): skips non-word characters (stopping at a line break), then the word —
+    /// letters, digits and marks per code point (before per UTF-16 unit, so a word outside the BMP was no word; No. 1185).
+    /// </summary>
     private int WordStart(int at)
     {
         var text = Current.Content.Text;
         var i = Math.Min(at, text.Length);
-        while (i > 0 && !IsWord(text[i - 1]) && text[i - 1] != '\n') i--;
+        while (i > 0 && !EditUnits.IsWordBefore(text, i, out var skip) && text[i - 1] != '\n') i -= skip;
         if (i > 0 && text[i - 1] == '\n' && i == at) return i - 1;
-        while (i > 0 && IsWord(text[i - 1])) i--;
+        while (i > 0 && EditUnits.IsWordBefore(text, i, out var length)) i -= length;
         return i == at ? PreviousStop(at) : i;
     }
 
@@ -387,16 +442,9 @@ public sealed class RichTextEditor
         var text = Current.Content.Text;
         var i = at;
         if (i < text.Length && text[i] == '\n') return i + 1;
-        while (i < text.Length && IsWord(text[i])) i++;
+        while (i < text.Length && EditUnits.IsWordAt(text, i)) i += char.IsSurrogatePair(text, i) ? 2 : 1;
         while (i < text.Length && text[i] is ' ' or '\t') i++;
         return i == at ? NextStop(at) : i;
-    }
-
-    /// <summary>Normalises line endings and removes control characters (except line break and tab).</summary>
-    private static string Clean(string text)
-    {
-        text = text.Replace("\r\n", "\n").Replace('\r', '\n');
-        return string.Concat(text.Where(c => c is '\n' or '\t' || !char.IsControl(c)));
     }
 
     private void Apply(RichText text, int caret, int? anchor = null, bool typing = false, bool snapshot = true)

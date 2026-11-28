@@ -81,6 +81,43 @@ public sealed class TestIsolationTests
         Assert.True(faults.Count == 0, "Prozessweite Schalter in Tests, die gleichzeitig mit anderen laufen:\n" + string.Join("\n", faults));
     }
 
+    /// <summary>
+    /// The settings file, the device key and the redaction codes lie under %TEMP% from the start of the test process (Ui.TestProfile), also for
+    /// a test that runs alone and touches the settings before the UI session starts. Before, such a test read and wrote the settings of the
+    /// user profile and the session went on with them (a digital signature then asked for the password of the time-stamping service set up
+    /// there, and the test hung).
+    /// </summary>
+    [Fact]
+    public void SettingsAndKeys_NeverInTheUserProfile()
+    {
+        var temp = Path.GetFullPath(Path.GetTempPath());
+        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        Assert.StartsWith(temp, Path.GetFullPath(PdfKnead.Services.UserSettings.File), comparison);
+        Assert.StartsWith(temp, Path.GetFullPath(PdfKnead.Services.Device.File), comparison);
+        Assert.StartsWith(temp, Path.GetFullPath(Core.Pdf.Editing.RedactionCodes.Folder), comparison);
+        Assert.NotEqual(Core.Platform.AppSettings.DefaultFile, PdfKnead.Services.UserSettings.File, StringComparer.FromComparison(comparison));
+    }
+
+    /// <summary>
+    /// The whole per-user data folder lies under %TEMP% from the start of the test process: the own signing certificate, the trust lists, the
+    /// device code, the window marker, the update state and the signature fonts the user installed lie there as well — before, a UI test that
+    /// named no certificate file of its own reached the user's own certificate (docs/FEHLERGEDAECHTNIS.md, No. 1240).
+    /// </summary>
+    [Fact]
+    public void UserDataFolder_NeverTheUserProfile()
+    {
+        var temp = Path.GetFullPath(Path.GetTempPath());
+        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        var local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        Assert.StartsWith(temp, Path.GetFullPath(Core.Platform.AppLocations.UserDataFolder), comparison);
+        Assert.StartsWith(temp, Path.GetFullPath(Core.Platform.SigningCertificates.OwnFile), comparison);
+        Assert.StartsWith(temp, Path.GetFullPath(Core.Pdf.Signatures.TrustLists.TrustListStore.DefaultFolder), comparison);
+        Assert.StartsWith(temp, Path.GetFullPath(Core.Platform.DeviceIdentity.DefaultFile), comparison);
+        Assert.StartsWith(temp, Path.GetFullPath(Core.Updates.UpdateStart.StateFolder), comparison);
+        if (!string.IsNullOrEmpty(local))
+            Assert.False(Path.GetFullPath(Core.Platform.AppLocations.UserDataFolder).StartsWith(Path.Combine(local, "PDF-Knead"), comparison));
+    }
+
     /// <summary>The top-level class (declared at the start of a line) the position lies in, and the attribute lines just above it.</summary>
     private static (string Name, string Attributes)? ClassAround(string text, int at)
     {

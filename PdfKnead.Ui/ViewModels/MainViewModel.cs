@@ -400,11 +400,12 @@ public sealed partial class MainViewModel : ObservableObject
     {
         if (target is null)
         {
-            Message = Tr.T("Diese Adresse öffnet PDF-Knead nicht: {0}", link.Uri);
+            Message = Tr.T("Diese Adresse öffnet PDF-Knead nicht: {0}", Core.Security.DisplayNames.Safe(link.Uri));
             return;
         }
         if (ConfirmOpenAddress is null || OpenAddress is null) return;
-        if (!await ConfirmOpenAddress(target, link.Check.Warnings)) return;
+        // the address as it would be opened (escaped) and the warnings, which may quote parts of it, with directional formatting characters shown
+        if (!await ConfirmOpenAddress(Core.Security.DisplayNames.Safe(target), [.. link.Check.Warnings.Select(Core.Security.DisplayNames.Safe)])) return;
         await OpenAddress(target);
     }
 

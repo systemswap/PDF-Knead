@@ -238,7 +238,11 @@ public static class AttachmentText
         var result = AttachmentSearch.NoHit;
         var pages = doc.Pages;
         for (var i = 0; i < pages.Count && i < MaxPages; i++)
-            if (has(PageText.Create(PageInterpreter.BuildText(doc, pages[i])).Text)) return AttachmentSearch.Hit;
+        {
+            // both readings of a page whose font a reference reader shows otherwise (docs/FEHLERGEDAECHTNIS.md, No. 1235)
+            var text = PageText.Create(PageInterpreter.BuildText(doc, pages[i]));
+            if (has(text.Text) || text.Alternate is { } alternate && has(alternate.Text)) return AttachmentSearch.Hit;
+        }
         if (pages.Count > MaxPages) result = AttachmentSearch.NotSearchable;
         var highest = Math.Min(doc.HighestObjectNumber, MaxObjects);
         for (var n = 1; n <= highest; n++)

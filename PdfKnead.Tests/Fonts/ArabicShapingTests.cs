@@ -26,7 +26,7 @@ public sealed class ArabicShapingTests
             Forms(Marhaban));
         // a fatha (mark, transparent) between seen and lam: the letters still join, the mark takes no form
         Assert.Equal([ArabicJoining.Form.Initial, ArabicJoining.Form.None, ArabicJoining.Form.Medial, ArabicJoining.Form.Final, ArabicJoining.Form.Isolated],
-            Forms("سَلام"));
+            Forms("س\u064Eلام"));
         Assert.Equal('D', ArabicJoining.TypeOf(0x0628));
         Assert.Equal('U', ArabicJoining.TypeOf('A'));
     }
@@ -49,8 +49,8 @@ public sealed class ArabicShapingTests
         Assert.NotEqual(font.GlyphForUnicode(0x0644), word[1].Glyph);
         Assert.NotEqual(font.GlyphForUnicode(0x0627), word[2].Glyph);
         // beh with fatha (the font may split the beh into a body and its dot first): the fatha is attached to a glyph before it
-        var marked = shaper.Shape("بَ");
-        var fatha = Assert.Single(marked, g => g.Text == "َ");
+        var marked = shaper.Shape("ب\u064E");
+        var fatha = Assert.Single(marked, g => g.Text == "\u064E");
         Assert.True(fatha.AttachBack >= 1);
         Assert.Equal(0, fatha.XAdvance);
         Assert.NotEqual(0, fatha.YOffset);

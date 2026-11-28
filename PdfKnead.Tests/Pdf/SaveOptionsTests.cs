@@ -60,7 +60,7 @@ public sealed class SaveOptionsTests
     [Fact]
     public void ExistingXmp_TitleReplaced_RestKept()
     {
-        const string packet = "<?xpacket begin=\"﻿\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?><x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">" +
+        const string packet = "<?xpacket begin=\"\uFEFF\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?><x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">" +
             "<rdf:Description rdf:about=\"\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\" xmlns:xmp=\"http://ns.adobe.com/xap/1.0/\"><dc:title><rdf:Alt><rdf:li xml:lang=\"x-default\">Alt</rdf:li>" +
             "<rdf:li xml:lang=\"en\">Old</rdf:li></rdf:Alt></dc:title><xmp:CreatorTool>Textprogramm</xmp:CreatorTool></rdf:Description></rdf:RDF></x:xmpmeta><?xpacket end=\"w\"?>";
         using var doc = Saved(File(packet), new PdfSaveOptions { DocumentTitle = "Neu" });

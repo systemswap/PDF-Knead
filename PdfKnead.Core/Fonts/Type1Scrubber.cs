@@ -67,30 +67,51 @@ internal static partial class Type1Scrubber
         BlankIdentifiers(priv);
         var text = Encoding.Latin1.GetString(priv);
         var lenIV = LenIVPattern().Match(text) is { Success: true } m && int.TryParse(m.Groups[1].Value, CultureInfo.InvariantCulture, out var iv) ? Math.Clamp(iv, -1, 64) : 4;
-        var subrs = Entries(priv, "/Subrs", charStrings: false);
-        var glyphs = Entries(priv, "/CharStrings", charStrings: true);
-        if (glyphs.Count == 0) throw new FontFormatException("Type 1 ohne CharStrings");
+        // every group of subroutines and charstrings: a hybrid font (Type 1 Font Format 9.2) has one set for low and one for high resolution,
+        // and both are scrubbed — before the second stayed as it was, with the glyphs of the redacted text (docs/FEHLERGEDAECHTNIS.md, No. 1164).
+        // The n-th group of charstrings runs the n-th group of subroutines (the last one where there are fewer).
+        var subrGroups = Groups(priv, "/Subrs", charStrings: false);
+        var glyphGroups = Groups(priv, "/CharStrings", charStrings: true);
+        if (glyphGroups.All(g => g.Count == 0)) throw new FontFormatException("Type 1 ohne CharStrings");
+        var codes = new List<Dictionary<int, byte[]>>();
+        foreach (var group in subrGroups)
+        {
+            var code = new Dictionary<int, byte[]>();
+            foreach (var subr in group) code[subr.Index] = Decrypt(priv.AsSpan(subr.Data, subr.Length), CharStringKey, lenIV);
+            codes.Add(code);
+        }
+        int SubrGroupOf(int glyphGroup) => Math.Min(glyphGroup, subrGroups.Count - 1);
 
-        // the glyphs kept (with seac parts) and the subroutines they call, by running them
-        // a name defined twice: the last one counts, as when reading the font (both go or stay together)
-        var byName = new Dictionary<string, Entry>(StringComparer.Ordinal);
-        foreach (var g in glyphs) byName[g.Key!] = g;
-        var code = new Dictionary<int, byte[]>();
-        foreach (var subr in subrs) code[subr.Index] = Decrypt(priv.AsSpan(subr.Data, subr.Length), CharStringKey, lenIV);
-        var keptGlyphs = new HashSet<string>(StringComparer.Ordinal) { ".notdef" };
-        var usedSubrs = new HashSet<int> { 0, 1, 2, 3 };
+        // the glyphs kept (with seac parts) and the subroutines they call, by running them in every group
+        // a name defined twice in a group: the last one counts, as when reading the font (both go or stay together)
+        var byName = glyphGroups.Select(group =>
+        {
+            var names = new Dictionary<string, Entry>(StringComparer.Ordinal);
+            foreach (var g in group) names[g.Key!] = g;
+            return names;
+        }).ToList();
+        var keptGlyphs = new HashSet<string>(StringComparer.Ordinal);
+        var usedSubrs = subrGroups.Select(_ => new HashSet<int> { 0, 1, 2, 3 }).ToList();
+        var allSubrs = new bool[subrGroups.Count];
         var pending = new Stack<string>(keep.Append(".notdef"));
-        var allSubrs = false;
         while (pending.Count > 0)
         {
             var name = pending.Pop();
-            if (!byName.TryGetValue(name, out var glyph) || !keptGlyphs.Add(name) && name != ".notdef") continue;
-            var run = new Runner(code);
-            run.Execute(Decrypt(priv.AsSpan(glyph.Data, glyph.Length), CharStringKey, lenIV), 0);
-            usedSubrs.UnionWith(run.Subrs);
-            allSubrs |= run.Unknown;
-            foreach (var part in run.SeacCodes)
-                if (part is >= 0 and < 256 && FontTables.StandardEncoding[part] is { Length: > 0 } partName && !keptGlyphs.Contains(partName)) pending.Push(partName);
+            if (!keptGlyphs.Add(name)) continue;
+            for (var g = 0; g < glyphGroups.Count; g++)
+            {
+                if (!byName[g].TryGetValue(name, out var glyph)) continue;
+                var subrGroup = SubrGroupOf(g);
+                var run = new Runner(subrGroup >= 0 ? codes[subrGroup] : []);
+                run.Execute(Decrypt(priv.AsSpan(glyph.Data, glyph.Length), CharStringKey, lenIV), 0);
+                if (subrGroup >= 0)
+                {
+                    usedSubrs[subrGroup].UnionWith(run.Subrs);
+                    allSubrs[subrGroup] |= run.Unknown;
+                }
+                foreach (var part in run.SeacCodes)
+                    if (part is >= 0 and < 256 && FontTables.StandardEncoding[part] is { Length: > 0 } partName && !keptGlyphs.Contains(partName)) pending.Push(partName);
+            }
         }
 
         // the private part anew: removed glyphs without a trace, unused subroutines as "return"
@@ -102,7 +123,9 @@ internal static partial class Type1Scrubber
             at = to;
         }
         var empty = Encrypt([.. new byte[Math.Max(0, lenIV)], 11], CharStringKey, lenIV);
-        foreach (var entry in subrs.Concat(glyphs).OrderBy(e => e.Start))
+        var entries = subrGroups.SelectMany((group, g) => group.Select(e => (Entry: e, Group: g)))
+            .Concat(glyphGroups.SelectMany((group, g) => group.Select(e => (Entry: e, Group: g)))).OrderBy(e => e.Entry.Start);
+        foreach (var (entry, group) in entries)
         {
             if (entry.Key is { } name)
             {
@@ -111,7 +134,7 @@ internal static partial class Type1Scrubber
                 at = entry.End;   // the whole entry: name, length, charstring, ND
                 continue;
             }
-            if (allSubrs || usedSubrs.Contains(entry.Index)) continue;
+            if (allSubrs[group] || usedSubrs[group].Contains(entry.Index)) continue;
             Copy(entry.LengthStart);
             output.Write(Encoding.ASCII.GetBytes(empty.Length.ToString(CultureInfo.InvariantCulture)));
             at = entry.LengthEnd;
@@ -120,9 +143,9 @@ internal static partial class Type1Scrubber
             at = entry.Data + entry.Length;
         }
         Copy(priv.Length);
-        // the number of entries of the CharStrings dictionary
+        // the number of entries of each CharStrings dictionary
         var newPriv = output.ToArray();
-        newPriv = Recount(newPriv, keptGlyphs.Count(byName.ContainsKey));
+        newPriv = Recount(newPriv, [.. byName.Select(names => names.Keys.Count(keptGlyphs.Contains))]);
 
         // the custom encoding of the clear text without the codes of removed glyphs
         var clear = Encoding.Latin1.GetString(data, 0, start);
@@ -160,13 +183,28 @@ internal static partial class Type1Scrubber
     /// </summary>
     private readonly record struct Entry(string? Key, int Index, int Start, int LengthStart, int LengthEnd, int Data, int Length, int End);
 
-    /// <summary>The entries after <paramref name="section"/> (the first one; a second /Subrs, the "hires" branch of some fonts, stays as it is).</summary>
-    private static List<Entry> Entries(byte[] priv, string section, bool charStrings)
+    /// <summary>
+    /// The groups of entries after each <paramref name="section"/> in turn: one for a usual font, two for a hybrid font (the "hires" branch,
+    /// Type 1 Font Format 9.2). The search for the next group begins after the last entry of the one before.
+    /// </summary>
+    private static List<List<Entry>> Groups(byte[] priv, string section, bool charStrings)
+    {
+        var groups = new List<List<Entry>>();
+        var name = Encoding.ASCII.GetBytes(section);
+        var from = 0;
+        while (from < priv.Length && priv.AsSpan(from).IndexOf(name) is >= 0 and var found)
+        {
+            var (entries, end) = Entries(priv, from + found + section.Length, charStrings);
+            groups.Add(entries);
+            from = Math.Max(end, from + found + section.Length);
+        }
+        return groups;
+    }
+
+    /// <summary>The entries from <paramref name="p"/> on, up to the next /Subrs, /CharStrings or end; and where they end.</summary>
+    private static (List<Entry> Entries, int End) Entries(byte[] priv, int p, bool charStrings)
     {
         var result = new List<Entry>();
-        var at = priv.AsSpan().IndexOf(Encoding.ASCII.GetBytes(section));
-        if (at < 0) return result;
-        var p = at + section.Length;
         while (true)
         {
             var (token, tokenStart, tokenEnd) = Token(priv, p);
@@ -199,7 +237,7 @@ internal static partial class Type1Scrubber
             result.Add(new Entry(key, index, start, lengthStart, lengthEnd, data, length, closingEnd));
             p = closingEnd;
         }
-        return result;
+        return (result, p);
     }
 
     /// <summary>The next token from <paramref name="p"/> on (white space and comments skipped): its text, start and end.</summary>
@@ -220,14 +258,22 @@ internal static partial class Type1Scrubber
         return (Encoding.Latin1.GetString(data, start, p - start), start, p);
     }
 
-    /// <summary>Writes <paramref name="count"/> as the size of the CharStrings dictionary ("/CharStrings n dict").</summary>
-    private static byte[] Recount(byte[] priv, int count)
+    /// <summary>Writes the counts as the sizes of the CharStrings dictionaries ("/CharStrings n dict"), the first for the first group and so on.</summary>
+    private static byte[] Recount(byte[] priv, IReadOnlyList<int> counts)
     {
-        var at = priv.AsSpan().IndexOf("/CharStrings"u8);
-        if (at < 0) return priv;
-        var (number, start, end) = Token(priv, at + 12);
-        if (!int.TryParse(number, CultureInfo.InvariantCulture, out _)) return priv;
-        return [.. priv.AsSpan(0, start), .. Encoding.ASCII.GetBytes(count.ToString(CultureInfo.InvariantCulture)), .. priv.AsSpan(end)];
+        var from = 0;
+        foreach (var count in counts)
+        {
+            if (from >= priv.Length || priv.AsSpan(from).IndexOf("/CharStrings"u8) is not (>= 0 and var found)) break;
+            var at = from + found;
+            var (number, start, end) = Token(priv, at + 12);
+            from = at + 12;
+            if (!int.TryParse(number, CultureInfo.InvariantCulture, out _)) continue;
+            var text = Encoding.ASCII.GetBytes(count.ToString(CultureInfo.InvariantCulture));
+            priv = [.. priv.AsSpan(0, start), .. text, .. priv.AsSpan(end)];
+            from = start + text.Length;
+        }
+        return priv;
     }
 
     /// <summary>Where the trailer begins: the run of zeros (and line breaks) before cleartomark at the end; the end of the data without one.</summary>

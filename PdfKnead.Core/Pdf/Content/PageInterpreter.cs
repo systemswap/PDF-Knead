@@ -70,6 +70,9 @@ public sealed partial class PageInterpreter
     // Text only (search, selection without a display list): paths, painting, images, shadings, masks and glyph outlines are skipped
     private bool _textOnly;
 
+    /// <summary>Each character with its own text, /ActualText not applied (<see cref="Build"/>, drawnText).</summary>
+    private bool _drawnText;
+
     // Redaction: observer, number of the current operator, element of the text operator
     private IContentObserver? _observer;
 
@@ -112,14 +115,18 @@ public sealed partial class PageInterpreter
     /// the page with and without them is compared, <see cref="Editing.TextVisibility"/>).</param>
     /// <param name="forExport">Builds the page for a format without layers (page images): layers in their export state (/AS with /Export,
     /// ISO 32000-2, 8.11.4.5); otherwise as on the screen.</param>
+    /// <param name="drawnText">Gives each character with its own text at its own place, /ActualText not applied — what the page draws, for
+    /// checks that compare characters at their places (the redaction check: a replacement text going on purpose with a bar is not a lost
+    /// character, and the characters drawn within it are checked; docs/FEHLERGEDAECHTNIS.md, No. 1251).</param>
     /// <returns>The display list, clipped to the crop box. A page that exceeds the work limits is returned incomplete and a problem is
     /// added to the document.</returns>
     /// <exception cref="OperationCanceledException"><paramref name="cancel"/> was triggered.</exception>
     /// <exception cref="PdfLimitException">The page content exceeds a size limit.</exception>
     public static DisplayList Build(PdfDocument doc, PdfPage page, CancellationToken cancel = default, bool withoutOwnElements = false,
-        bool forPrint = false, bool tagGlyphs = false, IReadOnlySet<CellGlyph>? withoutCellGlyphs = null, bool forExport = false)
+        bool forPrint = false, bool tagGlyphs = false, IReadOnlySet<CellGlyph>? withoutCellGlyphs = null, bool forExport = false, bool drawnText = false)
     {
-        var interpreter = new PageInterpreter(doc, forPrint, forExport) { _withoutOwnElements = withoutOwnElements, _withoutCellGlyphs = withoutCellGlyphs };
+        var interpreter = new PageInterpreter(doc, forPrint, forExport)
+            { _withoutOwnElements = withoutOwnElements, _withoutCellGlyphs = withoutCellGlyphs, _drawnText = drawnText };
         if (tagGlyphs) interpreter._builder.TagGlyphs();
         interpreter.Run(page, cancel);
         var box = page.CropBox;
@@ -226,6 +233,8 @@ public sealed partial class PageInterpreter
             _builder.Reserve(content.Length / 50, content.Length / 15);
             Execute(content, resources, cancel);
         }
+        // a replacement text left open by the page content ends with it (it does not reach into the annotations)
+        EndActualText(all: true);
 
         // annotations with an appearance (form fields, stamps, notes …)
         if (page.Dictionary.GetArray(PdfName.Get("Annots")) is { } annots)
@@ -372,6 +381,25 @@ public sealed partial class PageInterpreter
     public static Action<string, long>? OperatorTimer { get; set; }
 
     private void Execute(PooledBytes content, PdfDictionary? resources, CancellationToken cancel)
+    {
+        // every content stream begins outside a text object; one its stream leaves open (no ET) ends with it, with its knockout group
+        // (ISO 32000-2, 9.3.8; docs/FEHLERGEDAECHTNIS.md, No. 1165)
+        var inTextObject = _inTextObject;
+        _inTextObject = false;
+        _streamDepth++;
+        try
+        {
+            ExecuteStream(content, resources, cancel);
+        }
+        finally
+        {
+            if (_textGroup >= 0 && _textGroupDepth == _streamDepth) CloseTextGroup();
+            _streamDepth--;
+            _inTextObject = inTextObject;
+        }
+    }
+
+    private void ExecuteStream(PooledBytes content, PdfDictionary? resources, CancellationToken cancel)
     {
         _cancel = cancel;
         // the bytes read count towards the work limit as well, 64 to an operator (16 million operators: 1 GB, as much as one stream may
@@ -664,13 +692,14 @@ public sealed partial class PageInterpreter
                 var hidden = o.Count >= 2 && o[0].Name?.Value == "OC" && LayerHidden(o[1].Object, resources);
                 _hiddenStack.Push(hidden);
                 if (hidden) _hiddenDepth++;
-                if (_observer is { } marking && o.Count >= 1 && o[0].Name is { } markTag)
-                    marking.MarkedContent(_op, markTag, o.Count >= 2 ? o[1].Object switch
-                    {
-                        PdfDictionary inline => inline,
-                        PdfName named => resources?.GetDictionary(PdfName.Get("Properties"))?.Get(named) as PdfDictionary,
-                        _ => null,
-                    } : null);
+                var markProperties = o.Count >= 2 ? o[1].Object switch
+                {
+                    PdfDictionary inline => inline,
+                    PdfName named => resources?.GetDictionary(PdfName.Get("Properties"))?.Get(named) as PdfDictionary,
+                    _ => null,
+                } : null;
+                BeginActualText(markProperties);
+                if (_observer is { } marking && o.Count >= 1 && o[0].Name is { } markTag) marking.MarkedContent(_op, markTag, markProperties);
                 break;
             case "BMC":
                 _hiddenStack.Push(false);
@@ -678,6 +707,7 @@ public sealed partial class PageInterpreter
                 break;
             case "EMC":
                 if (_hiddenStack.Count > 0 && _hiddenStack.Pop()) _hiddenDepth--;
+                EndActualText();
                 _observer?.EndMarkedContent(_op);
                 break;
 
@@ -788,10 +818,17 @@ public sealed partial class PageInterpreter
             _gs.Font = FontOf(fontDict);
             _gs.FontSize = fontSize;
         }
+        // In a d1 glyph the colour comes from the text: the blend mode of a graphics state is passed over (ISO 32000-2, 9.6.4 sentences 85–88,
+        // as one of three reference readers; the other two leave such a glyph out). The constant opacity and the soft mask still apply, as two
+        // of three reference readers draw them (special rule; docs/FEHLERGEDAECHTNIS.md, No. 1165, 1201: the mask measured with the real file
+        // issue19634 and probes SM1–SM8 — one reference reader masks always, one where the mask shows an image, one never)
+        var d1Glyph = _uncolored && _type3Depth > 0;
         if (d.GetNumber(PdfName.Get("CA")) is { } ca) _gs.StrokeAlpha = Math.Clamp(ca, 0, 1);
         if (d.GetNumber(PdfName.Get("ca")) is { } fa) _gs.FillAlpha = Math.Clamp(fa, 0, 1);
-        if (d.Get(PdfName.Get("BM")) is { } bm and not PdfNull) _gs.BlendMode = BlendModes.From(bm);
+        if (!d1Glyph && d.Get(PdfName.Get("BM")) is { } bm and not PdfNull) _gs.BlendMode = BlendModes.From(bm);
         if (!_textOnly && d.Get(PdfName.Get("SMask")) is { } mask and not PdfNull) _gs.SoftMask = mask is PdfName ? -1 : SoftMaskIndex(mask, resources);
+        // text knockout (9.3.8): for whole text objects only — set between BT and ET it is passed over
+        if (!_inTextObject && d.GetBoolean(PdfName.Get("TK")) is { } tk) _gs.TextKnockout = tk;
         if (_observer is { } watcher && d.Get(PdfName.Get("SMask")).AsDictionary()?.Get(PdfName.Get("G")) is PdfStream group) ObserveSoftMask(watcher, group, resources);
         // /OP also applies to fills as long as /op is absent (ISO 32000-2, 8.4.5)
         if (d.GetBoolean(PdfName.Get("OP")) is { } op) _gs.StrokeOverprint = _gs.FillOverprint = op;
@@ -1010,6 +1047,7 @@ public sealed partial class PageInterpreter
             _stackFloor = savedFloor;
             while (_hiddenStack.Count > savedHidden)
                 if (_hiddenStack.Pop()) _hiddenDepth--;
+            EndActualText();
             _gs = saved;
             _patternBase = savedPatternBase;
             _streamStart = savedStreamStart;
@@ -1273,6 +1311,7 @@ public sealed partial class PageInterpreter
             StrokeOverprint = gs.StrokeOverprint, FillOverprint = gs.FillOverprint, OverprintMode = gs.OverprintMode,
             CharSpacing = gs.CharSpacing, WordSpacing = gs.WordSpacing, HorizontalScale = gs.HorizontalScale, Leading = gs.Leading,
             Font = gs.Font, FontSize = gs.FontSize, TextMode = gs.TextMode, Rise = gs.Rise, Intent = gs.Intent, Bpc = gs.Bpc,
+            TextKnockout = gs.TextKnockout,
         });
 
         public bool Equals(CellStart other)
@@ -1286,7 +1325,7 @@ public sealed partial class PageInterpreter
                 && Equals(a.Dash, b.Dash) && a.StrokeOverprint == b.StrokeOverprint && a.FillOverprint == b.FillOverprint && a.OverprintMode == b.OverprintMode
                 && a.CharSpacing.Equals(b.CharSpacing) && a.WordSpacing.Equals(b.WordSpacing) && a.HorizontalScale.Equals(b.HorizontalScale)
                 && a.Leading.Equals(b.Leading) && ReferenceEquals(a.Font, b.Font) && a.FontSize.Equals(b.FontSize) && a.TextMode == b.TextMode
-                && a.Rise.Equals(b.Rise) && a.Intent == b.Intent && a.Bpc == b.Bpc;
+                && a.Rise.Equals(b.Rise) && a.Intent == b.Intent && a.Bpc == b.Bpc && a.TextKnockout == b.TextKnockout;
         }
 
         public override bool Equals(object? obj) => obj is CellStart other && Equals(other);
@@ -1788,6 +1827,7 @@ public sealed partial class PageInterpreter
             _stackFloor = savedFloor;
             while (_hiddenStack.Count > savedHidden)
                 if (_hiddenStack.Pop()) _hiddenDepth--;
+            EndActualText();
             _gs = saved;
             _patternBase = savedPatternBase;
             _streamStart = savedStreamStart;
@@ -1856,8 +1896,11 @@ public sealed partial class PageInterpreter
         var page = _currentPageBox;
         if (covered.Left > page.Left || covered.Top > page.Top || covered.Right < page.Right || covered.Bottom < page.Bottom) return;
         if (!_builder.ClipIsRectangular(_gs.Clip)) return;
-        if (_group < 0) _builder.HideEarlier();
-        else _builder.HideEarlierInGroup(_group);
+        // the knockout group of a text object composites with Normal, full opacity and no mask (9.3.8): what covers it opaquely covers its
+        // surroundings as well (docs/FEHLERGEDAECHTNIS.md, No. 1165)
+        var group = _group >= 0 && _group == _textGroup ? _builder.Group(_group).Parent : _group;
+        if (group < 0) _builder.HideEarlier();
+        else _builder.HideEarlierInGroup(group);
     }
 
     // "sh" without a clip fills the page; without a page box, limited to a generous area
@@ -2004,6 +2047,9 @@ internal struct GraphicsState
     public int TextMode;
     public double Rise;
 
+    // text knockout (ISO 32000-2, 9.3.8): initially true; taken at BT for the whole text object
+    public bool TextKnockout = true;
+
     // rendering intent (ColorSpace.Perceptual …) and black point compensation (ColorSpace.BpcDefault …), ISO 32000-2, 8.6.5.8, 8.6.5.9
     public byte Intent = ColorSpace.RelativeColorimetric;
     public byte Bpc;
@@ -2026,7 +2072,8 @@ public static class BlendModes
 
     /// <summary>Converts a /BM value into the blend mode number.</summary>
     /// <param name="obj">A name, or an array of names: the first one known counts (ISO 32000-2:2020, 11.6.3).</param>
-    /// <returns>The index of the blend mode (0 = Normal); 0 for unknown names, including Compatible.</returns>
+    /// <returns>The index of the blend mode (0 = Normal); 0 for unknown names. Compatible is Normal and, in an array, a known name
+    /// (ISO 32000-2, 11.3.5.2: before, it was skipped and the next name counted — docs/FEHLERGEDAECHTNIS.md, No. 1253).</returns>
     public static byte From(PdfObject obj)
     {
         switch (obj)
@@ -2035,7 +2082,7 @@ public static class BlendModes
                 return Index(n.Value);
             case PdfArray a:
                 for (var k = 0; k < Math.Min(a.Count, 64); k++)
-                    if (a.Get(k) is PdfName name && Array.IndexOf(Names, name.Value) >= 0) return Index(name.Value);
+                    if (a.Get(k) is PdfName name && (name.Value == "Compatible" || Array.IndexOf(Names, name.Value) >= 0)) return Index(name.Value);
                 return 0;
             default:
                 return 0;

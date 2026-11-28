@@ -336,8 +336,10 @@ public sealed partial class M7NormTests
     private static int Ot14Gid(char c) => Ot14Sans.Value.GlyphForUnicode(c);
 
     /// <summary>
-    /// Today's behaviour with colour tables PDF-Knead does not read: <paramref name="source"/> with <paramref name="tables"/> added parses without
-    /// an exception, keeps the tables byte for byte, offers no colour glyphs, and every glyph has the outline and advance it has without them.
+    /// Colour tables whose version 1 formats PDF-Knead does not read: <paramref name="source"/> with <paramref name="tables"/> added parses without
+    /// an exception, keeps the tables byte for byte, offers no colour glyphs unless COLR has version 0 records (read for the program's own text and
+    /// signatures since docs/FEHLERGEDAECHTNIS.md, No. 1168 — the tests with such records check them themselves), and every glyph has the outline
+    /// and advance it has without them.
     /// </summary>
     private static OpenTypeFont Ot14TablesIgnored(byte[] source, IReadOnlyDictionary<string, byte[]?> tables)
     {
@@ -345,7 +347,7 @@ public sealed partial class M7NormTests
         var font = OpenTypeFont.Parse(ColorFontBuilder.WithTables(source, tables));
         foreach (var (tag, data) in tables)
             if (data is not null) Assert.Equal(data, font.TableData(tag).ToArray());
-        Assert.Null(ColorGlyphs.For(font));
+        if (!tables.TryGetValue("COLR", out var colr) || colr is not { Length: >= 4 } || (colr[2] << 8 | colr[3]) == 0) Assert.Null(ColorGlyphs.For(font));
         Assert.Equal(plain.GlyphCount, font.GlyphCount);
         for (var g = 0; g < plain.GlyphCount; g++)
         {
@@ -489,15 +491,21 @@ public sealed partial class M7NormTests
     // ------------------------------------------------------------ 10.2.7 compositing
 
     /// <summary>
-    /// OT 10.2.7 sentences 1–4, 5–12 (today's behaviour, question 3): COLR version 0 with two overlapping layers (blue below, red with alpha
-    /// 128 above) and COLR version 1 with PaintComposite XOR (mode 11) of a red and a blue rectangle are not read: no colour glyphs, outlines unchanged.
+    /// OT 10.2.7 sentences 1–4, 5–12 (question 3): COLR version 0 with two overlapping layers (blue below, red with alpha 128 above) is read for the
+    /// program's own text and signatures — where they overlap, the red is blended over the blue (simple alpha compositing); COLR version 1 with
+    /// PaintComposite XOR (mode 11) of a red and a blue rectangle is not read on purpose: no colour glyphs. The outlines stay unchanged.
     /// </summary>
     [Fact]
-    public void Ot14_ColrComposition_NotRead_GlyphsKeepTheirOutlines()
+    public void Ot14_ColrComposition_V0LayersBlended_V1NotRead()
     {
         var a = Ot14Gid('A');
-        Ot14ColrIgnored(Ot14Colr(version: 0, baseGlyphs: [(a, 0, 2)], layerRecords: [(Ot14Gid('O'), 0), (Ot14Gid('I'), 1)]),
+        var font = Ot14ColrIgnored(Ot14Colr(version: 0, baseGlyphs: [(a, 0, 2)], layerRecords: [(Ot14Gid('O'), 0), (Ot14Gid('I'), 1)]),
             Ot14Cpal(2, [0], [Ot14BlueColour, new Ot14Bgra(0, 0, 255, 128)]));
+        var pixels = ColorGlyphs.For(font)!.Glyph(a)!.Value.Image.Pixels;
+        var blended = 0;
+        for (var p = 0; p < pixels.Length; p += 4)
+            if (pixels[p + 3] > 250 && pixels[p] is > 100 and < 160 && pixels[p + 2] is > 100 and < 160) blended++;
+        Assert.True(blended > 50, $"{blended} gemischte Pixel");
         Ot14ColrIgnored(Ot14Colr(paints: [(a, Ot14Composite(Ot14Glyph(Ot14Gid('-'), Ot14Solid(0)), 11, Ot14Glyph(Ot14Gid('I'), Ot14Solid(2))))]));
     }
 
@@ -639,12 +647,12 @@ public sealed partial class M7NormTests
     // ------------------------------------------------------------ 10.3, 10.3.1 to 10.3.4 header and records
 
     /// <summary>
-    /// OT 10.2.10 sentences 39–40; 10.3.2 sentences 1–9; 10.3.3 sentences 1–4 (today's behaviour, question 3): Liberation Sans with COLR version 0
-    /// (header 0000 0001, BaseGlyph record at 14, two Layer records at 20) and CPAL — the table is there (HasTable), but no colour glyphs and
-    /// the outline of „A“ is the one without COLR.
+    /// OT 10.2.10 sentences 39–40; 10.3.2 sentences 1–9; 10.3.3 sentences 1–4 (question 3): Liberation Sans with COLR version 0 (header 0000 0001,
+    /// BaseGlyph record at 14, two Layer records at 20) and CPAL — the layers of „A“ are read for the program's own text and signatures (a colour
+    /// image), while the outline of „A“ in the font stays the one without COLR (what an embedded copy draws).
     /// </summary>
     [Fact]
-    public void Ot14_ColrV0_NotRead_BaseGlyphKeepsItsOutline()
+    public void Ot14_ColrV0_LayersRead_BaseGlyphKeepsItsOutline()
     {
         var a = Ot14Gid('A');
         var colr = Ot14Colr(version: 0, baseGlyphs: [(a, 0, 2)], layerRecords: [(Ot14Gid('O'), 0), (Ot14Gid('I'), 2)]);
@@ -653,6 +661,7 @@ public sealed partial class M7NormTests
         var font = Ot14ColrIgnored(colr);
         Assert.True(font.HasTable("COLR"));
         Assert.True(font.HasTable("CPAL"));
+        Assert.NotNull(ColorGlyphs.For(font)!.Glyph(a));
     }
 
     /// <summary>
@@ -670,25 +679,43 @@ public sealed partial class M7NormTests
     }
 
     /// <summary>
-    /// OT 10.3.2.1 sentences 1–6, 7–9; 10.3.3 sentences 5–12, 13–15, 16–20, 23, 25; 10.3.4 sentences 17–27 (today's behaviour, question 3):
-    /// COLR version 1 with a BaseGlyphList for „A“ and a BaseGlyph record for „B“; „A“ both in the BaseGlyphList (green) and in the BaseGlyph
-    /// records (red); version 0 records for the glyphs 5, 9, 12 and one beyond the glyph count; „A“ with layers 0–1 and „B“ with layers 1–2
-    /// sharing layer 1; a layer with palette index 0xFFFF; a LayerList whose second entry is a PaintColrLayers with two layers of its own —
-    /// no colour glyphs, outlines unchanged.
+    /// OT 10.3.2.1 sentences 1–6, 7–9; 10.3.3 sentences 5–12, 13–15, 16–20, 23, 25; 10.3.4 sentences 17–27 (question 3: version 0 read for the
+    /// program's own text and signatures, version 1 on purpose not): COLR version 1 with a BaseGlyphList for „A“ and a BaseGlyph record for „B“ —
+    /// „B“ is a colour glyph, „A“ not; „A“ both in the BaseGlyphList (green) and in the BaseGlyph records (red) — the version 0 glyph, red;
+    /// version 0 records for the glyphs 5, 9, 12 and one beyond the glyph count — 5, 9 and 12 coloured, the one beyond ignored; „A“ with layers
+    /// 0–1 and „B“ with layers 1–2 sharing layer 1 — both coloured; a layer with palette index 0xFFFF — the text colour (black in the image);
+    /// a LayerList whose second entry is a PaintColrLayers with two layers of its own — no colour glyphs. The outlines stay unchanged.
     /// </summary>
     [Fact]
-    public void Ot14_ColrRecordsAndLists_NotRead_GlyphsKeepTheirOutlines()
+    public void Ot14_ColrRecordsAndLists_V0RecordsRead_V1ListsNot()
     {
         var a = Ot14Gid('A');
         var b = Ot14Gid('B');
         var o = Ot14Gid('O');
         var i = Ot14Gid('I');
-        Ot14ColrIgnored(Ot14Colr(paints: [(a, Ot14Glyph(o, Ot14Solid(1)))], baseGlyphs: [(b, 0, 1)], layerRecords: [(i, 0)]));
-        Ot14ColrIgnored(Ot14Colr(paints: [(a, Ot14Glyph(a, Ot14Solid(1)))], baseGlyphs: [(a, 0, 1)], layerRecords: [(a, 0)]));
-        Ot14ColrIgnored(Ot14Colr(version: 0, baseGlyphs: [(5, 0, 1), (9, 1, 1), (12, 2, 1), (Ot14Sans.Value.GlyphCount + 5, 0, 1)],
+        static (int R, int G, int B)? Opaque(OpenTypeFont font, int glyph)
+        {
+            if (ColorGlyphs.For(font)?.Glyph(glyph) is not { } image) return null;
+            var p = image.Image.Pixels;
+            for (var k = 0; k < p.Length; k += 4)
+                if (p[k + 3] == 255) return (p[k], p[k + 1], p[k + 2]);
+            return null;
+        }
+        var mixed = Ot14ColrIgnored(Ot14Colr(paints: [(a, Ot14Glyph(o, Ot14Solid(1)))], baseGlyphs: [(b, 0, 1)], layerRecords: [(i, 0)]));
+        Assert.Equal((255, 0, 0), Opaque(mixed, b));
+        Assert.Null(Opaque(mixed, a));
+        Assert.Equal((255, 0, 0), Opaque(Ot14ColrIgnored(Ot14Colr(paints: [(a, Ot14Glyph(a, Ot14Solid(1)))], baseGlyphs: [(a, 0, 1)], layerRecords: [(a, 0)])), a));
+        var numbered = Ot14ColrIgnored(Ot14Colr(version: 0, baseGlyphs: [(5, 0, 1), (9, 1, 1), (12, 2, 1), (Ot14Sans.Value.GlyphCount + 5, 0, 1)],
             layerRecords: [(o, 0), (i, 1), (a, 2)]));
-        Ot14ColrIgnored(Ot14Colr(version: 0, baseGlyphs: [(a, 0, 2), (b, 1, 2)], layerRecords: [(o, 2), (i, 0), (Ot14Gid('L'), 1)]));
-        Ot14ColrIgnored(Ot14Colr(version: 0, baseGlyphs: [(a, 0, 2)], layerRecords: [(o, 0), (a, 0xFFFF)]));
+        Assert.Equal((255, 0, 0), Opaque(numbered, 5));
+        Assert.Equal((0, 255, 0), Opaque(numbered, 9));
+        Assert.Equal((0, 0, 255), Opaque(numbered, 12));
+        Assert.Null(ColorGlyphs.For(numbered)!.Glyph(Ot14Sans.Value.GlyphCount + 5));
+        var shared = Ot14ColrIgnored(Ot14Colr(version: 0, baseGlyphs: [(a, 0, 2), (b, 1, 2)], layerRecords: [(o, 2), (i, 0), (Ot14Gid('L'), 1)]));
+        Assert.NotNull(Opaque(shared, a));
+        Assert.NotNull(Opaque(shared, b));
+        var foreground = ColorGlyphs.For(Ot14ColrIgnored(Ot14Colr(version: 0, baseGlyphs: [(a, 0, 2)], layerRecords: [(o, 0), (a, 0xFFFF)])))!.Glyph(a)!.Value.Image.Pixels;
+        Assert.Contains(Enumerable.Range(0, foreground.Length / 4), k => foreground[k * 4 + 3] == 255 && foreground[k * 4] == 0 && foreground[k * 4 + 1] == 0);
         Ot14ColrIgnored(Ot14Colr(paints: [(a, Ot14Layers(3, 0))],
             layers: [Ot14Glyph(o, Ot14Solid(0)), Ot14Layers(2, 3), Ot14Glyph(i, Ot14Solid(1)), Ot14Glyph(Ot14Gid('L'), Ot14Solid(2)), Ot14Glyph(Ot14Gid('T'), Ot14Solid(3))]));
     }
@@ -698,11 +725,11 @@ public sealed partial class M7NormTests
     /// <summary>
     /// OT 10.3.2 sentence 10; 10.3.6.2 sentence 3; 10.3.6.3 sentence 3; 10.3.6.4 sentence 3; 10.3.7 sentence 3; 10.3.7.3 sentence 4; 10.3.7.1
     /// sentences 9–10 (scrubbing part): a font with COLR (version 0 records and the paint formats 2, 5, 7, 9 and 13) and CPAL — a subset for new
-    /// text (<see cref="TrueTypeSubsetter.Subset(byte[], IEnumerable{int}, bool)"/>) and a scrubbed font (<see cref="TrueTypeSubsetter.Scrub"/>)
-    /// have neither COLR nor CPAL, a compressed one (keepAllTables) has both byte for byte.
+    /// text (<see cref="TrueTypeSubsetter.Subset(byte[], IEnumerable{int}, bool)"/>), a compressed one (keepAllTables; question 3, finding B82,
+    /// since No. 1168 — before it kept both byte for byte) and a scrubbed font (<see cref="TrueTypeSubsetter.Scrub"/>) have neither COLR nor CPAL.
     /// </summary>
     [Fact]
-    public void Ot14_SubsetsAndScrubbing_HandleColrAndCpal()
+    public void Ot14_SubsetsCompressingAndScrubbing_DropColrAndCpal()
     {
         var a = Ot14Gid('A');
         var o = Ot14Gid('O');
@@ -730,8 +757,8 @@ public sealed partial class M7NormTests
             Assert.False(font.HasTable("CPAL"));
         }
         var compressed = OpenTypeFont.Parse(TrueTypeSubsetter.Subset(file, [a], keepAllTables: true));
-        Assert.Equal(colr, compressed.TableData("COLR").ToArray());
-        Assert.Equal(cpal, compressed.TableData("CPAL").ToArray());
+        Assert.False(compressed.HasTable("COLR"));
+        Assert.False(compressed.HasTable("CPAL"));
     }
 
     /// <summary>
@@ -739,7 +766,7 @@ public sealed partial class M7NormTests
     /// glyph with an outline — compressing a font (keepAllTables) whose base glyph is used must either leave COLR out or keep the layer
     /// glyphs: COLR version 0 („A“ with the layer glyphs 300 and 301) and version 1 (glyph 3 → PaintGlyph glyph 5).
     /// </summary>
-    [Fact(Skip = "M7-Befund: Verkleinern (Subset mit keepAllTables) behält COLR und CPAL, leert aber die Ebenen-Glyphen, auf die COLR zeigt")]
+    [Fact]
     public void Ot14_CompressedSubset_KeepsColrLayerGlyphsOrDropsColr()
     {
         var a = Ot14Gid('A');

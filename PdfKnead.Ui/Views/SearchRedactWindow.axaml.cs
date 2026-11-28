@@ -12,6 +12,8 @@ public sealed partial class RedactionChoice(RedactionHit hit) : ObservableObject
     public RedactionHit Hit { get; } = hit;
 
     public string Title { get; } = Tr.T("Seite {0}: {1}", hit.Page + 1, hit.Found)
+        // found in the second reading of a font (No. 1246): the text in the reading it was found in, marked as such
+        + (hit.SecondReading ? " (" + Tr.T("zweite Lesart der Schrift") + ")" : "")
         + (hit.Entity is { } entity ? " (" + DocumentViewModel.EntityLabel(entity) + ")" : "")
         + (hit.Marked ? " — " + Tr.T("schon markiert") : hit.Doubt is { } doubt ? " — " + doubt : "");
 

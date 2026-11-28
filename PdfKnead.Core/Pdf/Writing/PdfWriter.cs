@@ -352,6 +352,12 @@ public sealed record PdfSaveResult(string Version, long Length, int Objects, boo
     /// them with — the copy looks as in PDF-Knead, not necessarily as with the original font; said to the user.
     /// </summary>
     public IReadOnlyList<string> SubstitutedFonts { get; init; } = [];
+
+    /// <summary>
+    /// Compression and PDF/A: the embedded fonts (by name) left as they were because their licence forbids changing them (OS/2 fsType
+    /// "restricted licence" or "no subsetting"; docs/FEHLERGEDAECHTNIS.md, No. 1164) — not subset, not rebuilt; said to the user.
+    /// </summary>
+    public IReadOnlyList<string> LicenceKeptFonts { get; init; } = [];
 }
 
 /// <summary>
@@ -1007,7 +1013,7 @@ public static partial class PdfWriter
             WriteXRef();
             if (_writeMac) FinishMac();
             _output.Flush();
-            return new PdfSaveResult(_version, _position, objects, CompareVersions(_version, requested) > 0, _security) { PdfAClaimRemovedFor = _pdfAClaimRemovedFor, AccessibilityClaimRemoved = _accessibilityClaimRemoved, AccessibilityBreaks = [.. _accessibilityBreaks], DeclarationsLeftOut = [.. _declarationsLeftOut], RaisedFor = CompareVersions(_version, requested) > 0 && _contentVersion == _version ? _contentReason : null, IntegrityProtectionDropped = _integrityDropped, XmpNotUpdated = _xmpNotUpdated, IdleHiddenMarks = _idleHidden, LengthsPartlyShown = _partlyShown, BarExtensions = _barExtensions, DroppedExtensions = _droppedExtensions, DocumentPartsDropped = _documentPartsDropped, TabOrderByStructure = _tabOrderByStructure, ImagePartsKept = _imagePartsKept, FormsWithoutResources = _unresourcedWritten.Count, SubstitutedFonts = [.. _substitutedNames],
+            return new PdfSaveResult(_version, _position, objects, CompareVersions(_version, requested) > 0, _security) { PdfAClaimRemovedFor = _pdfAClaimRemovedFor, AccessibilityClaimRemoved = _accessibilityClaimRemoved, AccessibilityBreaks = [.. _accessibilityBreaks], DeclarationsLeftOut = [.. _declarationsLeftOut], RaisedFor = CompareVersions(_version, requested) > 0 && _contentVersion == _version ? _contentReason : null, IntegrityProtectionDropped = _integrityDropped, XmpNotUpdated = _xmpNotUpdated, IdleHiddenMarks = _idleHidden, LengthsPartlyShown = _partlyShown, BarExtensions = _barExtensions, DroppedExtensions = _droppedExtensions, DocumentPartsDropped = _documentPartsDropped, TabOrderByStructure = _tabOrderByStructure, ImagePartsKept = _imagePartsKept, FormsWithoutResources = _unresourcedWritten.Count, SubstitutedFonts = [.. _substitutedNames], LicenceKeptFonts = [.. _licenceKept],
                 // what else changes the content of the pages on saving makes the characters outside the bars differ by intent
                 RedactionChecks = _writtenChecks.Count > 0
                     ? (_writtenChecks, _options.Cleanup == CleanupItems.None && _options.ScopedCleanup is null && _pdfA is null && !_options.Flatten)
@@ -2596,8 +2602,46 @@ public static partial class PdfWriter
                 var source = AddSource(doc);
                 var pages = _pages.Where(p => ReferenceEquals(p.Source, doc)).Select(p => p.Page).ToList();
                 foreach (var (number, value) in FontScrub.Overrides(doc, pages, fonts, _cancel, source.Overrides))
-                    source.Overrides.TryAdd(number, value);
+                    source.Overrides.TryAdd(number, value is PdfStream ? value : WithNewParts(value, source, 0));
             }
+        }
+
+        /// <summary>
+        /// A font rebuilt by redaction (<see cref="FontScrub"/>; docs/FEHLERGEDAECHTNIS.md, No. 1164) for the new file: the parts it brings along
+        /// — a new program, a new /ToUnicode, the font descriptor holding the program — become objects of their own (a stream cannot be written
+        /// into another object, and ISO 32000-2, Table 109, asks for an indirect descriptor); its references into the source stay. Objects
+        /// without such a part are returned as they are.
+        /// </summary>
+        private PdfObject WithNewParts(PdfObject value, Source source, int depth)
+        {
+            if (depth > PdfLimits.MaxNesting || !HasNewStream(value, 0)) return value;
+            switch (value)
+            {
+                case PdfStream { Id: null } stream:
+                    return Sourced(stream, source);
+                case PdfArray array:
+                    var items = new PdfArray();
+                    for (var i = 0; i < array.Count; i++) items.Add(WithNewParts(array[i], source, depth + 1));
+                    return items;
+                case PdfDictionary dict:
+                    var copy = new PdfDictionary(dict.Count) { Resolver = dict.Resolver };
+                    foreach (var (key, entry) in dict.Entries)
+                        copy.Set(key, key == FontDescriptorKey && entry is PdfDictionary descriptor && HasNewStream(descriptor, 0)
+                            ? IndirectDescriptor((PdfDictionary)Rebase(descriptor, source), descriptor)
+                            : WithNewParts(entry, source, depth + 1));
+                    return copy;
+                default:
+                    return value;
+            }
+
+            // a stream made in memory somewhere inside (one of the source has its number)
+            static bool HasNewStream(PdfObject value, int depth) => depth <= PdfLimits.MaxNesting && value switch
+            {
+                PdfStream stream => stream.Id is null,
+                PdfArray array => Enumerable.Range(0, array.Count).Any(i => HasNewStream(array[i], depth + 1)),
+                PdfDictionary dict => dict.Entries.Any(e => HasNewStream(e.Value, depth + 1)),
+                _ => false,
+            };
         }
 
         private void AddReplaced(PdfDocument doc, IReadOnlySet<int> objects)
@@ -4156,7 +4200,10 @@ public static partial class PdfWriter
             {
                 var number = NewNumber();
                 _memoryNumbers[face.DisplayFont] = number;
-                _memoryQueue.Enqueue((number, WithOwnCidSet(face.SavedFont(used))));
+                // CFF outlines as OpenType with OS/2 (No. 1168), except for PDF/A-1 — written as such or a PDF/A-1 source saved the ordinary way,
+                // which stays 1.4 —, since ISO 19005-1 knows no OpenType font programs (PDF 1.6)
+                var part = _pdfA is { } pdfA ? pdfA.Part.Part() : PdfACheck.Declared(_main)?.Part();
+                _memoryQueue.Enqueue((number, WithOwnCidSet(face.SavedFont(used, openType: part != 1))));
             }
             // Filled-in text and choice fields: the new appearance (the font now as a subset)
             foreach (var (widget, appearance) in _filledForms)

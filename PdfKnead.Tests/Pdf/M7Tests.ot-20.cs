@@ -399,12 +399,12 @@ public sealed partial class M7NormTests
         return b.ToArray();
     }
 
-    /// <summary>Liberation Sans with the GPOS, GDEF and GSUB given (null: none) and without the kern table; further tables replaced as given.</summary>
+    /// <summary>Liberation Sans with the GPOS, GDEF and GSUB given (null: none) and without the kern table; further tables replaced as given (its cmap without the composed letters, <see cref="LiberationWithoutComposites"/>: the marks stay apart for the positioning tested, No. 1197).</summary>
     internal static TextShaper Ot20Shaper(byte[]? gpos, byte[]? gdef = null, byte[]? gsub = null, IReadOnlyDictionary<string, byte[]?>? more = null)
     {
         var tables = new Dictionary<string, byte[]?> { ["GPOS"] = gpos, ["GDEF"] = gdef, ["GSUB"] = gsub, ["kern"] = null };
         foreach (var (tag, data) in more ?? new Dictionary<string, byte[]?>()) tables[tag] = data;
-        return TextShaper.For(OpenTypeFont.Parse(ColorFontBuilder.WithTables(ShaperLimitTests.Liberation, tables)));
+        return TextShaper.For(OpenTypeFont.Parse(ColorFontBuilder.WithTables(LiberationWithoutComposites, tables)));
     }
 
     /// <summary>An fvar of one axis „wght“ (100 … 400 … 900), without named instances.</summary>
@@ -480,11 +480,12 @@ public sealed partial class M7NormTests
 
     /// <summary>
     /// A TrueType font of the glyphs given (glyph 0 first), with head (1000 units per em, long loca, the head flags given), hhea, hmtx
-    /// (advance 600 or as given, side bearing 0 or as given), maxp 0.5, loca and glyf; the glyphs are stored in the order <paramref name="storage"/>
+    /// (advance 600 or as given, side bearing as given, otherwise the xMin of the glyph header as font tools write it, so that the origin
+    /// pp1 = xMin − lsb is x = 0), maxp 0.5, loca and glyf; the glyphs are stored in the order <paramref name="storage"/>
     /// (default: by glyph number), each padded to four bytes unless <paramref name="pad"/> is false; further tables as given.
     /// </summary>
     private static byte[] Ot20Font(IReadOnlyList<byte[]> glyphs, int[]? advances = null, IReadOnlyDictionary<string, byte[]>? more = null,
-        int[]? storage = null, bool pad = true, int headFlags = 0)
+        int[]? storage = null, bool pad = true, int headFlags = 0, int[]? bearings = null)
     {
         var n = glyphs.Count;
         var glyf = new List<byte>();
@@ -510,7 +511,12 @@ public sealed partial class M7NormTests
         BinaryPrimitives.WriteInt16BigEndian(hhea.AsSpan(6), -200);
         BinaryPrimitives.WriteUInt16BigEndian(hhea.AsSpan(34), (ushort)n);
         var hmtx = new byte[n * 4];
-        for (var g = 0; g < n; g++) BinaryPrimitives.WriteUInt16BigEndian(hmtx.AsSpan(g * 4), (ushort)(advances?[g] ?? 600));
+        for (var g = 0; g < n; g++)
+        {
+            BinaryPrimitives.WriteUInt16BigEndian(hmtx.AsSpan(g * 4), (ushort)(advances?[g] ?? 600));
+            var xMin = glyphs[g].Length >= 10 ? BinaryPrimitives.ReadInt16BigEndian(glyphs[g].AsSpan(2)) : 0;
+            BinaryPrimitives.WriteInt16BigEndian(hmtx.AsSpan(g * 4 + 2), (short)(bearings?[g] ?? xMin));
+        }
         var maxp = new byte[6];
         BinaryPrimitives.WriteUInt32BigEndian(maxp, 0x00005000);
         BinaryPrimitives.WriteUInt16BigEndian(maxp.AsSpan(4), (ushort)n);
@@ -703,8 +709,8 @@ public sealed partial class M7NormTests
     /// <summary>
     /// OT 19.2 sentences 24–27, OT 19.3 sentence 62 and OT 19.4 sentences 71, 78–80: variable fonts (fvar, gvar) change points and component
     /// offsets per instance. PDF-Knead draws the default instance: a simple glyph and a composite glyph whose points gvar moves by (40, 30)
-    /// read as in the same font without fvar and gvar, without an exception; the subset keeping all tables leaves gvar and the glyph data of
-    /// the glyphs kept byte for byte as they were.
+    /// read as in the same font without fvar and gvar, without an exception; the subset keeping all other tables is the static default
+    /// instance: no fvar and gvar (FG 1159; before gvar stayed byte for byte), the glyph data of the glyphs kept byte for byte as they were.
     /// </summary>
     [Fact]
     public void Ot20_VariableFont_DrawnAndSubsetInTheDefaultInstance()
@@ -717,7 +723,7 @@ public sealed partial class M7NormTests
         Ot20SameOutline(plain.Outline(1), variable.Outline(1));
         Ot20SameOutline(plain.Outline(2), variable.Outline(2));
         var subset = TrueTypeSubsetter.Subset(variableData, [1], keepAllTables: true);
-        Assert.Equal(gvar, Ot20Table(subset, "gvar"));
+        Assert.False(OpenTypeFont.Parse(subset).HasTable("gvar") || OpenTypeFont.Parse(subset).HasTable("fvar"));
         Assert.Equal(Ot20GlyphBytes(variableData, 1), Ot20GlyphBytes(subset, 1));
     }
 
@@ -913,20 +919,66 @@ public sealed partial class M7NormTests
     }
 
     /// <summary>
-    /// OT 19.4 sentences 21–22, 74–77 (open question 17: alignment by points): without ARGS_ARE_XY_VALUES the arguments name a point of the
-    /// glyph so far and a point of the component, which are to be laid onto each other. Today PDF-Knead does not align: the second component
-    /// (its point 0 at (0, 0), to be laid onto point 2 of the first at (500, 0)) stays at the origin instead of moving by (500, 0).
-    /// Test of the present behaviour until the question is decided.
+    /// OT 19.4 sentences 21–22, 74–77: without ARGS_ARE_XY_VALUES the arguments name a point of the glyph so far and a point of the component,
+    /// which are laid onto each other. The second component (its point 0 at (0, 0)) is laid onto point 2 of the first at (500, 0): it moves by
+    /// (500, 0) — as the three reference readers draw it (measured, docs/FEHLERGEDAECHTNIS.md, No. 1163); before it stayed at the origin. The
+    /// subset keeps the glyph with the same outline.
     /// </summary>
     [Fact]
-    public void Ot20_PointMatching_TodayTheComponentStaysAtTheOrigin()
+    public void Ot20_PointMatching_LaysThePointsOntoEachOther()
     {
         var data = Ot20Font([Ot20Box, Ot20Simple([[(0, 0, true), (250, 80, true), (500, 0, true)]]), Ot20Box,
             Ot20Composite([new Ot20Part(Ot20Xy, 1, 0, 0), new Ot20Part(0x0000, 2, 2, 0)])]);
         var font = OpenTypeFont.Parse(data);
         var points = font.Outline(3).Points;
         var second = points.Skip(font.Outline(1).Points.Count).ToArray();
-        Assert.Equal(font.Outline(2).Points, second);            // after the norm: moved by (500, 0)
+        Assert.Equal(Ot20Moved(font.Outline(2), 500, 0), second);
+        Ot20SameOutline(font.Outline(3), OpenTypeFont.Parse(TrueTypeSubsetter.Subset(data, [3])).Outline(3));
+    }
+
+    /// <summary>
+    /// OT 19.4 sentences 18 and 74–77: the points of the parent are numbered on through all components taken in so far, nested ones included,
+    /// and a scale applies to the component's point before the points are aligned. Glyph 4 = box (points 0–3) and glyph 3 (itself the box moved
+    /// by (200, 0), points 4–7); the third component, the box scaled by 0.5, is placed with its point 2 ((50, 25) after scaling) onto point 6
+    /// ((300, 50)): moved by (250, 25). A 16-bit point number (ARG_1_AND_2_ARE_WORDS without ARGS_ARE_XY_VALUES) reads the same.
+    /// </summary>
+    [Fact]
+    public void Ot20_PointMatching_NumbersThroughNestedComponents_ScaleBeforeAligning()
+    {
+        var nested = Ot20Composite([new Ot20Part(Ot20Xy, 1, 200, 0)]);
+        var data = Ot20Font([Ot20Box, Ot20Box, Ot20Box, nested,
+            Ot20Composite([new Ot20Part(Ot20Xy, 1, 0, 0), new Ot20Part(Ot20Xy, 3, 0, 0), new Ot20Part(0x0008, 1, 6, 2, 0x2000)]),
+            Ot20Composite([new Ot20Part(Ot20Xy, 1, 0, 0), new Ot20Part(Ot20Xy, 3, 0, 0), new Ot20Part(0x0009, 1, 6, 2, 0x2000)])]);
+        var font = OpenTypeFont.Parse(data);
+        var box = font.Outline(1);
+        var third = font.Outline(4).Points.Skip(2 * box.Points.Count).ToArray();
+        Assert.Equal(box.Points.Select((v, i) => v * 0.5f + (i % 2 == 0 ? 250 : 25)), third);
+        Ot20SameOutline(font.Outline(4), font.Outline(5));
+    }
+
+    /// <summary>
+    /// OT 19.4 sentences 28–29, 75 and OT 78.3.4 sentences 1–5: the numbers after the points of a glyph name its four phantom points — of the
+    /// component (left side bearing point (xMin − lsb, 0), advance point) and of the parent. The box (advance 300) laid with its point 5 (the
+    /// advance point (300, 0)) onto point 2 of the triangle at (900, 0) moves by (600, 0); with its point 4 (left side bearing point (0, 0)) by
+    /// (900, 0); a number beyond the phantom points leaves it without offset. The parent's point 3 + 1 = 4 after the triangle is its own
+    /// advance point (1100, 0).
+    /// </summary>
+    [Fact]
+    public void Ot20_PointMatching_PhantomPoints()
+    {
+        var triangle = Ot20Simple([[(0, 0, true), (450, 300, true), (900, 0, true)]]);
+        var data = Ot20Font([Ot20Box, triangle, Ot20Box,
+            Ot20Composite([new Ot20Part(Ot20Xy, 1, 0, 0), new Ot20Part(0x0001, 2, 2, 5)]),
+            Ot20Composite([new Ot20Part(Ot20Xy, 1, 0, 0), new Ot20Part(0x0001, 2, 2, 4)]),
+            Ot20Composite([new Ot20Part(Ot20Xy, 1, 0, 0), new Ot20Part(0x0001, 2, 2, 9)]),
+            Ot20Composite([new Ot20Part(Ot20Xy, 1, 0, 0), new Ot20Part(0x0001, 2, 4, 0)])],
+            advances: [600, 1000, 300, 1100, 1100, 1100, 1100]);
+        var font = OpenTypeFont.Parse(data);
+        float[] Second(int g) => [.. font.Outline(g).Points.Skip(font.Outline(1).Points.Count)];
+        Assert.Equal(Ot20Moved(font.Outline(2), 600, 0), Second(3));
+        Assert.Equal(Ot20Moved(font.Outline(2), 900, 0), Second(4));
+        Assert.Equal(font.Outline(2).Points, Second(5));
+        Assert.Equal(Ot20Moved(font.Outline(2), 1100, 0), Second(6));
     }
 
     /// <summary>
@@ -1016,15 +1068,28 @@ public sealed partial class M7NormTests
     }
 
     /// <summary>
-    /// OT 19.4 sentences 56–57 and 97–101 (open question 17: USE_MY_METRICS): with 0x0200 the composite takes advance and side bearings of that
-    /// component. Today PDF-Knead does not evaluate the bit: a composite whose component (advance 300) carries 0x0200 and whose own hmtx entry
-    /// is 500 has the advance 500 (after the norm 300). Test of the present behaviour until the question is decided.
+    /// OT 19.4 sentences 56–57 and 97–101 with OT 25 sentences 5 and 15: with USE_MY_METRICS (0x0200) the composite takes the side bearings of
+    /// that component — its origin: with the component's side bearing −300 (xMin 0) the composite is drawn 300 further left, as the three
+    /// reference readers draw it (measured, probe p25h); the component's offset does not move the origin. The advance for layout stays the one of
+    /// hmtx, which must be used for advance widths: a composite whose component (advance 300) carries 0x0200 and whose own hmtx entry is 500 has
+    /// the advance 500, also as a component of a further composite (700); two of the three reference readers take hmtx where a PDF gives no width
+    /// (probes u1–u3), the shaping library too (Nirmala UI). Before, the component's advance (300) counted (docs/FEHLERGEDAECHTNIS.md, No. 1163,
+    /// No. 1179).
     /// </summary>
     [Fact]
-    public void Ot20_UseMyMetrics_TodayTheAdvanceOfTheCompositeItself()
+    public void Ot20_UseMyMetrics_OriginFromTheComponent_AdvanceFromHmtx()
     {
-        var font = OpenTypeFont.Parse(Ot20Font([Ot20Box, Ot20Box, Ot20Composite([new Ot20Part(Ot20Xy | 0x0200, 1, 0, 0)])], advances: [600, 300, 500]));
+        var font = OpenTypeFont.Parse(Ot20Font([Ot20Box, Ot20Box, Ot20Composite([new Ot20Part(Ot20Xy | 0x0200, 1, 0, 0)]),
+            Ot20Composite([new Ot20Part(Ot20Xy | 0x0200, 2, 0, 0)]), Ot20Composite([new Ot20Part(Ot20Xy, 1, 0, 0)])], advances: [600, 300, 500, 700, 800]));
         Assert.Equal(500, font.AdvanceWidth(2));
+        Assert.Equal(700, font.AdvanceWidth(3));
+        Assert.Equal(800, font.AdvanceWidth(4));
+
+        Ot20Part[] parts = [new Ot20Part(Ot20Xy, 1, 0, 0), new Ot20Part(Ot20Xy | 0x0200, 2, 500, 0)];
+        var shifted = OpenTypeFont.Parse(Ot20Font([Ot20Box, Ot20Box, Ot20Box, Ot20Composite(parts)], advances: [600, 600, 300, 1100], bearings: [0, 0, -300, 0]));
+        var plain = OpenTypeFont.Parse(Ot20Font([Ot20Box, Ot20Box, Ot20Box, Ot20Composite(parts)], advances: [600, 600, 300, 1100]));
+        Assert.Equal(new RectD(0, 0, 600, 50), plain.Outline(3).Bounds);
+        Assert.Equal(new RectD(-300, 0, 300, 50), shifted.Outline(3).Bounds);
     }
 
     /// <summary>
@@ -1045,14 +1110,15 @@ public sealed partial class M7NormTests
     }
 
     /// <summary>
-    /// OT 19.4 sentence 107 (open question 17: both offset flags): with 0x0800 and 0x1000 together the flags are invalid and the rasterizer is
-    /// to take its default (unscaled: offset 200). Today PDF-Knead scales (offset 100). Test of the present behaviour until the question is decided.
+    /// OT 19.4 sentence 107 (special rule, measured): with 0x0800 and 0x1000 together the flags are invalid and the rasterizer should take its
+    /// default (unscaled: offset 200). All three reference readers scale the offset then (probes p17d, docs/FEHLERGEDAECHTNIS.md, No. 1163), and
+    /// so does PDF-Knead: offset 100, as with 0x0800 alone.
     /// </summary>
     [Fact]
-    public void Ot20_BothOffsetFlags_TodayScaled()
+    public void Ot20_BothOffsetFlags_ScaledAsTheReferenceReaders()
     {
         var font = OpenTypeFont.Parse(Ot20Font([Ot20Box, Ot20Box, Ot20Composite([new Ot20Part(Ot20Xy | 0x0008 | 0x1800, 1, 200, 0, 0x2000)])]));
-        Assert.Equal(100, font.Outline(2).Bounds.Left);          // after the norm: 200
+        Assert.Equal(100, font.Outline(2).Bounds.Left);
     }
 
     /// <summary>OT 19.4 sentence 66: the component flag bits 4, 13, 14 and 15 are reserved (0). A component with bits 4 and 15 set reads as without.</summary>
@@ -1132,8 +1198,8 @@ public sealed partial class M7NormTests
     [Fact]
     public void Ot20_LamAlefWithFatha_MarkAttached()
     {
-        var shaped = TextShaper.For(EmbeddedFonts.ArabicOpenType("NotoSansArabic-Regular.ttf")).Shape("لاَ");
-        var fatha = Assert.Single(shaped, g => g.Text == "َ");
+        var shaped = TextShaper.For(EmbeddedFonts.ArabicOpenType("NotoSansArabic-Regular.ttf")).Shape("لا\u064E");
+        var fatha = Assert.Single(shaped, g => g.Text == "\u064E");
         Assert.True(fatha.AttachBack >= 1);
         Assert.Equal(0, fatha.XAdvance);
         Assert.NotEqual(0, fatha.YOffset);
@@ -1141,12 +1207,12 @@ public sealed partial class M7NormTests
 
     /// <summary>
     /// OT 20.1 sentence 52: mark-to-mark attachment (a tone mark over a vowel mark). Liberation Sans with „a“, U+0302 and U+0301: the second
-    /// mark is attached to the first (its base one glyph back) and stands above it.
+    /// mark is attached to the first (its base one glyph back) and stands above it (its cmap without the composed letters, No. 1197).
     /// </summary>
     [Fact]
     public void Ot20_SecondMark_AttachedToTheFirst()
     {
-        var shaped = TextShaper.For(Ot20Lib).Shape("ấ");
+        var shaped = TextShaper.For(OpenTypeFont.Parse(LiberationWithoutComposites)).Shape("a\u0302\u0301");
         Assert.Equal(1, shaped[1].AttachBack);
         Assert.Equal(1, shaped[2].AttachBack);
         Assert.True(shaped[2].YOffset > shaped[1].YOffset, $"{shaped[2].YOffset} über {shaped[1].YOffset}");
@@ -1212,11 +1278,11 @@ public sealed partial class M7NormTests
     [Fact]
     public void Ot20_AnchorFormat2_CoordinatesTaken()
     {
-        var acute = Ot20G('́');
+        var acute = Ot20G('\u0301');
         var anchor2 = Ot20Raw(b => b.U16(2).U16(300).U16(700).U16(0));
         var shaper = Ot20Shaper(Ot20Kern(Ot20Lookup(4, Ot20MarkAttach([(acute, 0, Ot20Anchor(0, 0))], [(Ot20G('a'), [anchor2])], 1))),
             Ot20Gdef(new Dictionary<int, int> { [acute] = 3 }));
-        var shaped = shaper.Shape("á");
+        var shaped = shaper.Shape("a\u0301");
         Assert.Equal(300 - Ot20Adv('a'), shaped[1].XOffset);
         Assert.Equal(700, shaped[1].YOffset);
         Assert.NotEqual((300f, 700f), (Ot20Lib.Outline(Ot20G('a')).Points[0], Ot20Lib.Outline(Ot20G('a')).Points[1]));
@@ -1321,10 +1387,10 @@ public sealed partial class M7NormTests
         var a = Ot20G('A');
         var twice = Ot20Layout([("kern", [0, 1])], [Ot20Lookup(1, Ot20Single1([a], 4, 10)), Ot20Lookup(1, Ot20Single1([a], 4, 5))]);
         Assert.Equal(Ot20Adv('A') + 15, Ot20Shaper(twice).Shape("A")[0].XAdvance);
-        var acute = Ot20G('́');
+        var acute = Ot20G('\u0301');
         var marked = Ot20Layout([("kern", [0, 1])], [Ot20Lookup(1, Ot20Single1([acute], 1, 7)),
             Ot20Lookup(4, Ot20MarkAttach([(acute, 0, Ot20Anchor(0, 0))], [(Ot20G('a'), [Ot20Anchor(500, 600)])], 1))]);
-        var shaped = Ot20Shaper(marked, Ot20Gdef(new Dictionary<int, int> { [acute] = 3 })).Shape("á");
+        var shaped = Ot20Shaper(marked, Ot20Gdef(new Dictionary<int, int> { [acute] = 3 })).Shape("a\u0301");
         Assert.Equal(500 - Ot20Adv('a'), shaped[1].XOffset);
         Assert.Equal(600, shaped[1].YOffset);
     }

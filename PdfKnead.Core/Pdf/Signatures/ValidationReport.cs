@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Net;
 using System.Text;
 using PdfKnead.Core.Localization;
+using PdfKnead.Core.Security;
 
 namespace PdfKnead.Core.Pdf.Signatures;
 
@@ -45,14 +46,16 @@ public static class ValidationReport
         foreach (var (label, value) in Constraints(version)) text.AppendLine($"  {label}: {value}");
         text.AppendLine();
         text.AppendLine(Footer());
-        return text.ToString();
+        // the names from the file (field, signer, subject, issuer, reason, place, authority) with their directional formatting characters
+        // shown — the report's own texts have none (Unicode 9, UTR #36; docs/FEHLERGEDAECHTNIS.md, No. 1217)
+        return DisplayNames.Safe(text.ToString());
     }
 
     /// <summary>The report as a self-contained HTML page (no scripts, no outside resources).</summary>
     /// <inheritdoc cref="ToText" path="/param"/>
     public static string ToHtml(IReadOnlyList<SignatureCheck> checks, string fileName, string version, DateTimeOffset checkedAt)
     {
-        static string E(string s) => WebUtility.HtmlEncode(s);
+        static string E(string s) => WebUtility.HtmlEncode(DisplayNames.Safe(s));
         static void Table(StringBuilder html, IEnumerable<(string Label, string Value)> lines)
         {
             html.AppendLine("<table>");

@@ -184,7 +184,7 @@ public sealed class DocumentViewer : Grid
         var h = height * g.Scale;
         var size = (_liveFontSize ?? element.FontSize) * g.Scale;
         _editor.FontSize = Math.Max(1, size);
-        _editor.LineHeight = size * ElementAppearance.LineSpacing;
+        _editor.LineHeight = size * ElementAppearance.LineStep(element, ElementFace.For(element.Font));   // as the appearance spaces the lines (No. 1211)
         var pad = ElementAppearance.Padding * g.Scale;
         _editor.Padding = new Thickness(pad - 1, pad - 1, pad - 1, 0);   // 1 = border
         _editor.Width = w;

@@ -149,8 +149,11 @@ public sealed record DashPattern(float[] Lengths, float Phase)
 /// <param name="Bounds">Union of the bounds of its entries in page space; its layer is made this large.</param>
 /// <param name="InnerBlend">A non-isolated group composited with Normal and with a blend mode inside: its layer starts with what lies
 /// beneath it, the blending inside mixes with that backdrop (ISO 32000-2, 11.4.4, 11.4.5, 11.4.8; docs/FEHLERGEDAECHTNIS.md, No. 567).</param>
+/// <param name="OverprintOnly">The knockout group of a text object kept only because its entries overprint: without the simulation of
+/// overprinting it changes nothing and is drawn as no group — its glyphs then look the same however the text objects are cut
+/// (docs/FEHLERGEDAECHTNIS.md, No. 1257).</param>
 public readonly record struct GroupNode(int Start, int End, int Parent, byte Alpha, byte BlendMode, bool Isolated, bool Knockout, int Mask,
-    bool NeedsLayer, RectD Bounds = default, bool InnerBlend = false);
+    bool NeedsLayer, RectD Bounds = default, bool InnerBlend = false, bool OverprintOnly = false);
 
 /// <summary>
 /// Soft mask (11.6.5.2): its content (group /G) as a display list of its own in mask space. Luminosity: the luminosity over the
@@ -218,8 +221,32 @@ public sealed record ImageSource(PdfStream? Stream, InlineImage? Inline, PdfDict
 /// <param name="Size">Font size in page space (for line and word spacing).</param>
 /// <param name="Visible">False for invisible text (text rendering modes 3 and 7, for example an OCR layer).</param>
 /// <param name="Vertical">Vertical writing: the line runs from top to bottom (edge top → bottom).</param>
+/// <param name="Alternate">A second reading that a reference reader shows instead of <paramref name="Text"/> (<see cref="Fonts.PdfGlyph.AlternateText"/>):
+/// found by the search and „Suchen und schwärzen“ as well (<see cref="Text.PageText.Alternate"/>); null for almost every glyph.</param>
 public readonly record struct TextGlyph(string Text, float X0, float Y0, float X1, float Y1, float X2, float Y2, float X3, float Y3, float Size, bool Visible,
-    bool Vertical = false);
+    bool Vertical = false, string? Alternate = null)
+{
+    // Both readings in one field: the text, or for the rare glyph with a second reading an object with both — so the glyph stays 48 bytes
+    // (a field of its own would add 8 bytes to every character of every page; docs/FEHLERGEDAECHTNIS.md, No. 1235)
+    private readonly object _readings = Alternate is { Length: > 0 } ? new Readings(Text, Alternate) : Text;
+
+    /// <summary>The Unicode text of the glyph.</summary>
+    public string Text
+    {
+        get => _readings is Readings both ? both.Text : (string)_readings;
+        init => _readings = _readings is Readings both ? new Readings(value, both.Alternate) : value;
+    }
+
+    /// <summary>The second reading, or null (<see cref="Fonts.PdfGlyph.AlternateText"/>).</summary>
+    public string? Alternate
+    {
+        get => (_readings as Readings)?.Alternate;
+        init => _readings = value is { Length: > 0 } ? new Readings(Text, value) : Text;
+    }
+
+    /// <summary>The text and the second reading of a glyph that has one.</summary>
+    private sealed record Readings(string Text, string Alternate);
+}
 
 /// <summary>
 /// The entries of an annotation with the NoZoom flag (ISO 32000-2, 12.5.3, Table 167): on screen they keep the size they have at 100 %,

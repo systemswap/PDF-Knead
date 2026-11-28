@@ -356,7 +356,7 @@ public sealed partial class M7NormTests
 
     /// <summary>
     /// TN 5177, 4.4 sentences 1–9 and Appendix A: abs, add, sub, div, neg, mul, sqrt, drop, exch and dup compute on the stack; a chain of
-    /// "dup mul" stays finite. (random, index, roll and the conditional operators are not tested: open question of the user.)
+    /// "dup mul" stays finite. (random, index, roll and the conditional operators: the tests below.)
     /// </summary>
     [Fact]
     public void T201_ArithmeticOperators_ComputeOnTheStack()
@@ -373,6 +373,66 @@ public sealed partial class M7NormTests
         for (var i = 0; i < 12; i++) chain.AddRange(["dup", "mul"]);
         var bounds = CffFont.Parse(Cff01Glyphs([Cff01Cs([.. chain, 0, "rmoveto", 1, 0, "rlineto", "endchar"])])).Outline(1).Bounds;
         Assert.True(double.IsFinite(bounds.Left) && double.IsFinite(bounds.Right) && bounds.Right <= 32769, $"{bounds.Left} {bounds.Right}");
+    }
+
+    /// <summary>
+    /// TN 5177, 4.6 sentences 1–2 and Appendix A: and, or, not and eq leave 1 or 0; ifelse leaves s1 when v1 ≤ v2, otherwise s2 — "10 20 1 2
+    /// ifelse 9 rmoveto" begins at (10, 9), as the three reference readers draw it (measured, probes p21a, p21b, p21e–g: docs/FEHLERGEDAECHTNIS.md,
+    /// No. 1163); before the operators cleared the stack and moved the outline. Flattening still refuses them.
+    /// </summary>
+    [Fact]
+    public void T201_ConditionalOperators_LeaveOneOrZero_IfelseChooses()
+    {
+        (object[] Code, string Start)[] cases =
+        [
+            ([1, 0, "and", 9], "M 0 9"), ([2, 3, "and", 9], "M 1 9"), ([0, 0, "or", 9], "M 0 9"), ([0, 4, "or", 9], "M 1 9"),
+            ([0, "not", 9], "M 1 9"), ([7, "not", 9], "M 0 9"), ([5, 5, "eq", 9], "M 1 9"), ([5, 6, "eq", 9], "M 0 9"),
+            ([10, 20, 1, 2, "ifelse", 9], "M 10 9"), ([10, 20, 2, 2, "ifelse", 9], "M 10 9"), ([10, 20, 3, 2, "ifelse", 9], "M 20 9"),
+        ];
+        foreach (var (code, start) in cases)
+            Assert.StartsWith(start + " | L", T201Path(Cff01Cs([.. code, "rmoveto", 1, 0, "rlineto", "endchar"])));
+        Assert.Throws<FontFormatException>(() => T201Flattened(Cff01Cs(10, 20, 1, 2, "ifelse", 9, "rmoveto", 1, 0, "rlineto", "endchar")));
+    }
+
+    /// <summary>
+    /// TN 5177, 4.4 sentences 5–9: index copies element i below it (0 the topmost; a negative i the topmost), roll turns the N elements below
+    /// N and J by J places, positive upwards — "1 2 3 3 1 roll" gives 3 1 2 — as the three reference readers draw it (probes p21c, p21d).
+    /// Undefined cases stay harmless: an i beyond the stack copies the lowest element, an N larger than the stack or negative leaves the
+    /// elements as they are.
+    /// </summary>
+    [Fact]
+    public void T201_IndexAndRoll_MoveElementsOfTheStack()
+    {
+        (object[] Code, string Start)[] cases =
+        [
+            ([10, 20, 1, "index", "add"], "M 10 30"), ([10, 20, 0, "index", "add"], "M 10 40"), ([10, 20, -1, "index", "add"], "M 10 40"),
+            ([10, 20, 5, "index", "add"], "M 10 30"),
+            ([1, 2, 3, 3, 1, "roll", "drop"], "M 3 1"), ([1, 2, 3, 3, -1, "roll", "drop"], "M 2 3"), ([1, 2, 3, 3, 4, "roll", "drop"], "M 3 1"),
+            ([1, 2, 3, 3, 0, "roll", "drop"], "M 1 2"), ([1, 2, 5, 1, "roll"], "M 1 2"), ([1, 2, -1, 1, "roll"], "M 1 2"),
+        ];
+        foreach (var (code, start) in cases)
+            Assert.StartsWith(start + " | L", T201Path(Cff01Cs([.. code, "rmoveto", 1, 0, "rlineto", "endchar"])));
+    }
+
+    /// <summary>
+    /// TN 5177, 4.4 sentences 1–4: random leaves a number greater than 0 and at most 1. PDF-Knead starts it from a fixed value for every glyph
+    /// (deliberate deviation: a glyph always has the same outline in the display, the text boxes and scrubbing; the reference readers draw such a
+    /// glyph at a different place each, probe p21h) — two glyphs with the same charstring have the same outline, and a second random in one
+    /// glyph gives another number.
+    /// </summary>
+    [Fact]
+    public void T201_Random_InZeroToOne_FixedForEveryGlyph()
+    {
+        var once = Cff01Cs("random", 9, "rmoveto", 1, 0, "rlineto", "endchar");
+        var twice = Cff01Cs("random", "random", "rmoveto", 1, 0, "rlineto", "endchar");
+        var font = CffFont.Parse(Cff01Glyphs([once, once, twice]));
+        var x = font.Outline(1).Points[0];
+        Assert.InRange(x, float.Epsilon, 1f);
+        Assert.Equal(9, font.Outline(1).Points[1]);
+        Assert.Equal(font.Outline(1).Points, font.Outline(2).Points);
+        Assert.Equal(x, font.Outline(3).Points[0]);
+        Assert.InRange(font.Outline(3).Points[1], float.Epsilon, 1f);
+        Assert.NotEqual(x, font.Outline(3).Points[1]);
     }
 
     /// <summary>

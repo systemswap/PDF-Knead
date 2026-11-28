@@ -68,6 +68,9 @@ public static class WordList
     {
         var terms = new List<string>();
         var seen = new HashSet<string>(StringComparer.Ordinal);
+        // every leading ZWNBSP (a byte order mark written twice, or kept by a decoder): before only one was taken away and the first term
+        // began with an invisible character (Unicode 23.8.1; docs/FEHLERGEDAECHTNIS.md, No. 1185)
+        text = text.TrimStart('\uFEFF');
         foreach (var line in text.ReplaceLineEndings("\n").Split('\n'))
         {
             foreach (var cell in line.Split(';', '\t'))

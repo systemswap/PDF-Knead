@@ -30,7 +30,7 @@ public partial class MainViewModel
             again
                 ? Tr.T("Auch dieses Zertifikat öffnet „{0}“ nicht. Eine andere Zertifikatsdatei wählen?", name)
                 : Tr.T("„{0}“ ist für bestimmte Empfänger verschlüsselt ({1}). In Ihrem Zertifikatsspeicher fand PDF-Knead kein passendes Zertifikat. Eine Zertifikatsdatei (.p12, .pfx) mit privatem Schlüssel wählen?",
-                    name, refusal.Filter),
+                    name, Core.Security.DisplayNames.Safe(refusal.Filter)),
             Tr.T("Zertifikatsdatei wählen …"), null);
         if (answer != 1 || await PickCertificateFile(name) is not { } file) return null;
         var wrong = false;

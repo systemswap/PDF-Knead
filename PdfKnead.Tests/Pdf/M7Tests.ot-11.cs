@@ -428,9 +428,9 @@ public sealed partial class M7NormTests
 
     /// <summary>
     /// OT 8.12 sentence 9 (new text, question 1): a CFF2 font used for new text draws its glyphs („M“ from the CFF2 table), and saving that text
-    /// writes a CID-keyed CFF of the default instance as FontFile3 /CIDFontType0C under a CIDFontType0 (ISO 32000-2, 9.9, Table 124 knows no
-    /// CFF2) whose CID „M“ draws the same outline — before the TrueType subset refused it and saving broke off (finding B74); importing it as a
-    /// signature font works.
+    /// writes a CID-keyed CFF of the default instance — in an OpenType file with the font's OS/2 (FontFile3 /OpenType, since No. 1168) — under a
+    /// CIDFontType0 (ISO 32000-2, 9.9, Table 124 knows no CFF2) whose CID „M“ draws the same outline — before the TrueType subset refused it and
+    /// saving broke off (finding B74); importing it as a signature font works.
     /// </summary>
     [Fact]
     public void Cff2Font_ForNewText_DrawnAndSavedAsCff()
@@ -445,8 +445,9 @@ public sealed partial class M7NormTests
         var cidFont = (PdfKnead.Core.Pdf.Objects.PdfDictionary)saved.GetArray(PdfKnead.Core.Pdf.Objects.PdfName.Get("DescendantFonts"))!.Get(0)!;
         Assert.Equal("CIDFontType0", cidFont.GetName(PdfKnead.Core.Pdf.Objects.PdfName.Subtype)!.Value);
         var fontFile = cidFont.GetDictionary(PdfKnead.Core.Pdf.Objects.PdfName.Get("FontDescriptor"))!.GetStream(PdfKnead.Core.Pdf.Objects.PdfName.Get("FontFile3"))!;
-        Assert.Equal("CIDFontType0C", fontFile.Dictionary.GetName(PdfKnead.Core.Pdf.Objects.PdfName.Subtype)!.Value);
-        var cff = CffFont.Parse(fontFile.RawData!);
+        // in an OpenType file with the OS/2 of the font since No. 1168 (question 29)
+        Assert.Equal("OpenType", fontFile.Dictionary.GetName(PdfKnead.Core.Pdf.Objects.PdfName.Subtype)!.Value);
+        var cff = CffFont.Parse(Iso03CffProgram(fontFile));
         Assert.True(cff.IsCidKeyed);
         SameOutlineOt08(face.Font.Outline(m), cff.Outline(cff.GlyphByCid(m)), "M gespeichert");
 
@@ -468,18 +469,20 @@ public sealed partial class M7NormTests
     }
 
     /// <summary>
-    /// OT 8.12 sentences 10–11 (reader): a CFF2 font with COLR/CPAL (glyph 1 one red layer) and fvar — colour layers are not read for it
-    /// (ColorGlyphs.For gives null), glyph 1 draws its outline from the CFF2 table.
+    /// OT 8.12 sentences 10–11 (reader): a CFF2 font with COLR version 0 / CPAL (glyph 1 one red layer) and fvar — the layer takes its shape from
+    /// the CFF2 table (the default instance): for the program's own text and signatures glyph 1 is a red colour glyph (since No. 1168, question 3;
+    /// before ColorGlyphs.For gave null), and glyph 1 draws its outline from the CFF2 table.
     /// </summary>
     [Fact]
-    public void Cff2FontWithColr_NoColourGlyphs()
+    public void Cff2FontWithColr_LayersFromTheCff2Outlines()
     {
         byte[] colr = [.. BeOt11((0, 2), (1, 2), (14, 4), (20, 4), (1, 2)), .. BeOt11((1, 2), (0, 2), (1, 2)), .. BeOt11((1, 2), (0, 2))];
         byte[] cpal = [.. BeOt11((0, 2), (1, 2), (1, 2), (1, 2), (14, 4), (0, 2)), 0, 0, 0xFF, 0xFF];
         var font = OpenTypeFont.Parse(Cff2FontOt08(ExampleCff2Ot11(), 2,
             extra: new Dictionary<string, byte[]> { ["COLR"] = colr, ["CPAL"] = cpal, ["fvar"] = FvarOt08() }));
         Assert.True(font.HasTable("COLR"));
-        Assert.Null(ColorGlyphs.For(font));
+        var pixels = ColorGlyphs.For(font)!.Glyph(1)!.Value.Image.Pixels;
+        Assert.Contains(Enumerable.Range(0, pixels.Length / 4), k => pixels[k * 4 + 3] == 255 && pixels[k * 4] == 255 && pixels[k * 4 + 1] == 0);
         Assert.False(font.Outline(1).IsEmpty);
     }
 
@@ -577,20 +580,21 @@ public sealed partial class M7NormTests
     }
 
     /// <summary>
-    /// OT 8.12.5 sentence 2 (writer, today): VVAR is not read, and scrubbing a TrueType font leaves it byte for byte (it is not among the tables
-    /// left out — finding S9 d, question 2).
+    /// OT 8.12.5 sentence 2 (writer): VVAR is not read, and scrubbing a TrueType font leaves it out together with fvar — the scrubbed font is the
+    /// static default instance, vhea and vmtx stay (FG 1159; before VVAR stayed byte for byte with the deltas of the glyphs emptied, finding S9 d).
     /// </summary>
     [Fact]
-    public void Scrub_LeavesVvarAsItWas()
+    public void Scrub_LeavesOutVvar()
     {
         var plain = OpenTypeFont.Parse(LiberationOt11);
         var a = plain.GlyphForUnicode('A');
-        var vvar = HvarOt11(plain.GlyphCount, a);
         var tables = VerticalOt11(plain.GlyphCount);
         tables["fvar"] = FvarOt08();
-        tables["VVAR"] = vvar;
+        tables["VVAR"] = HvarOt11(plain.GlyphCount, a);
         var scrubbed = OpenTypeFont.Parse(TrueTypeSubsetter.Scrub(ColorFontBuilder.WithTables(LiberationOt11, tables), [0, a]));
-        Assert.Equal(vvar, scrubbed.TableData("VVAR").ToArray());
+        Assert.False(scrubbed.HasTable("VVAR"));
+        Assert.False(scrubbed.HasTable("fvar"));
+        Assert.True(scrubbed.HasTable("vhea") && scrubbed.HasTable("vmtx"));
     }
 
     // ------------------------------------------------------------ cmap 9.1
@@ -703,7 +707,7 @@ public sealed partial class M7NormTests
         }));
         Assert.Equal(new (int, int)[] { (0, 5), (3, 2), (3, 7), (3, 10), (3, 11) }, font.CmapSubtables);
         Assert.Equal(0, font.Lookup(0, 5, 0x2764));
-        Assert.Equal(5, PdfKnead.Core.Fonts.Layout.TextShaper.For(font).Shape("❤️").Single().Glyph);
+        Assert.Equal(5, PdfKnead.Core.Fonts.Layout.TextShaper.For(font).Shape("❤\uFE0F").Single().Glyph);
         Assert.Equal(9, font.Lookup(3, 2, 0x8140));
         Assert.Equal(6, font.Lookup(3, 7, 0x1F601));
         Assert.Equal(6, font.Lookup(3, 10, 0x1F601));

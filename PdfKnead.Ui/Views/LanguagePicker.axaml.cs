@@ -69,7 +69,7 @@ public sealed partial class LanguagePicker : UserControl
             ("uk", "Українська", Stripes("#0057B7", "#FFD700")),
             ("ar", "العربية", Flag.None),
             ("he", "עברית", Flag.None),
-            ("hi", "हिन्दी", Flag.None),
+            ("hi", "ह\u093Fन\u094Dद\u0940", Flag.None),
             ("zh", "中文", Flag.None),
             ("ja", "日本語", Flag.None),
             ("ko", "한국어", Flag.None),

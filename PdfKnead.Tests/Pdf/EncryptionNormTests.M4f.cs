@@ -52,7 +52,7 @@ public sealed partial class EncryptionNormTests
     /// U+2168 normalised (to „a“ and „IX“), U+0007 prohibited, Arabic followed by a digit refused by the bidirectional check.
     /// </summary>
     [Theory]
-    [InlineData("I­X", "IX", null)]
+    [InlineData("I\u00ADX", "IX", null)]
     [InlineData("user", "user", null)]
     [InlineData("USER", "USER", null)]
     [InlineData("ª", "a", null)]
@@ -78,15 +78,15 @@ public sealed partial class EncryptionNormTests
     [Theory]
     [InlineData("Ⅸ", "IX")]
     [InlineData("ª", "a")]
-    [InlineData("é", "é")]
+    [InlineData("e\u0301", "é")]
     [InlineData("é", "é")]
     [InlineData("ﬁ", "fi")]
     [InlineData("①", "1")]
     [InlineData("Ａ", "A")]
     [InlineData("㎒", "MHz")]
     [InlineData("Å", "Å")]
-    [InlineData("ẛ̣", "ṩ")]
-    [InlineData("e­́", "é")]
+    [InlineData("ẛ\u0323", "ṩ")]
+    [InlineData("e\u00AD\u0301", "é")]
     public void SaslPrep_Nfkc_AfterTheMapping(string input, string expected) =>
         Assert.Equal(Encoding.UTF8.GetBytes(expected), StandardSecurityHandler.PrepareAesPassword(input));
 
@@ -465,11 +465,11 @@ public sealed partial class EncryptionNormTests
     /// on the normalised string (U+2122 of class ON becomes „TM“ of class L, between Hebrew letters refused).
     /// </summary>
     [Theory]
-    [InlineData("a‌b", null)]
-    [InlineData("a‍b", null)]
-    [InlineData("a⁠b", null)]
-    [InlineData("à", null)]
-    [InlineData("á", null)]
+    [InlineData("a\u200Cb", null)]
+    [InlineData("a\u200Db", null)]
+    [InlineData("a\u2060b", null)]
+    [InlineData("a\u0340", null)]
+    [InlineData("a\u0341", null)]
     [InlineData("א™א", M4fDirections)]
     public void SaslPrep_Order_MapNormaliseProhibitBidi(string password, string? reason)
     {

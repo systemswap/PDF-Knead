@@ -130,7 +130,7 @@ public sealed partial class M7NormTests
         return ([.. eblc], [.. ebdt]);
     }
 
-    /// <summary>Today's behaviour with bitmap tables: the glyphs from glyf, no colour glyphs; subsets and scrubbed fonts without EBDT, EBLC and EBSC.</summary>
+    /// <summary>Bitmap tables beside outlines: the glyphs from glyf, no colour glyphs; subsets and scrubbed fonts without EBDT, EBLC and EBSC.</summary>
     private static void Ot17BitmapsIgnored((byte[] Eblc, byte[] Ebdt) bitmaps, bool withEbsc = false)
     {
         var tables = new Dictionary<string, byte[]?> { ["EBLC"] = bitmaps.Eblc, ["EBDT"] = bitmaps.Ebdt };
@@ -199,37 +199,50 @@ public sealed partial class M7NormTests
 
     /// <summary>
     /// OT 11 sentences 1–2, 3–6, 7–13, 14–19; 11.1 sentences 1–2; 11.1.1 sentences 1–9; 11.1.2 sentences 1–15; 11.2 sentences 1–3, 4–14;
-    /// 11.3 sentences 1–10; 11.4 sentences 1–5; 11.5 sentences 1–6 (today's behaviour, question 3): COLR version 0 for „A“ with CPAL tables —
-    /// two palettes of three entries; one entry of the bytes 00 00 FF FF; two palettes over four overlapping colour records; a palette whose
-    /// entries run past the colour records (too short); version 2; version 0 with its colour records at byte 14; version 1 with all three
-    /// offsets 0; colorRecordIndices [0, 2] and a layer naming entry 1; a colour record 10 20 30 FF; version 1 with paletteTypes [2, 1]; with
-    /// paletteLabels [256] and a name 256; with paletteEntryLabels [257, 0xFFFF] and a name 257 — each parses without an exception, no colour
-    /// glyphs, the glyphs from their outlines, the family name unchanged.
+    /// 11.3 sentences 1–10; 11.4 sentences 1–5; 11.5 sentences 1–6 (question 3: read for the program's own text and signatures): COLR version 0
+    /// for „A“ (one layer „A“) with CPAL tables — two palettes of three entries: entry 2 of the default palette (blue); one entry of the bytes
+    /// 00 00 FF FF: red; two palettes over four overlapping colour records: blue; a palette whose entries run past the colour records (too short):
+    /// no colour glyphs; version 2: none (an unknown version); version 0 with its colour records at byte 14: blue; version 1 with all three
+    /// offsets 0: blue; colorRecordIndices [0, 2] and a layer naming entry 1: green; a colour record 10 20 30 FF (blue, green, red, alpha): red
+    /// 0x30, green 0x20, blue 0x10; version 1 with paletteTypes [2, 1], with paletteLabels [256] and a name 256, with paletteEntryLabels
+    /// [257, 0xFFFF] and a name 257: the default palette, red, the labels without effect — each parses without an exception, the glyphs keep
+    /// their outlines, the family name stays.
     /// </summary>
     [Fact]
-    public void Ot17_CpalVariants_NotRead_GlyphsFromOutlines()
+    public void Ot17_CpalVariants_DefaultPaletteRead_GlyphsKeepTheirOutlines()
     {
+        static (int, int, int)? Colour(OpenTypeFont font)
+        {
+            if (ColorGlyphs.For(font)?.Glyph(Ot14Gid('A')) is not { } image) return null;
+            var p = image.Image.Pixels;
+            for (var k = 0; k < p.Length; k += 4)
+                if (p[k + 3] == 255) return (p[k], p[k + 1], p[k + 2]);
+            return null;
+        }
+        (int, int, int) red = (255, 0, 0), green = (0, 255, 0), blue = (0, 0, 255);
         var colours = new[] { Ot14RedColour, Ot14GreenColour, Ot14BlueColour, Ot14GreyColour, Ot14RedColour, Ot14GreenColour };
-        Ot14ColrIgnored(Ot17ColrV0(2), Ot14Cpal(3, [0, 3], colours));
+        Assert.Equal(blue, Colour(Ot14ColrIgnored(Ot17ColrV0(2), Ot14Cpal(3, [0, 3], colours))));
         var single = Ot14Cpal(1, [0], [Ot14RedColour]);
         Assert.Equal(new byte[] { 0, 0, 0xFF, 0xFF }, single[^4..]);
-        Ot14ColrIgnored(Ot17ColrV0(), single);
-        Ot14ColrIgnored(Ot17ColrV0(2), Ot14Cpal(3, [0, 1], colours[..4]));
-        Ot14ColrIgnored(Ot17ColrV0(2), Ot14Cpal(3, [1], colours[..2]));
-        Ot14ColrIgnored(Ot17ColrV0(), Ot14Cpal(1, [0], [Ot14RedColour], version: 2));
+        Assert.Equal(red, Colour(Ot14ColrIgnored(Ot17ColrV0(), single)));
+        Assert.Equal(blue, Colour(Ot14ColrIgnored(Ot17ColrV0(2), Ot14Cpal(3, [0, 1], colours[..4]))));
+        Assert.Null(Colour(Ot14ColrIgnored(Ot17ColrV0(2), Ot14Cpal(3, [1], colours[..2]))));
+        Assert.Null(Colour(Ot14ColrIgnored(Ot17ColrV0(), Ot14Cpal(1, [0], [Ot14RedColour], version: 2))));
         var v0 = Ot14Cpal(2, [0], [Ot14RedColour, Ot14BlueColour]);
         Assert.Equal(new byte[] { 0, 0, 0, 2, 0, 1, 0, 2, 0, 0, 0, 14, 0, 0 }, v0[..14]);
-        Ot14ColrIgnored(Ot17ColrV0(1), v0);
-        Ot14ColrIgnored(Ot17ColrV0(1), Ot14Cpal(2, [0], [Ot14RedColour, Ot14BlueColour], version: 1));
-        Ot14ColrIgnored(Ot17ColrV0(1), Ot14Cpal(2, [0, 2], colours[..4]));
-        Ot14ColrIgnored(Ot17ColrV0(), Ot14Cpal(1, [0], [new Ot14Bgra(0x10, 0x20, 0x30, 0xFF)]));
-        Ot14ColrIgnored(Ot17ColrV0(), Ot14Cpal(1, [0, 1], colours[..2], version: 1, types: [2, 1]));
+        Assert.Equal(blue, Colour(Ot14ColrIgnored(Ot17ColrV0(1), v0)));
+        Assert.Equal(blue, Colour(Ot14ColrIgnored(Ot17ColrV0(1), Ot14Cpal(2, [0], [Ot14RedColour, Ot14BlueColour], version: 1))));
+        Assert.Equal(green, Colour(Ot14ColrIgnored(Ot17ColrV0(1), Ot14Cpal(2, [0, 2], colours[..4]))));
+        Assert.Equal((0x30, 0x20, 0x10), Colour(Ot14ColrIgnored(Ot17ColrV0(), Ot14Cpal(1, [0], [new Ot14Bgra(0x10, 0x20, 0x30, 0xFF)]))));
+        Assert.Equal(red, Colour(Ot14ColrIgnored(Ot17ColrV0(), Ot14Cpal(1, [0, 1], colours[..2], version: 1, types: [2, 1]))));
         var family = Ot14Sans.Value.FamilyName;
         var labelled = Ot14ColrIgnored(Ot17ColrV0(), Ot14Cpal(1, [0], [Ot14RedColour], version: 1, labels: [256]), more: ("name", Ot17NameWith((256, "Probe Palette"))));
         Assert.Equal(family, labelled.FamilyName);
+        Assert.Equal(red, Colour(labelled));
         labelled = Ot14ColrIgnored(Ot17ColrV0(), Ot14Cpal(2, [0], [Ot14RedColour, Ot14BlueColour], version: 1, entryLabels: [257, 0xFFFF]),
             more: ("name", Ot17NameWith((257, "Probe Eintrag"))));
         Assert.Equal(family, labelled.FamilyName);
+        Assert.Equal(red, Colour(labelled));
     }
 
     /// <summary>
@@ -280,12 +293,12 @@ public sealed partial class M7NormTests
     // ------------------------------------------------------------ 13 EBDT
 
     /// <summary>
-    /// OT 13 sentences 1–8; 13.1 sentences 1–10; 13.2.1 sentences 1–7 (today's behaviour, question 4): Liberation Sans with EBLC, EBDT (version 2.0)
-    /// and EBSC — one strike of 12 ppem, 1 bit, image format 1 for „A“ — parses without an exception, „A“ keeps its outline from glyf, no colour
-    /// glyphs; a subset and a scrubbed font have none of EBDT, EBLC and EBSC.
+    /// OT 13 sentences 1–8; 13.1 sentences 1–10; 13.2.1 sentences 1–7 (a font with outlines; the bitmaps are only the fallback for fonts without
+    /// them, FG 1169): Liberation Sans with EBLC, EBDT (version 2.0) and EBSC — one strike of 12 ppem, 1 bit, image format 1 for „A“ — parses
+    /// without an exception, „A“ keeps its outline from glyf, no colour glyphs; a subset and a scrubbed font have none of EBDT, EBLC and EBSC.
     /// </summary>
     [Fact]
-    public void Ot17_EbdtStrike_NotRead_GlyphFromGlyfAndNotInSubsets()
+    public void Ot17_EbdtStrike_FontWithGlyf_OutlineDrawnNotInSubsets()
     {
         var bitmaps = Ot17Bitmaps(12, 1, (Ot14Gid('A'), 1, Ot17GlyphData(1)));
         Assert.Equal(new byte[] { 0, 2, 0, 0 }, bitmaps.Ebdt[..4]);
@@ -294,8 +307,9 @@ public sealed partial class M7NormTests
 
     /// <summary>
     /// OT 13.2.1 sentences 1–7; 13.2.2 sentences 1–8; 13.2.5 sentences 1–8; 13.2.6 sentences 1–5; 13.2.7 sentences 1–5; 13.2.8 sentences 1–8;
-    /// 13.2.9 sentences 1–7 (today's behaviour, question 4): EBDT glyph bitmap data in the image formats 1, 2, 5 (with EBLC index format 2),
-    /// 6, 7, and 8 and 9 made of two components — „A“ is drawn from glyf, no bitmap, subsets without the bitmap tables.
+    /// 13.2.9 sentences 1–7 (a font with outlines, FG 1169): EBDT glyph bitmap data in the image formats 1, 2, 5 (with EBLC index format 2),
+    /// 6, 7, and 8 and 9 made of two components — „A“ is drawn from glyf, no bitmap, subsets without the bitmap tables (the formats drawn in a
+    /// font without outlines: Ot17_EbdtImageFormats_BitmapOnlyFont_DrawTheSameShape).
     /// </summary>
     [Theory]
     [InlineData(1)]
@@ -305,7 +319,7 @@ public sealed partial class M7NormTests
     [InlineData(7)]
     [InlineData(8)]
     [InlineData(9)]
-    public void Ot17_EbdtImageFormat_NotRead_GlyphFromGlyf(int format)
+    public void Ot17_EbdtImageFormat_FontWithGlyf_OutlineDrawn(int format)
     {
         var a = Ot14Gid('A');
         var o = Ot14Gid('O');
@@ -316,15 +330,15 @@ public sealed partial class M7NormTests
     }
 
     /// <summary>
-    /// OT 13.2 sentences 1–5 (today's behaviour, question 4): EBLC with bitDepth 8 and EBDT image format 1 — „A“ from glyf; a subset has no EBDT.
+    /// OT 13.2 sentences 1–5 (a font with outlines, FG 1169): EBLC with bitDepth 8 and EBDT image format 1 — „A“ from glyf; a subset has no EBDT.
     /// </summary>
     [Fact]
-    public void Ot17_EbdtBitDepth8_NotRead_SubsetWithoutBitmaps() =>
+    public void Ot17_EbdtBitDepth8_FontWithGlyf_SubsetWithoutBitmaps() =>
         Ot17BitmapsIgnored(Ot17Bitmaps(12, 8, (Ot14Gid('A'), 1, Ot17GlyphData(1, 8))));
 
     /// <summary>
-    /// OT 13.1 sentences 33–43 (today's behaviour, question 4): EBDT image format 8 whose component is the glyph itself — parsing and the outline
-    /// of „A“ without an exception or endless loop (the bitmaps are not read).
+    /// OT 13.1 sentences 33–43 (a font with outlines, FG 1169): EBDT image format 8 whose component is the glyph itself — parsing and the outline
+    /// of „A“ without an exception or endless loop (the bitmaps are not read beside outlines; drawn without them: Ot17_EbdtPreparedSizes_StayBounded).
     /// </summary>
     [Fact]
     public void Ot17_EbdtComponentReferringToItself_NoLoop()

@@ -24,7 +24,7 @@ public sealed class CjkFontsCollection
 
 /// <summary>
 /// Typed Chinese, Japanese and Korean characters (text editing): Noto CJK serves as the third fallback font and is saved as a
-/// small CFF subset (CIDFontType0C) instead of placeholder boxes.
+/// small CFF subset (in an OpenType file, FontFile3 /OpenType) instead of placeholder boxes.
 /// </summary>
 [Collection(CjkFontsCollection.Name)]
 public sealed class CjkTypingTests
@@ -55,11 +55,12 @@ public sealed class CjkTypingTests
             var text = PageText.Create(PageInterpreter.BuildText(saved, saved.Pages[0])).Text;
             Assert.Contains("日本語", text);
             Assert.Contains("한국어", text);
-            // The embedded subset is small (the full CFF table is 15 MB) and draws the characters
+            // The embedded subset is small (the full CFF table is 15 MB) and draws the characters; an OpenType file around the CFF subset, with
+            // the OS/2 table of the font (docs/FEHLERGEDAECHTNIS.md, No. 1168)
             var size = (int)(saved.Trailer.GetInteger(PdfName.Size) ?? 0);
             // (one per language variant: Japanese, Korean)
             var cff = Enumerable.Range(1, size - 1).Select(saved.GetObject).OfType<PdfStream>()
-                .Where(s => s.Dictionary.GetName(PdfName.Subtype)?.Value == "CIDFontType0C").ToList();
+                .Where(s => s.Dictionary.GetName(PdfName.Subtype)?.Value == "OpenType").ToList();
             Assert.Equal(2, cff.Count);
             Assert.All(cff, s => Assert.InRange(saved.GetStreamData(s).Length, 1, 200_000));
             var drawn = PageInterpreter.Build(saved, saved.Pages[0]);

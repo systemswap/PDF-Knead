@@ -142,9 +142,9 @@ public sealed class EntityRecognizerTests
     [Fact]
     public void DecomposedText_PositionsStayExact()
     {
-        var text = "Herr Jürgen Mustermann wohnt in Musterstadt.";
+        var text = "Herr Ju\u0308rgen Mustermann wohnt in Musterstadt.";
         var hit = new EntityRecognizer(Lexicon.Default!).Find(text).First(h => h.Kind == EntityKind.Person);
-        Assert.Equal("Herr Jürgen Mustermann", text.Substring(hit.Start, hit.Length));
+        Assert.Equal("Herr Ju\u0308rgen Mustermann", text.Substring(hit.Start, hit.Length));
     }
 
     [Fact]

@@ -14,6 +14,7 @@
 
     <ItemGroup>
         <InternalsVisibleTo Include="PdfKnead.Tests" />
+        <InternalsVisibleTo Include="PdfKnead.EInvoice.Tests" />   <!-- Andockstelle E-Rechnung (KONZEPT §5.24): the shared UI test session moves the per-user data folder under %TEMP% -->
         <!-- the redaction check of the command line builds pages without content (pdf-knead schwaerzpruefung) -->
         <InternalsVisibleTo Include="pdf-knead" />
         <!-- the redaction focus of the fuzzer measures what is left under a bar by its shape, as the redaction does (tools/fuzz) -->

@@ -39,7 +39,7 @@ public static class ElementStore
 
     private static readonly PdfName Art = PdfName.Get("Art"), TextKey = PdfName.Get("Text"), Schrift = PdfName.Get("Schrift"),
         Groesse = PdfName.Get("Groesse"), Farbe = PdfName.Get("Farbe"), Ausrichtung = PdfName.Get("Ausrichtung"),
-        Umbruch = PdfName.Get("Umbruch"), Drehung = PdfName.Get("Drehung"), Bild = PdfName.Get("Bild"),
+        Umbruch = PdfName.Get("Umbruch"), Drehung = PdfName.Get("Drehung"), Bild = PdfName.Get("Bild"), ZeilenhoeheSchrift = PdfName.Get("ZeilenhoeheSchrift"),
         Beschriftung = PdfName.Get("Beschriftung"), Bereiche = PdfName.Get("Bereiche"), Rect = PdfName.Get("Rect"), V = PdfName.Get("V"), T = PdfName.Get("T"),
         Annots = PdfName.Get("Annots"), Parent = PdfName.Get("Parent"), Fuer = PdfName.Get("Fuer"), FuerZustand = PdfName.Get("FuerZustand"),
         Formart = PdfName.Get("Formart"), Rand = PdfName.Get("Rand"), Fuellung = PdfName.Get("Fuellung"), Breite = PdfName.Get("Breite"),
@@ -140,6 +140,8 @@ public static class ElementStore
                     Alignment = (data.GetInteger(Ausrichtung) ?? 0) switch { 1 => ElementAlignment.Center, 2 => ElementAlignment.Right, _ => ElementAlignment.Left },
                     Multiline = data.GetBoolean(Umbruch) ?? true,
                     IsField = isField,
+                    // the mark of No. 1211: lines spaced by the line height of the font; text of earlier versions has none and keeps 1.15 times the size
+                    FontLineHeight = !isField && data.GetBoolean(ZeilenhoeheSchrift) == true,
                     FieldName = isField ? (Field(annot, T) as PdfString)?.ToText() ?? "" : "",
                     LabelFor = isField ? "" : data.GetString(Fuer)?.ToText() ?? "",
                     LabelState = isField ? "" : data.GetString(FuerZustand)?.ToText() ?? "",
@@ -373,6 +375,9 @@ public static class ElementStore
                 data.Set(Farbe, PdfInteger.Of(t.Color));
                 data.Set(Ausrichtung, PdfInteger.Of((int)t.Alignment));
                 data.Set(Umbruch, PdfBoolean.Of(t.Multiline));
+                // lines spaced by the natural line height of the font (No. 1211); without the entry 1.15 times the size, as text of earlier
+                // versions has it — so a file of an earlier version shows its text where it stood
+                if (t.FontLineHeight && !t.IsField) data.Set(ZeilenhoeheSchrift, PdfBoolean.Of(true));
                 if (t.LabelFor.Length > 0) data.Set(Fuer, new PdfString(PdfTextEncoding.Encode(t.LabelFor)));
                 if (t.LabelState.Length > 0) data.Set(FuerZustand, new PdfString(PdfTextEncoding.Encode(t.LabelState)));
                 break;

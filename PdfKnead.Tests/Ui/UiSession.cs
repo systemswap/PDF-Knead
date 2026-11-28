@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless;
@@ -8,21 +9,37 @@ using PdfKnead.Services;
 namespace PdfKnead.Tests.Ui;
 
 /// <summary>
+/// The settings file, the device key and the redaction codes of the test process lie in a folder under %TEMP% from the moment the test
+/// assembly is loaded, never in the user profile. Before, the folder was set only when the first test started the UI session: a test that read
+/// or changed <see cref="UserSettings"/> before its first <see cref="UiSession.Run(Action)"/> — run alone, or first in a run — read and wrote the
+/// settings file of the user profile, and the session then went on with those settings. With time stamps switched on there (a service with a
+/// login), saving a digital signature asked for the password in a window nobody answers: the test hung, only when run alone.
+/// </summary>
+internal static class TestProfile
+{
+    [ModuleInitializer]
+    internal static void UseTemporaryFolder()
+    {
+        var dir = Directory.CreateTempSubdirectory("pdf-knead-ui-").FullName;
+        // the whole per-user data folder first: the own certificate, trust lists, device code, window marker, update state and signature fonts
+        // lie there too (No. 1240)
+        Core.Platform.AppLocations.UserDataFolderForTests = Path.Combine(dir, "benutzerdaten");
+        UserSettings.File = Path.Combine(dir, "settings.json");
+        Device.File = Path.Combine(dir, "geraet.key");
+        Core.Pdf.Editing.RedactionCodes.Folder = Path.Combine(dir, "Schwaerzungscodes");   // never the user's own code files
+    }
+}
+
+/// <summary>
 /// Headless Avalonia session with real rendering through Skia, so that windows can be
 /// checked and saved as images. One session serves all UI tests (Avalonia can start only
 /// once per process). Settings are stored in a folder under %TEMP%, never in the
-/// user profile.
+/// user profile (<see cref="TestProfile"/>).
 /// </summary>
 public static class UiSession
 {
     private static readonly Lazy<HeadlessUnitTestSession> Session = new(() =>
-    {
-        var dir = Directory.CreateTempSubdirectory("pdf-knead-ui-").FullName;
-        UserSettings.File = Path.Combine(dir, "settings.json");
-        Device.File = Path.Combine(dir, "geraet.key");
-        Core.Pdf.Editing.RedactionCodes.Folder = Path.Combine(dir, "Schwaerzungscodes");   // never the user's own code files
-        return HeadlessUnitTestSession.StartNew(typeof(UiSession), AvaloniaTestIsolationLevel.PerAssembly);
-    });
+        HeadlessUnitTestSession.StartNew(typeof(UiSession), AvaloniaTestIsolationLevel.PerAssembly));
 
     /// <summary>Builds the Avalonia application; called by <see cref="HeadlessUnitTestSession"/> through reflection.</summary>
     /// <returns>The configured application builder.</returns>

@@ -206,14 +206,14 @@ public class BarcodeRobustnessTests
                     b.Append(random.Next(10) switch
                     {
                         0 => '\n', 1 => ';', 2 => ':', 3 => '\\', 4 => (char)random.Next(0, 32), 5 => (char)random.Next(0xD800, 0xE000),   // lone surrogates
-                        6 => '‮', 7 => '%', _ => (char)random.Next(32, 0x3000),
+                        6 => '\u202E', 7 => '%', _ => (char)random.Next(32, 0x3000),
                     });
                 var text = b.ToString();
                 foreach (var format in new[] { BarcodeFormat.Qr, BarcodeFormat.DataMatrix, BarcodeFormat.Code128 })
                 {
                     var m = BarcodeInterpreter.Interpret(format, text, gs1: t % 7 == 0);
                     Assert.All(m.Rows, r => Assert.True(r.Value.Length <= 2100));
-                    Assert.All(m.Rows, r => Assert.DoesNotContain('‮', r.Value));
+                    Assert.All(m.Rows, r => Assert.DoesNotContain('\u202E', r.Value));
                     if (m.Action is { } a)
                         Assert.True(a.Target.StartsWith("http://", StringComparison.Ordinal) || a.Target.StartsWith("https://", StringComparison.Ordinal)
                                     || a.Target.StartsWith("mailto:", StringComparison.OrdinalIgnoreCase));

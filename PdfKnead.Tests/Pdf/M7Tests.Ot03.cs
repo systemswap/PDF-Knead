@@ -125,17 +125,17 @@ public sealed partial class M7NormTests
     /// <summary>A GSUB whose feature „liga“ names lookup 0; the other lookups are reached only from it.</summary>
     private static Ot03Part Ot03Liga(params Ot03Part[] lookups) => Ot03Header(lookups, [("liga", [0])]);
 
-    /// <summary>Liberation Sans with the GSUB given, without GPOS, and with the GDEF given (none if null).</summary>
+    /// <summary>Liberation Sans with the GSUB given, without GPOS, and with the GDEF given (none if null) (its cmap without the composed letters, <see cref="LiberationWithoutComposites"/>: the marks stay apart for the positioning tested, No. 1197).</summary>
     private static TextShaper Ot03Shaper(Ot03Part gsub, byte[]? gdef = null) =>
-        TextShaper.For(OpenTypeFont.Parse(ColorFontBuilder.WithTables(ShaperLimitTests.Liberation,
+        TextShaper.For(OpenTypeFont.Parse(ColorFontBuilder.WithTables(LiberationWithoutComposites,
             new Dictionary<string, byte[]?> { ["GSUB"] = gsub.Build(), ["GPOS"] = null, ["GDEF"] = gdef })));
 
-    /// <summary>Liberation Sans with the GPOS given, without GSUB and the kern table, its own GDEF kept.</summary>
+    /// <summary>Liberation Sans with the GPOS given, without GSUB and the kern table, its own GDEF kept (its cmap without the composed letters, <see cref="LiberationWithoutComposites"/>: the marks stay apart for the positioning tested, No. 1197).</summary>
     private static TextShaper Ot03GposShaper(Ot03Part gpos, params (string Tag, byte[]? Data)[] more)
     {
         var tables = new Dictionary<string, byte[]?> { ["GPOS"] = gpos.Build(), ["GSUB"] = null, ["kern"] = null };
         foreach (var (tag, data) in more) tables[tag] = data;
-        return TextShaper.For(OpenTypeFont.Parse(ColorFontBuilder.WithTables(ShaperLimitTests.Liberation, tables)));
+        return TextShaper.For(OpenTypeFont.Parse(ColorFontBuilder.WithTables(LiberationWithoutComposites, tables)));
     }
 
     private static Ot03Part Ot03Lookup(int type, int flag, params Ot03Part[] subtables)
@@ -711,14 +711,14 @@ public sealed partial class M7NormTests
     [Fact]
     public void Ot03_ChainedFormat1_BacktrackReversed_FlagsInAllSequences()
     {
-        var acute = Ot03Font.GlyphForUnicode('́');
+        var acute = Ot03Font.GlyphForUnicode('\u0301');
         var gdef = new Ot03Part().U16(1, 0).Off(Ot03Classes((acute, 3))).U16(0, 0, 0).Build();
         TextShaper Shaper(int flag) => Ot03Shaper(Ot03Liga(Ot03Lookup(6, flag, Ot03ChainF1(Ot03Cov(Ot03G('m')),
             Ot03Set(Ot03ChainRule([Ot03G('b'), Ot03G('a')], [], [Ot03G('w'), Ot03G('x')], (0, 1))))), Ot03Single(('m', 'y'))), gdef);
         Assert.Equal(Ot03Glyphs("abywx"), Ot03Shape(Shaper(0), "abmwx"));
         Assert.Equal(Ot03Glyphs("bamwx"), Ot03Shape(Shaper(0), "bamwx"));
-        Assert.Equal([Ot03G('a'), acute, .. Ot03Glyphs("bywx")], Ot03Shape(Shaper(8), "ábmwx"));
-        Assert.Equal([Ot03G('a'), acute, .. Ot03Glyphs("bmwx")], Ot03Shape(Shaper(0), "ábmwx"));
+        Assert.Equal([Ot03G('a'), acute, .. Ot03Glyphs("bywx")], Ot03Shape(Shaper(8), "a\u0301bmwx"));
+        Assert.Equal([Ot03G('a'), acute, .. Ot03Glyphs("bmwx")], Ot03Shape(Shaper(0), "a\u0301bmwx"));
     }
 
     /// <summary>
@@ -957,7 +957,7 @@ public sealed partial class M7NormTests
     [Fact]
     public void Ot03_AnchorFormat3_PlacedByItsCoordinatesOnly()
     {
-        var acute = Ot03Font.GlyphForUnicode('́');
+        var acute = Ot03Font.GlyphForUnicode('\u0301');
         (double X, double Y) Mark(int anchorFormat)
         {
             var device = new Ot03Part().U16(8, 40, 3).U16([.. Enumerable.Repeat(0x7F7F, 17)]);
@@ -965,7 +965,7 @@ public sealed partial class M7NormTests
             var markArray = new Ot03Part().U16(1, 0).Off(new Ot03Part().U16(1, 0, 500));
             var baseArray = new Ot03Part().U16(1).Off(baseAnchor);
             var sub = new Ot03Part().U16(1).Off(Ot03Cov(acute)).Off(Ot03Cov(Ot03G('a'))).U16(1).Off(markArray).Off(baseArray);
-            var shaped = Ot03GposShaper(Ot03Header([Ot03Lookup(4, 0, sub)], [("kern", [0])])).Shape("á")[1];
+            var shaped = Ot03GposShaper(Ot03Header([Ot03Lookup(4, 0, sub)], [("kern", [0])])).Shape("a\u0301")[1];
             return (shaped.XOffset, shaped.YOffset);
         }
         var plain = Mark(1);

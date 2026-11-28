@@ -395,7 +395,7 @@ public sealed partial class M7NormTests
         var (doc, font) = AnhdD_Open(_ => AnhdD_Standard("Type1", "Helvetica", PdfName.Get("WinAnsiEncoding")));
         using (doc) Assert.Equal("-", AnhdD_Text(font, 0xAD));
         var (softDoc, soft) = AnhdD_Open(_ => AnhdD_Standard("Type1", "Helvetica", AnhdD_Differences("WinAnsiEncoding", (173, "softhyphen"))));
-        using (softDoc) Assert.Equal("­", AnhdD_Text(soft, 0xAD));
+        using (softDoc) Assert.Equal("\u00AD", AnhdD_Text(soft, 0xAD));
     }
 
     /// <summary>

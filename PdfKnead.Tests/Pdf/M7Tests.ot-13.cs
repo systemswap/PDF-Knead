@@ -9,10 +9,10 @@ using SkiaSharp;
 namespace PdfKnead.Tests.Pdf;
 
 /// <summary>
-/// M7, package ot-13 (OpenType, COLR 10 to 10.2.5): PDF-Knead reads neither COLR nor CPAL (question 3 is open). The tests hold today's
-/// behaviour for colour fonts built here from Liberation Sans — COLR version 0 (layers) and version 1 (a paint graph with gradients,
-/// transformations, composition, cycles and variations): no colour glyphs, every glyph drawn with its own outline in the colour of the text
-/// state; writing new subsets and scrubbing drop the tables, compressing copies them byte for byte.
+/// M7, package ot-13 (OpenType, COLR 10 to 10.2.5; question 3, decided): COLR version 0 with CPAL is read for the text and signatures the
+/// program sets with installed colour fonts (docs/FEHLERGEDAECHTNIS.md, No. 1168), version 1 (a paint graph with gradients, transformations,
+/// composition, cycles and variations) on purpose not; fonts embedded in PDF files draw every glyph with its own outline in the colour of the
+/// text state. Writing new subsets, compressing and scrubbing drop the tables.
 /// </summary>
 public sealed partial class M7NormTests
 {
@@ -224,14 +224,15 @@ public sealed partial class M7NormTests
     }
 
     /// <summary>
-    /// The colour font draws as plain Liberation Sans: the same outlines, no colour glyphs, the same pixels — and those are white or red only
-    /// (the text colour; nothing from the palettes).
+    /// The colour font embedded in a PDF draws as plain Liberation Sans: the same outlines, the same pixels — and those are white or red only (the
+    /// text colour; nothing from the palettes). For the program's own text and signatures it has colour glyphs where
+    /// <paramref name="colourGlyphs"/> says so (COLR version 0 with CPAL), none otherwise.
     /// </summary>
-    private static void Ot13DrawnLikeThePlainFont(byte[] colour, string text)
+    private static void Ot13DrawnLikeThePlainFont(byte[] colour, string text, bool colourGlyphs = false)
     {
         var font = OpenTypeFont.Parse(colour);
         Assert.True(font.HasTable("COLR"));
-        Assert.Null(ColorGlyphs.For(font));
+        Assert.Equal(colourGlyphs, ColorGlyphs.For(font) is not null);
         foreach (var c in text) Assert.True(Iso03SameOutline(Ot13Sans.Value.Outline(Ot13Gid(c)), font.Outline(Ot13Gid(c))), $"Umriss von {c}");
         using var bitmap = Ot13Render(colour, text);
         using var plain = Ot13Render(Ot13SansFile.Value, text);
@@ -250,23 +251,24 @@ public sealed partial class M7NormTests
     // ------------------------------------------------------------ 10.1, 10.2.1, 10.2.2, 10.2.5 (version 0)
 
     /// <summary>
-    /// 10.1 sentences 1–4, 11–13, 22–23, 10.2.1 sentences 9–13, 10.2.2 sentences 1–3 and 10.2.5 sentences 1–8 (reader, today's behaviour;
-    /// question 3): COLR version 0 is not read — a font whose base glyph „A“ has three layers (palette entries 0, 1 and 0xFFFF, the last being
-    /// the text colour) and whose „B“ uses an overlapping slice of the layer records, with two palettes in CPAL or without CPAL: no colour glyphs,
-    /// „A“ and „B“ keep their own outlines, and the page draws them exactly as plain Liberation Sans in the fill colour of the text state (red),
-    /// with no colour of the palettes; nothing reads a colour record for 0xFFFF.
+    /// 10.1 sentences 1–4, 11–13, 22–23, 10.2.1 sentences 9–13, 10.2.2 sentences 1–3 and 10.2.5 sentences 1–8 (reader; question 3): a font whose
+    /// base glyph „A“ has three layers (palette entries 0, 1 and 0xFFFF, the last being the text colour) and whose „B“ uses an overlapping slice
+    /// of the layer records — with two palettes in CPAL it has colour glyphs for the program's own text and signatures, without CPAL none (COLR is
+    /// then ignored, 10.1 sentence 23); embedded in a PDF, „A“ and „B“ keep their own outlines and the page draws them exactly as plain Liberation
+    /// Sans in the fill colour of the text state (red), with no colour of the palettes.
     /// </summary>
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public void ColrV0Font_IsNotRead_TheBaseGlyphsDrawInTheTextColour(bool withCpal) => Ot13DrawnLikeThePlainFont(Ot13ColrV0Font(withCpal), "AB");
+    public void ColrV0Font_InPdfDrawsInTheTextColour_OwnTextGetsTheLayers(bool withCpal) =>
+        Ot13DrawnLikeThePlainFont(Ot13ColrV0Font(withCpal), "AB", colourGlyphs: withCpal);
 
     // ------------------------------------------------------------ 10.1, 10.2.1 to 10.2.5 (version 1)
 
     /// <summary>
     /// 10.1 sentences 15–16, 18–20, 10.2.1 sentences 15–31, 10.2.2 sentences 4–10, 10.2.3 sentences 1–3, 10.2.3.1 sentences 1–20, 24–37, 41–42, 47–59,
     /// 10.2.3.2 sentences 1–15, 19–33, 10.2.3.3 sentences 1–22, 29–55, 57–83, 10.2.3.4 sentences 1–19, 24–29, 32–42, 10.2.4 sentences 1–6, 9–11, 13–14
-    /// and 10.2.5 sentences 10–38 (reader, today's behaviour; question 3): the paint graph of COLR version 1 is not read — a variable font (fvar,
+    /// and 10.2.5 sentences 10–38 (reader; question 3: version 1 on purpose not): the paint graph of COLR version 1 is not read — a variable font (fvar,
     /// item variation store) whose base glyphs use PaintColrLayers with a layer list, PaintSolid and PaintVarSolid, linear, radial and sweep gradients
     /// over ColorLine and VarColorLine (unsorted stops, stops sharing an offset, no stops, pad, repeat and reflect), degenerate gradients (p1 = p0,
     /// equal start and end angle with reflect, a scale that flattens the circles to a line), PaintTransform, PaintScale, PaintRotate, PaintComposite,
@@ -277,12 +279,12 @@ public sealed partial class M7NormTests
     public void ColrV1Font_PaintGraphIsNotRead_TheBaseGlyphsDrawInTheTextColour() => Ot13DrawnLikeThePlainFont(Ot13ColrV1Font(), "ABCDEFGH");
 
     /// <summary>
-    /// 10.1 sentences 5–6 (reader, today's behaviour; question 3): colour glyphs would apply after shaping — a COLR version 0 font whose base glyph
-    /// is the ligature the shaper makes of „fi“ (a GSUB „liga“ lookup f + i → ﬁ written here): shaping gives that ligature glyph as for the plain
-    /// font, and it keeps its own outline (no layers, no colour glyphs).
+    /// 10.1 sentences 5–6 (question 3): colour glyphs apply after shaping — a COLR version 0 font whose base glyph is the ligature the shaper makes
+    /// of „fi“ (a GSUB „liga“ lookup f + i → ﬁ written here): shaping gives that ligature glyph as for the plain font, and it is the colour glyph
+    /// (its layers), while its own outline in the font stays.
     /// </summary>
     [Fact]
-    public void ColrLigature_ShapesToTheBaseGlyph_DrawnWithoutLayers()
+    public void ColrLigature_ShapesToTheBaseGlyph_ThenItsLayers()
     {
         var ligature = Ot13Gid('ﬁ') is > 0 and var fi ? fi : Ot13Gid('Z');
         var gsub = ShaperLimitTests.Gsub(1, [0], t =>
@@ -300,13 +302,15 @@ public sealed partial class M7NormTests
         var font = OpenTypeFont.Parse(ColorFontBuilder.WithTables(Ot13SansFile.Value,
             new Dictionary<string, byte[]?> { ["GSUB"] = gsub, ["GPOS"] = null, ["COLR"] = colr, ["CPAL"] = Ot13Palettes() }));
         Assert.Equal([ligature], TextShaper.For(font).Shape("fi").Select(s => s.Glyph));
-        Assert.Null(ColorGlyphs.For(font));
+        Assert.NotNull(ColorGlyphs.For(font)!.Glyph(ligature));
+        Assert.Null(ColorGlyphs.For(font)!.Glyph(Ot13Gid('f')));
         Assert.True(Iso03SameOutline(Ot13Sans.Value.Outline(ligature), font.Outline(ligature)));
     }
 
     /// <summary>
-    /// 10.1 sentences 24–26 (today's behaviour): applications that fake bold should not do so on colour glyphs — PDF-Knead shows no colour glyphs
-    /// from COLR, so edited text in a COLR font of the file, made bold, is faked bold (stroked, 2 Tr) on the plain outlines of the base glyphs.
+    /// 10.1 sentences 24–26: applications that fake bold should not do so on colour glyphs — a COLR font of the file draws from its outlines (its
+    /// colour glyphs are used only for installed fonts, M7NormTests.E8_ColrV0OwnText_NoFakeBoldOrItalicOnColourGlyphs), so edited text in it, made
+    /// bold, is faked bold (stroked, 2 Tr) on the plain outlines of the base glyphs.
     /// </summary>
     [Fact]
     public void ColrFontOfTheFile_FakeBold_StrokesThePlainOutlines()
@@ -325,19 +329,18 @@ public sealed partial class M7NormTests
     // ------------------------------------------------------------ 10.2.1, 10.2.3.1, 10.2.3.3, 10.2.5 (writing)
 
     /// <summary>
-    /// 10.2.1 sentences 7–8, 10.2.3.1 sentences 43–46, 10.2.3.3 sentence 56 and 10.2.5 sentences 4–8 (writer, today's behaviour): the shapes of the
-    /// layers are glyphs of the font — compressing a COLR font that shows only „A“ (subset keeping all tables) copies COLR and CPAL byte for byte,
-    /// while the layer glyphs „B“, „C“, „D“ lose their outlines (only the glyphs of the content stay); a new subset and scrubbing leave COLR and
-    /// CPAL out.
+    /// 10.2.1 sentences 7–8, 10.2.3.1 sentences 43–46, 10.2.3.3 sentence 56 and 10.2.5 sentences 4–8 (writer; question 3, finding B82): the shapes
+    /// of the layers are glyphs of the font — compressing a COLR font that shows only „A“ (subset keeping all tables) leaves COLR and CPAL out, as
+    /// the layer glyphs „B“, „C“, „D“ lose their outlines (only the glyphs of the content stay; before COLR was copied byte for byte and named
+    /// them); a new subset and scrubbing leave COLR and CPAL out as well.
     /// </summary>
     [Fact]
-    public void ColrFont_CompressingCopiesTheTables_NewSubsetsAndScrubbingDropThem()
+    public void ColrFont_CompressingNewSubsetsAndScrubbing_DropTheTables()
     {
         var colour = Ot13ColrV0Font(withCpal: true);
-        var original = OpenTypeFont.Parse(colour);
         var a = Ot13Gid('A');
         var compressed = OpenTypeFont.Parse(TrueTypeSubsetter.Subset(colour, [0, a], keepAllTables: true));
-        foreach (var tag in (string[])["COLR", "CPAL"]) Assert.True(original.TableData(tag).SequenceEqual(compressed.TableData(tag)), tag);
+        foreach (var tag in (string[])["COLR", "CPAL"]) Assert.False(compressed.HasTable(tag), tag);
         Assert.False(compressed.Outline(a).IsEmpty);
         foreach (var c in "BCD") Assert.True(compressed.Outline(Ot13Gid(c)).IsEmpty, $"Umriss von {c}");
         foreach (var rewritten in new[] { TrueTypeSubsetter.Subset(colour, [0, a]), TrueTypeSubsetter.Scrub(colour, [0, a]) })

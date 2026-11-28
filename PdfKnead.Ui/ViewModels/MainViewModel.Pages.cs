@@ -640,6 +640,9 @@ public sealed partial class MainViewModel
             // fonts that were not in the file: embedded as PDF-Knead shows them — said, since the original font may look different; PDF/A-1:
             // what was translucent is an image
             if (result.SubstitutedFonts.Count > 0) saved += " — " + Tr.T("ersetzt, wie PDF-Knead sie zeigt: {0}", string.Join(", ", result.SubstitutedFonts));
+            // embedded fonts whose licence forbids changing them stayed as they were (docs/FEHLERGEDAECHTNIS.md, No. 1164)
+            if (result.LicenceKeptFonts.Count > 0)
+                saved += " — " + Tr.T("Schriften unverändert gelassen (ihre Lizenz erlaubt kein Verändern oder Verkleinern): {0}", string.Join(", ", result.LicenceKeptFonts));
             if (result.FlattenedPages.Count > 0)
                 saved += " — " + (result.FlattenedPages.Count == 1 ? Tr.T("Durchscheinendes auf 1 Seite als Bild")
                     : Tr.T("Durchscheinendes auf {0} Seiten als Bild", result.FlattenedPages.Count));
@@ -1308,6 +1311,10 @@ public sealed partial class MainViewModel
                 // forms never drawn that no page names stayed without resources (V10; docs/FEHLERGEDAECHTNIS.md, No. 1131)
                 (result.FormsWithoutResources > 0
                     ? " — " + Tr.T("{0} nie gezeichnete Formen ohne eigene Ressourcen blieben ohne: keine Seite nennt sie, ihre Ressourcen sind unbekannt.", result.FormsWithoutResources)
+                    : "") +
+                // embedded fonts whose licence forbids changing them were not subset (docs/FEHLERGEDAECHTNIS.md, No. 1164)
+                (result.LicenceKeptFonts.Count > 0
+                    ? " — " + Tr.T("Schriften unverändert gelassen (ihre Lizenz erlaubt kein Verändern oder Verkleinern): {0}", string.Join(", ", result.LicenceKeptFonts))
                     : ""));
             // a file identified as PDF/A that the copy is not any more: the identification went, said and kept on screen (No. 554)
             if (result.PdfAClaimRemovedFor is { } broken)

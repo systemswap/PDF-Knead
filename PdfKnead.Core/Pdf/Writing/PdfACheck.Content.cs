@@ -350,7 +350,8 @@ public static partial class PdfACheck
                             if (gs.Get(PdfName.Get("Font")) is PdfArray { Count: > 0 } gsFont && gsFont.Get(0) is PdfDictionary f) state.Font = f;
                         }
                         break;
-                    case "Tr" when operands.Count > 0 && operands[^1].IsNumber:
+                    // a mode outside 0–7 is passed over, as the display does (docs/FEHLERGEDAECHTNIS.md, No. 1165)
+                    case "Tr" when operands.Count > 0 && operands[^1].IsNumber && operands[^1].Number is >= 0 and < 8:
                         state.RenderMode = (int)operands[^1].Number;
                         break;
                     // a font without its size: the display does nothing with it (the writer leaves it out), strict readers still look for the name

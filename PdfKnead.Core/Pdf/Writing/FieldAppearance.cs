@@ -179,6 +179,9 @@ internal static class FieldAppearance
         {
             Rect = text.Rect,
             Content = new RichText(text.Text, style),
+            // spaced as the text element it stands for (ElementAppearance.LineStep: 1.15 times the size for text from other programs)
+            LineGap = ElementAppearance.LineStep(text, ElementFace.For(text.Font)),
+            FontLineHeight = false,
             Alignment = text.Alignment switch { ElementAlignment.Center => Pdf.Text.BlockAlignment.Center, ElementAlignment.Right => Pdf.Text.BlockAlignment.Right, _ => Pdf.Text.BlockAlignment.Left },
         };
     }

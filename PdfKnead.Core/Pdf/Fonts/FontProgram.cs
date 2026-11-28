@@ -36,6 +36,25 @@ internal sealed class FontProgram
     /// <summary>Font installed on the computer with the name of the PDF font (its glyph IDs are used as if embedded).</summary>
     public bool IsSystem { get; }
 
+    private EmbeddedBitmaps? _bitmaps;
+    private bool _bitmapsRead;
+
+    /// <summary>
+    /// The monochrome or grey bitmaps (EBLC/EBDT) of an embedded sfnt program without outlines — neither glyf with loca nor 'CFF ' or CFF2 —
+    /// drawn in their place; null otherwise (a font with outlines draws them, also where its glyphs are empty; docs/FEHLERGEDAECHTNIS.md, No. 1169).
+    /// </summary>
+    public EmbeddedBitmaps? Bitmaps
+    {
+        get
+        {
+            if (Volatile.Read(ref _bitmapsRead)) return _bitmaps;
+            var bitmaps = IsEmbedded && OpenType is { } ot ? EmbeddedBitmaps.TryCreate(ot) : null;
+            _bitmaps = bitmaps;
+            Volatile.Write(ref _bitmapsRead, true);
+            return bitmaps;
+        }
+    }
+
     /// <summary>
     /// Glyphs chosen as in a TrueType font: outlines in glyf, or in CFF2 (no charset, names or encoding of its own: cmap and post, OpenType 8.12),
     /// not in 'CFF '.
@@ -126,14 +145,29 @@ internal static class StandardFonts
         if (lower is "symbol" || lower.StartsWith("symbol,", StringComparison.Ordinal) || lower.StartsWith("symbolmt", StringComparison.Ordinal))
             return ("FoxitSymbol.cff", true, false);
 
-        var family = lower.Contains("courier") || lower.Contains("mono") || lower.Contains("consol") || (flags & 1) != 0 ? "Mono"
+        // the name of a standard family (Courier, Courier New, Times, Times New Roman, Arial, Helvetica — with a style, „MT“/„PS“ or a style after
+        // a comma) decides before the flags FixedPitch and Serif (9.8.2): measured with non-embedded fonts whose flags contradict the name, all
+        // three reference readers draw the family of the name (probes B1b, B3b, D1–D11; real file issue11915: „Arial-ItalicMT,Italic“ with
+        // /Flags 97 was drawn with the monospaced substitute; docs/FEHLERGEDAECHTNIS.md, No. 1203). Other names keep the flags first, as two of
+        // three readers do for names they do not know (D12, D13; real file issue20489: „ArialUnicodeMS“ with the Serif flag drawn with serifs)
+        var familyOfTheName = SystemFonts.FamilyKey(name) switch
+        {
+            "courier" or "couriernew" => "Mono",
+            "times" or "timesroman" or "timesnewroman" => "Serif",
+            "arial" or "helvetica" => "Sans",
+            _ => null,
+        };
+        var family = familyOfTheName ?? (lower.Contains("courier") || lower.Contains("mono") || lower.Contains("consol") || (flags & 1) != 0 ? "Mono"
             : lower.Contains("times") || lower.Contains("serif") && !lower.Contains("sans") || lower.Contains("roman") || lower.Contains("georgia")
               || lower.Contains("garamond") || lower.Contains("cambria") || ((flags & 2) != 0 && !lower.Contains("sans")) ? "Serif"
-            : "Sans";
+            : "Sans");
 
+        // ForceBold (bit 19) asks for the bold substitute only for a name that is not the name of a standard family (the same test as above):
+        // their name decides, as all three reference readers draw Helvetica, Arial, Times, Times New Roman, Courier and Courier New regular with
+        // the bit set, and two of three take a bold substitute for any other name (ISO 32000-2, 9.8.2; docs/FEHLERGEDAECHTNIS.md, No. 1216)
         var weight = descriptor?.GetNumber(PdfName.Get("FontWeight")) ?? 0;
         var bold = lower.Contains("bold") || lower.Contains("black") || lower.Contains("heavy") || lower.Contains("semibold") || lower.Contains("demi")
-                   || weight >= 600 || (flags & (1 << 18)) != 0;
+                   || weight >= 600 || (flags & (1 << 18)) != 0 && familyOfTheName is null;
         var italicAngle = descriptor?.GetNumber(PdfName.Get("ItalicAngle")) ?? 0;
         var italic = lower.Contains("italic") || lower.Contains("oblique") || Math.Abs(italicAngle) > 1 || (flags & (1 << 6)) != 0;
 

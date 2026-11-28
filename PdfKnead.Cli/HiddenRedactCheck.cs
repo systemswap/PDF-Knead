@@ -2,6 +2,7 @@ using System.Diagnostics;
 using PdfKnead.Core.Pdf.Content;
 using PdfKnead.Core.Pdf.Document;
 using PdfKnead.Core.Pdf.Editing;
+using PdfKnead.Core.Pdf.Graphics;
 using PdfKnead.Core.Pdf.Text;
 using PdfKnead.Core.Pdf.Writing;
 using PdfKnead.Rendering;
@@ -65,6 +66,10 @@ internal static class HiddenRedactCheck
                         foreach (var spot in scan.Spots)
                             foreach (var word in Words(spot.Text)) hiddenWords.Add(word);
                         marked[i] = [.. scan.Spots.SelectMany(HiddenText.MarkAreas)];
+                        // and the characters as drawn in the marked areas (docs/FEHLERGEDAECHTNIS.md, No. 1251): under a replacement text
+                        // (/ActualText) a spot reads as the replacement, but its drawn characters go as well — their words must be gone too
+                        var areas = marked[i];
+                        foreach (var word in Words(Drawn(original, original.Pages[i], g => areas.Any(a => Contains(a, g))))) hiddenWords.Add(word);
                         items[i] = items[i].WithElements([.. items[i].Elements,
                             .. scan.Spots.Select(s => RedactionElement.FromPageAreas(HiddenText.MarkAreas(s)) with { Hidden = true })]);
                     }
@@ -105,6 +110,7 @@ internal static class HiddenRedactCheck
                             Console.WriteLine($"{Path.GetFileName(file)}: Seite {i + 1}: {rest.Count - inside.Count} sichtbare Stellen danach verborgen („{Shorten(rest.First(r => !inside.Contains(r)).Text)}“)");
                         if (inside.Count > 0 && !partial.Contains(i)) problems.Add($"Seite {i + 1}: noch {inside.Count} verborgene Stellen („{Shorten(inside[0].Text)}“)");
                         visible.Append(PageText.Create(PageInterpreter.Build(copy, copy.Pages[i]).Text).Text).Append(' ');
+                        visible.Append(Drawn(copy, copy.Pages[i], g => g.Visible)).Append(' ');
                         var change = Change(original, original.Pages[i], copy, copy.Pages[i]);
                         if (change > 2)
                         {
@@ -115,7 +121,10 @@ internal static class HiddenRedactCheck
                     }
                     // the pages not searched keep their hidden text
                     for (var i = pages; i < copy.PageCount; i++)
+                    {
                         foreach (var g in PageInterpreter.BuildText(copy, copy.Pages[i])) visible.Append(g.Text);
+                        visible.Append(' ').Append(Drawn(copy, copy.Pages[i], _ => true)).Append(' ');
+                    }
                     // words of the removed text must be gone from the file — unless they also appear visibly, or outside the pages
                     // (document properties, bookmarks …: the same file with a blank page instead of all pages)
                     var shown = visible.ToString();
@@ -199,6 +208,8 @@ internal static class HiddenRedactCheck
                             if (!glyph.Visible) run.Append(glyph.Text);
                             else if (run.Length > 0) run.Append(' ');
                         foreach (var word in Words(run.ToString())) hiddenWords.Add(word);
+                        // and as drawn (docs/FEHLERGEDAECHTNIS.md, No. 1251): invisible characters under a replacement text go as well
+                        foreach (var word in Words(Drawn(original, page, g => !g.Visible))) hiddenWords.Add(word);
                     }
                     words += hiddenWords.Count;
                     byte[] data;
@@ -215,6 +226,7 @@ internal static class HiddenRedactCheck
                         foreach (var glyph in PageInterpreter.BuildText(copy, page))
                             if (glyph.Visible) shown.Append(glyph.Text);
                             else shown.Append(' ');
+                    foreach (var page in copy.Pages) shown.Append(' ').Append(Drawn(copy, page, g => g.Visible)).Append(' ');
                     var visible = shown.ToString();
                     // words that are also part of a name of the file's syntax (/BitsPerComponent, /ColorSpace, /BaseFont/Helvetica …) are
                     // found by the leak search there — not text
@@ -355,6 +367,18 @@ internal static class HiddenRedactCheck
     }
 
     /// <summary>Words of at least five letters or digits (shorter ones occur everywhere in a file).</summary>
+    /// <summary>The text of the characters of a page as drawn, each with its own text (/ActualText not applied), that <paramref name="pick"/>
+    /// selects (docs/FEHLERGEDAECHTNIS.md, No. 1251).</summary>
+    private static string Drawn(PdfDocument doc, PdfPage page, Func<TextGlyph, bool> pick) =>
+        PageText.Create([.. PageInterpreter.Build(doc, page, drawnText: true).Text.Where(pick)]).Text;
+
+    /// <summary>Whether the middle of a character lies in an area (with 1 pt to spare, as the marked areas are compared above).</summary>
+    private static bool Contains(PdfRectangle a, TextGlyph g)
+    {
+        var (x, y) = ((g.X0 + g.X1 + g.X2 + g.X3) / 4, (g.Y0 + g.Y1 + g.Y2 + g.Y3) / 4);
+        return a.Left - 1 <= x && x <= a.Right + 1 && a.Bottom - 1 <= y && y <= a.Top + 1;
+    }
+
     private static IEnumerable<string> Words(string text)
     {
         foreach (var word in text.Split([' ', '\n', ',', '.', ';', ':', '(', ')', '/', '"', '\''], StringSplitOptions.RemoveEmptyEntries))

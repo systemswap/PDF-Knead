@@ -274,12 +274,12 @@ public sealed partial class M7NormTests
     /// <summary>A Device table for 12–17 ppem, delta format 2 (the values of the caret example).</summary>
     private static readonly Action<Ot19Bytes> Ot19Device = b => b.U16(12, 17, 2, 0x1111, 0x2200);
 
-    /// <summary>A shaper for Liberation Sans with the GSUB, GPOS and GDEF given (and further tables), without the kern table.</summary>
+    /// <summary>A shaper for Liberation Sans with the GSUB, GPOS and GDEF given (and further tables), without the kern table (its cmap without the composed letters, <see cref="LiberationWithoutComposites"/>: the marks stay apart for the positioning tested, No. 1197).</summary>
     private static TextShaper Ot19Shaper(byte[]? gsub, byte[]? gpos, byte[]? gdef, params (string Tag, byte[]? Data)[] extra)
     {
         var tables = new Dictionary<string, byte[]?> { ["GSUB"] = gsub, ["GPOS"] = gpos, ["GDEF"] = gdef, ["kern"] = null };
         foreach (var (tag, data) in extra) tables[tag] = data;
-        return TextShaper.For(OpenTypeFont.Parse(ColorFontBuilder.WithTables(Ot18Sans, tables)));
+        return TextShaper.For(OpenTypeFont.Parse(ColorFontBuilder.WithTables(LiberationWithoutComposites, tables)));
     }
 
     private static (int Glyph, double XAdvance, double XOffset, double YOffset, int AttachBack)[] Ot19Result(ShapedGlyph[] glyphs) =>
@@ -384,10 +384,11 @@ public sealed partial class M7NormTests
 
     /// <summary>
     /// OT 17.2 sentences 1–5: a variable TrueType font with fvar, an MVAR that varies the gasp range limit (tag „gsp0“) and gasp — drawn in its
-    /// default instance (the outlines of glyf); the scrubbed font carries MVAR and gasp byte for byte (today's behaviour, user question 2).
+    /// default instance (the outlines of glyf); the scrubbed font is that static default instance: gasp byte for byte, without MVAR, fvar and
+    /// gvar (FG 1159; before it kept MVAR).
     /// </summary>
     [Fact]
-    public void Ot19_VariableFontWithMvarAndGasp_DefaultInstance_ScrubKeepsBoth()
+    public void Ot19_VariableFontWithMvarAndGasp_DefaultInstance_ScrubKeepsGaspOnly()
     {
         var store = Ot18Ivs(1, 1, _ => 4);
         var mvar = new Ot18Writer().U16(1, 0, 0, 8, 1, 12 + 8).Tag("gsp0").U16(0, 0).Bytes(store).ToArray();
@@ -396,7 +397,7 @@ public sealed partial class M7NormTests
         var font = OpenTypeFont.Parse(file);
         Ot18SameGlyphsAsLiberation(font);
         var scrubbed = OpenTypeFont.Parse(TrueTypeSubsetter.Scrub(file, [0, Ot19G('A')]));
-        Assert.Equal(mvar, scrubbed.TableData("MVAR").ToArray());
+        foreach (var tag in (string[])["MVAR", "fvar", "gvar"]) Assert.False(scrubbed.HasTable(tag), tag);
         Assert.Equal(gasp, scrubbed.TableData("gasp").ToArray());
     }
 
@@ -422,10 +423,10 @@ public sealed partial class M7NormTests
     /// <summary>The GPOS of <see cref="Ot19_GdefPartsNotRead_ShapingUnchanged"/>: pair A–V −80 (XAdvance with a VariationIndex), acute on „a“.</summary>
     private static byte[] Ot19KernAndMarkGpos() => Ot19Layout("kern",
         Ot19Lookup(2, 0, -1, Ot19Pair(Ot19G('A'), Ot19G('V'), 0x0084, -80, Ot19VariationIndex)),
-        Ot19Lookup(4, 0, -1, Ot19MarkToBase([Ot19G('a')], [Ot19G('́')], (520, 1100), (-60, 1000))));
+        Ot19Lookup(4, 0, -1, Ot19MarkToBase([Ot19G('a')], [Ot19G('\u0301')], (520, 1100), (-60, 1000))));
 
     private static Action<Ot19Bytes> Ot19BaseClasses() =>
-        Ot19Classes((Ot19G('A'), 1), (Ot19G('V'), 1), (Ot19G('a'), 1), (Ot19G('́'), 3));
+        Ot19Classes((Ot19G('A'), 1), (Ot19G('V'), 1), (Ot19G('a'), 1), (Ot19G('\u0301'), 3));
 
     /// <summary>
     /// OT 18.1 sentences 4–5, 8, 11–12, 23–26, 48–58; OT 18.2.1 sentence 33; OT 18.2.3 sentences 1–8; OT 18.2.4 sentences 18–22; OT 18.2.7
@@ -498,8 +499,8 @@ public sealed partial class M7NormTests
             Assert.Equal(variant == "caretFormats123" ? 0 : 1, t.Coverage(list + t.U16(list), variant == "caretFormats123" ? Ot19G('ﬃ') : 0xA5));
         }
         var fvar = variant is "variableStore" or "version13" ? Ot18WeightFvar() : null;
-        var expected = Ot19Result(Ot19Shaper(null, Ot19KernAndMarkGpos(), Ot19Gdef(glyphClasses: Ot19BaseClasses())).Shape("AVá"));
-        var actual = Ot19Result(Ot19Shaper(null, Ot19KernAndMarkGpos(), gdef, ("fvar", fvar)).Shape("AVá"));
+        var expected = Ot19Result(Ot19Shaper(null, Ot19KernAndMarkGpos(), Ot19Gdef(glyphClasses: Ot19BaseClasses())).Shape("AVa\u0301"));
+        var actual = Ot19Result(Ot19Shaper(null, Ot19KernAndMarkGpos(), gdef, ("fvar", fvar)).Shape("AVa\u0301"));
         Assert.Equal(Ot18SansFont.AdvanceWidth(Ot19G('A')) - 80, expected[0].XAdvance);
         Assert.Equal(1, expected[3].AttachBack);
         Assert.Equal(0, expected[3].XAdvance);
@@ -507,17 +508,17 @@ public sealed partial class M7NormTests
     }
 
     /// <summary>
-    /// OT 18.1 sentences 9–10 and 13: a ligature f + i in a lookup with LookupFlag 0x0008 (ignore marks) and GDEF class 3 for the acute: „f́i“
-    /// becomes the ligature (the mark skipped and kept); with a GDEF that makes the acute a base (class 1), or with LookupFlag 0, „f́i“ stays
+    /// OT 18.1 sentences 9–10 and 13: a ligature f + i in a lookup with LookupFlag 0x0008 (ignore marks) and GDEF class 3 for the acute: „fU+0301i“
+    /// becomes the ligature (the mark skipped and kept); with a GDEF that makes the acute a base (class 1), or with LookupFlag 0, „fU+0301i“ stays
     /// three glyphs — the classes of GDEF decide, not the character (without a GlyphClassDef see <see cref="Ot19_WithoutGdef_ClassesFromUnicode"/>).
     /// </summary>
     [Fact]
     public void Ot19_IgnoreMarksFlag_UsesTheGdefClasses()
     {
-        int f = Ot19G('f'), i = Ot19G('i'), fi = Ot19G('ﬁ'), acute = Ot19G('́');
+        int f = Ot19G('f'), i = Ot19G('i'), fi = Ot19G('ﬁ'), acute = Ot19G('\u0301');
         byte[] Gsub(int flag) => Ot19Layout("liga", Ot19Lookup(4, flag, -1, Ot19Ligature([f, i], fi)));
         var gdef = Ot19Gdef(glyphClasses: Ot19Classes((acute, 3)));
-        int[] Shape(byte[] gsub, byte[]? classes) => [.. Ot19Shaper(gsub, null, classes).Shape("f́i").Select(g => g.Glyph)];
+        int[] Shape(byte[] gsub, byte[]? classes) => [.. Ot19Shaper(gsub, null, classes).Shape("f\u0301i").Select(g => g.Glyph)];
         Assert.Equal([fi, acute], Shape(Gsub(0x0008), gdef));
         Assert.Equal([f, acute, i], Shape(Gsub(0x0008), Ot19Gdef(glyphClasses: Ot19Classes((acute, 1)))));
         Assert.Equal([f, acute, i], Shape(Gsub(0), gdef));
@@ -553,24 +554,24 @@ public sealed partial class M7NormTests
     /// ligature formed by GSUB a ligature, every other glyph a base (docs/FEHLERGEDAECHTNIS.md, No. 1161; before no class at all). With a GPOS
     /// mark-to-base for „a“ and the marks U+0301 and U+0323, without GDEF (and with a GDEF that has only a LigCaretList), in „a“ U+0301 U+0323
     /// both marks attach to „a“ (one and two glyphs back) and do not advance; a ligature lookup with LookupFlag 0x0008 passes over the acute
-    /// in „f́i“; pair lookups with LookupFlag 0x0004 (ignore ligatures) pass over the „fi“ GSUB formed — fi–x does not apply, x–y does.
+    /// in „fU+0301i“; pair lookups with LookupFlag 0x0004 (ignore ligatures) pass over the „fi“ GSUB formed — fi–x does not apply, x–y does.
     /// </summary>
     [Fact]
     public void Ot19_WithoutGdef_ClassesFromUnicode()
     {
-        int a = Ot19G('a'), acute = Ot19G('́'), dot = Ot19G('̣'), fi = Ot19G('ﬁ');
+        int a = Ot19G('a'), acute = Ot19G('\u0301'), dot = Ot19G('\u0323'), fi = Ot19G('ﬁ');
         Assert.NotEqual(0, dot);
         var gpos = Ot19Layout("mark", Ot19Lookup(4, 0, -1, Ot19MarkToBase([a], [acute, dot], (500, 1100), (0, 1000))));
         var caretsOnly = Ot19Gdef(ligCarets: Ot19Raw(0x0004, 0x0000, 0x0001, 0x0000));
         foreach (var gdef in new[] { null, caretsOnly })
         {
-            var glyphs = Ot19Shaper(null, gpos, gdef).Shape("ạ́");
+            var glyphs = Ot19Shaper(null, gpos, gdef).Shape("a\u0301\u0323");
             Assert.Equal([0, 1, 2], glyphs.Select(g => g.AttachBack));
             Assert.Equal(0, glyphs[1].XAdvance);
             Assert.Equal(0, glyphs[2].XAdvance);
         }
         var gsub = Ot19Layout("liga", Ot19Lookup(4, 0x0008, -1, Ot19Ligature([Ot19G('f'), Ot19G('i')], fi)));
-        Assert.Equal([fi, acute], Ot19Shaper(gsub, null, null).Shape("f́i").Select(g => g.Glyph));
+        Assert.Equal([fi, acute], Ot19Shaper(gsub, null, null).Shape("f\u0301i").Select(g => g.Glyph));
         int x = Ot19G('x'), y = Ot19G('y');
         var pairs = Ot19Layout("kern", Ot19Lookup(2, 0x0004, -1, Ot19Pair(fi, x, 0x0004, -100)), Ot19Lookup(2, 0x0004, -1, Ot19Pair(x, y, 0x0004, -50)));
         var shaped = Ot19Shaper(Ot19Layout("liga", Ot19Lookup(4, 0, -1, Ot19Ligature([Ot19G('f'), Ot19G('i')], fi))), pairs, null).Shape("fixy");
@@ -986,7 +987,7 @@ public sealed partial class M7NormTests
     [Fact]
     public void Ot19_AnchorFormat2WithAttachPoint_UsesTheDesignCoordinates()
     {
-        int a = Ot19G('a'), acute = Ot19G('́');
+        int a = Ot19G('a'), acute = Ot19G('\u0301');
         var gdef = Ot19Gdef(glyphClasses: Ot19BaseClasses(), attachList: b =>
         {
             var at = b.Here;
@@ -997,7 +998,7 @@ public sealed partial class M7NormTests
             Ot19Coverage(b, [a]);
         });
         ShapedGlyph[] Shape(int format) => Ot19Shaper(null, Ot19Layout("mark", Ot19Lookup(4, 0, -1, Ot19MarkToBase([a], [acute], (520, 1100), (-60, 1000), format))), gdef)
-            .Shape("á");
+            .Shape("a\u0301");
         var one = Ot19Result(Shape(1));
         Assert.Equal(Ot19Result(Shape(2)), one);
         Assert.Equal(520 + 60 - Ot18SansFont.AdvanceWidth(a), one[1].XOffset);

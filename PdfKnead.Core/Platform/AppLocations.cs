@@ -17,10 +17,18 @@ public static class AppLocations
     {
         get
         {
+            if (UserDataFolderForTests is { } tests) return tests;
             var local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
             return Path.Combine(string.IsNullOrEmpty(local) ? Path.GetTempPath() : local, "PDF-Knead");
         }
     }
+
+    /// <summary>
+    /// A folder the test project sets before anything else runs, so that no test reads or writes the user's own data — settings, the own
+    /// signing certificate, device keys, redaction codes, trust lists, signature fonts, update state (before, a test started on its own could
+    /// write test values into the user's settings; docs/FEHLERGEDAECHTNIS.md, No. 1240). Null in the program.
+    /// </summary>
+    internal static string? UserDataFolderForTests { get; set; }
 
     /// <summary>
     /// The AppImage runtime sets the path of the AppImage file in $APPIMAGE; without an AppImage,

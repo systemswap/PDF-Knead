@@ -1,6 +1,7 @@
 using PdfKnead.Core;
 using PdfKnead.Core.Pdf;
 using PdfKnead.Core.Pdf.Document;
+using PdfKnead.Core.Security;
 using PdfKnead.Services;
 
 namespace PdfKnead.ViewModels;
@@ -19,7 +20,7 @@ public partial class MainViewModel
         if (AskChoice is null || EncryptedPayload.Of(doc.Document) is not { } payload) return;
         var answer = await AskChoice(Tr.T("Verschlüsseltes Dokument in einer Hülle"),
             Tr.T("„{0}“ ist eine Hülle: das eigentliche Dokument „{1}“ steckt verschlüsselt darin (Verfahren „{2}“). Soll es geöffnet werden?",
-                doc.FileName, payload.Name, payload.CryptographicFilter),
+                doc.FileName, DisplayNames.Safe(payload.Name), DisplayNames.Safe(payload.CryptographicFilter)),
             Tr.T("Dokument öffnen"), null);
         if (answer != 1) return;
         await OpenEncryptedPayloadAsync(payload);
@@ -31,12 +32,16 @@ public partial class MainViewModel
     {
         string? password = null;
         List<System.Security.Cryptography.X509Certificates.X509Certificate2>? certificates = null;
+        // the name of the attachment from the file: as the document's name (tab, window title, the name proposed when saving) without its
+        // directional formatting characters, in the questions with them shown (Unicode 9, UTR #36; docs/FEHLERGEDAECHTNIS.md, No. 1217)
+        var name = DisplayNames.FileName(payload.Name) is { Length: > 0 } clean ? clean : "payload.pdf";
+        var shown = DisplayNames.Safe(payload.Name);
         while (true)
         {
             try
             {
                 var document = await Task.Run(() => PdfDocument.Open(payload.Data, password, certificates));
-                var opened = new DocumentViewModel(payload.Name, document, password, untitled: true) { Tool = Tool, OpenCertificates = certificates };
+                var opened = new DocumentViewModel(name, document, password, untitled: true) { Tool = Tool, OpenCertificates = certificates };
                 Documents.Add(opened);
                 SelectedDocument = opened;
                 return;
@@ -44,17 +49,17 @@ public partial class MainViewModel
             catch (PdfPasswordException ex)
             {
                 if (AskPassword is null) return;
-                password = await AskPassword(payload.Name, ex.WrongPassword);
+                password = await AskPassword(shown, ex.WrongPassword);
                 if (password is null) return;
             }
             catch (PdfRecipientException ex) when (AskChoice is not null && PickCertificateFile is not null)
             {
-                if (await AskRecipientCertificateAsync(payload.Name, ex, again: certificates is not null) is not { } certificate) return;
+                if (await AskRecipientCertificateAsync(shown, ex, again: certificates is not null) is not { } certificate) return;
                 (certificates ??= []).Add(certificate);
             }
             catch (Exception ex) when (Failure.Handled(ex))
             {
-                Message = Tr.T("{0}: {1}", payload.Name, Failure.Text(ex));
+                Message = Tr.T("{0}: {1}", shown, Failure.Text(ex));
                 return;
             }
         }

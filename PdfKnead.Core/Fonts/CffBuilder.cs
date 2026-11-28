@@ -92,12 +92,16 @@ internal static class CffBuilder
     /// <param name="registry">Registry of the character collection (ROS).</param>
     /// <param name="ordering">Ordering of the character collection.</param>
     /// <param name="supplement">Supplement of the character collection.</param>
-    /// <param name="glyphs">The glyphs: CID (ascending, above 0), outline in glyph space, advance in glyph space.</param>
+    /// <param name="glyphs">The glyphs: CID (ascending, above 0), outline in glyph space, advance in glyph space. An entry of CID 0 gives the
+    /// outline of .notdef instead of an empty one (redaction rebuilds a font whose shown CID 0 draws something; docs/FEHLERGEDAECHTNIS.md, No. 1164).</param>
     /// <returns>The CFF data.</returns>
     public static byte[] BuildCid(string fontName, Matrix fontMatrix, string registry, string ordering, int supplement,
         IReadOnlyList<(int Cid, GlyphOutline Outline, double Advance)> glyphs)
     {
-        var charStrings = new List<byte[]> { CharString(GlyphOutline.Empty, 0) };
+        var notdef = glyphs.Where(g => g.Cid == 0).Select(g => ((GlyphOutline, double)?)(g.Outline, g.Advance)).FirstOrDefault();
+        var all = glyphs;
+        glyphs = [.. glyphs.Where(g => g.Cid != 0)];
+        var charStrings = new List<byte[]> { notdef is var (notdefOutline, notdefAdvance) ? CharString(notdefOutline, notdefAdvance) : CharString(GlyphOutline.Empty, 0) };
         foreach (var glyph in glyphs) charStrings.Add(CharString(glyph.Outline, glyph.Advance));
         var name = new string(fontName.Where(c => c is > ' ' and < (char)127 and not ('[' or ']' or '(' or ')' or '{' or '}' or '<' or '>' or '/' or '%')).Take(127).ToArray());   // at most 127 bytes (TN 5176, 7; No. 1148)
         var names = CffSubsetter.Index([Encoding.ASCII.GetBytes(name.Length > 0 ? name : "Font")]);
@@ -114,7 +118,7 @@ internal static class CffBuilder
         var privateDict = new List<byte>();
         CffSubsetter.Operands(privateDict, [0]);
         CffSubsetter.Op(privateDict, 20);
-        var (left, bottom, right, top) = Box(glyphs.Select(g => g.Outline));
+        var (left, bottom, right, top) = Box(all.Select(g => g.Outline));
 
         List<byte> FontDict(int privateAt)
         {

@@ -48,7 +48,8 @@ public static class RichFonts
 
     /// <summary>
     /// Gets the families to choose from: the three Liberation fonts (always in the program), then the system fonts that new text
-    /// may use (single file, embedding permitted).
+    /// may use (single file, embedding permitted), each family with its regular, bold and italic faces — styles beyond them („Light“,
+    /// „Narrow“) are families of their own (OpenType 57.2; <see cref="SystemFonts.Families"/>).
     /// </summary>
     /// <returns>The family names; only Liberation if the font folders cannot be read.</returns>
     /// <remarks>The first call searches the font folders; do not call it on the UI thread.</remarks>
@@ -71,18 +72,22 @@ public static class RichFonts
     /// <summary>
     /// Gets the fallback for Chinese, Japanese and Korean characters that neither the font nor Liberation has: Noto Sans/Serif
     /// CJK from the folder "Schriften-CJK" (<see cref="CjkFonts"/>). The language variant follows the character (Hangul, kana)
-    /// and, for Han characters, the UI language, because the variants differ in the shape of some characters.
+    /// and, for Han characters, the language of the block (/Lang: zh-Hans, zh-Hant, ja, ko — Unicode 18.1.3: the glyphs differ per market and
+    /// the user chooses the font for a region; docs/FEHLERGEDAECHTNIS.md, No. 1186), without a CJK language the UI language, because the
+    /// variants differ in the shape of some characters.
     /// </summary>
     /// <param name="codePoint">The character.</param>
     /// <param name="style">The span's style (serif or sans; bold and italic are faked).</param>
+    /// <param name="language">The language of the block (BCP 47); null or not Chinese, Japanese or Korean: the UI language decides.</param>
     /// <returns>The font; <see langword="null"/> if the folder or the font is missing or the font lacks the character.</returns>
-    public static Resolved? Cjk(int codePoint, RichStyle style)
+    public static Resolved? Cjk(int codePoint, RichStyle style, string? language = null)
     {
-        var language = global::System.Globalization.CultureInfo.CurrentUICulture.Name;
+        language = CjkLanguage(language) ?? global::System.Globalization.CultureInfo.CurrentUICulture.Name;
         var ordering = codePoint switch
         {
             >= 0xAC00 and <= 0xD7AF or >= 0x1100 and <= 0x11FF or >= 0x3130 and <= 0x318F => "Korea1",
             >= 0x3040 and <= 0x30FF or >= 0x31F0 and <= 0x31FF or >= 0xFF66 and <= 0xFF9F => "Japan1",
+            _ when language.StartsWith("ja", StringComparison.Ordinal) => "Japan1",
             _ when language is "zh-TW" or "zh-HK" or "zh-MO" || language.StartsWith("zh-Hant", StringComparison.Ordinal) => "CNS1",
             _ when language.StartsWith("zh", StringComparison.Ordinal) => "GB1",
             _ when language.StartsWith("ko", StringComparison.Ordinal) => "Korea1",
@@ -92,6 +97,27 @@ public static class RichFonts
         if (CjkFonts.Get(ordering, serif) is not { } font) return null;
         var face = ElementFace.For($"cjk:{ordering}:{(serif ? "serif" : "sans")}", () => font, false, serif, false);
         return face.Glyph(codePoint) != 0 ? new Resolved(face, style.Bold, style.Italic, false) : null;
+    }
+
+    /// <summary>
+    /// A block language that chooses a CJK face, in the form the choice above reads („zh-Hant“, „zh-Hans“, „ja“, „ko“): Chinese with the script
+    /// subtag or the region (TW, HK, MO traditional; CN, SG and plain „zh“ simplified); otherwise null.
+    /// </summary>
+    private static string? CjkLanguage(string? language)
+    {
+        if (string.IsNullOrWhiteSpace(language)) return null;
+        var parts = language.Trim().Split('-', '_');
+        var primary = parts[0].ToLowerInvariant();
+        if (primary is "ja" or "jpn") return "ja";
+        if (primary is "ko" or "kor") return "ko";
+        if (primary is not ("zh" or "zho" or "chi" or "yue" or "cmn")) return null;
+        foreach (var part in parts.Skip(1))
+        {
+            if (part.Equals("Hant", StringComparison.OrdinalIgnoreCase)) return "zh-Hant";
+            if (part.Equals("Hans", StringComparison.OrdinalIgnoreCase)) return "zh-Hans";
+            if (part.ToUpperInvariant() is "TW" or "HK" or "MO") return "zh-Hant";
+        }
+        return primary == "yue" ? "zh-Hant" : "zh-Hans";
     }
 
     /// <summary>
@@ -157,7 +183,10 @@ public static class RichFonts
         OpenTypeFont? font;
         try
         {
-            font = SystemFonts.Find(family, bold, italic);
+            // the families offered are those of name ID 1 with their regular, bold and italic faces (OpenType 57.2: „Calibri Light“ is a family
+            // of its own); other names (a typographic family, a named instance, a name from a file) are looked up as before
+            // (docs/FEHLERGEDAECHTNIS.md, No. 1176)
+            font = SystemFonts.FindFace(family, bold, italic) ?? SystemFonts.Find(family, bold, italic);
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or FontFormatException)
         {
@@ -165,6 +194,13 @@ public static class RichFonts
         }
         if (font is null || !Embeddable(font) || IsCollection(font)) return null;
         var (fontBold, fontItalic) = StyleOf(font);
+        // a named instance of a variable font („Bahnschrift SemiBold“, found through fvar) is drawn in the default instance: what the default
+        // instance lacks of its weight or slant is faked (docs/FEHLERGEDAECHTNIS.md, No. 1159)
+        if (SystemFonts.NamedInstance(family) is { } instance)
+        {
+            bold |= instance.Weight >= 600;
+            italic |= instance.Italic;
+        }
         var (serif, mono) = Kind(family);
         var face = ElementFace.For("sys:" + font.PostScriptName + "|" + font.FileData.Length, () => font, mono, serif, fontItalic);
         return new Resolved(face, bold && !fontBold, italic && !fontItalic, true);

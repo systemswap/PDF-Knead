@@ -263,6 +263,8 @@ public sealed partial class M7NormTests
         int a = font.GlyphForUnicode('A'), b = font.GlyphForUnicode('B');
         var glyphs = Ot01Glyphs(Ot01Liberation);
         glyphs[b] = Ot01Composite(a, 0x0008, 0x2000);
+        // header xMin = the lsb of „B“ in hmtx, so that the origin pp1 = xMin − lsb stays x = 0 (OpenType 23)
+        BinaryPrimitives.WriteInt16BigEndian(glyphs[b].AsSpan(2), BinaryPrimitives.ReadInt16BigEndian(Ot01Table(Ot01Liberation, "hmtx").AsSpan(b * 4 + 2)));
         var scaled = OpenTypeFont.Parse(Ot01WithGlyphs(Ot01Liberation, glyphs)).Outline(b).Bounds;
         var whole = font.Outline(a).Bounds;
         Assert.Equal(whole.Left / 2, scaled.Left, 3);
@@ -895,16 +897,19 @@ public sealed partial class M7NormTests
         Assert.Equal(Ot02Font.Outline(a).Points, subset.Outline(a).Points);
     }
 
-    /// <summary>OT 1.6.8 sentences 2–3 (today's behaviour): COLR and CPAL are not read — no colour glyphs, „A“ draws from its outline; scrubbing leaves both out.</summary>
+    /// <summary>
+    /// OT 1.6.8 sentences 2–3 (question 3): COLR version 0 and CPAL are read for the program's own text and signatures — „A“ is a colour glyph,
+    /// while its outline in the font (what an embedded copy draws) stays; scrubbing leaves both tables out.
+    /// </summary>
     [Fact]
-    public void Ot01_ColrCpal_NotReadAndDroppedWhenScrubbing()
+    public void Ot01_ColrCpal_ReadForOwnTextAndDroppedWhenScrubbing()
     {
         var a = Ot02G('A');
         var colr = new Ot02Bytes().U16(0).U16(1).U32(14).U32(20).U16(1).U16(a).U16(0).U16(1).U16(a).U16(0).ToArray();
         var cpal = new Ot02Bytes().U16(0).U16(1).U16(1).U16(1).U32(14).U16(0).U16(0x00FF).U16(0x00FF).ToArray();
         var font = Ot01With(Ot01Liberation, ("COLR", colr), ("CPAL", cpal));
         var parsed = OpenTypeFont.Parse(font);
-        Assert.Null(ColorGlyphs.For(parsed));
+        Assert.NotNull(ColorGlyphs.For(parsed)!.Glyph(a));
         Assert.Equal(Ot02Font.Outline(a).Points, parsed.Outline(a).Points);
         var scrubbed = OpenTypeFont.Parse(TrueTypeSubsetter.Scrub(font, [a]));
         Assert.False(scrubbed.HasTable("COLR") || scrubbed.HasTable("CPAL"));
@@ -972,7 +977,8 @@ public sealed partial class M7NormTests
 
     /// <summary>
     /// OT 2.1 sentences 8, 12 and 14–15: per run either the default language system or one language system applies, never both — with a default
-    /// one („liga“) and „TRK “ („smcp“) only the default one's lookups; without a default one those of the first language system.
+    /// one („liga“) and „TRK “ („smcp“) only the default one's lookups; without a default one none for a text without a language and only those
+    /// of „TRK “ for Turkish text (before, the first language system for any text: docs/FEHLERGEDAECHTNIS.md, No. 1204).
     /// </summary>
     [Theory]
     [InlineData(true)]
@@ -981,6 +987,8 @@ public sealed partial class M7NormTests
     {
         var gsub = Ot02Layout([new Ot02Script("latn", withDefault ? new Ot02Lang("", [0]) : null, new Ot02Lang("TRK ", [1]))],
             [new Ot02Feature("liga", [0]), new Ot02Feature("smcp", [1])], [Ot02Lookup(1), Ot02Lookup(1)]);
-        Assert.Equal(withDefault ? [0] : new[] { 1 }, new LayoutTable(gsub, 7).LookupsFor(["liga", "smcp"]));
+        var table = new LayoutTable(gsub, 7);
+        Assert.Equal(withDefault ? [0] : Array.Empty<int>(), table.LookupsFor(["liga", "smcp"]));
+        Assert.Equal([1], table.LookupsFor(["liga", "smcp"], ["latn"], "TRK "));
     }
 }

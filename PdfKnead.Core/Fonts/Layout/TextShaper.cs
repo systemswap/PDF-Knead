@@ -55,18 +55,71 @@ public struct ShapedGlyph
 
     /// <summary>For a ligature glyph formed by GSUB: the number of its components (0 for other glyphs).</summary>
     internal int LigatureComponents;
+
+    /// <summary>
+    /// The features of restricted reach that apply at this glyph (bits of <see cref="TextShaper"/>: kern, cpsp, rtlm): kern everywhere except at
+    /// glyphs palt covers, cpsp only in words of capitals, rtlm only at mirrored characters (docs/FEHLERGEDAECHTNIS.md, No. 1174).
+    /// </summary>
+    internal byte Gates;
+
+    /// <summary>Whether a lookup of the feature ital replaced the glyph (an italic form from the font: the caller does not slant it as well).</summary>
+    internal bool Italic;
+
+    /// <summary>
+    /// The features of a syllabic script restricted to some glyphs of a syllable that apply at this glyph (bits of <see cref="TextShaper"/>:
+    /// rphf, pref, blwf, abvf, half, pstf, init, cfar; docs/FEHLERGEDAECHTNIS.md, No. 1175).
+    /// </summary>
+    internal ushort Mask;
+
+    /// <summary>The syllable of a syllabic script the glyph belongs to (neighbouring syllables differ; 0: none).</summary>
+    internal ushort Syllable;
+
+    /// <summary>The shaping category of the character in its syllable (<see cref="TextShaper"/>, No. 1175).</summary>
+    internal byte Category;
+
+    /// <summary>The place of the glyph in its syllable for the reordering (<see cref="TextShaper"/>, No. 1175).</summary>
+    internal byte Position;
+
+    /// <summary>What GSUB did to the glyph (bits: 1 substituted, 2 formed as a ligature, 4 from a multiple substitution; No. 1175).</summary>
+    internal byte Formed;
+
+    /// <summary>
+    /// Whether the glyph stands for a joiner (<see cref="TextShaper.JoinerZwnj"/> U+200C, <see cref="TextShaper.JoinerZwj"/> U+200D; 0: none):
+    /// positioning passes over both as if they were not there, the context of a substitution over ZWJ — the joiners only ask for or prevent
+    /// joining and ligatures between their neighbours (docs/FEHLERGEDAECHTNIS.md, No. 1179). Since No. 1183 also the other default ignorable
+    /// characters (<see cref="TextShaper.JoinerFormat"/>: WJ, CGJ, ZWSP, U+FEFF, tags …), which ligatures and positioning pass over unless they
+    /// name them, the variation selectors (<see cref="TextShaper.JoinerSelector"/>: passed over by ligatures and positioning, not by the context of
+    /// a substitution, which may ask for them), and <see cref="TextShaper.JoinerHeld"/> for one within the unit of a prepended concatenation mark;
+    /// a default ignorable character the font has no glyph for (and the soft hyphen) is drawn as nothing.
+    /// </summary>
+    internal byte Joiner;
+
+    /// <summary>
+    /// For a mark attached in GPOS: its offsets are still relative to its base (the anchors' difference plus later adjustments of the mark
+    /// itself); the base's final place is added after the last GPOS lookup (OpenType 20.4.5, No. 1179).
+    /// </summary>
+    internal bool RelativeToBase;
 }
 
 /// <summary>
-/// Text shaper following OpenType, for Latin script and — since No. 910 — Arabic script (joining forms isol, init, medi, fina applied each
-/// where the letter takes that form, <see cref="ArabicJoining"/>; script „arab“; marks on ligatures). Characters → glyphs via the cmap,
-/// then GSUB (ccmp, locl, rlig, liga, clig, calt — contextual forms of connected script fonts)
-/// and GPOS (kern, curs, mark, mkmk, dist) or the legacy kern table. Works like common shaping engines, but only covers what text and
-/// signatures in these scripts need: no reordering (the line is set right to left by the caller, No. 910).
+/// Text shaper following OpenType. The text is split into runs of one script, each shaped with the lookups of its script tag and of the language
+/// system of the text's language (<see cref="UnicodeScripts"/>, No. 1162); cursive scripts — since No. 910 — with their joining forms isol,
+/// init, medi, fina applied each where the letter takes that form (<see cref="ArabicJoining"/>; marks on ligatures). Characters → glyphs via
+/// the cmap, then GSUB (ccmp, locl, rlig, liga, clig, calt — contextual forms of connected script fonts) and the legacy kern table (when GPOS
+/// has no kerning for the run) and GPOS (kern, curs, mark, mkmk, dist, cpsp). Since No. 1174 also rvrn, rclt, the direction features, the
+/// Syriac Alaph forms, stch, chws or halt for CJK text, ital on request, and the transient reordering of Arabic marks. Since No. 1175 the
+/// syllables of the Indic scripts, Khmer, Myanmar and Tibetan with their reordering and stages, SARA AM of Thai and Lao, and Hangul jamo
+/// composed into syllables (<see cref="SubstituteSyllables"/>). Since No. 1179 Sinhala, the Hangul tone marks, the joiners passed over in
+/// positioning (and ZWJ in the context of a substitution), attached marks placed after the last GPOS lookup. Since No. 1183 the vowel
+/// sequences not to use marked with a dotted circle, default ignorable characters drawn as nothing and passed over by ligatures and
+/// positioning, ZWJ asking for a ligature, canonically equivalent spellings in Tibetan, Myanmar, Thai and the Indic scripts drawn alike,
+/// Script_Extensions and fractions around U+2044. Works like common shaping engines (the line is set right to left by the caller, No. 910).
 /// </summary>
 /// <remarks>
 /// One shaper is shared per <see cref="OpenTypeFont"/>; <see cref="Shape"/> keeps its state per call and is safe to call from
-/// several threads. Not supported: GSUB type 3 (there is no choice of alternates; the glyph of the cmap stays) and device tables. Contextual
+/// several threads. Not supported: GSUB type 3 outside the stages of the syllabic scripts and rand (there is no choice of alternates; the glyph
+/// of the cmap stays — in those stages the first alternate, No. 1175; under rand the one of <see cref="RandomAlternate"/>, No. 1223) and device
+/// tables. Contextual
 /// positioning (GPOS 7, 8), reverse chaining substitution (GSUB 8), the component of a mark on a ligature and glyph classes derived from
 /// Unicode without GlyphClassDef since docs/FEHLERGEDAECHTNIS.md, No. 1161. The work per call is bounded (lookup attempts and matching
 /// steps, No. 1137).
@@ -75,11 +128,20 @@ public sealed partial class TextShaper
 {
     private static readonly ConditionalWeakTable<OpenTypeFont, TextShaper> Shapers = new();
 
-    /// <summary>Substitution features in the usual order (they are applied in LookupList order).</summary>
-    public static readonly IReadOnlyList<string> DefaultSubstitutions = ["ccmp", "locl", "rlig", "liga", "clig", "calt"];
+    /// <summary>
+    /// Substitution features in the usual order (they are applied in LookupList order); rclt cannot be switched off (OpenType 67.12). Besides
+    /// them rvrn always applies as a stage of its own before all others (67.20), and the features of the direction of the run (66.7, 66.8, 67.17,
+    /// 67.18) — before, neither rvrn, rclt nor the direction features were applied (docs/FEHLERGEDAECHTNIS.md, No. 1174). Since No. 1223 also
+    /// rand, which should be on where the font has it (67.11 sentence 9): its alternates are chosen by a fixed function of the text
+    /// (<see cref="RandomAlternate"/>).
+    /// </summary>
+    public static readonly IReadOnlyList<string> DefaultSubstitutions = ["ccmp", "locl", "rlig", "liga", "clig", "calt", "rclt", "rand"];
 
-    /// <summary>Positioning features enabled by default.</summary>
-    public static readonly IReadOnlyList<string> DefaultPositioning = ["kern", "curs", "mark", "mkmk", "dist"];
+    /// <summary>
+    /// Positioning features enabled by default; cpsp only in words of capitals (OpenType 64.19), kern not at glyphs palt covers while palt is off
+    /// (66.1), and in a run of CJK text chws or halt instead of kern (64.15, 65.10; No. 1174).
+    /// </summary>
+    public static readonly IReadOnlyList<string> DefaultPositioning = ["kern", "curs", "mark", "mkmk", "dist", "cpsp"];
 
     private readonly OpenTypeFont _font;
     private readonly LayoutTable? _gsub;
@@ -124,21 +186,58 @@ public sealed partial class TextShaper
         if (_gdef is not null) yield return "GDEF";
     }
 
-    /// <summary>Shapes a text.</summary>
+    /// <summary>Shapes a text without a known language (the default language system of each script applies).</summary>
     /// <param name="text">The text; a tab is shaped as a space.</param>
     /// <param name="features">Features to switch on in addition (tag; it applies to substitution and positioning, the font's tables decide
     /// where it exists) or off ("-liga"), in this order; null for the defaults.</param>
     /// <returns>The glyphs in visual order (the same as text order, since there is no reordering).</returns>
-    public ShapedGlyph[] Shape(string text, IEnumerable<string>? features = null)
+    public ShapedGlyph[] Shape(string text, IEnumerable<string>? features = null) => Shape(text, features, null, null);
+
+    /// <summary>Shapes a text in the language given, each run in the direction of its first strong character.</summary>
+    /// <param name="text">The text; a tab is shaped as a space.</param>
+    /// <param name="features">Features to switch on in addition or off ("-liga"), in this order; null for the defaults.</param>
+    /// <param name="language">The language of the text as a language tag (/Lang, BCP 47); null if unknown.</param>
+    /// <returns>The glyphs in text order.</returns>
+    public ShapedGlyph[] Shape(string text, IEnumerable<string>? features, string? language) => Shape(text, features, language, null);
+
+    /// <summary>
+    /// Shapes a text: split into runs of one script (<see cref="UnicodeScripts.Itemize"/>), each run shaped with the lookups of its script
+    /// and of the language system of <paramref name="language"/> (OpenType 2.4.1, 2.11.2). Before, the whole text was shaped under „latn“, or
+    /// under „arab“ as soon as one letter of a cursive script occurred (docs/FEHLERGEDAECHTNIS.md, No. 1162).
+    /// </summary>
+    /// <param name="text">The text; a tab is shaped as a space.</param>
+    /// <param name="features">Features to switch on in addition or off ("-liga"), in this order; null for the defaults.</param>
+    /// <param name="language">The language of the text as a language tag (/Lang, BCP 47: „tr“, „ur-PK“); null if unknown.</param>
+    /// <param name="rightToLeft">The direction of the text (the caller's embedding level: odd is right to left; its characters at odd levels
+    /// are mirrored already, UAX #9 L4); null: each run in the direction of its first strong character.</param>
+    /// <returns>The glyphs in text order (marks of Arabic script in the order of the transient reordering, no other reordering);
+    /// <see cref="ShapedGlyph.Cluster"/> counts in the whole text.</returns>
+    public ShapedGlyph[] Shape(string text, IEnumerable<string>? features, string? language, bool? rightToLeft) =>
+        Shape(text, features, language, rightToLeft, swappingInhibited: false, shapePresentationForms: false);
+
+    /// <summary>
+    /// Shapes a text as <see cref="Shape(string, IEnumerable{string}?, string?, bool?)"/> with the states of two deprecated format characters
+    /// in force at the start of the text (The Unicode Standard, 23.3.1): where symmetric swapping is inhibited (after U+206A up to U+206B or
+    /// the end of the paragraph) a mirrored character is not given rtlm either and keeps the glyph its name describes (docs/FEHLERGEDAECHTNIS.md,
+    /// No. 1215); while Arabic form shaping is active (after U+206D up to U+206C) the Arabic presentation forms are shaped as their nominal
+    /// letters (<see cref="NominalLetters"/>, No. 1221). Within the text the characters switch the states.
+    /// </summary>
+    /// <param name="swappingInhibited">Whether symmetric swapping is inhibited at the start of <paramref name="text"/> (by a U+206A before it
+    /// in a longer text, <see cref="Bidi.Analysis.SwappingInhibitedBefore"/>).</param>
+    /// <param name="shapePresentationForms">Whether a U+206D before the text (and no U+206C after it) is in force.</param>
+    internal ShapedGlyph[] Shape(string text, IEnumerable<string>? features, string? language, bool? rightToLeft, bool swappingInhibited,
+        bool shapePresentationForms = false)
     {
         var substitutions = new HashSet<string>(DefaultSubstitutions, StringComparer.Ordinal);
         var positioning = new HashSet<string>(DefaultPositioning, StringComparer.Ordinal);
+        var disabled = new HashSet<string>(StringComparer.Ordinal);
         foreach (var f in features ?? [])
         {
             if (f.StartsWith('-'))
             {
                 substitutions.Remove(f[1..]);
                 positioning.Remove(f[1..]);
+                disabled.Add(f[1..]);
             }
             else
             {
@@ -146,22 +245,59 @@ public sealed partial class TextShaper
                 // could not be switched on (docs/FEHLERGEDAECHTNIS.md, No. 271)
                 substitutions.Add(f);
                 positioning.Add(f);
+                disabled.Remove(f);
             }
         }
+        // required contextual alternates cannot be switched off (OpenType 67.12), nor can rvrn (67.20, its own stage in ShapeRun)
+        substitutions.Add("rclt");
+        disabled.Remove("rclt");
 
         var run = new List<ShapedGlyph>(text.Length);
         var codePoints = new List<int>(text.Length);
         var index = 0;
+        // within the unit of a prepended concatenation mark (the mark and the digits or letters after it) a default ignorable character breaks
+        // the unit instead of being passed over (The Unicode Standard, 23.2.3; No. 1183)
+        var concatenation = false;
+        var unswapped = swappingInhibited;
+        var forms = shapePresentationForms;
         foreach (var rune in text.EnumerateRunes())
         {
+            if (rune.IsBmp) unswapped = Bidi.SwappingInhibitedAfter(unswapped, (char)rune.Value);
+            // the character shaping selectors switch the shaping of presentation forms; they do not nest (The Unicode Standard 23.3.1, No. 1221)
+            if (rune.Value is InhibitFormShaping or ActivateFormShaping) forms = rune.Value == ActivateFormShaping;
+            else if (forms && NominalLetters(rune.Value) is { } nominal && run.Count + nominal.Length <= MaxGlyphs)
+            {
+                // a presentation form while the shaping is active: the glyphs of its nominal letters, shaped with their neighbours; the first carries
+                // the character as typed, the others no text of their own (one cluster)
+                var nominalGlyphs = Array.ConvertAll(nominal, c => _font.GlyphForUnicode(c));
+                if (Array.TrueForAll(nominalGlyphs, g => g > 0))
+                {
+                    for (var k = 0; k < nominal.Length; k++)
+                    {
+                        var nominalCategory = System.Globalization.CharUnicodeInfo.GetUnicodeCategory(nominal[k]);
+                        run.Add(new ShapedGlyph
+                        {
+                            Glyph = nominalGlyphs[k], Cluster = index, Text = k == 0 ? rune.ToString() : "", Gates = GateKern,
+                            Class = nominalCategory == System.Globalization.UnicodeCategory.NonSpacingMark ? (byte)3 : (byte)1,
+                        });
+                        codePoints.Add(nominal[k]);
+                    }
+                    index += rune.Utf16SequenceLength;
+                    concatenation = false;
+                    continue;
+                }
+            }
             // a variation selector after a character: the glyph of the sequence from cmap format 14 (OpenType 9.4.10), and the selector
-            // itself without a glyph of its own unless the font maps it — before it became glyph 0, a box (docs/FEHLERGEDAECHTNIS.md, No. 1160)
+            // itself without a glyph of its own unless the font maps it — before it became glyph 0, a box (docs/FEHLERGEDAECHTNIS.md, No. 1160).
+            // A selector the font maps stays a glyph of its own also after a variation sequence of format 14, so that a ligature of the font
+            // that names it (the keycap „#“ U+FE0F U+20E3) can form; it is passed over by ligatures and positioning that do not name it
+            // (The Unicode Standard, 23.4; before, it went into the text of the glyph before it and such a ligature could not form, No. 1183)
             if (OpenTypeFont.IsVariationSelector(rune.Value) && run.Count > 0)
             {
                 var previous = run[^1];
                 var variant = _font.GlyphForVariation(codePoints[^1], rune.Value);
-                if (variant > 0) previous = previous with { Glyph = variant };
-                if (variant >= 0 || _font.GlyphForUnicode(rune.Value) <= 0)
+                if (variant > 0) run[^1] = previous = previous with { Glyph = variant };
+                if (_font.GlyphForUnicode(rune.Value) <= 0)
                 {
                     run[^1] = previous with { Text = previous.Text + rune };
                     index += rune.Utf16SequenceLength;
@@ -170,59 +306,283 @@ public sealed partial class TextShaper
             }
             var glyph = rune.Value == '\t' ? _font.GlyphForUnicode(' ') : _font.GlyphForUnicode(rune.Value);
             // the class used without a GlyphClassDef: a non-spacing mark is a mark, every other character a base (No. 1161)
-            var cls = System.Text.Rune.GetUnicodeCategory(rune) == System.Globalization.UnicodeCategory.NonSpacingMark ? (byte)3 : (byte)1;
-            run.Add(new ShapedGlyph { Glyph = glyph, Cluster = index, Text = rune.ToString(), Class = cls });
+            var category = System.Text.Rune.GetUnicodeCategory(rune);
+            var cls = category == System.Globalization.UnicodeCategory.NonSpacingMark ? (byte)3 : (byte)1;
+            var ignorable = UnicodeProperties.IsDefaultIgnorable(rune.Value);
+            run.Add(new ShapedGlyph
+            {
+                Glyph = glyph, Cluster = index, Text = rune.ToString(), Class = cls, Gates = unswapped ? (byte)(GateKern | GateUnswapped) : GateKern,
+                Joiner = rune.Value == 0x200D ? JoinerZwj : rune.Value == 0x200C ? JoinerZwnj : !ignorable ? (byte)0
+                    : concatenation ? JoinerHeld : OpenTypeFont.IsVariationSelector(rune.Value) ? JoinerSelector : JoinerFormat,
+            });
             codePoints.Add(rune.Value);
             index += rune.Utf16SequenceLength;
+            concatenation = UnicodeProperties.IsPrependedConcatenationMark(rune.Value) || concatenation && !ignorable
+                && (System.Text.Rune.IsLetterOrDigit(rune) || category is System.Globalization.UnicodeCategory.NonSpacingMark);
         }
-        // Arabic script: every letter's joining form, the script „arab“ for the font's lookups (No. 910)
-        var arabic = codePoints.Exists(ArabicJoining.Joins);
-        var script = arabic ? "arab" : "latn";
-        if (arabic)
+        // Work limit as in common shaping engines (an operation budget): a damaged or malicious font can nest lookups into each
+        // other until shaping hangs; once the limit is reached the rest stays unshaped. Besides the lookup attempts the matching steps
+        // count (see Work), each glyph of the input with a generous share (No. 1137); one budget for all runs of the text
+        var work = new Work(Math.Max(16_384, run.Count * 64), Math.Max(1L << 22, run.Count * 4096L));
+        var lang = UnicodeScripts.OpenTypeLanguages(language);
+        var runs = UnicodeScripts.Itemize(codePoints);
+        var options = new RunOptions(substitutions, positioning, disabled, lang);
+        if (runs.Count == 1)
+        {
+            ShapeRun(run, codePoints, UnicodeScripts.OpenTypeTags(runs[0].Script), options, rightToLeft ?? StartsRightToLeft(codePoints), work);
+            return [.. run];
+        }
+        var result = new List<ShapedGlyph>(run.Count);
+        foreach (var (start, length, script) in runs)
+        {
+            var piece = run.GetRange(start, length);
+            var points = codePoints.GetRange(start, length);
+            ShapeRun(piece, points, UnicodeScripts.OpenTypeTags(script), options, rightToLeft ?? StartsRightToLeft(points), work);
+            result.AddRange(piece);
+        }
+        return [.. result];
+    }
+
+    /// <summary>
+    /// Shapes one run of a single script: GSUB, advances, the legacy kern table and GPOS, each with the lookups of the language system that
+    /// <paramref name="scripts"/> and the language select. A run with a letter of a cursive script (Arabic, Syriac, N'Ko, Mongolian, Phags-pa,
+    /// Mandaic, Manichaean, Hanifi Rohingya, Sogdian, Psalter Pahlavi, Chorasmian, Old Uyghur, Adlam — the joining types of ArabicShaping.txt)
+    /// takes its joining forms and the stages of Arabic shaping under the tag of its own script, not „arab“ (No. 910, No. 1162), and the Syriac
+    /// forms of Alaph (fin2, fin3, med2); Arabic marks in any run the order of the transient reordering (UAX #53). First of all the stage of rvrn;
+    /// the features of the run's direction with the others; after GPOS the stretching of stch (No. 1174). A run of a syllabic script is cut into
+    /// syllables and shaped stage by stage (No. 1175).
+    /// </summary>
+    private void ShapeRun(List<ShapedGlyph> run, List<int> codePoints, string[] scripts, RunOptions options, bool rightToLeft, Work work)
+    {
+        // fractions with U+2044 between digits take numr, dnom and frac (No. 1183)
+        options = MarkFractions(run, codePoints, options);
+        var language = options.Language;
+        var substitutions = options.Substitutions;
+        // the lookups of rand in this run's language system (No. 1223)
+        work.RandomLookups = _gsub is not null && substitutions.Contains("rand") && _gsub.LookupsFor(["rand"], scripts, language, required: false) is { Length: > 0 } rand
+            ? [.. rand] : null;
+        var joining = codePoints.Exists(ArabicJoining.Joins);
+        var complex = joining ? Complex.None : ComplexOf(scripts);
+        // a font made for the default shaping of a script of the universal model keeps it (No. 1181)
+        if (complex == Complex.Universal && !UniversalApplies(scripts)) complex = Complex.None;
+        // the Arabic marks in canonical order and then as the transient reordering puts them (UAX #53, No. 1174), in every run with Arabic marks —
+        // before only in runs with a connecting letter (No. 1175): canonically equivalent texts look the same; each glyph keeps its own character
+        // (the text stays as typed)
+        if (complex == Complex.None)
+        {
+            ReorderArabicMarks(run, codePoints, work);
+            // then what composes canonically composed where the font has the composed letter (UAX #53, 3.2; No. 1193, 1197) — not in the runs
+            // of a syllabic script whose font is made for the default shaping (they keep their own rules, No. 1181)
+            ComposeForDisplay(run, codePoints, work, sequences: joining || ComplexOf(scripts) == Complex.None);
+        }
+        if (joining)
         {
             var forms = ArabicJoining.Forms(codePoints);
             for (var i = 0; i < run.Count; i++) run[i] = run[i] with { Form = forms[i] };
         }
+        else MarkCapitalWords(run, codePoints);
 
-        // Work limit as in common shaping engines (an operation budget): a damaged or malicious font can nest lookups into each
-        // other until shaping hangs; once the limit is reached the rest stays unshaped. Besides the lookup attempts the matching steps
-        // count (see Work), each glyph of the input with a generous share (No. 1137)
-        var work = new Work(Math.Max(16_384, run.Count * 64), Math.Max(1L << 22, run.Count * 4096L));
-        if (_gsub is not null && !arabic)
-            foreach (var lookup in _gsub.LookupsFor(substitutions))
-                new Substitution(this, run, work).ApplyLookup(lookup);
+        // the features of the direction of the run (OpenType 66.7, 66.8, 67.17, 67.18): ltra and ltrm left to right, rtla and rtlm right to
+        // left — rtlm only at mirrored characters that the caller did not replace by their mirror image (no counterpart, or not in the font)
+        string[] direction = [.. (rightToLeft ? new[] { "rtla", "rtlm" } : ["ltra", "ltrm"]).Where(f => !options.Disabled.Contains(f))];
+        if (rightToLeft && direction.Contains("rtlm")) MarkMirrored(run, codePoints);
+
+        // the syllables of an Indic or South-East Asian script, the composition of Hangul jamo (docs/FEHLERGEDAECHTNIS.md, No. 1175): before all
+        // substitutions, as the characters are prepared for shaping
+        if (complex != Complex.None) PrepareSyllables(run, codePoints, complex, scripts, work);
+        else if (!joining && scripts is ["hang", ..])
+        {
+            ComposeHangul(run, codePoints, scripts, options.Language, work);
+            HangulToneMarks(run, codePoints, work);
+        }
+
+        // required variation alternates first, a stage of their own and only their single substitutions (OpenType 67.20, sentences 26, 30, 34)
+        if (_gsub is not null)
+            foreach (var lookup in _gsub.LookupsFor(["rvrn"], scripts, language, required: false))
+                if (_gsub.Lookup(lookup).Type == 1) new Substitution(this, run, work).ApplyLookup(lookup);
+
+        // conjoining Hangul jamo: leading, vowel and trailing jamo of a syllable take ljmo, vjmo and tjmo (OpenType 66.4, 67.33, 68.8); the
+        // forms are kept in the joining form of the glyph (Initial, Medial, Final), as for the cursive scripts (No. 1162)
+        var jamo = !joining && scripts.Length > 0 && scripts[0] == "hang" && HangulJamo(run, codePoints);
+        var italic = _gsub is not null && substitutions.Contains("ital") ? new HashSet<int>(_gsub.LookupsFor(["ital"], scripts, language, required: false)) : null;
+        if (complex is Complex.Indic or Complex.Khmer or Complex.Myanmar or Complex.Tibetan or Complex.Universal)
+            SubstituteSyllables(run, complex, scripts, options, direction, italic, work);
+        else if (_gsub is not null && jamo)
+        {
+            // every lookup in LookupList order; one of a jamo feature (that is not also one of the others) only at the jamo of its kind; a ZWJ
+            // passed over in the input of a ligature (No. 1183)
+            work.AutoZwj = true;
+            var general = Gated(_gsub, [.. substitutions, .. direction], scripts, language, true);
+            var kinds = new Dictionary<int, ArabicJoining.Form>();
+            foreach (var (feature, form) in new[] { ("ljmo", ArabicJoining.Form.Initial), ("vjmo", ArabicJoining.Form.Medial), ("tjmo", ArabicJoining.Form.Final) })
+                foreach (var lookup in _gsub.LookupsFor([feature], scripts, language, required: false))
+                    if (!general.ContainsKey(lookup)) kinds.TryAdd(lookup, form);
+            foreach (var lookup in general.Keys.Concat(kinds.Keys).Order())
+                new Substitution(this, run, work, general.GetValueOrDefault(lookup), italic?.Contains(lookup) == true)
+                    .ApplyLookup(lookup, kinds.TryGetValue(lookup, out var only) ? only : null);
+        }
+        else if (_gsub is not null && !joining)
+        {
+            // a ZWJ in the input of a ligature asks for it (The Unicode Standard, 23.2.2): passed over (No. 1183)
+            work.AutoZwj = true;
+            foreach (var (lookup, gate) in Gated(_gsub, [.. substitutions, .. direction], scripts, language, true))
+                new Substitution(this, run, work, gate, italic?.Contains(lookup) == true).ApplyLookup(lookup);
+        }
         else if (_gsub is not null)
         {
-            // OpenType Arabic: composition and local forms first, then each joining feature only where the letter takes that form, then
-            // the required and other ligatures and the remaining features (the specification's order of stages)
-            string[] first = ["ccmp", "locl"];
-            foreach (var lookup in _gsub.LookupsFor(first, script)) new Substitution(this, run, work).ApplyLookup(lookup);
+            // OpenType Arabic: composition, local forms and the direction features first, then each joining feature only where the letter
+            // takes that form (the Syriac Alaph forms fin2, fin3, med2 among them, No. 1174), then the required and other ligatures and the
+            // remaining features (the specification's order of stages); ccmp leads only here, as with the reference shaper (special rule)
+            string[] first = ["ccmp", "locl", .. direction];
+            foreach (var (lookup, gate) in Gated(_gsub, first, scripts, language, true))
+                new Substitution(this, run, work, gate).ApplyLookup(lookup);
             foreach (var (feature, form) in new[] { ("isol", ArabicJoining.Form.Isolated), ("fina", ArabicJoining.Form.Final),
-                         ("medi", ArabicJoining.Form.Medial), ("init", ArabicJoining.Form.Initial) })
-                foreach (var lookup in _gsub.LookupsFor([feature], script, required: false))
+                         ("fin2", ArabicJoining.Form.Final2), ("fin3", ArabicJoining.Form.Final3), ("medi", ArabicJoining.Form.Medial),
+                         ("med2", ArabicJoining.Form.Medial2), ("init", ArabicJoining.Form.Initial) })
+                foreach (var lookup in _gsub.LookupsFor([feature], scripts, language, required: false))
                     new Substitution(this, run, work).ApplyLookup(lookup, form);
             var rest = substitutions.Where(f => !first.Contains(f)).ToList();
-            foreach (var lookup in _gsub.LookupsFor(rest, script, required: false)) new Substitution(this, run, work).ApplyLookup(lookup);
+            foreach (var (lookup, gate) in Gated(_gsub, rest, scripts, language, false))
+                new Substitution(this, run, work, gate, italic?.Contains(lookup) == true).ApplyLookup(lookup);
         }
+        work.AutoZwj = false;
 
         for (var i = 0; i < run.Count; i++)
         {
             var g = run[i];
             g.XAdvance = _font.AdvanceWidth(g.Glyph);
-            // Marks (GDEF class 3, or derived from Unicode without a GlyphClassDef) do not advance
-            if (ClassOf(g) == 3 && _gpos is not null) g.XAdvance = 0;
+            // Marks (GDEF class 3, or derived from Unicode without a GlyphClassDef) do not advance — except in Indic and Khmer text, where the
+            // font's advance of a mark stays, as with the reference shaper (No. 1175)
+            if (ClassOf(g) == 3 && _gpos is not null && complex is not (Complex.Indic or Complex.Khmer)) g.XAdvance = 0;
             run[i] = g;
         }
 
-        var kerned = false;
+        var positioning = PositioningFor(run, scripts, options, joining, work);
+        // above- and below-base marks of the syllabic scripts (OpenType 64.3, 64.9; No. 1175)
+        if (complex != Complex.None)
+            positioning = [.. positioning, .. new[] { "abvm", "blwm", "dist" }.Where(f => !options.Disabled.Contains(f))];
+        // Without kern lookups in the resolved language system of GPOS the kern table applies first, then the other GPOS features (OpenType
+        // 3.15) — before it came after them, and a mark attached by GPOS moved by the kerning of its base (docs/FEHLERGEDAECHTNIS.md, No. 1162)
+        var kernInGpos = _gpos is not null && positioning.Contains("kern") && _gpos.LookupsFor(["kern"], scripts, language).Length > 0;
+        if (!kernInGpos && positioning.Contains("kern") && _kern is { } kern) LegacyKerning(kern, run, work);
         if (_gpos is not null)
         {
-            var lookups = _gpos.LookupsFor(positioning, script);
-            kerned = positioning.Contains("kern") && _gpos.LookupsFor(["kern"], script).Length > 0;
-            foreach (var lookup in lookups) new Positioning(this, run, work).ApplyLookup(lookup);
+            foreach (var (lookup, gate) in Gated(_gpos, [.. positioning, .. direction], scripts, language, true))
+                new Positioning(this, run, work, gate).ApplyLookup(lookup);
+            ResolveAttachments(run);
         }
-        if (!kerned && positioning.Contains("kern") && _kern is { } kern) LegacyKerning(kern, run, work);
-        return [.. run];
+        HideIgnorables(run);
+
+        if (!options.Disabled.Contains("stch")) Stretch(run, scripts, language, rightToLeft, work);
+    }
+
+    /// <summary>
+    /// A default ignorable character the font has no glyph for (glyph 0 after GSUB, or one a ligature passed over) is drawn as nothing: the
+    /// glyph of the space without an advance or offset, its text kept (The Unicode Standard, chapter 23: invisible unless supported otherwise);
+    /// always the soft hyphen, which shows only at the end of a line (23.2.1), and a variation selector, which only chooses the form of the
+    /// character before it (23.4) and stays a glyph only for the font's ligatures. A font without a space glyph: the text goes to the glyph
+    /// before (or after) it and the glyph is left out. A glyph the font substituted (a ZWJ it replaced by a form of its own) stays. Before,
+    /// such characters were drawn as the box of glyph 0 with its advance and the soft hyphen as a hyphen in the middle of a word
+    /// (docs/FEHLERGEDAECHTNIS.md, No. 1183).
+    /// </summary>
+    private void HideIgnorables(List<ShapedGlyph> run)
+    {
+        // the character shaping and numeric shape selectors are interpreted, so never drawn (23.3.1, No. 1221)
+        static bool Always(string text) => text is "\u00AD" or "\u206C" or "\u206D" or "\u206E" or "\u206F"
+            || text.Length is 1 or 2 && System.Text.Rune.TryGetRuneAt(text, 0, out var r) && r.Utf16SequenceLength == text.Length
+                && OpenTypeFont.IsVariationSelector(r.Value);
+        static bool Hidden(ShapedGlyph g) => g.Joiner != 0 && (g.Glyph == 0 || Always(g.Text));
+        if (!run.Exists(Hidden)) return;
+        var space = _font.GlyphForUnicode(' ');
+        if (space > 0)
+        {
+            for (var i = 0; i < run.Count; i++)
+                if (Hidden(run[i])) run[i] = run[i] with { Glyph = space, XAdvance = 0, YAdvance = 0, XOffset = 0, YOffset = 0, RelativeToBase = false };
+            return;
+        }
+        // in one pass (removing glyph by glyph would move the rest of the run each time)
+        var kept = new List<ShapedGlyph>(run.Count);
+        var pending = "";
+        var pendingCluster = -1;
+        foreach (var g in run)
+        {
+            if (!Hidden(g))
+            {
+                kept.Add(pending.Length == 0 ? g : g with { Text = pending + g.Text, Cluster = Math.Min(g.Cluster, pendingCluster) });
+                pending = "";
+                continue;
+            }
+            if (kept.Count > 0) kept[^1] = kept[^1] with { Text = kept[^1].Text + g.Text };
+            else
+            {
+                if (pending.Length == 0) pendingCluster = g.Cluster;
+                pending += g.Text;
+            }
+        }
+        if (kept.Count == 0) return;   // nothing but such characters: they stay as they are
+        run.Clear();
+        run.AddRange(kept);
+    }
+
+    /// <summary>
+    /// Marks the conjoining jamo of Hangul syllables written as jamo sequences (The Unicode Standard, 3.12): one or more leading consonants
+    /// (U+1100–115F, U+A960–A97C), one or more vowels (U+1160–11A7, U+D7B0–D7C6) and any trailing consonants (U+11A8–11FF, U+D7CB–D7FB) — the
+    /// leading ones as Initial (ljmo), the vowels as Medial (vjmo), the trailing ones as Final (tjmo). A jamo outside such a sequence keeps its
+    /// glyph of the cmap. The precomposed syllables (U+AC00–D7A3) need no forms; jamo the font has as a syllable are composed before
+    /// (<see cref="ComposeHangul"/>, No. 1175). The kinds come from HangulSyllableType.txt.
+    /// </summary>
+    /// <returns>Whether a jamo was marked.</returns>
+    private static bool HangulJamo(List<ShapedGlyph> run, List<int> codePoints)
+    {
+        static int Kind(int c) => SyllableData.HangulOf(c) switch
+        {
+            HangulSyllableType.LeadingJamo => 1,
+            HangulSyllableType.VowelJamo => 2,
+            HangulSyllableType.TrailingJamo => 3,
+            _ => 0,
+        };
+        var marked = false;
+        for (var i = 0; i < codePoints.Count;)
+        {
+            var start = i;
+            while (i < codePoints.Count && Kind(codePoints[i]) == 1) i++;
+            var vowels = i;
+            while (i < codePoints.Count && Kind(codePoints[i]) == 2) i++;
+            if (vowels == start || i == vowels)
+            {
+                i = Math.Max(i, start + 1);
+                continue;
+            }
+            while (i < codePoints.Count && Kind(codePoints[i]) == 3) i++;
+            for (var k = start; k < i; k++)
+                run[k] = run[k] with { Form = k < vowels ? ArabicJoining.Form.Initial : Kind(codePoints[k]) == 2 ? ArabicJoining.Form.Medial : ArabicJoining.Form.Final };
+            marked = true;
+        }
+        return marked;
+    }
+
+    /// <summary>
+    /// After the last GPOS lookup: each attached mark takes the final place of its base — the base's offsets added, the advances from the base
+    /// to the mark taken off (in the order of the run, so that a mark attached to a mark follows the place that mark has already taken; OpenType
+    /// 20.4.5 sentence 10, 20.4.7; docs/FEHLERGEDAECHTNIS.md, No. 1179).
+    /// </summary>
+    private static void ResolveAttachments(List<ShapedGlyph> run)
+    {
+        for (var i = 0; i < run.Count; i++)
+        {
+            var g = run[i];
+            if (!g.RelativeToBase) continue;
+            var b = i - g.AttachBack;
+            g.RelativeToBase = false;
+            if (b >= 0 && b < i)
+            {
+                double advance = 0;
+                for (var k = b; k < i; k++) advance += run[k].XAdvance;
+                g.XOffset += run[b].XOffset - advance;
+                g.YOffset += run[b].YOffset;
+            }
+            run[i] = g;
+        }
     }
 
     // ------------------------------------------------------------ Shared
@@ -296,6 +656,19 @@ public sealed partial class TextShaper
         /// <summary>Glyphs moved in the run (insertions, removals): cheap block copies, one step per 64.</summary>
         public bool Move(int glyphs) => Spend(1 + glyphs / 64);
 
+        /// <summary>
+        /// Whether the substitution being applied passes over a ZWJ in its input (<see cref="Passable"/>): set for the lookups of the features of
+        /// general reach in a script that does not join, clear for those of the syllabic stages and of the joining scripts (No. 1183).
+        /// </summary>
+        public bool AutoZwj;
+
+        /// <summary>The lookups of rand in the language system of the run being shaped (null: rand is off or the font has none; No. 1223).</summary>
+        public HashSet<int>? RandomLookups;
+
+        /// <summary>Whether the lookup being applied (and the lookups it calls from a context) is one of rand: an alternate substitution then
+        /// chooses among the alternates (<see cref="RandomAlternate"/>; No. 1223).</summary>
+        public bool RandomActive;
+
         /// <summary>Ligatures formed so far in this call: the next one's id (<see cref="ShapedGlyph.LigatureId"/>).</summary>
         public int NextLigatureId() => ++_ligatures;
 
@@ -305,7 +678,78 @@ public sealed partial class TextShaper
     /// <summary>The class of a glyph: from the GlyphClassDef of GDEF, or — without one — the class derived from Unicode and GSUB (No. 1161).</summary>
     private int ClassOf(ShapedGlyph g) => _gdef is { HasGlyphClasses: true } gdef ? gdef.GlyphClass(g.Glyph) : g.Class;
 
-    private bool Skips(Lookup lookup, ShapedGlyph g) => GlyphDefinitions.Skips(_gdef, lookup, g.Glyph, ClassOf(g));
+    /// <summary>
+    /// Whether a lookup passes over a glyph: by its flags (GDEF classes, mark filtering) — and a GPOS lookup over the joiners, which only ask
+    /// for or prevent joining and ligatures between their neighbours (The Unicode Standard, 23.2): kerning, distances, cursive joins and marks see
+    /// the glyphs on either side of a joiner as neighbours (in a context see <see cref="MatchContext"/>). Before, a joiner broke a pair of kerning
+    /// (measured with Nirmala UI: 586 Gujarati and 804 Telugu samples with ZWJ or ZWNJ placed otherwise than by the shaping library;
+    /// docs/FEHLERGEDAECHTNIS.md, No. 1179).
+    /// </summary>
+    private bool Skips(Lookup lookup, ShapedGlyph g) => SkipsByFlags(lookup, g) || lookup.Positioning && g.Joiner is > 0 and < JoinerHeld;
+
+    private bool SkipsByFlags(Lookup lookup, ShapedGlyph g) => GlyphDefinitions.Skips(_gdef, lookup, g.Glyph, ClassOf(g));
+
+    /// <summary>
+    /// Whether a context may pass over a joiner that does not match it: in GPOS ZWJ and ZWNJ everywhere, in GSUB a ZWJ in backtrack and lookahead
+    /// (a ZWJ asks for a joining or ligature of its neighbours and does not stand between them for the context of a substitution — the half form
+    /// chosen by the consonant after the ZWJ that asked for it; measured with Nirmala UI: 30 Gujarati samples otherwise than the shaping library);
+    /// a ZWNJ, which prevents joining, and the joiners in the input of a substitution stay glyphs of their own. A joiner the context names
+    /// matches (fonts ask for the ZWJ after Ra and virama in the lookahead of the eyelash Ra; No. 1179). Since No. 1183 every other default
+    /// ignorable character everywhere (WJ, CGJ and the other format characters do not break a ligature or kerning, The Unicode Standard 23.2.1,
+    /// 23.2.4) — not the variation selectors, which the contexts of a font may name to choose a form (the Mongolian free variation selectors:
+    /// a context of the letter without the selector must not reach past it) —, and a ZWJ also in the input of a substitution where
+    /// <paramref name="autoZwj"/> (a ligature of liga, clig, dlig … in a
+    /// script that does not join: the ZWJ asks for it, 23.2.2 — not in Arabic and the other joining scripts, where it keeps a letter joined
+    /// without the ligature, nor in the stages of the syllabic scripts, whose forms the font asks for with the ZWJ in their input).
+    /// </summary>
+    private static bool Passable(Lookup lookup, ShapedGlyph g, bool input, bool autoZwj) => lookup.Positioning ? g.Joiner is > 0 and < JoinerHeld
+        : g.Joiner == JoinerFormat || g.Joiner == JoinerZwj && (!input || autoZwj);
+
+    /// <summary>The next glyph of a context after <paramref name="i"/> by the lookup's flags, past a joiner that may be passed and does not match
+    /// place <paramref name="k"/> of the sequence (<see cref="Passable"/>); -1 for none or when the steps are used up.</summary>
+    private int NextInContext(List<ShapedGlyph> run, Lookup lookup, int i, Work work, Func<int, int, bool> match, int k, bool input)
+    {
+        for (var j = i + 1; j < run.Count; j++)
+        {
+            if (!work.Spend(1)) return -1;
+            if (SkipsByFlags(lookup, run[j]) || Passable(lookup, run[j], input, work.AutoZwj) && !match(k, run[j].Glyph)) continue;
+            return j;
+        }
+        return -1;
+    }
+
+    /// <summary>The glyph of a context before <paramref name="i"/>, as <see cref="NextInContext"/>.</summary>
+    private int PreviousInContext(List<ShapedGlyph> run, Lookup lookup, int i, Work work, Func<int, int, bool> match, int k)
+    {
+        for (var j = i - 1; j >= 0; j--)
+        {
+            if (!work.Spend(1)) return -1;
+            if (SkipsByFlags(lookup, run[j]) || Passable(lookup, run[j], false, work.AutoZwj) && !match(k, run[j].Glyph)) continue;
+            return j;
+        }
+        return -1;
+    }
+
+    /// <summary>Values of <see cref="ShapedGlyph.Joiner"/>: ZWNJ, ZWJ, another default ignorable character, one within the unit of a prepended
+    /// concatenation mark (not passed over; No. 1183).</summary>
+    internal const byte JoinerZwnj = 1, JoinerZwj = 2, JoinerFormat = 3, JoinerSelector = 4, JoinerHeld = 5;
+
+    /// <summary>
+    /// The next component of a ligature after <paramref name="i"/>: the next glyph the lookup's flags do not skip, past a default ignorable
+    /// character that is not the component itself (and past a ZWJ where <see cref="Work.AutoZwj"/>; <see cref="Passable"/>); -1 for none or
+    /// when the steps are used up (No. 1183).
+    /// </summary>
+    private int NextComponent(List<ShapedGlyph> run, Lookup lookup, int i, int component, Work work)
+    {
+        for (var j = i + 1; j < run.Count; j++)
+        {
+            if (!work.Spend(1)) return -1;
+            if (SkipsByFlags(lookup, run[j]) || (run[j].Joiner == JoinerSelector || Passable(lookup, run[j], true, work.AutoZwj)) && run[j].Glyph != component)
+                continue;
+            return j;
+        }
+        return -1;
+    }
 
     /// <summary>Next position after <paramref name="i"/> that the lookup does not skip; -1 = none.</summary>
     private int Next(List<ShapedGlyph> run, Lookup lookup, int i)
@@ -355,20 +799,20 @@ public sealed partial class TextShaper
         var j = start;
         for (var k = 1; k < input; k++)
         {
-            j = Next(run, lookup, j, work);
+            j = NextInContext(run, lookup, j, work, inputMatch, k, input: true);
             if (j < 0 || !inputMatch(k, run[j].Glyph)) return false;
             positions[k] = j;
         }
         var after = j;
         for (var k = 0; k < lookahead; k++)
         {
-            after = Next(run, lookup, after, work);
+            after = NextInContext(run, lookup, after, work, lookaheadMatch, k, input: false);
             if (after < 0 || !lookaheadMatch(k, run[after].Glyph)) return false;
         }
         var before = start;
         for (var k = 0; k < backtrack; k++)
         {
-            before = Previous(run, lookup, before, work);
+            before = PreviousInContext(run, lookup, before, work, backtrackMatch, k);
             if (before < 0 || !backtrackMatch(k, run[before].Glyph)) return false;
         }
         return true;
@@ -376,25 +820,36 @@ public sealed partial class TextShaper
 
     // ------------------------------------------------------------ GSUB
 
-    private readonly struct Substitution(TextShaper shaper, List<ShapedGlyph> run, Work work)
+    /// <param name="gate">The bits of <see cref="ShapedGlyph.Gates"/> one of which a glyph must carry for the lookup to apply at it (0: everywhere).</param>
+    /// <param name="italic">Whether the lookup is one of the feature ital (the glyphs it replaces are marked <see cref="ShapedGlyph.Italic"/>).</param>
+    /// <param name="mask">The bit of <see cref="ShapedGlyph.Mask"/> a glyph must carry for the lookup to apply at it (0: everywhere; No. 1175).</param>
+    /// <param name="firstAlternate">Whether an alternate substitution (type 3) takes the first alternate — in the stages of a syllabic script, whose
+    /// fonts use it as the form of a required feature, as the reference shaper does (No. 1175); elsewhere the glyph of the cmap stays.</param>
+    private readonly struct Substitution(TextShaper shaper, List<ShapedGlyph> run, Work work, byte gate = 0, bool italic = false, ushort mask = 0,
+        bool firstAlternate = false)
     {
         private TableData T => shaper._gsub!.T;
 
+        /// <summary>Whether the lookup may apply at a glyph (its gate, No. 1174, and its mask in a syllable, No. 1175).</summary>
+        private bool Allowed(ShapedGlyph g) => (gate == 0 || (g.Gates & gate) != 0) && (mask == 0 || (g.Mask & mask) != 0);
+
         /// <param name="index">The lookup.</param>
-        /// <param name="only">Only at glyphs of this joining form (Arabic isol, init, medi, fina); null: everywhere.</param>
+        /// <param name="only">Only at glyphs of this joining form (Arabic isol, init, medi, fina …); null: everywhere.</param>
         public void ApplyLookup(int index, ArabicJoining.Form? only = null)
         {
+            // a lookup of rand chooses among alternates, also in the lookups it calls (No. 1223)
+            work.RandomActive = work.RandomLookups?.Contains(index) == true;
             var lookup = shaper._gsub!.Lookup(index);
             if (lookup.Type == 8)
             {
                 // reverse chaining single substitution runs from the end of the run to its start (OpenType 21.4.9)
                 for (var i = run.Count - 1; i >= 0 && work.Left > 0; i--)
-                    if (!(only is { } form && run[i].Form != form) && !shaper.Skips(lookup, run[i])) ApplyAt(lookup, i, 0, out _);
+                    if (!(only is { } form && run[i].Form != form) && Allowed(run[i]) && !shaper.Skips(lookup, run[i])) ApplyAt(lookup, i, 0, out _);
                 return;
             }
             for (var i = 0; i < run.Count && run.Count < MaxGlyphs && work.Left > 0;)
             {
-                if (only is { } form && run[i].Form != form || shaper.Skips(lookup, run[i]) || !ApplyAt(lookup, i, 0, out var next)) i++;
+                if (only is { } form && run[i].Form != form || !Allowed(run[i]) || shaper.Skips(lookup, run[i]) || !ApplyAt(lookup, i, 0, out var next)) i++;
                 else i = Math.Max(next, i + 1);
             }
         }
@@ -438,11 +893,27 @@ public sealed partial class TextShaper
                     // the glyphs of a ligature taken apart are no ligatures (No. 1161)
                     if (original.LigatureComponents > 0) original = original with { LigatureComponents = 0, Class = 1 };
                     var glyphs = new ShapedGlyph[count];
-                    for (var k = 0; k < count; k++) glyphs[k] = original with { Glyph = t.U16(seq + 2 + k * 2), Text = k == 0 ? original.Text : "" };
+                    var formed = (byte)(original.Formed | FormedSubstituted | FormedMultiplied);
+                    // a joiner the font replaces by glyphs of its own is no longer passed over in GPOS (No. 1179)
+                    for (var k = 0; k < count; k++)
+                        glyphs[k] = original with { Glyph = t.U16(seq + 2 + k * 2), Text = k == 0 ? original.Text : "", Formed = formed, Joiner = 0 };
                     // in one block: inserting glyph by glyph moved the rest of the run once per glyph (No. 1137)
                     run[i] = glyphs[0];
                     run.InsertRange(i + 1, glyphs[1..]);
                     next = i + count;
+                    return true;
+                }
+                case 3 when firstAlternate || work.RandomActive:
+                {
+                    // AlternateSubstFormat1 (OpenType 21.4.4): the first glyph of the alternate set of the coverage index — under rand the one
+                    // the fixed function of the text chooses (OpenType 67.11 sentences 8, 10; No. 1223)
+                    var c = t.Coverage(sub + t.U16(sub + 2), glyph);
+                    if (c < 0 || format != 1 || c >= t.U16(sub + 4) || t.U16(sub + 6 + c * 2) == 0) return false;
+                    var set = sub + t.U16(sub + 6 + c * 2);
+                    var count = t.U16(set);
+                    if (count == 0) return false;
+                    var pick = work.RandomActive ? RandomAlternate(run, i, count) : 0;
+                    Replace(i, t.U16(set + 2 + pick * 2));
                     return true;
                 }
                 case 4:
@@ -455,7 +926,7 @@ public sealed partial class TextShaper
                     // only as a lookup of its own: it cannot be nested in a context (it runs backwards over the whole run)
                     return depth == 0 && ReverseChain(lookup, sub, i);
                 default:
-                    return false;   // 3 (alternates to choose from): there is no choice, the glyph of the cmap stays
+                    return false;   // 3 (alternates to choose from) outside rand: there is no choice, the glyph of the cmap stays
             }
         }
 
@@ -490,6 +961,9 @@ public sealed partial class TextShaper
         {
             var g = run[i];
             g.Glyph = glyph;
+            g.Formed |= FormedSubstituted;
+            g.Joiner = 0;   // a joiner the font replaces by a glyph of its own is positioned like any glyph (No. 1179)
+            if (italic) g.Italic = true;
             run[i] = g;
         }
 
@@ -512,16 +986,30 @@ public sealed partial class TextShaper
                 var ok = true;
                 for (var k = 1; k < components && ok; k++)
                 {
-                    positions[k] = shaper.Next(run, lookup, positions[k - 1], work);
-                    ok = positions[k] >= 0 && run[positions[k]].Glyph == t.U16(lig + 4 + (k - 1) * 2);
+                    var component = t.U16(lig + 4 + (k - 1) * 2);
+                    positions[k] = shaper.NextComponent(run, lookup, positions[k - 1], component, work);
+                    ok = positions[k] >= 0 && run[positions[k]].Glyph == component && Allowed(run[positions[k]]);
                 }
                 if (!ok || !work.Move(components * (run.Count - i))) continue;
-                var text = "";
-                foreach (var p in positions) text += run[p].Text;
+                // the text of a joiner or format character passed over within the ligature goes into it, in text order (the glyph stays,
+                // without a text of its own, and is drawn as nothing; No. 1183)
+                var text = run[i].Text;
+                for (var k = 1; k < components; k++)
+                {
+                    for (var p = positions[k - 1] + 1; p < positions[k]; p++)
+                        if (run[p].Joiner is JoinerZwj or JoinerFormat or JoinerSelector && !shaper.SkipsByFlags(lookup, run[p]))
+                        {
+                            text += run[p].Text;
+                            run[p] = run[p] with { Text = "", Glyph = 0 };
+                        }
+                    text += run[positions[k]].Text;
+                }
                 var (id, total) = shaper.TrackComponents(run, positions, work);
                 var first = run[i];
                 first.Glyph = t.U16(lig);
                 first.Text = text;
+                first.Formed |= FormedSubstituted | FormedLigated;
+                first.Joiner = 0;
                 if (id > 0)
                 {
                     first.LigatureId = id;
@@ -596,19 +1084,24 @@ public sealed partial class TextShaper
 
     // ------------------------------------------------------------ GPOS
 
-    private readonly struct Positioning(TextShaper shaper, List<ShapedGlyph> run, Work work)
+    /// <param name="gate">The bits of <see cref="ShapedGlyph.Gates"/> one of which a glyph must carry for the lookup to apply at it (0: everywhere);
+    /// for a pair or a cursive join both glyphs.</param>
+    private readonly struct Positioning(TextShaper shaper, List<ShapedGlyph> run, Work work, byte gate = 0)
     {
         private TableData T => shaper._gpos!.T;
 
         /// <summary>The glyphs joined so far by cursive attachment with the RIGHT_TO_LEFT flag (one connected sequence; see <see cref="Join"/>).</summary>
         private readonly List<int> _chain = [];
 
+        /// <summary>Whether the lookup may apply at a glyph (its gate, No. 1174).</summary>
+        private bool Allowed(ShapedGlyph g) => gate == 0 || (g.Gates & gate) != 0;
+
         public void ApplyLookup(int index)
         {
             var lookup = shaper._gpos!.Lookup(index);
             for (var i = 0; i < run.Count && work.Left > 0;)
             {
-                if (shaper.Skips(lookup, run[i]) || !ApplyAt(lookup, i, 0, out var next)) i++;
+                if (!Allowed(run[i]) || shaper.Skips(lookup, run[i]) || !ApplyAt(lookup, i, 0, out var next)) i++;
                 else i = Math.Max(next, i + 1);
             }
         }
@@ -646,7 +1139,7 @@ public sealed partial class TextShaper
                     var c = t.Coverage(sub + t.U16(sub + 2), glyph);
                     if (c < 0) return false;
                     var j = shaper.Next(run, lookup, i);
-                    if (j < 0) return false;
+                    if (j < 0 || !Allowed(run[j])) return false;
                     int vf1 = t.U16(sub + 4), vf2 = t.U16(sub + 6);
                     int size1 = ValueSize(vf1), size2 = ValueSize(vf2);
                     var second = run[j].Glyph;
@@ -754,7 +1247,7 @@ public sealed partial class TextShaper
             var c = t.Coverage(cov, run[i].Glyph);
             if (c < 0) return false;
             var j = shaper.Next(run, lookup, i);
-            if (j < 0) return false;
+            if (j < 0 || !Allowed(run[j])) return false;
             var cj = t.Coverage(cov, run[j].Glyph);
             if (cj < 0 || c >= t.U16(sub + 4) || cj >= t.U16(sub + 4)) return false;
             var exitAt = t.U16(sub + 6 + c * 4 + 2);
@@ -785,8 +1278,9 @@ public sealed partial class TextShaper
             }
             else
             {
+                // the nearest glyph before the mark that is neither a mark nor a joiner (No. 1179)
                 b = i - 1;
-                while (b >= 0 && shaper.ClassOf(run[b]) == 3) b--;
+                while (b >= 0 && (shaper.ClassOf(run[b]) == 3 || run[b].Joiner != 0)) b--;
             }
             // the marks passed and, in Attach, the advances summed (No. 1137)
             if (b < 0 || !work.Spend(2 * (i - b))) return false;
@@ -816,16 +1310,19 @@ public sealed partial class TextShaper
             return mark1.LigatureId > 0 && mark1.LigatureComponent == 0 || mark2.LigatureId > 0 && mark2.LigatureComponent == 0;
         }
 
-        /// <summary>Places mark <paramref name="i"/> so that its anchor meets the anchor of glyph <paramref name="b"/> before it.</summary>
+        /// <summary>
+        /// Attaches mark <paramref name="i"/> to glyph <paramref name="b"/> before it: its offsets become the difference of the anchors, relative
+        /// to the base, and <see cref="ResolveAttachments"/> adds the base's final place after the last GPOS lookup — the mark is placed with
+        /// respect to the final position of its base (OpenType 20.4.5), so a later lookup that moves or widens the base (dist, kern) moves the
+        /// mark with it. Before, the base's place at the time of the attachment counted (docs/FEHLERGEDAECHTNIS.md, No. 1179).
+        /// </summary>
         private void Attach(int i, int b, (int X, int Y) baseAnchor, (int X, int Y) markAnchor)
         {
-            // Distance from the base to the mark: the advances in between
-            double advance = 0;
-            for (var k = b; k < i; k++) advance += run[k].XAdvance;
             var g = run[i];
-            g.XOffset = run[b].XOffset + baseAnchor.X - markAnchor.X - advance;
-            g.YOffset = run[b].YOffset + baseAnchor.Y - markAnchor.Y;
+            g.XOffset = baseAnchor.X - markAnchor.X;
+            g.YOffset = baseAnchor.Y - markAnchor.Y;
             g.AttachBack = i - b;   // for a line set right to left (No. 910)
+            g.RelativeToBase = true;
             run[i] = g;
         }
 
@@ -841,7 +1338,7 @@ public sealed partial class TextShaper
             var markIndex = t.Coverage(sub + t.U16(sub + 2), run[i].Glyph);
             if (markIndex < 0) return false;
             var b = i - 1;
-            while (b >= 0 && shaper.ClassOf(run[b]) == 3) b--;
+            while (b >= 0 && (shaper.ClassOf(run[b]) == 3 || run[b].Joiner != 0)) b--;
             if (b < 0 || !work.Spend(2 * (i - b))) return false;
             var ligatureIndex = t.Coverage(sub + t.U16(sub + 4), run[b].Glyph);
             if (ligatureIndex < 0) return false;
@@ -867,12 +1364,32 @@ public sealed partial class TextShaper
     }
 
     /// <summary>
-    /// Legacy kern table (format 0, horizontal), used when GPOS has no "kern" feature. Each subtable passing the run counts as steps: the
-    /// table can hold 65 535 overlapping subtables of six bytes claiming 65 535 pairs each, searched for every pair of glyphs (No. 1137).
+    /// Legacy kern table (OpenType 27, Microsoft version 0), used when GPOS has no "kern" lookups for the text: the horizontal subtables with
+    /// kerning values of format 0 (sorted pairs) and format 2 (classes and a two-dimensional array, OpenType 27.2), in the order of the table;
+    /// the values of a pair add up over the subtables, and a subtable with the override bit 3 replaces the sum so far. Passed over: vertical
+    /// subtables (bit 0 clear — the text is set horizontally), subtables of minimum values (bit 1; there is no tracking they could limit) and
+    /// cross-stream kerning (bit 2). A pair is two glyphs in a row with marks between them passed over (they sit on the first one). Each subtable
+    /// passing the run counts as steps: the table can hold 65 535 overlapping subtables claiming 65 535 pairs each (No. 1137). Before, a
+    /// subtable of minimum values was added as kerning, the override bit was not looked at and format 2 was not read
+    /// (docs/FEHLERGEDAECHTNIS.md, No. 1162).
     /// </summary>
-    private static void LegacyKerning(TableData kern, List<ShapedGlyph> run, Work work)
+    private void LegacyKerning(TableData kern, List<ShapedGlyph> run, Work work)
     {
         if (kern.U16(0) != 0) return;   // only the Microsoft version
+        // the pairs: each glyph that is not a mark with the next such glyph
+        var pairs = new List<(int First, int Second)>();
+        for (var i = 0; i < run.Count; i++)
+        {
+            // marks sit on the glyph before them; joiners stand between neighbours that still form a pair (No. 1179)
+            if (ClassOf(run[i]) == 3 || run[i].Joiner != 0) continue;
+            var j = i + 1;
+            while (j < run.Count && (ClassOf(run[j]) == 3 || run[j].Joiner != 0)) j++;
+            // not at glyphs palt covers while palt is off (OpenType 66.1, No. 1174)
+            if (j < run.Count && (run[i].Gates & GateKern) != 0 && (run[j].Gates & GateKern) != 0) pairs.Add((i, j));
+            if (!work.Spend(1 + j - i)) return;
+        }
+        if (pairs.Count == 0) return;
+        var values = new int[pairs.Count];
         var tables = kern.U16(2);
         var at = 4;
         for (var s = 0; s < tables && at < kern.Length; s++)
@@ -880,33 +1397,77 @@ public sealed partial class TextShaper
             var length = kern.U16(at + 2);
             var coverage = kern.U16(at + 4);
             if (!work.Spend(1)) return;
-            if ((coverage >> 8) == 0 && (coverage & 1) != 0 && (coverage & 4) == 0)
+            var format = coverage >> 8;
+            if ((coverage & 0x7) == 1 && format is 0 or 2)
             {
-                var pairs = kern.U16(at + 6);
-                // a binary search per pair of glyphs
-                if (!work.Spend((long)run.Count * (1 + System.Numerics.BitOperations.Log2((uint)pairs + 1)))) return;
-                for (var i = 0; i + 1 < run.Count; i++)
+                var replace = (coverage & 8) != 0;
+                if (format == 0)
                 {
-                    var key = ((uint)run[i].Glyph << 16) | (uint)run[i + 1].Glyph;
-                    int lo = 0, hi = pairs - 1;
-                    while (lo <= hi)
-                    {
-                        var mid = (lo + hi) >> 1;
-                        var p = at + 14 + mid * 6;
-                        var k = ((uint)kern.U16(p) << 16) | (uint)kern.U16(p + 2);
-                        if (k < key) lo = mid + 1;
-                        else if (k > key) hi = mid - 1;
-                        else
-                        {
-                            var g = run[i];
-                            g.XAdvance += kern.I16(p + 4);
-                            run[i] = g;
-                            break;
-                        }
-                    }
+                    var count = kern.U16(at + 6);
+                    // a binary search per pair of glyphs
+                    if (!work.Spend((long)pairs.Count * (1 + System.Numerics.BitOperations.Log2((uint)count + 1)))) return;
+                    for (var p = 0; p < pairs.Count; p++)
+                        if (Format0(kern, at, count, run[pairs[p].First].Glyph, run[pairs[p].Second].Glyph) is { } value)
+                            values[p] = replace ? value : values[p] + value;
+                }
+                else
+                {
+                    if (!work.Spend(pairs.Count)) return;
+                    // the length of a subtable is 16 bits: the last one (a large array) reaches to the end of the table
+                    var end = s == tables - 1 ? kern.Length : Math.Min(kern.Length, at + Math.Max(length, 6));
+                    for (var p = 0; p < pairs.Count; p++)
+                        if (Format2(kern, at, end, run[pairs[p].First].Glyph, run[pairs[p].Second].Glyph) is { } value)
+                            values[p] = replace ? value : values[p] + value;
                 }
             }
             at += Math.Max(length, 6);
         }
+        for (var p = 0; p < pairs.Count; p++)
+        {
+            var g = run[pairs[p].First];
+            g.XAdvance += values[p];
+            run[pairs[p].First] = g;
+        }
+    }
+
+    /// <summary>The value of a pair in a format 0 subtable at <paramref name="at"/> (binary search over the sorted pairs); null if it has none.</summary>
+    private static int? Format0(TableData kern, int at, int count, int left, int right)
+    {
+        var key = ((uint)left << 16) | (uint)right;
+        int lo = 0, hi = count - 1;
+        while (lo <= hi)
+        {
+            var mid = (lo + hi) >> 1;
+            var p = at + 14 + mid * 6;
+            var k = ((uint)kern.U16(p) << 16) | (uint)kern.U16(p + 2);
+            if (k < key) lo = mid + 1;
+            else if (k > key) hi = mid - 1;
+            else return kern.I16(p + 4);
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// The value of a pair in a format 2 subtable at <paramref name="at"/> (OpenType 27.2): the class values of both glyphs (left: a row offset,
+    /// right: a column offset, both premultiplied) added to the start of the subtable — the left values include the offset of the array, as the
+    /// fonts with such subtables and common shaping engines have it; a sum that falls before the array is taken from the array's start (the
+    /// other reading of the specification's words). A glyph outside a class range is in class 0 (no kerning); a cell outside the subtable or
+    /// beyond <paramref name="end"/> has no value. Null for no value.
+    /// </summary>
+    private static int? Format2(TableData kern, int at, int end, int left, int right)
+    {
+        int Class(int table, int glyph)
+        {
+            var first = kern.U16(table);
+            var count = kern.U16(table + 2);
+            return glyph >= first && glyph < first + count ? kern.U16(table + 4 + (glyph - first) * 2) : 0;
+        }
+        var array = kern.U16(at + 12);
+        var l = Class(at + kern.U16(at + 8), left);
+        var r = Class(at + kern.U16(at + 10), right);
+        if (l == 0 && r == 0) return null;
+        var cell = l + r < array ? array + l + r : l + r;
+        if (array == 0 || at + cell + 2 > end) return null;
+        return kern.I16(at + cell);
     }
 }

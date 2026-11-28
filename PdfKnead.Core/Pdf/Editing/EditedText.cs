@@ -54,6 +54,8 @@ public static class EditedText
         // invisible) — not for justified text, which fills the width
         var slack = block.Alignment == BlockAlignment.Justify ? 0.05 : Math.Max(1, block.Width * 0.02);
         var rotation = ((int)Math.Round(block.Angle) % 360 + 360) % 360;
+        // the language of the document (/Lang of the catalog): the font's language system for it (No. 1162)
+        var language = Writing.PdfATagging.CleanLanguage(doc.Catalog?.GetString(Objects.PdfName.Get("Lang"))?.ToText(), 2);
         RichTextElement Build(double extra)
         {
             var wide = slack + extra;
@@ -71,12 +73,14 @@ public static class EditedText
                 Content = content,
                 Alignment = block.Alignment,
                 LineGap = block.Lines.Count >= 2 ? block.LineSpacing / Math.Max(1, block.Lines.Max(l => l.Size)) : 1.2,
+                FontLineHeight = false,   // the spacing of the original, as a multiple of the font size: the edited text keeps its lines (No. 1211)
                 FirstBaseline = block.Lines.Count > 0 ? block.Top - block.Lines[0].Baseline : null,
                 // Indent only for left-aligned and justified text: centred and right-aligned lines start at different positions anyway
                 // (otherwise a centred block received an "indent" of −110 pt and its second line wrapped)
                 HangingIndent = block.Alignment is BlockAlignment.Left or BlockAlignment.Justify ? block.Indent : 0,
                 // Tab stops measured from the element's left edge (for right-aligned blocks it lies further left by the slack)
                 TabStops = [.. block.TabStops.Select(t => t with { Position = t.Position + block.Left - left })],
+                Language = language,
             };
         }
         // If the own layout breaks differently from the original (spaces in the original set tighter than the font specifies: a line of

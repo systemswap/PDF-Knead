@@ -695,13 +695,14 @@ public sealed partial class M6NormTests
     }
 
     /// <summary>
-    /// 8.4.5 sentences 112–118: /TK (knockout of the glyphs of a text object, → M7) — today's behaviour: two glyphs drawn on top of each other in
-    /// one BT … ET under /ca 0.5 are darker where they overlap, with /TK false and with /TK true.
+    /// 8.4.5 sentences 112–118: /TK (knockout of the glyphs of a text object, ISO 32000-2, 9.3.8; M7, docs/FEHLERGEDAECHTNIS.md, No. 1165) — two
+    /// glyphs drawn on top of each other in one BT … ET under /ca 0.5 are darker where they overlap with /TK false; with /TK true the later replaces
+    /// the earlier, the overlap is as light as one glyph.
     /// </summary>
     [Theory]
     [InlineData("false")]
     [InlineData("true")]
-    public void B84_TextKnockout_NotEvaluated(string knockout)
+    public void B84_TextKnockout_FalseBlends_TrueKnocksOut(string knockout)
     {
         const string font = "/Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> >>";
         var resources = $"/ExtGState << /G << /TK {knockout} /ca 0.5 >> >> {font}";
@@ -716,6 +717,7 @@ public sealed partial class M6NormTests
         using var once = B84_Render("/G gs 0 g BT /F1 100 Tf 50 50 Td (l) Tj ET", resources);
         using var twice = B84_Render("/G gs 0 g BT /F1 100 Tf 50 50 Td [(l) 222 (l)] TJ ET", resources);   // the second glyph on the first
         Assert.InRange(Darkest(once), 100, 160);
-        Assert.True(Darkest(twice) < Darkest(once) - 30, $"{Darkest(twice)} gegen {Darkest(once)}");
+        if (knockout == "false") Assert.True(Darkest(twice) < Darkest(once) - 30, $"{Darkest(twice)} gegen {Darkest(once)}");
+        else Assert.InRange(Darkest(twice), Darkest(once) - 8, Darkest(once) + 8);
     }
 }

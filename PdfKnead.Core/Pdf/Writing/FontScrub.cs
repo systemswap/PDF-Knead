@@ -20,7 +20,8 @@ internal static class FontScrub
     private static readonly PdfName ToUnicode = PdfName.Get("ToUnicode"), Encoding = PdfName.Get("Encoding"), Differences = PdfName.Get("Differences"),
         Widths = PdfName.Get("Widths"), FirstChar = PdfName.Get("FirstChar"), DescendantFonts = PdfName.Get("DescendantFonts"), W = PdfName.Get("W"),
         CidToGidMap = PdfName.Get("CIDToGIDMap"), FontDescriptor = PdfName.Get("FontDescriptor"), CharSet = PdfName.Get("CharSet"),
-        CidSet = PdfName.Get("CIDSet"), FontFile = PdfName.Get("FontFile"), FontFile2 = PdfName.Get("FontFile2"), FontFile3 = PdfName.Get("FontFile3"), Subtype = PdfName.Get("Subtype");
+        CidSet = PdfName.Get("CIDSet"), FontFile = PdfName.Get("FontFile"), FontFile2 = PdfName.Get("FontFile2"), FontFile3 = PdfName.Get("FontFile3"), Subtype = PdfName.Get("Subtype"),
+        BaseFont = PdfName.Get("BaseFont"), LastChar = PdfName.Get("LastChar"), Flags = PdfName.Get("Flags");
 
     /// <summary>Replacements (object number → new object) for the fonts <paramref name="touched"/> and their programs.</summary>
     /// <param name="doc">The source document.</param>
@@ -105,6 +106,7 @@ internal static class FontScrub
                 continue;   // unreadable: stays as it is
             }
             if (ProgramOf(dict) is { } program) programs.Add(program.Id.Number);
+            usage.Numbers.TryAdd(dict, number);
         }
         foreach (var program in programs) ScrubProgram(doc, program, usage, result);
         return result;
@@ -353,14 +355,10 @@ internal static class FontScrub
     }
 
     /// <summary>
-    /// The program keeps the glyphs that any font using it still shows; if one of them must stay whole, or the program cannot be read, it
-    /// stays as it is.
-    /// </summary>
-    /// <summary>
     /// Whether every glyph that stays reads the same after scrubbing as before — its outline and its advance, read the way the display reads
     /// them. In a damaged program the scrubber can read a glyph's data differently from the display: a glyph drawn huge beside the page
-    /// came back small, under a bar, and its text with it (docs/FEHLERGEDAECHTNIS.md, No. 379). Then the program stays as it is: what the page
-    /// shows comes before clearing the traces of a broken font.
+    /// came back small, under a bar, and its text with it (docs/FEHLERGEDAECHTNIS.md, No. 379). Then the scrubbed program is not taken: what the
+    /// page shows comes first — the font gets a program from the outlines the display draws instead (<see cref="Replace"/>, No. 1164).
     /// </summary>
     /// <param name="afterCount">The number of glyphs read after scrubbing: it must stay — the display looks glyphs up only below it, and a
     /// scrubbed font that counted none drew nothing (docs/FEHLERGEDAECHTNIS.md, No. 389).</param>
@@ -425,17 +423,25 @@ internal static class FontScrub
         return true;
     }
 
+    /// <summary>
+    /// The program keeps the glyphs that any font using it still shows; if one of them must stay whole, it stays as it is. A program that
+    /// cannot be scrubbed does not stay (M6: nothing of the redacted text may remain): the fonts showing it get programs of their own from what
+    /// the display draws (<see cref="Replace"/>; docs/FEHLERGEDAECHTNIS.md, No. 1164 — before such a program stayed whole, with the glyphs of
+    /// the redacted text).
+    /// </summary>
     private static void ScrubProgram(PdfDocument doc, int program, FontUsage usage, Dictionary<int, PdfObject> result)
     {
         var gids = new HashSet<int>();
         var names = new HashSet<string>(StringComparer.Ordinal);
         // the CIDs still shown: a removed glyph of a CID-keyed CFF must not take one of them as its new CID (No. 1158)
         var cids = new HashSet<int>();
+        var unread = false;
         foreach (var (dict, codes) in usage.Codes)
         {
             if (ProgramOf(dict)?.Id.Number != program) continue;
             if (usage.WholeFonts.Contains(dict)) return;
             var font = PdfFont.Get(dict, doc);
+            unread |= !Reads(font);
             foreach (var (code, length) in codes)
             {
                 var (g, n) = font.ProgramGlyphs(code, length);
@@ -445,28 +451,51 @@ internal static class FontScrub
             }
         }
         if (doc.GetObject(program) is not PdfStream stream) return;
+        // a program the display does not read (it draws the substitute) is not scrubbed but taken out
+        if (!unread && Scrubbed(doc, program, stream, gids, names, cids, usage, result)) return;
+        Replace(doc, program, usage, result);
+    }
+
+    /// <summary>Whether the display reads the embedded program of the font (otherwise it draws a substitute).</summary>
+    private static bool Reads(PdfFont font) => font is SimpleFont { DrawsEmbeddedProgram: true } or CompositeFont { DrawsEmbeddedProgram: true };
+
+    /// <summary>
+    /// The program scrubbed down to the glyphs still shown (TrueType and OpenType, bare CFF, Type 1), taken only where the display reads every
+    /// shown code of every font using it as before.
+    /// </summary>
+    /// <returns>Whether the scrubbed program was taken (written to <paramref name="result"/>).</returns>
+    private static bool Scrubbed(PdfDocument doc, int program, PdfStream stream, HashSet<int> gids, HashSet<string> names, HashSet<int> cids, FontUsage usage,
+        Dictionary<int, PdfObject> result)
+    {
         try
         {
             var data = doc.GetStreamData(stream);
             byte[]? scrubbed = null;
+            // a collection as FontFile2: the display reads its first font, which is scrubbed as a font file of its own (PDF allows no
+            // collections; before the scrubber looked for tables at byte 0, failed, and the collection stayed whole — No. 1164)
+            if (data.AsSpan().StartsWith("ttcf"u8)) data = Core.Fonts.TrueTypeSubsetter.FirstOfCollection(data);
             if (Core.Fonts.OpenTypeFont.LooksLikeSfnt(data))
             {
                 // (CFF2 as well: before it stayed whole, with the glyphs of the redacted text; docs/FEHLERGEDAECHTNIS.md, No. 1158)
-                if (Core.Fonts.OpenTypeFont.Parse(data) is { Broken: false } ot && (ot.HasTable("glyf") || ot.HasTable("CFF ") || ot.Cff2 is not null))
+                // and a program whose glyphs exist only as images (EBLC/EBDT, CBLC/CBDT, sbix): before it stayed whole, with the images of the
+                // redacted characters (docs/FEHLERGEDAECHTNIS.md, No. 1169)
+                if (Core.Fonts.OpenTypeFont.Parse(data) is not { Broken: false } ot
+                    || !(ot.HasTable("glyf") || ot.HasTable("CFF ") || ot.Cff2 is not null || Core.Fonts.BitmapScrubber.ImagesOnly(ot)))
+                    return false;
+                scrubbed = Core.Fonts.TrueTypeSubsetter.Scrub(data, gids, cids);
+                var after = Core.Fonts.OpenTypeFont.Parse(scrubbed);
+                if (!SameGlyphs(gids, ot.GlyphCount, ot.Outline, ot.AdvanceWidth, after.Outline, after.AdvanceWidth, after.GlyphCount)) return false;
+                // the images of the kept glyphs as before, in every strike (and their components)
+                if (Core.Fonts.BitmapScrubber.ImagesOnly(ot) && !Core.Fonts.BitmapScrubber.SameImages(ot, after, Core.Fonts.BitmapScrubber.Kept(ot, gids))) return false;
+                // every shown code draws the same glyph as before, as the display chooses it: a code whose cmap entry pointed beyond the
+                // glyphs drew nothing; with the entry cleared it fell to glyph 0, a box under a bar (docs/FEHLERGEDAECHTNIS.md, No. 402)
+                foreach (var (user, shown) in usage.Codes)
                 {
-                    scrubbed = Core.Fonts.TrueTypeSubsetter.Scrub(data, gids, cids);
-                    var after = Core.Fonts.OpenTypeFont.Parse(scrubbed);
-                    if (!SameGlyphs(gids, ot.GlyphCount, ot.Outline, ot.AdvanceWidth, after.Outline, after.AdvanceWidth, after.GlyphCount)) return;
-                    // every shown code draws the same glyph as before, as the display chooses it: a code whose cmap entry pointed beyond the
-                    // glyphs drew nothing; with the entry cleared it fell to glyph 0, a box under a bar (docs/FEHLERGEDAECHTNIS.md, No. 402)
-                    foreach (var (user, shown) in usage.Codes)
-                    {
-                        if (ProgramOf(user)?.Id.Number != program) continue;
-                        var reader = PdfFont.Get(user, doc);
-                        foreach (var (code, length) in shown)
-                            if (reader.DrawnGlyphWith(ot, code, length) is var drawn && drawn != int.MinValue && reader.DrawnGlyphWith(after, code, length) != drawn)
-                                return;
-                    }
+                    if (ProgramOf(user)?.Id.Number != program) continue;
+                    var reader = PdfFont.Get(user, doc);
+                    foreach (var (code, length) in shown)
+                        if (reader.DrawnGlyphWith(ot, code, length) is var drawn && drawn != int.MinValue && reader.DrawnGlyphWith(after, code, length) != drawn)
+                            return false;
                 }
             }
             else if (stream.Dictionary.GetName(PdfName.Subtype)?.Value is "Type1C" or "CIDFontType0C" && data is [1, ..])
@@ -475,14 +504,14 @@ internal static class FontScrub
                 scrubbed = Core.Fonts.CffScrubber.Scrub(data, gids, cids).Data;
                 var before = Core.Fonts.CffFont.Parse(data);
                 var after = Core.Fonts.CffFont.Parse(scrubbed);
-                if (!SameGlyphs(gids, before.GlyphCount, before.Outline, before.AdvanceWidth, after.Outline, after.AdvanceWidth, after.GlyphCount)) return;
+                if (!SameGlyphs(gids, before.GlyphCount, before.Outline, before.AdvanceWidth, after.Outline, after.AdvanceWidth, after.GlyphCount)) return false;
                 // every shown code draws the same glyph as before, read through the scrubbed program as the display reads it: removing the
                 // names, CIDs and codes of glyphs no longer used can move what a shown code reaches (the charset, the built-in encoding),
                 // and only each glyph by its number was compared (docs/FEHLERGEDAECHTNIS.md, No. 430)
                 var replacement = new PdfStream(Plain(stream.Dictionary), scrubbed);
                 foreach (var (user, shown) in usage.Codes)
                     if (ProgramOf(user)?.Id.Number == program && !SameShown(PdfFont.Get(user, doc), PdfFont.Uncached(WithProgram(user, replacement), doc), shown))
-                        return;
+                        return false;
             }
             else if (data is [(byte)'%', (byte)'!', ..] && stream.Dictionary.ContainsKey(PdfName.Get("Length2")) || data is [0x80, 1, ..])
             {
@@ -491,23 +520,258 @@ internal static class FontScrub
                 var length1 = (int?)stream.Dictionary.GetInteger(PdfName.Get("Length1"));
                 var length2 = (int?)stream.Dictionary.GetInteger(PdfName.Get("Length2"));
                 var type1 = Core.Fonts.Type1Scrubber.Scrub(data, names, length1, length2);
-                if (!SameType1(data, type1.Data, names)) return;
+                if (!SameType1(data, type1.Data, names)) return false;
                 var plain = Plain(stream.Dictionary);
                 plain.Set(PdfName.Get("Length1"), PdfInteger.Of(type1.Clear));
                 plain.Set(PdfName.Get("Length2"), PdfInteger.Of(type1.Encrypted));
                 plain.Set(PdfName.Get("Length3"), PdfInteger.Of(type1.Trailer));
                 result[program] = new PdfStream(plain, type1.Data);
-                return;
+                return true;
             }
-            if (scrubbed is null) return;
+            if (scrubbed is null) return false;
             var dict = Plain(stream.Dictionary);
             if (dict.ContainsKey(PdfName.Get("Length1"))) dict.Set(PdfName.Get("Length1"), PdfInteger.Of(scrubbed.Length));
             result[program] = new PdfStream(dict, scrubbed);
+            return true;
         }
         catch (Exception e) when (e is Core.Fonts.FontFormatException or PdfException or InvalidDataException or IndexOutOfRangeException or ArgumentException or OverflowException)
         {
-            // unreadable: stays as it is
+            return false;   // cannot be scrubbed: replaced
         }
+    }
+
+    // -------------------------------------------------- A program that cannot be scrubbed
+
+    /// <summary>
+    /// A program that cannot be scrubbed — refused by the scrubbers (arithmetic or put/get in Type 2 charstrings, a synthetic Type 1 font), not
+    /// read by the display, or read differently once scrubbed — leaves the file. Each font showing it: where the display draws its embedded
+    /// program, it gets a new one from the outlines the display draws for its shown codes (<see cref="Rebuilt"/>, as the PDF/A copy rebuilds a
+    /// font); where the display draws the substitute, it loses the program and is drawn as before (<see cref="WithoutProgram"/>). The object
+    /// of the old program becomes null, so a font nothing shows does not carry it either (docs/FEHLERGEDAECHTNIS.md, No. 1164).
+    /// </summary>
+    private static void Replace(PdfDocument doc, int program, FontUsage usage, Dictionary<int, PdfObject> result)
+    {
+        foreach (var (user, shown) in usage.Codes)
+        {
+            if (ProgramOf(user)?.Id.Number != program) continue;
+            int? number = usage.Numbers.TryGetValue(user, out var n) ? n : null;
+            var current = number is { } k && result.TryGetValue(k, out var replaced) && replaced is PdfDictionary d ? d : user;
+            var font = PdfFont.Get(user, doc);
+            if (!Reads(font) && WithoutProgram(doc, current, number, font, shown, result)) continue;
+            if (number is { } m && Rebuilt(doc, current, font, shown, result) is { } rebuilt)
+            {
+                result[m] = rebuilt;
+                continue;
+            }
+            // neither way gives the same page: the program goes all the same (the font is then drawn with the substitute)
+            WithoutProgram(doc, current, number, font, null, result);
+        }
+        result[program] = PdfNull.Instance;
+    }
+
+    /// <summary>The object an entry stands for in the new file: its replacement so far, or the object of the source.</summary>
+    private static PdfObject? Current(PdfDocument doc, PdfObject? raw, Dictionary<int, PdfObject> result) =>
+        raw is PdfReference r ? result.TryGetValue(r.Id.Number, out var replaced) ? replaced : doc.GetObject(r.Id.Number) : raw;
+
+    /// <summary>
+    /// The font without its embedded program (its descriptor — of its descendant for a composite font — without FontFile, FontFile2, FontFile3
+    /// and the glyph sets that describe them), where the display draws it then as before (checked for <paramref name="shown"/>; null: not
+    /// checked).
+    /// </summary>
+    /// <returns>Whether the font went without its program.</returns>
+    private static bool WithoutProgram(PdfDocument doc, PdfDictionary current, int? number, PdfFont font, HashSet<(uint Code, int Length)>? shown,
+        Dictionary<int, PdfObject> result)
+    {
+        var kids = current.GetArray(DescendantFonts);
+        var kidRaw = kids is { Count: >= 1 } ? kids[0] : null;
+        var kid = kidRaw is null ? null : Current(doc, kidRaw, result) as PdfDictionary;
+        if (kids is { Count: >= 1 } && kid is null) return false;
+        var holder = kid ?? current;
+        if (Current(doc, holder.GetRaw(FontDescriptor), result) is not PdfDictionary descriptor) return false;
+        var bare = Clone(descriptor);
+        foreach (var key in (ReadOnlySpan<PdfName>)[FontFile, FontFile2, FontFile3, CidSet, CharSet]) bare.Remove(key);
+        var holderView = Clone(holder);
+        holderView.Set(FontDescriptor, bare);
+        var view = kid is null ? holderView : Clone(current);
+        if (kid is not null) view.Set(DescendantFonts, new PdfArray([holderView]));
+        if (shown is not null && !SameShown(font, PdfFont.Uncached(view, doc), shown)) return false;
+        if (holder.GetRaw(FontDescriptor) is PdfReference dr) result[dr.Id.Number] = bare;
+        else if (kid is not null && kidRaw is PdfReference kr) result[kr.Id.Number] = holderView;
+        else if (number is { } m) result[m] = view;
+        else return false;
+        return true;
+    }
+
+    /// <summary>
+    /// A font anew from what the display draws for the codes it shows, as the PDF/A copy rebuilds one (KONZEPT.md, section 5.21): a simple font
+    /// becomes a Type 1 font with a bare CFF program (FontFile3 /Type1C) of one glyph per shown code, named in /Differences, with the widths
+    /// the display sets; a composite font keeps its encoding and CIDs, its descendant becomes a CIDFontType0 with a CID-keyed CFF program
+    /// (/CIDFontType0C) of the shown CIDs (without CIDToGIDMap). The text the display reads goes into a new /ToUnicode, as the glyph names
+    /// no longer tell it. Taken only where the display draws every shown code of the new font as before (<see cref="SameDrawn"/>).
+    /// </summary>
+    /// <returns>The new font dictionary; null if it cannot be built or would be drawn differently.</returns>
+    private static PdfDictionary? Rebuilt(PdfDocument doc, PdfDictionary current, PdfFont font, HashSet<(uint Code, int Length)> shown, Dictionary<int, PdfObject> result)
+    {
+        try
+        {
+            var rebuilt = font switch
+            {
+                SimpleFont simple => RebuiltSimple(current, simple, shown),
+                CompositeFont composite => RebuiltComposite(doc, current, composite, shown, result),
+                _ => null,
+            };
+            return rebuilt is not null && SameDrawn(font, PdfFont.Uncached(rebuilt, doc), shown) ? rebuilt : null;
+        }
+        catch (Exception e) when (e is Core.Fonts.FontFormatException or PdfException or InvalidDataException or IndexOutOfRangeException or ArgumentException or OverflowException)
+        {
+            return null;
+        }
+    }
+
+    private static PdfDictionary? RebuiltSimple(PdfDictionary current, SimpleFont font, HashSet<(uint Code, int Length)> shown)
+    {
+        var matrix = font.ProgramMatrix;
+        if (matrix.A == 0 || !matrix.IsInvertible || current.GetDictionary(FontDescriptor) is not { } descriptor) return null;
+        var inverse = matrix.Invert();
+        var glyphs = new List<(string Name, Core.Fonts.GlyphOutline Outline, double Advance)>();
+        var differences = new PdfArray();
+        var texts = new List<(uint Code, int Bytes, string Text)>();
+        var widths = new SortedDictionary<int, double>();
+        foreach (var code in shown.Select(c => (int)(c.Code & 0xFF)).Distinct().Order())
+        {
+            var glyph = font.Glyph((uint)code, 1);
+            var name = $"g{code}";
+            glyphs.Add((name, Baked(glyph.Outline, glyph.ToText * inverse), glyph.Width / matrix.A));
+            differences.Add(PdfInteger.Of(code));
+            differences.Add(PdfName.Get(name));
+            widths[code] = glyph.Width * 1000;
+            if (glyph.Text is { Length: > 0 } text) texts.Add(((uint)code, 1, text));
+        }
+        if (glyphs.Count == 0) return null;
+        var program = Core.Fonts.CffBuilder.Build(current.GetName(BaseFont)?.Value ?? "Font", matrix, glyphs);
+        var rebuilt = Clone(current);
+        rebuilt.Set(Subtype, PdfName.Get("Type1"));
+        var encoding = new PdfDictionary();
+        encoding.Set(PdfName.Type, Encoding);
+        encoding.Set(Differences, differences);
+        rebuilt.Set(Encoding, encoding);
+        // the widths the display sets for the shown codes, 0 for the others
+        var (first, last) = (widths.Keys.First(), widths.Keys.Last());
+        var array = new PdfArray();
+        for (var code = first; code <= last; code++) array.Add(widths.TryGetValue(code, out var w) ? new PdfReal(Math.Round(w, 9)) : PdfInteger.Of(0));
+        rebuilt.Set(FirstChar, PdfInteger.Of(first));
+        rebuilt.Set(LastChar, PdfInteger.Of(last));
+        rebuilt.Set(Widths, array);
+        var flags = (int)(descriptor.GetInteger(Flags) ?? 0);
+        rebuilt.Set(FontDescriptor, NewDescriptor(descriptor, program, "Type1C", (flags | 4) & ~32));
+        SetToUnicode(rebuilt, texts);
+        return rebuilt;
+    }
+
+    private static PdfDictionary? RebuiltComposite(PdfDocument doc, PdfDictionary current, CompositeFont font, HashSet<(uint Code, int Length)> shown,
+        Dictionary<int, PdfObject> result)
+    {
+        var matrix = font.ProgramMatrix;
+        if (matrix.A == 0 || !matrix.IsInvertible || current.GetArray(DescendantFonts) is not { Count: >= 1 } kids
+            || Current(doc, kids[0], result) is not PdfDictionary kid || kid.GetDictionary(FontDescriptor) is not { } descriptor)
+            return null;
+        var inverse = matrix.Invert();
+        var byCid = new SortedDictionary<int, (uint Code, int Length)>();
+        var texts = new List<(uint Code, int Bytes, string Text)>();
+        foreach (var (code, length) in shown.OrderBy(c => c.Length).ThenBy(c => c.Code))
+        {
+            if (font.Cid(code, length) is not (>= 0 and var cid)) continue;
+            if (cid > ushort.MaxValue) return null;   // a CFF names CIDs up to 65 535
+            byCid.TryAdd(cid, (code, length));
+            if (font.Glyph(code, length).Text is { Length: > 0 } text) texts.Add((code, length, text));
+        }
+        if (byCid.Count == 0) return null;
+        var glyphs = byCid.Select(e =>
+        {
+            var glyph = font.Glyph(e.Value.Code, e.Value.Length);
+            return (e.Key, Baked(glyph.Outline, glyph.ToText * inverse), glyph.Width / matrix.A);
+        }).ToList();
+        var info = kid.GetDictionary(PdfName.Get("CIDSystemInfo"));
+        var program = Core.Fonts.CffBuilder.BuildCid(kid.GetName(BaseFont)?.Value ?? current.GetName(BaseFont)?.Value ?? "Font", matrix,
+            info?.GetString(PdfName.Get("Registry"))?.ToText() ?? "Adobe", info?.GetString(PdfName.Get("Ordering"))?.ToText() ?? "Identity",
+            (int)Math.Clamp(info?.GetInteger(PdfName.Get("Supplement")) ?? 0, 0, ushort.MaxValue), glyphs);
+        var newKid = Clone(kid);
+        newKid.Set(Subtype, PdfName.Get("CIDFontType0"));
+        newKid.Remove(CidToGidMap);
+        newKid.Set(FontDescriptor, NewDescriptor(descriptor, program, "CIDFontType0C", (int)(descriptor.GetInteger(Flags) ?? 4)));
+        var rebuilt = Clone(current);
+        rebuilt.Set(DescendantFonts, new PdfArray([newKid]));
+        SetToUnicode(rebuilt, texts);
+        return rebuilt;
+    }
+
+    /// <summary>A copy of the descriptor with the new program as FontFile3 of the given kind and nothing that described the old one.</summary>
+    private static PdfDictionary NewDescriptor(PdfDictionary descriptor, byte[] program, string kind, int flags)
+    {
+        var copy = Clone(descriptor);
+        foreach (var key in (ReadOnlySpan<PdfName>)[FontFile, FontFile2, FontFile3, CidSet, CharSet]) copy.Remove(key);
+        copy.Set(Flags, PdfInteger.Of(flags));
+        var file = new PdfDictionary();
+        file.Set(Subtype, PdfName.Get(kind));
+        copy.Set(FontFile3, new PdfStream(file, program));
+        return copy;
+    }
+
+    /// <summary>A /ToUnicode with the text the display reads for each shown code; none where there is no text.</summary>
+    private static void SetToUnicode(PdfDictionary font, List<(uint Code, int Bytes, string Text)> texts)
+    {
+        if (texts.Count > 0) font.Set(ToUnicode, PdfACMaps.ToUnicode(texts));
+        else font.Remove(ToUnicode);
+    }
+
+    /// <summary>An outline through a matrix (into the glyph space of the new program); the outline itself where it is the identity.</summary>
+    private static Core.Fonts.GlyphOutline Baked(Core.Fonts.GlyphOutline outline, Graphics.Matrix m)
+    {
+        if (Math.Abs(m.A - 1) + Math.Abs(m.B) + Math.Abs(m.C) + Math.Abs(m.D - 1) + Math.Abs(m.E) + Math.Abs(m.F) < 1e-12 || outline.IsEmpty) return outline;
+        var result = new Core.Fonts.GlyphOutline();
+        result.Append(outline, m);
+        return result.Finish();
+    }
+
+    /// <summary>
+    /// Whether every code in <paramref name="shown"/> is drawn the same by both fonts: width, vertical metrics, text and CID equal, the outline
+    /// the same in text space — within 10⁻⁵ em, as a rebuilt program holds coordinates in 16.16 fixed point, and without regard to where a
+    /// subpath is closed (filling closes it either way).
+    /// </summary>
+    internal static bool SameDrawn(PdfFont before, PdfFont after, IEnumerable<(uint Code, int Length)> shown)
+    {
+        const double Tolerance = 1e-5;
+        foreach (var (code, length) in shown)
+        {
+            PdfGlyph a = before.Glyph(code, length), b = after.Glyph(code, length);
+            if (Math.Abs(a.Width - b.Width) > 1e-6 || a.Text != b.Text || a.Procedure is not null || b.Procedure is not null
+                || Math.Abs(a.VerticalAdvance - b.VerticalAdvance) > 1e-6 || Math.Abs(a.OriginX - b.OriginX) > 1e-6 || Math.Abs(a.OriginY - b.OriginY) > 1e-6
+                || before.Cid(code, length) != after.Cid(code, length))
+                return false;
+            List<(Graphics.PathVerb Verb, double X, double Y)> sa = Segments(a.Outline, a.ToText), sb = Segments(b.Outline, b.ToText);
+            if (sa.Count != sb.Count) return false;
+            for (var i = 0; i < sa.Count; i++)
+                if (sa[i].Verb != sb[i].Verb || Math.Abs(sa[i].X - sb[i].X) > Tolerance || Math.Abs(sa[i].Y - sb[i].Y) > Tolerance) return false;
+        }
+        return true;
+    }
+
+    /// <summary>The points of an outline in text space, each with the verb it belongs to (closing verbs left out).</summary>
+    private static List<(Graphics.PathVerb Verb, double X, double Y)> Segments(Core.Fonts.GlyphOutline outline, Graphics.Matrix m)
+    {
+        var result = new List<(Graphics.PathVerb, double, double)>();
+        var points = outline.Points;
+        var p = 0;
+        foreach (var verb in outline.Verbs)
+        {
+            var count = verb switch { Graphics.PathVerb.Move or Graphics.PathVerb.Line => 1, Graphics.PathVerb.Cubic => 3, _ => 0 };
+            for (var k = 0; k < count; k++, p += 2)
+            {
+                var (x, y) = (points[p], points[p + 1]);
+                result.Add((verb, m.A * x + m.C * y + m.E, m.B * x + m.D * y + m.F));
+            }
+        }
+        return result;
     }
 
     // -------------------------------------------------- Helpers

@@ -10,10 +10,10 @@ namespace PdfKnead.Tests.Pdf;
 /// </summary>
 public sealed partial class M7NormTests
 {
-    private static int Ot21Acute => Ot20G('́');
-    private static int Ot21Grave => Ot20G('̀');
-    private static int Ot21Circumflex => Ot20G('̂');
-    private static int Ot21Tilde => Ot20G('̃');
+    private static int Ot21Acute => Ot20G('\u0301');
+    private static int Ot21Grave => Ot20G('\u0300');
+    private static int Ot21Circumflex => Ot20G('\u0302');
+    private static int Ot21Tilde => Ot20G('\u0303');
     private static int Ot21Fi => Ot20G('ﬁ');
     private static int Ot21Fl => Ot20G('ﬂ');
 
@@ -287,7 +287,7 @@ public sealed partial class M7NormTests
 
     /// <summary>
     /// OT 20.4.5 sentences 1, 3–6: mark-to-base moves the mark so that its anchor meets the base's anchor of its class; the base keeps its place and
-    /// the advances stay. Noto Sans Arabic „بَ“ (the font splits off the dot of beh): the fatha's offset is the base anchor minus the mark anchor
+    /// the advances stay. Noto Sans Arabic „بU+064E“ (the font splits off the dot of beh): the fatha's offset is the base anchor minus the mark anchor
     /// of the font's mark lookup, less the advances between them; the body of beh has the same offset and advance as in „ب“.
     /// </summary>
     [Fact]
@@ -295,9 +295,9 @@ public sealed partial class M7NormTests
     {
         var font = EmbeddedFonts.ArabicOpenType("NotoSansArabic-Regular.ttf");
         var shaper = TextShaper.For(font);
-        var marked = shaper.Shape("بَ");
+        var marked = shaper.Shape("ب\u064E");
         var plain = shaper.Shape("ب");
-        var f = Array.FindIndex(marked, g => g.Text == "َ");
+        var f = Array.FindIndex(marked, g => g.Text == "\u064E");
         var b = f - marked[f].AttachBack;
         Assert.InRange(b, 0, f - 1);
         var (baseAnchor, markAnchor) = Ot21NotoAnchors(font, marked[f].Glyph, marked[b].Glyph);
@@ -316,7 +316,7 @@ public sealed partial class M7NormTests
     public void Ot21_MarkToBase_NullBaseAnchor_MarkStays()
     {
         var shaped = Ot20Shaper(Ot20Kern(Ot20Lookup(4, Ot20MarkAttach([(Ot21Acute, 0, Ot20Anchor(0, 0))], [(Ot20G('a'), [null])], 1))), Ot21Gdef())
-            .Shape("á");
+            .Shape("a\u0301");
         Assert.Equal((0.0, 0.0, 0), (shaped[1].XOffset, shaped[1].YOffset, shaped[1].AttachBack));
     }
 
@@ -338,7 +338,7 @@ public sealed partial class M7NormTests
     {
         var shaper = Ot21LigatureShaper(Ot20MarkLigature([(Ot21Acute, 0, Ot20Anchor(0, 0))], [(Ot21Fi, [[Ot20Anchor(200, 700)], [Ot20Anchor(800, 750)]])], 1),
             Ot21FiLigature);
-        var shaped = shaper.Shape("fí");
+        var shaped = shaper.Shape("fi\u0301");
         Assert.Equal([Ot21Fi, Ot21Acute], shaped.Select(g => g.Glyph));
         Assert.Equal(1, shaped[1].AttachBack);
         Assert.Equal((800 - shaped[0].XAdvance, 750.0), (shaped[1].XOffset, shaped[1].YOffset));
@@ -353,7 +353,7 @@ public sealed partial class M7NormTests
     {
         var shaper = Ot21LigatureShaper(Ot20MarkLigature([(Ot21Acute, 0, Ot20Anchor(0, 0)), (Ot21Grave, 1, Ot20Anchor(0, 0))],
             [(Ot21Fi, [[Ot20Anchor(200, 700), Ot20Anchor(250, -100)], [Ot20Anchor(800, 750), Ot20Anchor(850, -120)]])], 2), Ot21FiLigature);
-        var shaped = shaper.Shape("fì");
+        var shaped = shaper.Shape("fi\u0300");
         Assert.Equal((850 - shaped[0].XAdvance, -120.0), (shaped[1].XOffset, shaped[1].YOffset));
     }
 
@@ -366,7 +366,7 @@ public sealed partial class M7NormTests
     {
         var shaper = Ot21LigatureShaper(Ot20MarkLigature([(Ot21Acute, 0, Ot20Anchor(0, 0))], [(Ot21Fi, [[Ot20Anchor(200, 700)], [Ot20Anchor(800, 750)]])], 1),
             Ot21FiLigature);
-        var shaped = shaper.Shape("fî́");
+        var shaped = shaper.Shape("fi\u0302\u0301");
         Assert.Equal(2, shaped[2].AttachBack);
         Assert.Equal(750, shaped[2].YOffset);
     }
@@ -380,7 +380,7 @@ public sealed partial class M7NormTests
     {
         var shaper = Ot21LigatureShaper(Ot20MarkLigature([(Ot21Acute, 0, Ot20Anchor(30, 40))], [(Ot21Fi, [[Ot20Anchor(200, 700)], [Ot20Anchor(800, 750)]])], 1),
             Ot21FiLigature);
-        var shaped = shaper.Shape("fí");
+        var shaped = shaper.Shape("fi\u0301");
         var plain = shaper.Shape("fi");
         Assert.Equal((800 - 30 - shaped[0].XAdvance, 750.0 - 40), (shaped[1].XOffset, shaped[1].YOffset));
         Assert.Equal((plain[0].Glyph, plain[0].XOffset, plain[0].YOffset, plain[0].XAdvance), (shaped[0].Glyph, shaped[0].XOffset, shaped[0].YOffset, shaped[0].XAdvance));
@@ -395,7 +395,7 @@ public sealed partial class M7NormTests
     {
         var shaper = Ot21LigatureShaper(Ot20MarkLigature([(Ot21Acute, 0, Ot20Anchor(0, 0))], [(Ot20G('L'), [[Ot20Anchor(200, 700)], [Ot20Anchor(800, 750)]])], 1),
             Ot21FiLigature);
-        var shaped = shaper.Shape("fí");
+        var shaped = shaper.Shape("fi\u0301");
         Assert.Equal((0.0, 0.0, 0), (shaped[1].XOffset, shaped[1].YOffset, shaped[1].AttachBack));
     }
 
@@ -410,7 +410,7 @@ public sealed partial class M7NormTests
         var shaper = Ot21LigatureShaper(Ot20MarkLigature([(Ot21Acute, 0, Ot20Anchor(0, 0))],
             [(Ot21Fi, [[Ot20Anchor(200, 700)], [Ot20Anchor(800, 750)]]), (Ot21Fl, [[Ot20Anchor(210, 710)], [Ot20Anchor(820, 900)]])], 1),
             Ot21FiLigature, ([Ot20G('f'), Ot20G('l')], Ot21Fl));
-        var shaped = shaper.Shape("fífĺ");
+        var shaped = shaper.Shape("fi\u0301fl\u0301");
         Assert.Equal([Ot21Fi, Ot21Acute, Ot21Fl, Ot21Acute], shaped.Select(g => g.Glyph));
         Assert.Equal(750, shaped[1].YOffset);
         Assert.Equal(900, shaped[3].YOffset);
@@ -427,7 +427,7 @@ public sealed partial class M7NormTests
         var ffi = Ot20G('Q');
         var shaper = Ot21LigatureShaper(Ot20MarkLigature([(Ot21Acute, 0, Ot20Anchor(0, 0))],
             [(ffi, [[Ot20Anchor(100, 700)], [Ot20Anchor(400, 710)], [Ot20Anchor(700, 720)]])], 1), ([Ot20G('f'), Ot20G('f'), Ot20G('i')], ffi));
-        var shaped = shaper.Shape("ffí");
+        var shaped = shaper.Shape("ffi\u0301");
         Assert.Equal([ffi, Ot21Acute], shaped.Select(g => g.Glyph));
         Assert.Equal((700 - shaped[0].XAdvance, 720.0), (shaped[1].XOffset, shaped[1].YOffset));
     }
@@ -444,14 +444,14 @@ public sealed partial class M7NormTests
         var ffi = Ot20G('Q');
         var three = Ot21LigatureShaper(Ot20MarkLigature([(Ot21Acute, 0, Ot20Anchor(0, 0))],
             [(ffi, [[Ot20Anchor(100, 700)], [Ot20Anchor(400, 710)], [Ot20Anchor(700, 720)]])], 1), ([Ot20G('f'), Ot20G('f'), Ot20G('i')], ffi));
-        var shaped = three.Shape("f́fi");
+        var shaped = three.Shape("f\u0301fi");
         Assert.Equal([ffi, Ot21Acute], shaped.Select(g => g.Glyph));
         Assert.Equal((100 - shaped[0].XAdvance, 700.0, 1), (shaped[1].XOffset, shaped[1].YOffset, shaped[1].AttachBack));
-        shaped = three.Shape("ff́i");
+        shaped = three.Shape("ff\u0301i");
         Assert.Equal((400 - shaped[0].XAdvance, 710.0), (shaped[1].XOffset, shaped[1].YOffset));
         var two = Ot21LigatureShaper(Ot20MarkLigature([(Ot21Acute, 0, Ot20Anchor(0, 0))], [(Ot21Fi, [[Ot20Anchor(200, 700)], [Ot20Anchor(800, 750)]])], 1),
             Ot21FiLigature);
-        shaped = two.Shape("f́i");
+        shaped = two.Shape("f\u0301i");
         Assert.Equal([Ot21Fi, Ot21Acute], shaped.Select(g => g.Glyph));
         Assert.Equal((200 - shaped[0].XAdvance, 700.0), (shaped[1].XOffset, shaped[1].YOffset));
     }
@@ -469,7 +469,7 @@ public sealed partial class M7NormTests
         var gpos = Ot20Layout([("mark", [0])], [Ot20Lookup(5, Ot20MarkLigature([(Ot21Acute, 0, Ot20Anchor(0, 0))],
             [(ffi, [[Ot20Anchor(100, 700)], [Ot20Anchor(400, 710)], [Ot20Anchor(700, 720)]])], 1))]);
         var shaper = Ot20Shaper(gpos, Ot21Gdef(ff, ffi), gsub);
-        foreach (var (text, y) in new[] { ("f́fi", 700.0), ("ff́i", 710.0), ("ffí", 720.0) })
+        foreach (var (text, y) in new[] { ("f\u0301fi", 700.0), ("ff\u0301i", 710.0), ("ffi\u0301", 720.0) })
         {
             var shaped = shaper.Shape(text);
             Assert.Equal([ffi, Ot21Acute], shaped.Select(g => g.Glyph));
@@ -486,7 +486,7 @@ public sealed partial class M7NormTests
     {
         var shaper = Ot21LigatureShaper(Ot20MarkLigature([(Ot21Acute, 0, Ot20Anchor(0, 0))], [(Ot21Fi, [[Ot20Anchor(200, 700)], [null]])], 1),
             Ot21FiLigature);
-        var shaped = shaper.Shape("fí");
+        var shaped = shaper.Shape("fi\u0301");
         Assert.Equal((0.0, 0.0, 0), (shaped[1].XOffset, shaped[1].YOffset, shaped[1].AttachBack));
     }
 
@@ -509,7 +509,7 @@ public sealed partial class M7NormTests
     public void Ot21_MarkToMark_Mark1AtTheAnchorOfMark2()
     {
         var shaped = Ot21MarkMarkShaper(Ot20MarkAttach([(Ot21Acute, 0, Ot20Anchor(10, 0))], [(Ot21Circumflex, [Ot20Anchor(60, 500)])], 1))
-            .Shape("ấ");
+            .Shape("a\u0302\u0301");
         Assert.Equal(1, shaped[2].AttachBack);
         Assert.Equal((shaped[1].XOffset + 60 - 10 - shaped[1].XAdvance, 500.0), (shaped[2].XOffset, shaped[2].YOffset));
     }
@@ -524,7 +524,7 @@ public sealed partial class M7NormTests
     {
         var shaper = Ot21MarkMarkShaper(Ot20MarkAttach([(Ot21Acute, 0, Ot20Anchor(10, 0))], [(Ot21Circumflex, [Ot20Anchor(60, 500)])], 1), 0x0100,
             new Dictionary<int, int> { [Ot21Acute] = 1, [Ot21Circumflex] = 1, [Ot21Tilde] = 2 });
-        var shaped = shaper.Shape("ẫ́");
+        var shaped = shaper.Shape("a\u0302\u0303\u0301");
         Assert.Equal([Ot20G('a'), Ot21Circumflex, Ot21Tilde, Ot21Acute], shaped.Select(g => g.Glyph));
         Assert.Equal((2, 500.0), (shaped[3].AttachBack, shaped[3].YOffset));
         Assert.Equal(shaped[1].XOffset + 60 - 10 - shaped[1].XAdvance - shaped[2].XAdvance, shaped[3].XOffset);
@@ -540,10 +540,10 @@ public sealed partial class M7NormTests
     {
         var gpos = Ot20Layout([("mkmk", [0])], [Ot20Lookup(6, Ot20MarkAttach([(Ot21Grave, 0, Ot20Anchor(10, 0))], [(Ot21Acute, [Ot20Anchor(60, 500)])], 1))]);
         var shaper = Ot20Shaper(gpos, Ot21Gdef(Ot21Fi), Ot21Liga(Ot21FiLigature));
-        var apart = shaper.Shape("f́ì");
+        var apart = shaper.Shape("f\u0301i\u0300");
         Assert.Equal([Ot21Fi, Ot21Acute, Ot21Grave], apart.Select(g => g.Glyph));
         Assert.Equal((0, 0.0), (apart[2].AttachBack, apart[2].YOffset));
-        var together = shaper.Shape("fí̀");
+        var together = shaper.Shape("fi\u0301\u0300");
         Assert.Equal([Ot21Fi, Ot21Acute, Ot21Grave], together.Select(g => g.Glyph));
         Assert.Equal((1, 500.0), (together[2].AttachBack, together[2].YOffset));
     }
@@ -557,10 +557,10 @@ public sealed partial class M7NormTests
     public void Ot21_MarkToMark_OnlyMark2OfTheCoverage_OnlyPlacementChanges()
     {
         var shaper = Ot21MarkMarkShaper(Ot20MarkAttach([(Ot21Acute, 0, Ot20Anchor(10, 0))], [(Ot21Circumflex, [Ot20Anchor(60, 500)])], 1));
-        var outside = shaper.Shape("ã́");
+        var outside = shaper.Shape("a\u0303\u0301");
         Assert.Equal((0.0, 0.0, 0), (outside[2].XOffset, outside[2].YOffset, outside[2].AttachBack));
-        var plain = shaper.Shape("â");
-        var inside = shaper.Shape("ấ");
+        var plain = shaper.Shape("a\u0302");
+        var inside = shaper.Shape("a\u0302\u0301");
         Assert.Equal(500, inside[2].YOffset);
         Assert.Equal(Ot20Lib.AdvanceWidth(Ot21Acute), inside[2].XAdvance);
         Assert.Equal((plain[1].XOffset, plain[1].YOffset, plain[1].XAdvance), (inside[1].XOffset, inside[1].YOffset, inside[1].XAdvance));
@@ -575,7 +575,7 @@ public sealed partial class M7NormTests
     {
         var shaper = Ot20Shaper(Ot20Layout([("mark", [0])], [Ot20Lookup(4, Ot20MarkAttach([(Ot21Acute, 0, Ot20Anchor(0, 0)), (Ot21Circumflex, 0, Ot20Anchor(0, 0))],
             [(Ot20G('a'), [Ot20Anchor(500, 600)])], 1))]), Ot21Gdef());
-        var shaped = shaper.Shape("ấ");
+        var shaped = shaper.Shape("a\u0302\u0301");
         Assert.Equal([0, 1, 2], shaped.Select(g => g.AttachBack));
         Assert.Equal([0.0, 600, 600], shaped.Select(g => g.YOffset));
     }
@@ -589,8 +589,8 @@ public sealed partial class M7NormTests
     {
         var shaper = Ot21MarkMarkShaper(Ot20MarkAttach([(Ot21Acute, 0, Ot20Anchor(10, 0))],
             [(Ot21Circumflex, [Ot20Anchor(60, 500)]), (Ot21Tilde, [Ot20Anchor(70, 600)])], 1));
-        Assert.Equal(500, shaper.Shape("ấ")[2].YOffset);
-        Assert.Equal(600, shaper.Shape("ã́")[2].YOffset);
+        Assert.Equal(500, shaper.Shape("a\u0302\u0301")[2].YOffset);
+        Assert.Equal(600, shaper.Shape("a\u0303\u0301")[2].YOffset);
     }
 
     /// <summary>
@@ -600,7 +600,7 @@ public sealed partial class M7NormTests
     [Fact]
     public void Ot21_MarkToMark_NullMark2Anchor_Mark1Stays()
     {
-        var shaped = Ot21MarkMarkShaper(Ot20MarkAttach([(Ot21Acute, 0, Ot20Anchor(10, 0))], [(Ot21Circumflex, [null])], 1)).Shape("ấ");
+        var shaped = Ot21MarkMarkShaper(Ot20MarkAttach([(Ot21Acute, 0, Ot20Anchor(10, 0))], [(Ot21Circumflex, [null])], 1)).Shape("a\u0302\u0301");
         Assert.Equal((0.0, 0.0, 0), (shaped[2].XOffset, shaped[2].YOffset, shaped[2].AttachBack));
     }
 }

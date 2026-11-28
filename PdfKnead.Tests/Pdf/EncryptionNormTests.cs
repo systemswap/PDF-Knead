@@ -152,11 +152,11 @@ public sealed partial class EncryptionNormTests
     public void SaslPrep_Rfc3454Tables()
     {
         Assert.NotNull(StandardSecurityHandler.SaslRefusal("Passwort\U0001F600"));
-        Assert.Null(StandardSecurityHandler.SaslRefusal("a֑b"));
+        Assert.Null(StandardSecurityHandler.SaslRefusal("a\u0591b"));
         Assert.Null(StandardSecurityHandler.SaslRefusal("אʹא"));
         Assert.NotNull(StandardSecurityHandler.SaslRefusal("אaא"));
-        Assert.Equal("a b"u8.ToArray(), StandardSecurityHandler.PrepareAesPassword("a​b"));
-        Assert.Equal("ab"u8.ToArray(), StandardSecurityHandler.PrepareAesPassword("a­b"));
+        Assert.Equal("a b"u8.ToArray(), StandardSecurityHandler.PrepareAesPassword("a\u200Bb"));
+        Assert.Equal("ab"u8.ToArray(), StandardSecurityHandler.PrepareAesPassword("a\u00ADb"));
     }
 
     /// <summary>

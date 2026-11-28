@@ -395,7 +395,7 @@ public sealed partial class M7NormTests
     {
         var program = (PdfStream)Iso04Descriptor(Iso03Saved(Iso03NotoFace(), "日本")).Get(PdfName.Get("FontFile3"))!;
         foreach (var key in (string[])["Length1", "Length2", "Length3"]) Assert.False(program.Dictionary.ContainsKey(PdfName.Get(key)));
-        Assert.Equal(1, Iso03CffTop(program.RawData!).Names);
+        Assert.Equal(1, Iso03CffTop(Iso03CffProgram(program)).Names);
     }
 
     /// <summary>
@@ -474,15 +474,15 @@ public sealed partial class M7NormTests
     // ------------------------------------------------------------ 9.10.1
 
     /// <summary>
-    /// 9.10.1 sentence 12 (reader, today's behaviour; the replacement text belongs to M12): /ActualText of marked content around a glyph does not
-    /// change the text extraction yet — „/Span &lt;&lt;/ActualText (fi)&gt;&gt; BDC (X) Tj EMC“ reads „X“.
+    /// 9.10.1 sentence 12 (reader): /ActualText of marked content around a glyph is read by the text extraction in place of the glyph's text, as two
+    /// of the three reference readers do (docs/FEHLERGEDAECHTNIS.md, No. 1180) — „/Span &lt;&lt;/ActualText (fi)&gt;&gt; BDC (X) Tj EMC“ reads „fi“.
     /// </summary>
     [Fact]
-    public void ActualTextAroundAGlyph_TextIsTheGlyphsToday()
+    public void ActualTextAroundAGlyph_ReadAsTheReplacement()
     {
         var (doc, list) = InterpreterTests.Page("BT /F1 20 Tf 20 100 Td /Span <</ActualText (fi)>> BDC (X) Tj EMC ET",
             _ => TestPdf.Dict(("Font", TestPdf.Dict(("F1", TestPdf.Dict(("Type", TestPdf.N("Font")), ("Subtype", TestPdf.N("Type1")),
                 ("BaseFont", TestPdf.N("Helvetica")), ("Encoding", TestPdf.N("WinAnsiEncoding"))))))));
-        using (doc) Assert.Equal("X", PageText.Create(list.Text).Text);
+        using (doc) Assert.Equal("fi", PageText.Create(list.Text).Text);
     }
 }

@@ -394,11 +394,11 @@ public sealed partial class M7NormTests
     /// <summary>
     /// CID 3.2 sentence 210, 4.2 sentences 50–54: every CIDFont has an FDArray with at least one Font DICT, and every charstring names one of
     /// them. CffSubsetter.Subset of a CFF without ROS read back: an FDArray of exactly one Font DICT and FDSelect 0 for all glyphs. CffFont.Parse
-    /// of a CID-keyed CFF with two Font DICTs (defaultWidthX 700 and 300) and an FDSelect value 5 beyond them: that glyph takes the Private DICT
-    /// of Font DICT 0 (width 700).
+    /// of a CID-keyed CFF with two Font DICTs (defaultWidthX 700 and 300) and an FDSelect value 5 beyond them: that glyph draws nothing, as two of
+    /// three reference readers (probes B36c, B36c2; docs/FEHLERGEDAECHTNIS.md, No. 1165), its width is that of Font DICT 0 (700).
     /// </summary>
     [Fact]
-    public void Cid01_FontDicts_ASubsetWithoutRosGetsOne_AndAnFdSelectBeyondTakesTheFirst()
+    public void Cid01_FontDicts_ASubsetWithoutRosGetsOne_AndAGlyphWithAnFdSelectBeyondDrawsNothing()
     {
         var box = Cid01CidCffOutline();
         var nameKeyed = CffBuilder.Build("Probe", new Core.Pdf.Graphics.Matrix(0.001, 0, 0, 0.001, 0, 0), [("a", box, 500), ("b", box, 600), ("c", box, 700)]);
@@ -415,6 +415,8 @@ public sealed partial class M7NormTests
         Assert.Equal(700, beyond.AdvanceWidth(0));
         Assert.Equal(300, beyond.AdvanceWidth(1));
         Assert.Equal(700, beyond.AdvanceWidth(2));
+        Assert.False(beyond.Outline(1).IsEmpty);
+        Assert.True(beyond.Outline(2).IsEmpty);
     }
 
     /// <summary>A box outline of 110 × 100 (glyph 1 of a CID-keyed probe font).</summary>

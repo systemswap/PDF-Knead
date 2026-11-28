@@ -47,39 +47,46 @@ public sealed partial class M7NormTests
     // ------------------------------------------------------------ 31.2.21, 31.2.22 first and last character
 
     /// <summary>
-    /// OT 31.2.21 sentences 1–5 and 31.2.22 sentences 1–3 (today's behaviour, question 7 open): scrubbing Liberation Sans down to the glyphs of
-    /// „Text“ builds a new cmap but keeps usFirstCharIndex 0x20 and usLastCharIndex 0xFFFC of the source (a font rebuilt as symbolic takes the
-    /// codes of its cmap: FontScrubTests.RebuiltAsSymbolic_NamesPanoseAndRangeFollow).
+    /// OT 31.2.21 sentences 1–5 and 31.2.22 sentences 1–3 (writer): usFirstCharIndex and usLastCharIndex follow the new cmap — scrubbing Liberation
+    /// Sans down to the glyphs of „Text“ gives 0x54 („T“) and 0x78 („x“) instead of the 0x20 and 0xFFFC of the source, which told of characters no
+    /// longer in the font (FG 1159); the Noto font (CFF outlines) scrubbed to „漢字A“ gives 0x41 and 0x6F22, and one scrubbed to nothing but glyph 0
+    /// gives 0xFFFF twice, the code of the closing segment (a font rebuilt as symbolic takes the codes of its cmap:
+    /// FontScrubTests.RebuiltAsSymbolic_NamesPanoseAndRangeFollow).
     /// </summary>
     [Fact]
-    public void Ot32_Scrub_KeepsFirstAndLastCharIndexOfTheSource()
+    public void Ot32_Scrub_FirstAndLastCharIndexFromTheNewCmap()
     {
-        var os2 = Ot30Os2Of(TrueTypeSubsetter.Scrub(Ot30File(), Ot05Glyphs("Text")));
-        Assert.Equal(0x0020, Ot30U16(os2, 64));
-        Assert.Equal(0xFFFC, Ot30U16(os2, 66));
+        (int, int) Range(byte[] font) => Ot30Os2Of(font) is var os2 ? (Ot30U16(os2, 64), Ot30U16(os2, 66)) : default;
+        Assert.Equal((0x54, 0x78), Range(TrueTypeSubsetter.Scrub(Ot30File(), Ot05Glyphs("Text"))));
+        var noto = OpenTypeFont.Parse(Ot34Noto.Value);
+        Assert.Equal((0x41, 0x6F22), Range(TrueTypeSubsetter.Scrub(Ot34Noto.Value, Ot34Kept.Select(c => noto.GlyphForUnicode(c)))));
+        Assert.Equal((0xFFFF, 0xFFFF), Range(TrueTypeSubsetter.Scrub(Ot30File(), [0])));
     }
 
     // ------------------------------------------------------------ 31.2.23–31.2.27 line metrics
 
     /// <summary>
     /// OT 31.2.23 sentences 1–4, 8–10, 31.2.24 sentences 1–4, 8–10, 31.2.26 sentences 12–20, 31.2.27 sentences 14–22 (and ot-31: 31.2.20
-    /// sentences 11, 27–30) — today's behaviour, question 14 open: ascender and descender of typed text come from hhea, also when fsSelection
-    /// bit 7 (USE_TYPO_METRICS) is set and sTypo* and usWin* differ (1500/−500, 2000/600): Liberation Sans keeps 1854/2048 and −434/2048.
+    /// sentences 11, 27–30; docs/FEHLERGEDAECHTNIS.md, No. 1162): with fsSelection bit 7 (USE_TYPO_METRICS) ascender and descender of typed text
+    /// come from sTypo* (1500/−500 of 2048), never from usWin* (2000/600); without the bit from hhea (Liberation Sans 1854/−434).
     /// </summary>
     [Fact]
-    public void Ot32_UseTypoMetrics_AscentAndDescentStillFromHhea()
+    public void Ot32_UseTypoMetrics_AscentAndDescentFromTypoMetrics()
     {
-        var font = Ot30WithOs2(o =>
+        Core.Pdf.Editing.ElementFace Face(int flags) => Ot30Face(Ot30WithOs2(o =>
         {
-            Ot30Set(o, 62, 0x00C0);
+            Ot30Set(o, 62, flags);
             Ot30Set(o, 68, 1500);
             Ot30Set(o, 70, -500);
             Ot30Set(o, 74, 2000);
             Ot30Set(o, 76, 600);
-        }, 4);
-        var face = Ot30Face(font);
-        Assert.Equal(1854.0 / 2048, face.Ascent, 9);
-        Assert.Equal(-434.0 / 2048, face.Descent, 9);
+        }, 4));
+        var typo = Face(0x00C0);
+        Assert.Equal(1500.0 / 2048, typo.Ascent, 9);
+        Assert.Equal(-500.0 / 2048, typo.Descent, 9);
+        var hhea = Face(0x0040);
+        Assert.Equal(1854.0 / 2048, hhea.Ascent, 9);
+        Assert.Equal(-434.0 / 2048, hhea.Descent, 9);
     }
 
     /// <summary>
@@ -152,46 +159,58 @@ public sealed partial class M7NormTests
     // ------------------------------------------------------------ 31.2.33 usMaxContext, 31.2.34/35 optical sizes
 
     /// <summary>
-    /// OT 31.2.33 sentences 1–6: a subset of Liberation Sans has neither GSUB nor GPOS, so its usMaxContext (offset 94) should be 0 instead of
-    /// the 44 of the source.
+    /// OT 31.2.33 sentences 1–6 (writer): a subset, a scrubbed copy and a rebuilt copy of Liberation Sans have neither GSUB nor GPOS, so their
+    /// usMaxContext (offset 94) is 0 instead of the 44 of the source (FG 1159); a subset keeping all tables keeps the layout and the 44.
     /// </summary>
-    [Fact(Skip = "M7-Befund: Teilschrift und bereinigte Schrift ohne GSUB/GPOS behalten usMaxContext der Quelle (44) (TrueTypeSubsetter.Subset/Scrub)")]
+    [Fact]
     public void Ot32_SubsetWithoutLayout_UsMaxContextZero()
     {
-        var subset = TrueTypeSubsetter.Subset(Ot30File(), Ot05Glyphs("AB"));
-        Assert.False(OpenTypeFont.Parse(subset).HasTable("GSUB"));
-        Assert.Equal(0, Ot30U16(Ot30Os2Of(subset), 94));
+        var source = Ot30File();
+        var ab = Ot05Glyphs("AB");
+        Assert.Equal(44, Ot30U16(Ot30Os2Of(source), 94));
+        foreach (var written in (byte[][])[TrueTypeSubsetter.Subset(source, ab), TrueTypeSubsetter.Scrub(source, ab),
+                     TrueTypeSubsetter.Rebuild(source, ab.ToDictionary(g => g, _ => 1000), [], null)])
+        {
+            var parsed = OpenTypeFont.Parse(written);
+            Assert.False(parsed.HasTable("GSUB") || parsed.HasTable("GPOS"));
+            Assert.Equal(0, Ot30U16(Ot30Os2Of(written), 94));
+        }
+        Assert.Equal(44, Ot30U16(Ot30Os2Of(TrueTypeSubsetter.Subset(source, ab, keepAllTables: true)), 94));
     }
 
     /// <summary>
     /// OT 31.2.34 sentences 8–14 and 31.2.35 sentences 8–15: a subset of a font with OS/2 version 5 (no optical sizes: 0 and 0xFFFF) keeps both
-    /// fields unchanged.
+    /// fields unchanged, and the table of 100 bytes as it was up to usMaxContext (0 without layout, FG 1159).
     /// </summary>
     [Fact]
     public void Ot32_SubsetOfVersion5_KeepsOpticalSizes()
     {
         var font = Ot30WithOs2(o => Ot30Set(o, 98, 0xFFFF), 5, 100);
         var os2 = Ot30Os2Of(TrueTypeSubsetter.Subset(font, Ot05Glyphs("AB")));
-        Assert.Equal(Ot30Os2Of(font), os2);
+        Assert.Equal(Ot30Os2Of(font)[..94], os2[..94]);
+        Assert.Equal(100, os2.Length);
         Assert.Equal((0, 0xFFFF), (Ot30U16(os2, 96), Ot30U16(os2, 98)));
     }
 
     // ------------------------------------------------------------ 31.3 variable fonts
 
     /// <summary>
-    /// OT 31.3 sentences 1–3 and 33–36: no variable font is written — a subset of Liberation Sans with fvar, gvar and MVAR has none of them, its
-    /// OS/2 and hhea are those of the source (default instance).
+    /// OT 31.3 sentences 1–3 and 33–36: no variable font is written — a subset of Liberation Sans with fvar, gvar and MVAR has none of them, and
+    /// the line metrics of its OS/2 (sTypo*, usWin*) and hhea (ascender, descender, line gap, caret) are those of the source, the default
+    /// instance (the limits of hhea and usMaxContext follow the glyphs kept, FG 1159).
     /// </summary>
     [Fact]
-    public void Ot32_SubsetOfVariableFont_DropsFvarGvarMvar_KeepsOs2AndHhea()
+    public void Ot32_SubsetOfVariableFont_DropsFvarGvarMvar_KeepsTheDefaultLineMetrics()
     {
         var (fvar, gvar) = Ot05VariationTables(Ot05Sans.Value.GlyphCount);
         var variable = Ot05SansWith(("fvar", fvar), ("gvar", gvar), ("MVAR", Ot32Mvar("hasc")));
         var subset = TrueTypeSubsetter.Subset(variable, Ot05Glyphs("AB"));
         var parsed = OpenTypeFont.Parse(subset);
         foreach (var tag in (string[])["fvar", "gvar", "MVAR"]) Assert.False(parsed.HasTable(tag), tag);
-        Assert.Equal(Ot30Os2Of(variable), Ot30Os2Of(subset));
-        Assert.Equal(OpenTypeFont.Parse(variable).TableData("hhea").ToArray(), parsed.TableData("hhea").ToArray());
+        Assert.Equal(Ot30Os2Of(variable)[..94], Ot30Os2Of(subset)[..94]);
+        var (before, after) = (OpenTypeFont.Parse(variable).TableData("hhea").ToArray(), parsed.TableData("hhea").ToArray());
+        Assert.Equal(before[..10], after[..10]);
+        Assert.Equal(before[18..], after[18..]);
     }
 
     /// <summary>
@@ -240,16 +259,17 @@ public sealed partial class M7NormTests
     }
 
     /// <summary>
-    /// OT 32.2 sentences 4–5 (today's behaviour, question 14 open): typed text in an italic system font whose post says −9.5° gets /ItalicAngle
-    /// −12, not the value of post.
+    /// OT 32.2 sentences 4–5, OT 73.2 sentences 7–9 (docs/FEHLERGEDAECHTNIS.md, No. 1162): typed text in an italic system font whose post says
+    /// −9.5° gets /ItalicAngle −9.5, the value of post (before a fixed −12); a regular font keeps its 0.
     /// </summary>
     [Fact]
-    public void Ot32_TypedTextInItalicFont_ItalicAngleMinus12Today()
+    public void Ot32_TypedTextInItalicFont_ItalicAngleFromPost()
     {
         var post = Ot32Post(Ot05SansFile.Value);
         BinaryPrimitives.WriteInt32BigEndian(post.AsSpan(4), (int)(-9.5 * 65536));
         var font = Ot05SansWith(("post", post));
-        Assert.Equal(-12, Ot30SavedDescriptor(font, italic: true).GetNumber(PdfName.Get("ItalicAngle")));
+        Assert.Equal(-9.5, Ot30SavedDescriptor(font, italic: true).GetNumber(PdfName.Get("ItalicAngle")));
+        Assert.Equal(0, Ot30SavedDescriptor(Ot05SansFile.Value).GetNumber(PdfName.Get("ItalicAngle")));
     }
 
     /// <summary>OT 32.2 sentence 9: the own font is fixed pitch — isFixedPitch (offset 12) is 1 and both glyphs are 512 of 1024 units wide.</summary>

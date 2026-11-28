@@ -3,6 +3,7 @@ using System.Text;
 using PdfKnead.Core.Fonts;
 using PdfKnead.Core.Ocr;
 using PdfKnead.Core.Pdf.Editing;
+using PdfKnead.Core.Pdf.Graphics;
 using PdfKnead.Core.Pdf.Objects;
 using PdfKnead.Tests.Fonts;
 
@@ -284,11 +285,11 @@ public sealed partial class M7NormTests
     }
 
     /// <summary>
-    /// OT 22.1 sentence 18 (writer): PDF-Knead builds no variable fonts — a subset of Liberation Sans with fvar, gvar and HVAR has none of the three;
-    /// a subset keeping all tables and a scrubbed font keep all three.
+    /// OT 22.1 sentence 18 (writer): PDF-Knead builds no variable fonts — a subset of Liberation Sans with fvar, gvar and HVAR, a subset keeping
+    /// all other tables and a scrubbed font have none of the three (FG 1159; before the last two kept all three).
     /// </summary>
     [Fact]
-    public void Ot27_SubsetDropsFvarGvarHvar_AllTablesAndScrubKeepThem()
+    public void Ot27_SubsetAllTablesAndScrub_DropFvarGvarHvar()
     {
         var count = Ot27Sans.Value.GlyphCount;
         var font = Ot27SansWith(("fvar", Ot27Fvar()), ("gvar", Ot27Gvar(count, new Dictionary<int, byte[]>())), ("HVAR", Ot27Hvar(count, false)));
@@ -299,8 +300,8 @@ public sealed partial class M7NormTests
         foreach (var tag in (string[])["fvar", "gvar", "HVAR"])
         {
             Assert.False(subset.HasTable(tag), tag);
-            Assert.True(all.HasTable(tag), tag);
-            Assert.True(scrubbed.HasTable(tag), tag);
+            Assert.False(all.HasTable(tag), tag);
+            Assert.False(scrubbed.HasTable(tag), tag);
         }
     }
 
@@ -321,11 +322,12 @@ public sealed partial class M7NormTests
     }
 
     /// <summary>
-    /// OT 22.3 sentences 8–12 (writer): a gvar taken over still fits — Liberation Sans with a gvar whose glyphCount is that of maxp: a subset keeping
-    /// all tables and the scrubbed font keep the glyph count of maxp and gvar byte for byte; the PDF/A rebuild with a glyph appended has no gvar.
+    /// OT 22.3 sentences 8–12 (writer): no written font carries a gvar that could stop fitting — Liberation Sans with a gvar whose glyphCount is
+    /// that of maxp: a subset keeping all tables and the scrubbed font keep the glyph count of maxp and have no gvar (FG 1159; before gvar stayed
+    /// byte for byte); the PDF/A rebuild with a glyph appended has none either.
     /// </summary>
     [Fact]
-    public void Ot27_KeptGvar_GlyphCountUnchanged_RebuildWithAppendedGlyphDropsIt()
+    public void Ot27_NoWriterKeepsGvar_RebuildWithAppendedGlyphNeither()
     {
         var count = Ot27Sans.Value.GlyphCount;
         var a = Ot27Glyph('A');
@@ -335,7 +337,7 @@ public sealed partial class M7NormTests
         foreach (var file in new[] { TrueTypeSubsetter.Subset(font, [a], keepAllTables: true), TrueTypeSubsetter.Scrub(font, [a]) })
         {
             Assert.Equal(count, Ot27U16(Ot27Table(file, "maxp"), 4));
-            Assert.Equal(gvar, Ot27Table(file, "gvar"));
+            Assert.False(OpenTypeFont.Parse(file).HasTable("gvar"));
         }
         var rebuilt = OpenTypeFont.Parse(TrueTypeSubsetter.Rebuild(font, new Dictionary<int, int> { [a] = 1366 }, [(a, 1000)], null));
         Assert.Equal(count + 1, rebuilt.GlyphCount);
@@ -359,11 +361,13 @@ public sealed partial class M7NormTests
     }
 
     /// <summary>
-    /// OT 22.7 sentences 27–32 (reader, today's behaviour; question 17): USE_MY_METRICS is passed over — a composite glyph at the place of „Ä“
-    /// whose only component „W“ carries the flag: the advance stays the hmtx value of „Ä“, not that of „W“.
+    /// OT 22.7 sentences 27–32 with OT 19.4 and OT 25 sentences 5 and 15 (reader): the phantom points of a composite glyph come from the component
+    /// with USE_MY_METRICS, its advance for layout from hmtx — a composite glyph at the place of „Ä“ whose only component „W“ carries the flag has
+    /// the hmtx advance of „Ä“, not the one of „W“ (since docs/FEHLERGEDAECHTNIS.md, No. 1179; No. 1163 had taken that of „W“: the shaper set
+    /// wider than the reference shaper, and the reference readers take hmtx); in the default instance, without variations.
     /// </summary>
     [Fact]
-    public void Ot27_UseMyMetrics_AdvanceStaysTheCompositesHmtxValue()
+    public void Ot27_UseMyMetrics_AdvanceFromHmtx_NotFromTheComponent()
     {
         var (w, umlaut) = (Ot27Glyph('W'), Ot27Glyph('Ä'));
         var font = OpenTypeFont.Parse(Ot27SansWithGlyph(umlaut, Ot27Composite(w, firstFlags: 0x0200)));
@@ -461,22 +465,53 @@ public sealed partial class M7NormTests
     }
 
     /// <summary>
-    /// OT 23 sentences 51–55 (reader, today's behaviour; question 25): the origin is x = 0 of the glyf coordinates, not pp1 = xMin − lsb — „A“ of
-    /// Liberation Sans with its hmtx lsb set 50 below its xMin and head flag bit 1 clear: the outline is the same and begins at xMin.
+    /// OT 23 sentences 51–55 and OT 77.3.3 sentences 14–19 (reader): the origin is the first phantom point pp1 = xMin − lsb, not x = 0 of the
+    /// glyf coordinates, whatever bit 1 of the head flags says — as the three reference readers draw it (measured, probes p25a–f:
+    /// docs/FEHLERGEDAECHTNIS.md, No. 1163; before the outline stayed at xMin). „A“ of Liberation Sans with its hmtx lsb set 50 below its xMin:
+    /// the outline is the same moved 50 to the left (pp1 = 50), so that it begins at the lsb — with bit 1 clear and set; with lsb = xMin (as in
+    /// the font itself) it stays where it is.
     /// </summary>
     [Fact]
-    public void Ot27_LsbUnlikeXMinWithoutFlagBit1_OutlineStaysAtXMin()
+    public void Ot27_LsbUnlikeXMin_OriginAtPp1WhateverFlagBit1()
     {
         var a = Ot27Glyph('A');
         var xMin = Ot27I16(Ot27GlyphData(Ot27Sans.Value, a), 2);
+        Assert.Equal(xMin, Ot27Sans.Value.Outline(a).Bounds.Left, 3);
         var hmtx = Ot27Table(Ot27SansFile.Value, "hmtx");
         Assert.True(a < Ot27U16(Ot27Table(Ot27SansFile.Value, "hhea"), 34));
+        Assert.Equal(xMin, Ot27I16(hmtx, a * 4 + 2));
         BinaryPrimitives.WriteInt16BigEndian(hmtx.AsSpan(a * 4 + 2), (short)(xMin - 50));
-        var head = Ot27Table(Ot27SansFile.Value, "head");
-        BinaryPrimitives.WriteUInt16BigEndian(head.AsSpan(16), (ushort)(Ot27U16(head, 16) & ~0x0002));
-        var font = OpenTypeFont.Parse(Ot27SansWith(("hmtx", hmtx), ("head", head)));
-        Assert.True(Ot27SameOutline(Ot27Sans.Value.Outline(a), font.Outline(a)));
-        Assert.Equal(xMin, font.Outline(a).Bounds.Left, 3);
+        foreach (var bit1 in new[] { false, true })
+        {
+            var head = Ot27Table(Ot27SansFile.Value, "head");
+            BinaryPrimitives.WriteUInt16BigEndian(head.AsSpan(16), (ushort)(bit1 ? Ot27U16(head, 16) | 0x0002 : Ot27U16(head, 16) & ~0x0002));
+            var font = OpenTypeFont.Parse(Ot27SansWith(("hmtx", hmtx), ("head", head)));
+            var original = Ot27Sans.Value.Outline(a);
+            Assert.Equal(original.Verbs, font.Outline(a).Verbs);
+            for (var i = 0; i < original.Points.Count; i++) Assert.Equal(original.Points[i] - (i % 2 == 0 ? 50 : 0), font.Outline(a).Points[i], 0.001f);
+            Assert.Equal(xMin - 50, font.Outline(a).Bounds.Left, 3);
+        }
+    }
+
+    /// <summary>
+    /// OT 23 sentences 51–55 with OT 19.4 (reader): a composite glyph has its origin at xMin of its own glyf header minus its own lsb (not at
+    /// the box of its components), and its components are not moved by their own side bearings — as the three reference readers draw it
+    /// (probes p25j, p25k, p25l). Glyph 3 places the box (0–100) at 0 and glyph 2 (a box 300–400 with lsb 0) at 1000: with header xMin 0 and lsb
+    /// −300 everything moves 300 to the left; with header xMin 100 and lsb 0 by 100; the second component stays at 1300–1400 relative to the first.
+    /// </summary>
+    [Fact]
+    public void Ot27_CompositeOrigin_OwnHeaderAndLsb_ComponentsNotMovedByTheirOwn()
+    {
+        Ot20Part[] parts = [new Ot20Part(Ot20Xy, 1, 0, 0), new Ot20Part(Ot20Xy, 2, 1000, 0)];
+        var far = Ot20Simple([Ot20Rect(300, 0, 400, 50)]);
+        var withHeader = Ot20Composite(parts);
+        BinaryPrimitives.WriteInt16BigEndian(withHeader.AsSpan(2), 100);
+        var plain = OpenTypeFont.Parse(Ot20Font([Ot20Box, Ot20Box, far, Ot20Composite(parts)], bearings: [0, 0, 0, 0]));
+        var lsb = OpenTypeFont.Parse(Ot20Font([Ot20Box, Ot20Box, far, Ot20Composite(parts)], bearings: [0, 0, 0, -300]));
+        var header = OpenTypeFont.Parse(Ot20Font([Ot20Box, Ot20Box, far, withHeader], bearings: [0, 0, 0, 0]));
+        Assert.Equal(new RectD(0, 0, 1400, 50), plain.Outline(3).Bounds);
+        Assert.Equal(new RectD(-300, 0, 1100, 50), lsb.Outline(3).Bounds);
+        Assert.Equal(new RectD(-100, 0, 1300, 50), header.Outline(3).Bounds);
     }
 
     /// <summary>
@@ -498,16 +533,50 @@ public sealed partial class M7NormTests
     // ------------------------------------------------------------ OT 24 hhea
 
     /// <summary>
-    /// OT 24 sentences 2–3 and 12–14 (writer, today's behaviour; question 7): the PDF/A rebuild does not recompute minLeftSideBearing,
-    /// minRightSideBearing and xMaxExtent — Liberation Sans rebuilt with only „A“ at another advance keeps the three values of the source.
+    /// The limits of hhea (or vhea) as the tables of <paramref name="font"/> give them (OT 24): largest advance of hmtx; over the glyphs with
+    /// contours (from the glyf header) the smallest side bearing, the smallest advance − (bearing + extent) and the largest bearing + extent.
+    /// </summary>
+    private static (int AdvanceMax, int MinBearing, int MinOther, int MaxExtent) Ot27Limits(byte[] font)
+    {
+        var parsed = OpenTypeFont.Parse(font);
+        byte[] hhea = parsed.TableData("hhea").ToArray(), hmtx = parsed.TableData("hmtx").ToArray(), glyf = parsed.TableData("glyf").ToArray(),
+            loca = parsed.TableData("loca").ToArray();
+        var full = Ot27U16(hhea, 34);
+        var advanceMax = Enumerable.Range(0, full).Max(g => Ot27U16(hmtx, g * 4));
+        int minBearing = int.MaxValue, minOther = int.MaxValue, maxExtent = int.MinValue;
+        for (var g = 0; g < parsed.GlyphCount; g++)
+        {
+            int start = (int)Ot27U32(loca, g * 4), end = (int)Ot27U32(loca, g * 4 + 4);
+            if (end - start < 10 || Ot27I16(glyf, start) == 0) continue;
+            var advance = Ot27U16(hmtx, Math.Min(g, full - 1) * 4);
+            var bearing = g < full ? Ot27I16(hmtx, g * 4 + 2) : Ot27I16(hmtx, full * 4 + (g - full) * 2);
+            var extent = Ot27I16(glyf, start + 6) - Ot27I16(glyf, start + 2);
+            minBearing = Math.Min(minBearing, bearing);
+            minOther = Math.Min(minOther, advance - (bearing + extent));
+            maxExtent = Math.Max(maxExtent, bearing + extent);
+        }
+        return minBearing == int.MaxValue ? (advanceMax, 0, 0, 0) : (advanceMax, minBearing, minOther, maxExtent);
+    }
+
+    /// <summary>
+    /// OT 24 sentences 2–3 and 11–14 (writer): advanceWidthMax, minLeftSideBearing, minRightSideBearing and xMaxExtent are computed anew from the
+    /// glyphs the written font keeps — Liberation Sans as a subset, a subset keeping all tables, a scrubbed copy (each with „Te“) and rebuilt
+    /// with only „A“ at the advance 3000: hhea gives the values of its own hmtx and glyf (FG 1159; before the source's values stayed, which
+    /// told of glyphs no longer in the font).
     /// </summary>
     [Fact]
-    public void Ot27_Rebuild_KeepsTheSideBearingExtremesOfTheSource()
+    public void Ot27_SubsetScrubRebuild_RecomputeTheSideBearingExtremes()
     {
-        var rebuilt = TrueTypeSubsetter.Rebuild(Ot27SansFile.Value, new Dictionary<int, int> { [Ot27Glyph('A')] = 3000 }, [], null);
-        var source = Ot27Table(Ot27SansFile.Value, "hhea");
-        var hhea = Ot27Table(rebuilt, "hhea");
-        Assert.Equal(source[12..18], hhea[12..18]);
+        var source = Ot27SansFile.Value;
+        int[] te = [Ot27Glyph('T'), Ot27Glyph('e')];
+        foreach (var written in (byte[][])[TrueTypeSubsetter.Subset(source, te), TrueTypeSubsetter.Subset(source, te, keepAllTables: true),
+                     TrueTypeSubsetter.Scrub(source, te), TrueTypeSubsetter.Rebuild(source, new Dictionary<int, int> { [Ot27Glyph('A')] = 3000 }, [], null)])
+        {
+            var hhea = Ot27Table(written, "hhea");
+            var (advanceMax, minBearing, minOther, maxExtent) = Ot27Limits(written);
+            Assert.Equal((advanceMax, minBearing, minOther, maxExtent), (Ot27U16(hhea, 10), Ot27I16(hhea, 12), Ot27I16(hhea, 14), Ot27I16(hhea, 16)));
+            Assert.NotEqual(Ot27Table(source, "hhea")[12..18], hhea[12..18]);
+        }
     }
 
     /// <summary>OT 24 sentences 4 and 19–22 (writer): the reserved fields and metricDataFormat of hhea are 0 in the text recognition font.</summary>
@@ -546,11 +615,11 @@ public sealed partial class M7NormTests
     }
 
     /// <summary>
-    /// OT 24 sentences 25–28 (reader, today's behaviour; question 14): typed text takes the ascender of hhea, not sTypoAscender of OS/2 — a font of
-    /// 1000 units per em with hhea ascender 900 and sTypoAscender 800 (USE_TYPO_METRICS set): ascent 0.9.
+    /// OT 24 sentences 25–28 (reader; docs/FEHLERGEDAECHTNIS.md, No. 1162): with USE_TYPO_METRICS typed text takes sTypoAscender of OS/2, not the
+    /// ascender of hhea — a font of 1000 units per em with hhea ascender 900 and sTypoAscender 800 (USE_TYPO_METRICS set): ascent 0.8.
     /// </summary>
     [Fact]
-    public void Ot27_TypedText_AscentFromHheaNotTypoAscender()
+    public void Ot27_TypedText_AscentFromTypoAscenderWithUseTypoMetrics()
     {
         var head = Ot27Table(Ot27SansFile.Value, "head");
         BinaryPrimitives.WriteUInt16BigEndian(head.AsSpan(18), 1000);
@@ -561,6 +630,6 @@ public sealed partial class M7NormTests
         BinaryPrimitives.WriteUInt16BigEndian(os2.AsSpan(62), (ushort)(Ot27U16(os2, 62) | 0x80));
         var font = Ot27SansWith(("head", head), ("hhea", hhea), ("OS/2", os2));
         var face = ElementFace.For("m7-ot27-hhea-900-typo-800", () => OpenTypeFont.Parse(font), false, false, false);
-        Assert.Equal(0.9, face.Ascent, 9);
+        Assert.Equal(0.8, face.Ascent, 9);
     }
 }

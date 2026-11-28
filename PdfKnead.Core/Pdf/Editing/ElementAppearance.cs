@@ -16,8 +16,21 @@ public sealed partial class ElementAppearance
     /// <summary>Padding between text and border in points.</summary>
     public const double Padding = 2;
 
-    /// <summary>Line spacing as a multiple of the font size.</summary>
+    /// <summary>
+    /// Line spacing as a multiple of the font size: of form fields, of text elements of earlier versions and of text from other programs drawn
+    /// as a text element (<see cref="LineStep"/>).
+    /// </summary>
     public const double LineSpacing = 1.15;
+
+    /// <summary>
+    /// The distance of the baselines of a text element as a multiple of its font size: the natural line height of its font where the element
+    /// has the mark (<see cref="TextElement.FontLineHeight"/>, docs/FEHLERGEDAECHTNIS.md, No. 1211), else <see cref="LineSpacing"/> — always for a
+    /// form field, whose appearance other programs make again from its value with no place for the mark.
+    /// </summary>
+    /// <param name="element">The text element.</param>
+    /// <param name="face">Its font.</param>
+    /// <returns>The factor.</returns>
+    public static double LineStep(TextElement element, ElementFace face) => element.FontLineHeight && !element.IsField ? face.LineHeight : LineSpacing;
 
     private static readonly ConditionalWeakTable<PageElement, ElementAppearance> Cache = new();
     private static readonly IReadOnlyDictionary<int, string> NoGlyphs = new Dictionary<int, string>();
@@ -452,8 +465,7 @@ public sealed partial class ElementAppearance
                     {
                         var x = i * cell + (cell - line.Advances[i]) / 2;
                         sb.Append("1 0 0 1 ").Append(ElementFace.Number(x)).Append(' ').Append(ElementFace.Number(y)).Append(" Tm ");
-                        AppendShowText(sb, face, new TextLine([line.Glyphs[i]], [line.Text[i]], [line.Advances[i]], line.Advances[i]), size);
-                        glyphs.TryAdd(line.Glyphs[i], line.Text[i]);
+                        AppendLine(sb, face, new TextLine([line.Glyphs[i]], [line.Text[i]], [line.Advances[i]], line.Advances[i]), size, glyphs);
                     }
                 }
                 else
@@ -464,12 +476,11 @@ public sealed partial class ElementAppearance
                         ElementAlignment.Right => w - inset - line.Width,
                         _ => inset,
                     };
-                    sb.Append("1 0 0 1 ").Append(ElementFace.Number(x)).Append(' ').Append(ElementFace.Number(y)).Append(" Tm ");
-                    AppendShowText(sb, face, line, size);
-                    for (var i = 0; i < line.Glyphs.Count; i++) glyphs.TryAdd(line.Glyphs[i], line.Text[i]);
+                    sb.Append("1 0 0 1 ").Append(ElementFace.Number(x + line.Start)).Append(' ').Append(ElementFace.Number(y)).Append(" Tm ");
+                    AppendLine(sb, face, line, size, glyphs);
                 }
             }
-            y -= size * LineSpacing;
+            y -= size * LineSpacing;   // a form field keeps 1.15 times the size (LineStep)
         }
         sb.Append("ET\nQ\nEMC\n");
 
@@ -1186,8 +1197,25 @@ public sealed partial class ElementAppearance
 
     // ------------------------------------------------------------ Text
 
+    /// <summary>
+    /// The lines of plain text, field values and free text: separated by the hard line breaks of UAX #14 (LB4–LB6) — CR LF, LF, a lone CR (a
+    /// field value from another program, ISO 32000-2 12.7.4.3), NEL, VT, FF and the line and paragraph separators U+2028, U+2029 (Unicode 23.1.2,
+    /// 23.2.1; before CR, NEL and U+2028/U+2029 were drawn within the line; docs/FEHLERGEDAECHTNIS.md, No. 1185). The information separators
+    /// FS, GS, RS end no line: LineBreak.txt gives them the class CM, which may not be tailored into a hard break (UAX #14 5.1; before they did,
+    /// No. 1196); the editor still takes a typed one as a paragraph break.
+    /// </summary>
+    internal static string[] Paragraphs(string text) =>
+        text.Replace("\r\n", "\n").Split(['\n', '\r', '\u0085', '\u000B', '\u000C', '\u2028', '\u2029']);
+
     /// <summary>A laid-out line: glyphs, their text, advance per glyph and width (in points).</summary>
-    public sealed record TextLine(List<int> Glyphs, List<string> Text, List<double> Advances, double Width);
+    public sealed record TextLine(List<int> Glyphs, List<string> Text, List<double> Advances, double Width)
+    {
+        /// <summary>
+        /// Where the first glyph stands from the start of the line in points (the placement of an optical bound at its left end; the width
+        /// counts from the start; docs/FEHLERGEDAECHTNIS.md, No. 1220); 0 for most lines.
+        /// </summary>
+        public double Start { get; init; }
+    }
 
     /// <summary>
     /// Lays out lines (own shaper: kerning, ligatures) and breaks them: always at line breaks, and with
@@ -1202,48 +1230,266 @@ public sealed partial class ElementAppearance
         var available = Math.Max(1, width - 2 * Padding);
         var scale = element.FontSize / face.Font.UnitsPerEm;
         var shaper = Core.Fonts.Layout.TextShaper.For(face.Font);
+        // the optical bounds at the ends of the lines of a multi-line text (OpenType 66.2, 66.20, 67.16; docs/FEHLERGEDAECHTNIS.md, No. 1220): lfbd
+        // at the left end of a left aligned text, rtbd at the right end of a right aligned one (opbd where the font has only that); none centred
+        var boundLeft = element.Multiline && element.Alignment == ElementAlignment.Left && shaper.HasOpticalBounds;
+        var boundRight = element.Multiline && element.Alignment == ElementAlignment.Right && shaper.HasOpticalBounds;
+        var knownBounds = new Dictionary<(int Glyph, bool Left, string? Script), (double XPlacement, double XAdvance)>();
         var lines = new List<TextLine>();
-        foreach (var paragraph in element.Text.Replace("\r\n", "\n").Split('\n'))
+        foreach (var paragraph in Paragraphs(element.Text))
         {
-            var shaped = shaper.Shape(paragraph.Replace('\t', ' '));
+            // the Unicode Bidirectional Algorithm for plain text, field values and free text as for formatted text (No. 1173): the characters
+            // at odd levels mirrored before shaping (L4) where the font has the counterpart, each glyph standing for the character stored
+            var bidi = Core.Fonts.Layout.Bidi.HasRightToLeft(paragraph) ? Core.Fonts.Layout.Bidi.Analyze(paragraph) : null;
+            // after U+206E the digits in the national shapes of the script around them where the font has them, after U+206D the Arabic
+            // presentation forms shaped (Unicode 23.3.1; docs/FEHLERGEDAECHTNIS.md, No. 1221) — the glyphs stand for the characters as typed
+            var selectors = Core.Fonts.Layout.FormatSelectors.States(paragraph);
+            var shown = selectors is null ? paragraph : Core.Fonts.Layout.FormatSelectors.NationalDigits(paragraph, 0, paragraph.Length, selectors, null, c => face.Glyph(c) != 0);
+            var shapedText = RichLayout.NoBreakHyphen(bidi is null ? shown : Core.Fonts.Layout.Bidi.MirrorOdd(shown, bidi.Level, c => face.Glyph(c) != 0), face);
+            var shaped = ShapeLevelRuns(shaper, shapedText.Replace('\t', ' '), bidi, selectors);
             var glyphs = new List<int>(shaped.Length);
             var texts = new List<string>(shaped.Length);
             var widths = new List<double>(shaped.Length);
+            var clusters = new List<int>(shaped.Length);
+            var attached = new List<bool>(shaped.Length);
+            var hanging = new List<bool>(shaped.Length);   // U+0020 and OGHAM SPACE MARK hang at the end of a line, a tab does not (as RichLayout)
             foreach (var s in shaped)
             {
+                var text = s.Text is { } t && s.Cluster >= 0 && s.Cluster + t.Length <= paragraph.Length ? paragraph.Substring(s.Cluster, t.Length).Replace('\t', ' ') : s.Text ?? "";
+                // directional formatting characters: neither glyph nor advance (UAX #9, 2)
+                if (Core.Fonts.Layout.Bidi.OnlyControls(text)) continue;
                 glyphs.Add(s.Glyph);
-                texts.Add(s.Text);
+                texts.Add(text);
                 widths.Add(s.XAdvance * scale);
+                clusters.Add(s.Cluster);
+                attached.Add(s.AttachBack > 0 && glyphs.Count > 1);
+                hanging.Add(s.Cluster >= 0 && s.Cluster < paragraph.Length && paragraph[s.Cluster] is ' ' or '\u1680');
             }
             if (!element.Multiline)
             {
-                lines.Add(new TextLine(glyphs, texts, widths, widths.Sum()));
+                lines.Add(Visual(new TextLine(glyphs, texts, widths, widths.Sum()), 0, glyphs.Count, paragraph.Length).Line);
                 continue;
             }
-            // Greedy line breaking: after the last space that still fits; a word that is too long is broken hard
+            // Greedy line breaking at the last break opportunity of UAX #14 that still fits, spaces at the end of a line hang (after a soft hyphen
+            // only if the hyphen it then shows still fits); a word that is too long is broken hard, between clusters only. Before, lines broke only
+            // after U+0020, a word that fitted up to the edge went to the next line when the space after it did not fit, and the hard break fell
+            // before the glyph that no longer fitted, a mark too (docs/FEHLERGEDAECHTNIS.md, No. 1196). With the optical bounds of the font a line
+            // fits with the advances its end glyphs take there \u2014 the first glyph's from the start, each further one's as the last of the line; a
+            // line of both directions is checked once more in visual order and broken at an earlier opportunity where it does not fit (No. 1220)
+            var breaks = Core.Fonts.Layout.LineBreaking.Analyze(paragraph);
+            var opportunities = new List<int>();
             var start = 0;
             while (true)
             {
-                double used = 0;
+                var leftToRight = bidi is null || start >= glyphs.Count || bidi.ParagraphLevel(clusters[start]) % 2 == 0;
+                double used = start < glyphs.Count ? Bound(glyphs[start], start, leftToRight).Advance : 0;
                 var end = start;
-                var lastSpace = -1;
-                while (end < glyphs.Count && (used + widths[end] <= available || end == start))
+                var best = -1;
+                opportunities.Clear();
+                for (; end < glyphs.Count; end++)
                 {
-                    if (texts[end] == " ") lastSpace = end;
-                    used += widths[end++];
+                    if (end > start && Between(end)
+                        && (texts[end - 1] != "\u00AD" || used + Hyphen(end - 1).Width + Bound(Hyphen(end - 1).Glyph, end - 1, !leftToRight).Advance <= available))
+                    {
+                        best = end;
+                        opportunities.Add(end);
+                    }
+                    if (!hanging[end] && end != start && used + widths[end] + Bound(glyphs[BaseOf(end, start)], BaseOf(end, start), !leftToRight).Advance > available) break;
+                    used += widths[end];
                 }
-                if (end < glyphs.Count && lastSpace > start) end = lastSpace + 1;
-                // Spaces at the end of a line do not count towards the width
-                var visibleEnd = end;
-                while (visibleEnd > start && texts[visibleEnd - 1] == " ") visibleEnd--;
+                if (end < glyphs.Count && best > start)
+                {
+                    end = best;
+                    if (bidi is not null && (boundLeft || boundRight))
+                        for (var k = opportunities.Count - 2; k >= 0 && opportunities[k] > start && Exact(start, end).Width > available + 1e-6; k--)
+                            end = opportunities[k];
+                }
+                else if (end < glyphs.Count && end > start) end = Emergency(start, end);
+                var (_, leftGlyph, rightGlyph) = boundLeft || boundRight ? Exact(start, end) : (0.0, -1, -1);
+                var leftBound = leftGlyph >= 0 ? Bound(EndGlyph(leftGlyph, end), leftGlyph, true) : default;
+                var rightBound = rightGlyph >= 0 ? Bound(EndGlyph(rightGlyph, end), rightGlyph, false) : default;
+                // a soft hyphen at the end of a broken line shows the hyphen (Unicode 23.2.1)
+                if (end < glyphs.Count && end > start && texts[end - 1] == "\u00AD") (glyphs[end - 1], widths[end - 1]) = Hyphen(end - 1);
+                // Spaces at the end of a line do not count towards the width; OGHAM SPACE MARK at the end of a broken line is not shown (UAX #14 5.7)
+                var visibleEnd = VisibleEnd(start, end);
                 double lineWidth = 0;
                 for (var i = start; i < visibleEnd; i++) lineWidth += widths[i];
-                lines.Add(new TextLine(glyphs[start..visibleEnd], texts[start..visibleEnd], widths[start..visibleEnd], lineWidth));
+                var (line, lineUnits) = Visual(new TextLine(glyphs[start..visibleEnd], texts[start..visibleEnd], widths[start..visibleEnd], lineWidth), start, end,
+                    end < glyphs.Count ? clusters[end] : paragraph.Length);
+                lines.Add(Bounded(line, lineUnits, leftBound, rightBound));
                 if (end >= glyphs.Count) break;
                 start = end;
             }
+
+            // the end of the visible glyphs of the line start \u2026 end \u2212 1
+            int VisibleEnd(int from, int end)
+            {
+                var visibleEnd = end;
+                while (visibleEnd > from && (texts[visibleEnd - 1] == " " || end < glyphs.Count && hanging[visibleEnd - 1])) visibleEnd--;
+                return visibleEnd;
+            }
+
+            // the glyph a mark is attached to (within the line), else the glyph itself
+            int BaseOf(int k, int from)
+            {
+                while (k > from && attached[k]) k--;
+                return k;
+            }
+
+            // the glyph drawn at k at the end of the line start \u2026 end \u2212 1 (a soft hyphen there shows the hyphen)
+            int EndGlyph(int k, int end) => k == end - 1 && end < glyphs.Count && texts[k] == "\u00AD" ? Hyphen(k).Glyph : glyphs[k];
+
+            // the width of the line start \u2026 end \u2212 1 with the optical bounds at its ends in visual order, and the glyphs at those ends (-1: none)
+            (double Width, int Left, int Right) Exact(int from, int end)
+            {
+                var visibleEnd = VisibleEnd(from, end);
+                if (visibleEnd <= from) return (0, -1, -1);
+                double width = 0;
+                for (var i = from; i < visibleEnd; i++) width += i == end - 1 && end < glyphs.Count && texts[i] == "\u00AD" ? Hyphen(i).Width : widths[i];
+                int left = from, right = BaseOf(visibleEnd - 1, from);
+                if (bidi is not null)
+                {
+                    var charStart = clusters[from];
+                    var levels = bidi.LineLevels(charStart, end < glyphs.Count ? clusters[end] : paragraph.Length);
+                    var units = new List<int>();
+                    for (var i = from; i < visibleEnd; i++)
+                        if (i == from || !attached[i]) units.Add(i);
+                    var unitLevels = units.Select(i => clusters[i] - charStart is var at && at >= 0 && at < levels.Length ? levels[at] : (byte)0).ToArray();
+                    if (unitLevels.Any(l => l % 2 == 1))
+                    {
+                        var order = Core.Fonts.Layout.Bidi.VisualOrder(unitLevels);
+                        (left, right) = (units[order[0]], units[order[^1]]);
+                    }
+                }
+                return (width + Bound(EndGlyph(left, end), left, true).Advance + Bound(EndGlyph(right, end), right, false).Advance, left, right);
+            }
+
+            // the change of placement and advance in points of a glyph at the left or right end of a line by the font's optical bounds
+            (double Placement, double Advance) Bound(int glyph, int k, bool left)
+            {
+                if (!(left ? boundLeft : boundRight) || texts[k] == " ") return (0, 0);
+                var script = Core.Fonts.Layout.TextShaper.ScriptOf(texts[k]) ?? ScriptNear(k);
+                if (!knownBounds.TryGetValue((glyph, left, script), out var value))
+                    knownBounds[(glyph, left, script)] = value = shaper.OpticalBound(glyph, left, script, null);
+                return (value.XPlacement * scale, value.XAdvance * scale);
+            }
+
+            // the script of the nearest glyph with a script of its own (after k, else before it; a few glyphs at most)
+            string? ScriptNear(int k)
+            {
+                for (var i = k + 1; i < texts.Count && i <= k + 64; i++)
+                    if (Core.Fonts.Layout.TextShaper.ScriptOf(texts[i]) is { } after) return after;
+                for (var i = k - 1; i >= 0 && i >= k - 64; i--)
+                    if (Core.Fonts.Layout.TextShaper.ScriptOf(texts[i]) is { } before) return before;
+                return null;
+            }
+
+            // a break opportunity between glyph k − 1 and k: at the first character of k or at a character without a glyph before it
+            bool Between(int k)
+            {
+                if (clusters[k] <= clusters[k - 1]) return false;
+                for (var q = Math.Min(clusters[k], clusters[k - 1] + Math.Max(1, texts[k - 1].Length)); q <= clusters[k]; q++)
+                    if (breaks.Allowed(q)) return true;
+                return false;
+            }
+
+            // the emergency break: before the glyph that no longer fits or further back, between clusters only; without such a place in the
+            // line at the first one after it (the line runs over the edge, as RichLayout)
+            int Emergency(int from, int at)
+            {
+                for (var k = at; k > from; k--)
+                    if (EmergencyBefore(k)) return k;
+                for (var k = at + 1; k < glyphs.Count; k++)
+                    if (EmergencyBefore(k)) return k;
+                return glyphs.Count;
+            }
+
+            bool EmergencyBefore(int k) => clusters[k] > clusters[k - 1] && !attached[k] && RichLayout.EmergencyAt(paragraph, clusters[k], breaks);
+
+            // the glyph and advance of the hyphen a soft hyphen shows where the line breaks after it (the script's hyphen, UAX #14 5.4)
+            (int Glyph, double Width) Hyphen(int k)
+            {
+                var glyph = face.Glyph(RichLayout.HyphenFor(paragraph, clusters[k], c => face.Glyph(c) != 0));
+                if (glyph == 0) glyph = face.Glyph('-');
+                return (glyph, face.Font.AdvanceWidth(glyph) * scale);
+            }
+
+            // a line in visual order (UAX #9, L1 for the line, L2): glyph units — a base with the marks attached to it — reversed by their levels;
+            // with the index of each unit's first glyph in the line returned
+            (TextLine Line, List<int> Units) Visual(TextLine line, int from, int to, int charEnd)
+            {
+                var units = new List<int>();   // index of each unit's first glyph within the line
+                for (var i = 0; i < line.Glyphs.Count; i++)
+                    if (i == 0 || !attached[from + i]) units.Add(i);
+                if (bidi is null || line.Glyphs.Count == 0) return (line, units);
+                var charStart = clusters[from];
+                var levels = bidi.LineLevels(charStart, charEnd);
+                var unitLevels = units.Select(i => clusters[from + i] - charStart is var at && at >= 0 && at < levels.Length ? levels[at] : (byte)0).ToArray();
+                if (!unitLevels.Any(l => l % 2 == 1)) return (line, units);
+                var visual = new TextLine([], [], [], line.Width);
+                var visualUnits = new List<int>(units.Count);
+                foreach (var u in Core.Fonts.Layout.Bidi.VisualOrder(unitLevels))
+                {
+                    visualUnits.Add(visual.Glyphs.Count);
+                    var last = u + 1 < units.Count ? units[u + 1] : line.Glyphs.Count;
+                    for (var i = units[u]; i < last; i++)
+                    {
+                        visual.Glyphs.Add(line.Glyphs[i]);
+                        visual.Text.Add(line.Text[i]);
+                        visual.Advances.Add(line.Advances[i]);
+                    }
+                }
+                return (visual, visualUnits);
+            }
         }
         return lines;
+    }
+
+    /// <summary>
+    /// A line of plain text (in visual order, <paramref name="units"/> the first glyph of each unit of a base and its marks) with the optical bounds
+    /// of the glyphs at its ends (docs/FEHLERGEDAECHTNIS.md, No. 1220): the unit at the left end moved by its placement (<see cref="TextLine.Start"/>),
+    /// the unit at the right end by its (the glyph before it advancing by it), the advance of each unit's last glyph changed so that the text after
+    /// it follows the bound's advance; the width grows by both advances. A line without bounds is returned as it is.
+    /// </summary>
+    private static TextLine Bounded(TextLine line, List<int> units, (double Placement, double Advance) left, (double Placement, double Advance) right)
+    {
+        var n = line.Glyphs.Count;
+        if (n == 0 || units.Count == 0 || left == default && right == default) return line;
+        var advances = new List<double>(line.Advances);
+        var start = left.Placement;
+        advances[(units.Count > 1 ? units[1] : n) - 1] += left.Advance - left.Placement;
+        if (units[^1] > 0) advances[units[^1] - 1] += right.Placement;
+        else start += right.Placement;
+        advances[n - 1] += right.Advance - right.Placement;
+        return line with { Advances = advances, Width = line.Width + left.Advance + right.Advance, Start = start };
+    }
+
+    /// <summary>
+    /// A paragraph shaped level run by level run (UAX #9, 3.5: shaping stays within a level run, letters do not join across an embedding or
+    /// override); the clusters count from the start of the paragraph (docs/FEHLERGEDAECHTNIS.md, No. 1173).
+    /// </summary>
+    private static Core.Fonts.Layout.ShapedGlyph[] ShapeLevelRuns(Core.Fonts.Layout.TextShaper shaper, string text, Core.Fonts.Layout.Bidi.Analysis? bidi,
+        byte[]? selectors)
+    {
+        // a paragraph starts with the shaping of presentation forms inhibited; a level run in the state U+206C/U+206D left before it (No. 1221)
+        if (bidi is null) return shaper.Shape(text);
+        var result = new List<Core.Fonts.Layout.ShapedGlyph>(text.Length);
+        var start = 0;
+        for (var i = 1; i <= text.Length; i++)
+        {
+            if (i < text.Length && (RichLayout.JoinedLevel(bidi, i) == RichLayout.JoinedLevel(bidi, i - 1) || char.IsLowSurrogate(text[i]))) continue;
+            // in the direction of the level run (ltra/ltrm or rtla/rtlm; a joiner with the letter it belongs to; No. 1174), with the state of
+            // symmetric swapping at its start (after U+206A no rtlm up to U+206B; No. 1215) and of the Arabic form shaping selectors (No. 1221)
+            var forms = selectors is not null && (selectors[start] & Core.Fonts.Layout.FormatSelectors.Shaping) != 0;
+            foreach (var g in shaper.Shape(text[start..i], null, null, RichLayout.JoinedLevel(bidi, start) % 2 == 1, bidi.SwappingInhibitedBefore(start), forms))
+            {
+                var shifted = g;
+                shifted.Cluster += start;
+                result.Add(shifted);
+            }
+            start = i;
+        }
+        return [.. result];
     }
 
     /// <summary>Gets the height (in reading orientation) the text needs for all its lines.</summary>
@@ -1253,7 +1499,7 @@ public sealed partial class ElementAppearance
     {
         var face = ElementFace.For(element.Font);
         var lines = Math.Max(1, Layout(element, face).Count);
-        return 2 * Padding + (face.Ascent - face.Descent) * element.FontSize + (lines - 1) * element.FontSize * LineSpacing;
+        return 2 * Padding + (face.Ascent - face.Descent) * element.FontSize + (lines - 1) * element.FontSize * LineStep(element, face);
     }
 
     /// <summary>Enlarges the height so that the whole text fits, downwards in reading orientation; it never shrinks.</summary>
@@ -1303,11 +1549,10 @@ public sealed partial class ElementAppearance
             };
             if (line.Glyphs.Count > 0)
             {
-                sb.Append("1 0 0 1 ").Append(ElementFace.Number(x)).Append(' ').Append(ElementFace.Number(y)).Append(" Tm ");
-                AppendShowText(sb, face, line, size);
-                for (var i = 0; i < line.Glyphs.Count; i++) glyphs.TryAdd(line.Glyphs[i], line.Text[i]);
+                sb.Append("1 0 0 1 ").Append(ElementFace.Number(x + line.Start)).Append(' ').Append(ElementFace.Number(y)).Append(" Tm ");
+                AppendLine(sb, face, line, size, glyphs);
             }
-            y -= size * LineSpacing;
+            y -= size * LineStep(element, face);
         }
         sb.Append("ET\nQ\n");
         if (element.IsField) sb.Append("EMC\n");
@@ -1324,11 +1569,15 @@ public sealed partial class ElementAppearance
     /// Writes a line as TJ: where the shaper deviates from the glyph's default advance (/W) — kerning —, the difference is
     /// inserted as a number (thousandths of the font size, positive = to the left).
     /// </summary>
-    private static void AppendShowText(StringBuilder sb, ElementFace face, TextLine line, double size)
+    private static void AppendShowText(StringBuilder sb, ElementFace face, TextLine line, double size) =>
+        AppendShowText(sb, face, line, size, 0, line.Glyphs.Count);
+
+    /// <summary>The glyphs <paramref name="from"/> to <paramref name="to"/> of a line as one TJ (the adjustment after the line's last glyph left out).</summary>
+    private static void AppendShowText(StringBuilder sb, ElementFace face, TextLine line, double size, int from, int to)
     {
         sb.Append('[');
         var pending = new List<int>();
-        for (var i = 0; i < line.Glyphs.Count; i++)
+        for (var i = from; i < to; i++)
         {
             pending.Add(line.Glyphs[i]);
             var adjust = face.Width1000(line.Glyphs[i]) - line.Advances[i] / size * 1000;
@@ -1339,6 +1588,70 @@ public sealed partial class ElementAppearance
         }
         if (pending.Count > 0) ElementFace.AppendHex(sb, pending);
         sb.Append("] TJ\n");
+    }
+
+    /// <summary>
+    /// Writes a line and records the text of its glyphs for ToUnicode (the first text a glyph is drawn with); a glyph drawn later for another
+    /// text — the glyph of „(“ drawn for a mirrored „)“ (UAX #9, L4) next to an unmirrored „(“ — gets that text as /ActualText of its own (ISO
+    /// 32000-2, 14.9.4), as in formatted text (docs/FEHLERGEDAECHTNIS.md, No. 910, 1173) — also a glyph without a text of its own (the further
+    /// glyphs of a reordered syllable, No. 1175) that stands for a text elsewhere: an empty /ActualText keeps it from reading that text again.
+    /// A cluster of reordered Arabic marks (its first glyph carries the text as typed, the following ones none) is written within one /ActualText
+    /// with that text, each of its glyphs standing in ToUnicode for its own letter or mark where the font draws one with it (No. 1180); so is a
+    /// right-to-left letter with the marks stacked on it, whose text read back put the marks before the letter (No. 1182; <see cref="MarkUnit"/>).
+    /// </summary>
+    private static void AppendLine(StringBuilder sb, ElementFace face, TextLine line, double size, Dictionary<int, string> glyphs)
+    {
+        var start = 0;
+        for (var i = 0; i < line.Glyphs.Count; i++)
+        {
+            if (MarkUnit(line, i) is { } unit)
+            {
+                if (i > start) AppendShowText(sb, face, line, size, start, i);
+                var parts = unit.Merged ? line.Text[i].Normalize(NormalizationForm.FormD).EnumerateRunes().Select(r => r.Value).ToList() : null;
+                for (var k = i; k < unit.End; k++)
+                    if (!glyphs.ContainsKey(line.Glyphs[k]))
+                        glyphs[line.Glyphs[k]] = parts is null ? line.Text[k]
+                            : line.Glyphs[k] > 0 && parts.Find(c => face.Glyph(c) == line.Glyphs[k]) is var own and > 0 ? char.ConvertFromUtf32(own) : "";
+                sb.Append("/Span <</ActualText ").Append(TextStringHex(unit.Text)).Append(">> BDC\n");
+                AppendShowText(sb, face, line, size, i, unit.End);
+                sb.Append("EMC\n");
+                start = unit.End;
+                i = unit.End - 1;
+                continue;
+            }
+            if (glyphs.TryAdd(line.Glyphs[i], line.Text[i]) || glyphs[line.Glyphs[i]] == line.Text[i]) continue;
+            if (i > start) AppendShowText(sb, face, line, size, start, i);
+            sb.Append("/Span <</ActualText ").Append(TextStringHex(line.Text[i])).Append(">> BDC\n");
+            AppendShowText(sb, face, line, size, i, i + 1);
+            sb.Append("EMC\n");
+            start = i + 1;
+        }
+        if (start < line.Glyphs.Count) AppendShowText(sb, face, line, size, start, line.Glyphs.Count);
+    }
+
+    /// <summary>
+    /// A letter of a plain text line with what is drawn after it for it, written within one /ActualText (<see cref="AppendLine"/>): a cluster of
+    /// reordered Arabic marks — its text as typed on the first glyph, the following ones without a text (No. 1180) — or a right-to-left letter
+    /// with marks of their own text stacked on it (advancing nothing): read in a right-to-left line, the marks came before their letter
+    /// (No. 1182). Null for any other glyph.
+    /// </summary>
+    private static (int End, string Text, bool Merged)? MarkUnit(TextLine line, int i)
+    {
+        var text = line.Text[i];
+        if (text.Length == 0) return null;
+        var end = i + 1;
+        if (Core.Fonts.Layout.TextShaper.IsMarkCluster(text))
+        {
+            while (end < line.Glyphs.Count && line.Text[end].Length == 0) end++;
+            return end - i >= 2 ? (end, text, true) : null;
+        }
+        if (Core.Fonts.Layout.Bidi.ClassOf(Core.Fonts.Layout.TextRunes.First(text).Value) is not (Core.Fonts.Layout.BidiClass.R or Core.Fonts.Layout.BidiClass.AL)) return null;
+        while (end < line.Glyphs.Count && Math.Abs(line.Advances[end]) < 1e-6 && (line.Text[end].Length == 0 || Core.Fonts.Layout.TextRunes.First(line.Text[end]) is var r
+                   && Rune.GetUnicodeCategory(r) is System.Globalization.UnicodeCategory.NonSpacingMark or System.Globalization.UnicodeCategory.EnclosingMark)) end++;
+        var withText = 0;
+        for (var k = i + 1; k < end; k++)
+            if (line.Text[k].Length > 0) withText++;
+        return withText > 0 ? (end, string.Concat(line.Text.Skip(i).Take(end - i)), false) : null;
     }
 
     private static PdfStream FormStream(PageElement element, PdfDictionary resources, byte[] content)

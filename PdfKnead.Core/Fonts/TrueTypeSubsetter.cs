@@ -8,7 +8,7 @@ namespace PdfKnead.Core.Fonts;
 /// conversion. Composite glyphs keep their components. Only the tables a PDF reader needs
 /// are copied (no cmap, name, post names, kerning or OpenType layout).
 /// </summary>
-public static class TrueTypeSubsetter
+public static partial class TrueTypeSubsetter
 {
     // Order as recommended by the OpenType specification ("Recommendations")
     private static readonly string[] Keep = ["head", "hhea", "maxp", "OS/2", "hmtx", "cvt ", "fpgm", "prep", "loca", "glyf"];
@@ -18,7 +18,9 @@ public static class TrueTypeSubsetter
     /// <param name="glyphs">Glyph indices to keep; indices out of range are ignored.</param>
     /// <param name="keepAllTables">
     /// Keep all tables, including cmap, name, post and layout (when compressing fonts of existing documents): only the outlines of unused
-    /// glyphs become empty, so every reader finds the characters as before. The signature (DSIG) is dropped because it would no longer match.
+    /// glyphs become empty, so every reader finds the characters as before. The signature (DSIG) is dropped because it would no longer match,
+    /// the tables of the variations (<see cref="Cff2Scrubber.VariationTables"/>): the subset is the static default instance a PDF reader draws, and
+    /// the colour tables (<see cref="ColourTables"/>), which a PDF reader does not draw and whose layer glyphs would be empty.
     /// </param>
     /// <returns>The font file of the subset, with long loca offsets and new checksums.</returns>
     /// <exception cref="FontFormatException">The font has no glyf, loca or head table, or head or loca is too short.</exception>
@@ -35,11 +37,18 @@ public static class TrueTypeSubsetter
     /// <exception cref="FontFormatException">The font has no glyf, loca or head table, or head or loca is too short.</exception>
     public static byte[] SubsetWithCmap(byte[] font, IEnumerable<int> glyphs) => Subset(font, glyphs, [.. Keep, "cmap", "post", "name"]);
 
+    /// <summary>The colour tables (OpenType COLR, CPAL, sbix, CBDT/CBLC, SVG): left out of a compressed font (No. 1168).</summary>
+    internal static readonly IReadOnlySet<string> ColourTables = new HashSet<string>(["COLR", "CPAL", "sbix", "CBDT", "CBLC", "SVG "], StringComparer.Ordinal);
+
     private static byte[] Subset(byte[] font, IEnumerable<int> glyphs, string[]? kept)
     {
-        var (tables, keep, newGlyf, newLoca) = Outlines(font, glyphs);
+        var (tables, _, newGlyf, newLoca) = Outlines(font, glyphs);
         var data = new Dictionary<string, byte[]>(StringComparer.Ordinal);
-        foreach (var tag in kept ?? tables.Keys.Where(t => t != "DSIG").ToArray())
+        // with all tables (compression) still the static default instance: the tables of the variations would hold deltas of the glyphs
+        // emptied (docs/FEHLERGEDAECHTNIS.md, No. 1159; before they were kept); without the colour tables, whose layer glyphs and images
+        // tell of glyphs emptied and which a PDF reader does not draw (No. 1168); and without the tables that name glyphs (No. 1172)
+        foreach (var tag in kept ?? tables.Keys.Where(t => t != "DSIG" && !Cff2Scrubber.VariationTables.Contains(t) && !ColourTables.Contains(t)
+                     && !NameGlyphs.Contains(t)).ToArray())
         {
             if (tag == "glyf") data[tag] = newGlyf;
             else if (tag == "loca") data[tag] = newLoca;
@@ -47,7 +56,159 @@ public static class TrueTypeSubsetter
         }
         if (data.TryGetValue("hmtx", out var hmtx) && data.TryGetValue("hhea", out var hhea) && hhea.Length >= 36)
             EmptyGlyphsWithoutBearing(hmtx, BinaryPrimitives.ReadUInt16BigEndian(hhea.AsSpan(34)), newLoca);
+        FitMetrics(data, newLoca.Length / 4 - 1, GlyfBox(newGlyf, newLoca));
+        DefaultInstanceVariation(data, font, tables);
         return Finish(data);
+    }
+
+    /// <summary>
+    /// Tables that name glyphs (baseline contour points, stretch glyphs, variants) or describe them per size (thresholds, heights, bitmaps): left
+    /// out when compressing with all tables, which empties the outlines of the glyphs unused but keeps their numbers — the tables would speak of
+    /// glyphs no longer there (docs/FEHLERGEDAECHTNIS.md, No. 1172; before they stayed byte for byte). hdmx and kern stay: the glyph count and
+    /// every advance stay the same.
+    /// </summary>
+    private static readonly HashSet<string> NameGlyphs = new(["BASE", "JSTF", "LTSH", "MATH", "VDMX", "EBSC", "EBLC", "EBDT"], StringComparer.Ordinal);
+
+    /// <summary>
+    /// A font written from a variable TrueType font (its source has fvar) is an instance font of the default instance: GETVARIATION (opcode 0x91)
+    /// must give its normalized coordinates, all 0, one per axis of fvar in its order (OpenType 79.17.2). An IDEF for 0x91 that pushes those zeros
+    /// is appended to prep (the one run last counts, so an IDEF of the source is overridden), prep made if there is none; maxp counts the IDEF
+    /// and room for its values on the stack. Before, prep stayed the source's — instructions with GETVARIATION ran into nothing (No. 1172).
+    /// </summary>
+    /// <param name="data">The tables of the font being written (with TrueType outlines).</param>
+    /// <param name="font">The source font file.</param>
+    /// <param name="tables">The directory of the source.</param>
+    private static void DefaultInstanceVariation(Dictionary<string, byte[]> data, byte[] font, Dictionary<string, (int Offset, int Length)> tables)
+    {
+        if (!data.ContainsKey("glyf") || !tables.TryGetValue("fvar", out var fvar) || fvar.Length < 16) return;
+        var header = font.AsSpan(fvar.Offset, fvar.Length);
+        int axesAt = BinaryPrimitives.ReadUInt16BigEndian(header[4..]), axisSize = BinaryPrimitives.ReadUInt16BigEndian(header[10..]);
+        // only the axes the table holds (a damaged count is bounded by its length)
+        var axes = axisSize == 0 || axesAt > fvar.Length ? 0 : Math.Min(BinaryPrimitives.ReadUInt16BigEndian(header[8..]), (fvar.Length - axesAt) / axisSize);
+        if (axes == 0) return;
+        var idef = new List<byte>(axes + 8) { 0xB0, 0x91, 0x89 };   // PUSHB[0] 0x91, IDEF
+        for (var left = axes; left > 0;)
+        {
+            var n = Math.Min(left, 255);
+            if (n <= 8) idef.Add((byte)(0xB0 + n - 1));             // PUSHB[n-1]
+            else idef.AddRange([0x40, (byte)n]);                     // NPUSHB n
+            idef.AddRange(new byte[n]);
+            left -= n;
+        }
+        idef.Add(0x2D);                                              // ENDF
+        data["prep"] = [.. data.TryGetValue("prep", out var prep) ? prep : [], .. idef];
+        // maxp 1.0: maxInstructionDefs (offset 22) and maxStackElements (24) — the values of the IDEF on top of 0x91 pushed
+        if (data.TryGetValue("maxp", out var maxp) && maxp.Length >= 32 && BinaryPrimitives.ReadUInt32BigEndian(maxp) == 0x00010000)
+        {
+            BinaryPrimitives.WriteUInt16BigEndian(maxp.AsSpan(22), (ushort)Math.Min(BinaryPrimitives.ReadUInt16BigEndian(maxp.AsSpan(22)) + 1, 0xFFFF));
+            BinaryPrimitives.WriteUInt16BigEndian(maxp.AsSpan(24), (ushort)Math.Min(Math.Max(BinaryPrimitives.ReadUInt16BigEndian(maxp.AsSpan(24)), axes + 1), 0xFFFF));
+        }
+    }
+
+    // ------------------------------------------------------------ tables that describe the glyphs (docs/FEHLERGEDAECHTNIS.md, No. 1159)
+
+    /// <summary>
+    /// The limits of hhea and vhea computed anew from the glyphs the written font has (OpenType hhea 24, vhea 36.2: they must fit hmtx and
+    /// vmtx), and usMaxContext 0 in a font without GSUB and GPOS (OS/2 31.2.33). Before, a subset, a scrubbed copy and a rebuilt copy kept the
+    /// values of the full font — they told of glyphs no longer in it.
+    /// </summary>
+    /// <param name="data">The tables of the font being written.</param>
+    /// <param name="count">Number of glyphs.</param>
+    /// <param name="box">Bounding box of a glyph with contours, null for one without.</param>
+    private static void FitMetrics(Dictionary<string, byte[]> data, int count, Func<int, (int XMin, int YMin, int XMax, int YMax)?> box)
+    {
+        if (data.TryGetValue("hhea", out var hhea) && data.TryGetValue("hmtx", out var hmtx))
+            FitHeader(hhea, hmtx, count, g => box(g) is { } b ? (b.XMin, b.XMax) : null);
+        if (data.TryGetValue("vhea", out var vhea) && data.TryGetValue("vmtx", out var vmtx))
+            FitHeader(vhea, vmtx, count, g => box(g) is { } b ? (b.YMin, b.YMax) : null);
+        // usMaxContext from version 2 on (offset 92 + 2 bytes: version 2 has 96 bytes)
+        if (!data.ContainsKey("GSUB") && !data.ContainsKey("GPOS") && data.TryGetValue("OS/2", out var os2) && os2.Length >= 96 &&
+            BinaryPrimitives.ReadUInt16BigEndian(os2) >= 2)
+            BinaryPrimitives.WriteUInt16BigEndian(os2.AsSpan(94), 0);
+    }
+
+    /// <summary>
+    /// advance…Max (offset 10), the smallest leading side bearing (12), the smallest advance − (bearing + extent) (14) and the largest bearing +
+    /// extent (16) of a hhea or vhea from its metrics table — the advance over every full record, the others over the glyphs with contours only
+    /// (all 0 if there is none).
+    /// </summary>
+    private static void FitHeader(byte[] header, byte[] metrics, int count, Func<int, (int Low, int High)?> extent)
+    {
+        if (header.Length < 36) return;
+        var full = Math.Min(BinaryPrimitives.ReadUInt16BigEndian(header.AsSpan(34)), metrics.Length / 4);
+        if (full == 0) return;
+        var advanceMax = 0;
+        for (var g = 0; g < full; g++) advanceMax = Math.Max(advanceMax, BinaryPrimitives.ReadUInt16BigEndian(metrics.AsSpan(g * 4)));
+        int minBearing = int.MaxValue, minOther = int.MaxValue, maxExtent = int.MinValue;
+        for (var g = 0; g < count; g++)
+        {
+            if (extent(g) is not { } e) continue;
+            var at = g < full ? g * 4 + 2 : full * 4 + (g - full) * 2;
+            if (at + 2 > metrics.Length) break;
+            var advance = BinaryPrimitives.ReadUInt16BigEndian(metrics.AsSpan(Math.Min(g, full - 1) * 4));
+            int bearing = BinaryPrimitives.ReadInt16BigEndian(metrics.AsSpan(at)), size = e.High - e.Low;
+            minBearing = Math.Min(minBearing, bearing);
+            minOther = Math.Min(minOther, advance - (bearing + size));
+            maxExtent = Math.Max(maxExtent, bearing + size);
+        }
+        if (minBearing == int.MaxValue) minBearing = minOther = maxExtent = 0;
+        BinaryPrimitives.WriteUInt16BigEndian(header.AsSpan(10), (ushort)advanceMax);
+        BinaryPrimitives.WriteInt16BigEndian(header.AsSpan(12), Clamp16(minBearing));
+        BinaryPrimitives.WriteInt16BigEndian(header.AsSpan(14), Clamp16(minOther));
+        BinaryPrimitives.WriteInt16BigEndian(header.AsSpan(16), Clamp16(maxExtent));
+    }
+
+    private static short Clamp16(int value) => (short)Math.Clamp(value, short.MinValue, short.MaxValue);
+
+    /// <summary>The bounding box in the header of a glyph of <paramref name="glyf"/> (long <paramref name="loca"/>); null for one without contours.</summary>
+    private static Func<int, (int, int, int, int)?> GlyfBox(byte[] glyf, byte[] loca) => g =>
+    {
+        if (g < 0 || g * 4 + 8 > loca.Length) return null;
+        uint start = BinaryPrimitives.ReadUInt32BigEndian(loca.AsSpan(g * 4)), end = BinaryPrimitives.ReadUInt32BigEndian(loca.AsSpan(g * 4 + 4));
+        if (end < start + 10 || end > glyf.Length) return null;
+        var h = glyf.AsSpan((int)start);
+        if (BinaryPrimitives.ReadInt16BigEndian(h) == 0) return null;
+        return (BinaryPrimitives.ReadInt16BigEndian(h[2..]), BinaryPrimitives.ReadInt16BigEndian(h[4..]),
+            BinaryPrimitives.ReadInt16BigEndian(h[6..]), BinaryPrimitives.ReadInt16BigEndian(h[8..]));
+    };
+
+    /// <summary>
+    /// xAvgCharWidth (OS/2 31.2.2): the mean of the advances other than 0 of all glyphs, rounded — after scrubbing and rebuilding, which change
+    /// the advances (before the mean of the full font stayed).
+    /// </summary>
+    private static void FitAverageWidth(Dictionary<string, byte[]> data, int count)
+    {
+        if (!data.TryGetValue("OS/2", out var os2) || os2.Length < 4 || !data.TryGetValue("hmtx", out var hmtx) ||
+            !data.TryGetValue("hhea", out var hhea) || hhea.Length < 36) return;
+        var full = Math.Min(BinaryPrimitives.ReadUInt16BigEndian(hhea.AsSpan(34)), hmtx.Length / 4);
+        if (full == 0) return;
+        long sum = 0, glyphs = 0;
+        for (var g = 0; g < count; g++)
+        {
+            var advance = BinaryPrimitives.ReadUInt16BigEndian(hmtx.AsSpan(Math.Min(g, full - 1) * 4));
+            if (advance == 0) continue;
+            sum += advance;
+            glyphs++;
+        }
+        BinaryPrimitives.WriteInt16BigEndian(os2.AsSpan(2), glyphs == 0 ? (short)0 : Clamp16((int)((sum * 2 + glyphs) / (glyphs * 2))));
+    }
+
+    /// <summary>
+    /// The VORG entries (OpenType 38.1) of the glyphs kept, in their order; version and default stay. Before the entries of the glyphs scrubbed
+    /// stayed — a glyph number with its vertical origin, for every glyph of the full font.
+    /// </summary>
+    private static byte[] VorgOf(byte[] vorg, HashSet<int> keep)
+    {
+        if (vorg.Length < 8) return vorg;
+        var count = Math.Min(BinaryPrimitives.ReadUInt16BigEndian(vorg.AsSpan(6)), (vorg.Length - 8) / 4);
+        var entries = new List<int>(Math.Min(count, keep.Count));
+        for (var i = 0; i < count; i++)
+            if (keep.Contains(BinaryPrimitives.ReadUInt16BigEndian(vorg.AsSpan(8 + i * 4)))) entries.Add(i);
+        var result = new byte[8 + entries.Count * 4];
+        vorg.AsSpan(0, 6).CopyTo(result);
+        BinaryPrimitives.WriteUInt16BigEndian(result.AsSpan(6), (ushort)entries.Count);
+        for (var k = 0; k < entries.Count; k++) vorg.AsSpan(8 + entries[k] * 4, 4).CopyTo(result.AsSpan(8 + k * 4));
+        return result;
     }
 
     /// <summary>
@@ -69,15 +230,20 @@ public static class TrueTypeSubsetter
     /// at the same glyph indices — the outlines of the others become empty, and nothing else in the file tells of them: the cmap maps only
     /// the glyphs kept, glyph names (post format 2) and metrics (hmtx, vmtx) of the others are cleared, and the tables that list pairs or
     /// classes of glyphs (kerning, OpenType layout) are left out — a PDF reader positions every glyph itself. A character that was only
-    /// in redacted text can then not be read from the font (docs/FEHLERGEDAECHTNIS.md, No. 169).
+    /// in redacted text can then not be read from the font (docs/FEHLERGEDAECHTNIS.md, No. 169). The font is written as the static default
+    /// instance, and the values that describe its glyphs (limits of hhea and vhea, VORG, mean width, first and last character, usMaxContext)
+    /// follow the glyphs kept (No. 1159).
     /// </summary>
     /// <remarks>An OpenType font with CFF outlines (a 'CFF ' table) is scrubbed the same way, its outlines by <see cref="CffScrubber"/>; one with
-    /// a 'CFF2' table by <see cref="Cff2Scrubber"/> (a static CFF2 table in the default instance, the tables of the variations left out).</remarks>
+    /// a 'CFF2' table by <see cref="Cff2Scrubber"/> (a static CFF2 table in the default instance); one whose glyphs exist only as images
+    /// (EBLC/EBDT, CBLC/CBDT, sbix) by <see cref="BitmapScrubber"/>, its image tables written anew. The tables of the variations are left
+    /// out with every kind of outline.</remarks>
     /// <param name="font">The TrueType or OpenType font file.</param>
     /// <param name="glyphs">Glyph indices still shown.</param>
     /// <param name="shownCids">For a CID-keyed 'CFF ' table: the CIDs still shown, which no removed glyph takes as its new CID (<see cref="CffScrubber.Scrub"/>).</param>
     /// <returns>The font file.</returns>
-    /// <exception cref="FontFormatException">The font has neither glyf, loca and head nor a CFF or readable CFF2 table, or head or loca is too short.</exception>
+    /// <exception cref="FontFormatException">The font has neither glyf, loca and head nor a CFF or readable CFF2 table nor only glyph images, or head
+    /// or loca is too short.</exception>
     public static byte[] Scrub(byte[] font, IEnumerable<int> glyphs, IReadOnlySet<int>? shownCids = null)
     {
         Dictionary<string, (int Offset, int Length)> tables;
@@ -100,6 +266,18 @@ public static class TrueTypeSubsetter
             foreach (var tag in Cff2Scrubber.VariationTables) tables.Remove(tag);
             count = directory.TryGetValue("maxp", out var maxp) && maxp.Length >= 6 ? BinaryPrimitives.ReadUInt16BigEndian(font.AsSpan(maxp.Offset + 4)) : 0;
         }
+        else if (!(directory.ContainsKey("glyf") && directory.ContainsKey("loca")) && OpenTypeFont.Parse(font) is { Broken: false } images
+                 && BitmapScrubber.ImagesOnly(images))
+        {
+            // glyphs only as images (EBLC/EBDT, CBLC/CBDT, sbix): those tables written anew with the images of the kept glyphs; a lone glyf or
+            // loca, which no reader can draw from, goes as well (docs/FEHLERGEDAECHTNIS.md, No. 1169)
+            keep = BitmapScrubber.Kept(images, glyphs);
+            foreach (var (tag, table) in BitmapScrubber.Rebuild(images, keep)) outlines[tag] = table;
+            tables = new Dictionary<string, (int Offset, int Length)>(directory, StringComparer.Ordinal);
+            tables.Remove("glyf");
+            tables.Remove("loca");
+            count = images.GlyphCount;
+        }
         else
         {
             (tables, keep, outlines["glyf"], outlines["loca"]) = Outlines(font, glyphs);
@@ -117,16 +295,52 @@ public static class TrueTypeSubsetter
         if (data.TryGetValue("vmtx", out var vmtx) && data.TryGetValue("vhea", out var vhea) && vhea.Length >= 36)
             ClearMetrics(vmtx, BinaryPrimitives.ReadUInt16BigEndian(vhea.AsSpan(34)), count, keep);
         if (data.TryGetValue("post", out var post) && PostWithout(post, count, keep) is { } cleared) data["post"] = cleared;
-        if (tables.ContainsKey("cmap")) data["cmap"] = CmapOf(OpenTypeFont.Parse(font), keep);
+        if (data.TryGetValue("VORG", out var vorg)) data["VORG"] = VorgOf(vorg, keep);
+        // what describes the glyphs is computed from those kept (docs/FEHLERGEDAECHTNIS.md, No. 1159): the limits of hhea and vhea, the mean
+        // width, the first and last character of the new cmap (0xFFFF, the code of the closing segment, when it maps none — or without cmap)
+        OpenTypeFont? parsed = null;
+        if (tables.ContainsKey("cmap"))
+        {
+            parsed = OpenTypeFont.Parse(font);
+            data["cmap"] = CmapOf(parsed, keep, out var first, out var last);
+            SetCharRange(data, first, last);
+        }
+        else SetCharRange(data, -1, -1);
+        if (outlines.TryGetValue("loca", out var newLoca)) FitMetrics(data, count, GlyfBox(outlines["glyf"], newLoca));
+        else
+        {
+            // 'CFF ' and CFF2: the glyphs kept draw as in the source, the others are empty
+            var source = parsed ?? OpenTypeFont.Parse(font);
+            FitMetrics(data, count, g => keep.Contains(g) && source.Outline(g) is { IsEmpty: false } o
+                ? ((int)Math.Floor(o.Bounds.Left), (int)Math.Floor(o.Bounds.Top), (int)Math.Ceiling(o.Bounds.Right), (int)Math.Ceiling(o.Bounds.Bottom))
+                : null);
+        }
+        FitAverageWidth(data, count);
+        DefaultInstanceVariation(data, font, directory);
         return Finish(data);
     }
 
-    /// <summary>Tables that list glyphs in pairs, classes or per size, or a signature: left out when scrubbing.</summary>
-    private static readonly HashSet<string> Dropped = new(StringComparer.Ordinal)
+    /// <summary>usFirstCharIndex and usLastCharIndex (OS/2 31.2.21, 31.2.22); without a code mapped both 0xFFFF.</summary>
+    private static void SetCharRange(Dictionary<string, byte[]> data, int first, int last)
     {
+        if (!data.TryGetValue("OS/2", out var os2) || os2.Length < 68) return;
+        BinaryPrimitives.WriteUInt16BigEndian(os2.AsSpan(64), (ushort)(first < 0 ? 0xFFFF : Math.Min(first, 0xFFFF)));
+        BinaryPrimitives.WriteUInt16BigEndian(os2.AsSpan(66), (ushort)(last < 0 ? 0xFFFF : Math.Min(last, 0xFFFF)));
+    }
+
+    /// <summary>
+    /// Tables that list glyphs in pairs, classes or per size, or a signature: left out when scrubbing. So are the tables of the variations
+    /// (<see cref="Cff2Scrubber.VariationTables"/>: the scrubbed font is the static default instance, also with glyf and 'CFF ' outlines — before
+    /// gvar, HVAR, VVAR and cvar kept the deltas of the glyphs scrubbed), the bitmaps and Graphite tables of other systems (bdat, bloc, Silf,
+    /// Glat, Gloc: data per glyph) and PCLT, which describes the full font (the advance of the space, the character sets) (No. 1159), and MERG,
+    /// whose merge classes name the glyphs scrubbed (No. 1172).
+    /// </summary>
+    private static readonly HashSet<string> Dropped = new(
+    [
         "DSIG", "kern", "kerx", "GSUB", "GPOS", "GDEF", "JSTF", "BASE", "MATH", "morx", "mort", "LTSH", "hdmx", "VDMX", "feat", "prop", "trak",
         "just", "opbd", "bsln", "lcar", "Zapf", "fdsc", "COLR", "CPAL", "sbix", "CBDT", "CBLC", "EBDT", "EBLC", "EBSC", "SVG ", "meta",
-    };
+        "bdat", "bloc", "Silf", "Glat", "Gloc", "PCLT", "MERG", .. Cff2Scrubber.VariationTables,
+    ], StringComparer.Ordinal);
 
     /// <summary>The kept glyphs (with glyph 0 and the components of composite glyphs) and new glyf and loca with the others empty.</summary>
     private static (Dictionary<string, (int Offset, int Length)> Tables, HashSet<int> Keep, byte[] Glyf, byte[] Loca) Outlines(byte[] font, IEnumerable<int> glyphs)
@@ -265,6 +479,10 @@ public static class TrueTypeSubsetter
             Symbolic(data, cmap);
         }
         else if (keepCmap && tables.TryGetValue("cmap", out var own)) data["cmap"] = font.AsSpan(own.Offset, own.Length).ToArray();
+        // the limits of hhea, the mean width and usMaxContext from the glyphs and advances of the new font (docs/FEHLERGEDAECHTNIS.md, No. 1159)
+        FitMetrics(data, total, GlyfBox(data["glyf"], newLoca));
+        FitAverageWidth(data, total);
+        DefaultInstanceVariation(data, font, tables);
         return Finish(data);
     }
 
@@ -437,12 +655,15 @@ public static class TrueTypeSubsetter
     /// A new cmap with every subtable of the font, mapping only to the glyphs kept: format 4, format 12 for codes above 0xFFFF. Records
     /// that share a subtable share the new one too, and all subtables together read at most a million codes, as many as one subtable
     /// may give (<see cref="OpenTypeFont.Mappings"/>): before, 64 records naming one group over all of Unicode were each read, held and
-    /// written again — gigabytes from a few hundred bytes (No. 1138).
+    /// written again — gigabytes from a few hundred bytes (No. 1138). <paramref name="first"/> and <paramref name="last"/> give the smallest
+    /// and the largest code the Unicode subtables (platform 0, and 3 with encoding 0, 1 or 10) map to a glyph other than 0, −1 for none.
     /// </summary>
-    private static byte[] CmapOf(OpenTypeFont font, HashSet<int> keep)
+    private static byte[] CmapOf(OpenTypeFont font, HashSet<int> keep, out int first, out int last)
     {
         var budget = MaxCmapCodes;
+        (first, last) = (-1, -1);
         var bodies = new List<byte[]>();
+        var rangeOf = new List<(int First, int Last)>();
         var bodyOf = new Dictionary<(int Offset, bool Long), int>();
         var records = new List<(int Platform, int Encoding, int Body)>();
         var data = font.FileData;
@@ -460,6 +681,7 @@ public static class TrueTypeSubsetter
                 {
                     bodyOf[(source, false)] = bodies.Count;
                     bodies.Add(sequences);
+                    rangeOf.Add((-1, -1));
                 }
                 if (format == 14 && bodyOf.TryGetValue((source, false), out var shared)) records.Add((platform, encoding, shared));
                 continue;
@@ -494,8 +716,13 @@ public static class TrueTypeSubsetter
                     : wide || beyond ? Format12Of(runs, language)
                     : runs.Count <= 8000 ? Format4Of(runs, language)
                     : Format4WithArray(map, language) ?? Format12Of(runs, language));
+                // the map is sorted by code: the first and the last entry with a glyph other than 0
+                var low = map.FindIndex(m => m.Glyph != 0);
+                rangeOf.Add(low < 0 ? (-1, -1) : (map[low].Code, map[map.FindLastIndex(m => m.Glyph != 0)].Code));
             }
             records.Add((platform, encoding, body));
+            if ((platform == 0 || (platform, encoding) is (3, 0) or (3, 1) or (3, 10)) && rangeOf[body] is { First: >= 0 } range)
+                (first, last) = (first < 0 ? range.First : Math.Min(first, range.First), Math.Max(last, range.Last));
         }
         using var output = new MemoryStream();
         var header = new byte[4 + 8 * records.Count];

@@ -91,12 +91,12 @@ public sealed partial class EncryptionNormTests
     [InlineData("a\U0002F91F", true)]
     [InlineData("a\U0002F95F", true)]
     [InlineData("a\U0002F9BF", true)]
-    [InlineData("େ̀ା", true)]
-    [InlineData("ᄀ̀ᅡ", true)]
-    [InlineData("Café au lait", false)]
-    [InlineData("ୋ", false)]
+    [InlineData("\u0B47\u0300\u0B3E", true)]
+    [InlineData("ᄀ\u0300ᅡ", true)]
+    [InlineData("Cafe\u0301 au lait", false)]
+    [InlineData("\u0B47\u0B3E", false)]
     [InlineData("가", false)]
-    [InlineData("ño", false)]
+    [InlineData("n\u0303o", false)]
     public void SaslPrep_NormalisedOtherwiseThanIn32_Refused(string password, bool refused)
     {
         var refusal = StandardSecurityHandler.SaslRefusal(password);

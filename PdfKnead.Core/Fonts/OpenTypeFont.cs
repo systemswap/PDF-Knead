@@ -79,6 +79,7 @@ public sealed class OpenTypeFont
                 Ascent = hh.I16();
                 Descent = hh.I16();
             }
+            if (hh.CanRead(2) && hhea.Length >= 10) _hheaLineGap = hh.I16();
             hh.Position = hhea.Offset + 34;
             var metrics = hh.CanRead(2) && hhea.Length >= 36 ? hh.U16() : 0;
             metrics = Math.Min(metrics, hmtx.Length / 4);
@@ -101,7 +102,10 @@ public sealed class OpenTypeFont
             var count = LocaEntries(GlyphCount, loca.Length, LongLoca);
             _loca = new int[Math.Max(0, count)];
             var lr = new FontReader(data, loca.Offset);
-            for (var i = 0; i < _loca.Length; i++) _loca[i] = LongLoca ? (int)lr.U32() : lr.U16() * 2;
+            // a long offset of 2³¹ or more lies beyond any glyf table: it is kept at int.MaxValue, so that the glyph is empty by the ordinary
+            // checks — cast to int it became negative and the glyph readers took a negative position (fuzz fuzz-m7c, docs/FEHLERGEDAECHTNIS.md,
+            // No. 1250)
+            for (var i = 0; i < _loca.Length; i++) _loca[i] = LongLoca ? (int)Math.Min(lr.U32(), int.MaxValue) : lr.U16() * 2;
             if (GlyphCount == 0) GlyphCount = Math.Max(0, _loca.Length - 1);
         }
 
@@ -149,13 +153,27 @@ public sealed class OpenTypeFont
             }
         }
 
+        // the line metrics: of hhea, or with USE_TYPO_METRICS (fsSelection bit 7) the typographic ones of OS/2 (OpenType 31.2.20, 31.2.23-31.2.25)
+        (LineAscent, LineDescent, LineGap) = (Ascent, Descent, _hheaLineGap);
         if (Table("OS/2") is { } os2)
         {
-            var o = new FontReader(data, os2.Offset + 4);
+            var o = new FontReader(data, os2.Offset);
+            var os2Version = o.CanRead(2) ? o.U16() : 0;
+            o.Position = os2.Offset + 4;
             if (o.CanRead(2) && os2.Length >= 6) WeightClass = o.U16();
+            o.Position = os2.Offset + 26;
+            if (o.CanRead(4) && os2.Length >= 30) (StrikeoutSize, StrikeoutPosition) = (o.I16(), o.I16());
             o.Position = os2.Offset + 62;
             if (o.CanRead(2) && os2.Length >= 64) Selection = o.U16();
+            o.Position = os2.Offset + 68;
+            // a font without hhea heights (both 0) takes the typographic ones too, as a reader would rather show some than none
+            if (o.CanRead(6) && os2.Length >= 74 && ((Selection & 0x80) != 0 || Ascent == 0 && Descent == 0))
+                (LineAscent, LineDescent, LineGap) = (o.I16(), o.I16(), o.I16());
+            o.Position = os2.Offset + 88;
+            if (o.CanRead(2) && os2.Length >= 90 && os2Version >= 2) _capHeight = o.I16();
         }
+        if (Table("post") is { Length: >= 12 } postHeader && new FontReader(data, postHeader.Offset + 4) is var pr && pr.CanRead(8))
+            (ItalicAngle, UnderlinePosition, UnderlineThickness) = (pr.Fixed(), pr.I16(), pr.I16());
         FamilyName = ReadName(1) ?? ReadName(4) ?? "";
         PostScriptName = ReadName(6) ?? "";
     }
@@ -243,6 +261,55 @@ public sealed class OpenTypeFont
 
     /// <summary>Descender from hhea in font units (usually negative).</summary>
     public int Descent { get; }
+
+    private readonly int _hheaLineGap;
+
+    /// <summary>
+    /// Ascender of a line in font units: OS/2 sTypoAscender if the font sets USE_TYPO_METRICS (fsSelection bit 7), else hhea's ascender
+    /// (OpenType 31.2.20, 31.2.23). Before, new text always took hhea (docs/FEHLERGEDAECHTNIS.md, No. 1162).
+    /// </summary>
+    public int LineAscent { get; }
+
+    /// <summary>Descender of a line in font units (usually negative): OS/2 sTypoDescender with USE_TYPO_METRICS, else hhea's descender (31.2.24).</summary>
+    public int LineDescent { get; }
+
+    /// <summary>Line gap in font units: OS/2 sTypoLineGap with USE_TYPO_METRICS, else hhea's lineGap (31.2.25).</summary>
+    public int LineGap { get; }
+
+    /// <summary>OS/2 yStrikeoutSize: thickness of the strikeout stroke in font units; 0 if the font has none (OpenType 31.2.14).</summary>
+    public int StrikeoutSize { get; }
+
+    /// <summary>OS/2 yStrikeoutPosition: the top of the strikeout stroke above the baseline in font units (OpenType 31.2.15).</summary>
+    public int StrikeoutPosition { get; }
+
+    /// <summary>post underlinePosition: the top of the underline in font units, negative below the baseline (OpenType 32.2).</summary>
+    public int UnderlinePosition { get; }
+
+    /// <summary>post underlineThickness in font units; 0 if the font has no post table.</summary>
+    public int UnderlineThickness { get; }
+
+    /// <summary>post italicAngle in degrees counter-clockwise from the vertical (negative: leaning forward); null without a post table.</summary>
+    public double? ItalicAngle { get; }
+
+    private readonly int _capHeight;
+    private int? _capHeightOrSubstitute;
+
+    /// <summary>
+    /// The height of flat capitals in font units, one rule for every font written (/CapHeight, ISO 32000-2, 9.8.1): OS/2 sCapHeight (version 2
+    /// or later, OpenType 31.2.30) when it is above 0; otherwise the top of the outline of "H"; otherwise the ascender of hhea. Before, one
+    /// writer took 0.7 of the ascender, another the ascender, and a font with sCapHeight 0 got 0 (docs/FEHLERGEDAECHTNIS.md, No. 1162).
+    /// </summary>
+    public int CapHeight => _capHeightOrSubstitute ??= _capHeight > 0 ? _capHeight : CapHeightFromOutline() ?? Ascent;
+
+    private int? CapHeightFromOutline()
+    {
+        if (GlyphForUnicode('H') is var h && h <= 0) return null;
+        var outline = Outline(h);
+        if (outline.IsEmpty) return null;
+        // the outline in its own units (those of the FontMatrix) to font units
+        var top = outline.Bounds.Bottom * FontMatrix.D * UnitsPerEm;   // Bottom: the largest y
+        return double.IsFinite(top) && top > 0 ? (int)Math.Round(top) : null;
+    }
 
     /// <summary>OS/2 usWeightClass; 400 if the font has no OS/2 table.</summary>
     public int WeightClass { get; } = 400;
@@ -886,13 +953,26 @@ public sealed class OpenTypeFont
 
     /// <summary>Returns the advance width of a glyph in font units.</summary>
     /// <param name="glyph">Glyph index; glyphs after the last hmtx entry use its width.</param>
-    /// <returns>The advance width; without hmtx the CFF width, otherwise 0.</returns>
+    /// <returns>The advance width from hmtx; without hmtx the CFF width, otherwise 0.</returns>
+    /// <remarks>
+    /// The advance for layout always comes from hmtx (OpenType 25, sentences 5 and 15), also for a composite glyph with USE_MY_METRICS: the flag
+    /// gives the composite the phantom points of its component (origin and advance point for point matching and the outline, OpenType 19.4;
+    /// <see cref="Phantom"/>), while hmtx should hold the same advance. Since No. 1163 the advance came from the component, and the shaper set
+    /// 3 units wider than the reference shaper in Nirmala UI's Gurmukhi conjuncts (component 1675, hmtx 1672); two of the three reference
+    /// readers take the hmtx advance where a PDF gives no width, none the component's (measured, probes u1–u3; docs/FEHLERGEDAECHTNIS.md,
+    /// No. 1179).
+    /// </remarks>
     public double AdvanceWidth(int glyph)
     {
         if (_advances.Length > 0 && glyph >= 0)
             return _advances[Math.Min(glyph, _advances.Length - 1)];
         return Cff?.AdvanceWidth(glyph) ?? 0;
     }
+
+    /// <summary>The advance of the glyph whose metrics a glyph takes (<see cref="MetricsGlyph"/>: with USE_MY_METRICS the component's), for its
+    /// phantom points.</summary>
+    private double MetricsAdvance(int glyph) =>
+        _advances.Length > 0 && glyph >= 0 ? _advances[Math.Min(MetricsGlyph(glyph), _advances.Length - 1)] : AdvanceWidth(glyph);
 
     /// <summary>Whether a glyph has data of its own: in a CFF-based font every glyph below the count, in a TrueType font a non-empty entry of „glyf“
     /// (an empty one is a glyph without outline, such as the space, or a slot a subset left free).</summary>
@@ -932,7 +1012,9 @@ public sealed class OpenTypeFont
             {
                 _componentCalls = 0;
                 _glyphPoints = 0;
-                AppendGlyf(outline, g, Matrix.Identity, 0);
+                // the origin is the first phantom point pp1 = xMin − lsb, not x = 0 of the glyf coordinates (OpenType 23; whatever bit 1 of the
+                // head flags says, as the three reference readers draw it — docs/FEHLERGEDAECHTNIS.md, No. 1163)
+                AppendGlyf(outline, g, Matrix.Translate(-LeftPhantomX(g), 0), 0, null, Matrix.Identity);
             }
             catch (RecursiveGlyphException)
             {
@@ -960,7 +1042,8 @@ public sealed class OpenTypeFont
 
     private sealed class RecursiveGlyphException() : FontFormatException("Glyphe enthält sich selbst");
 
-    private void AppendGlyf(GlyphOutline outline, int glyph, Matrix m, int depth)
+    // outline null: only the points (for placing a component by matching points); points: receives the glyph's points mapped by pm
+    private void AppendGlyf(GlyphOutline? outline, int glyph, Matrix m, int depth, List<(double X, double Y)>? points, Matrix pm)
     {
         if (++_componentCalls > MaxComponentCalls) throw new FontFormatException("Glyphe zu aufwendig");
         if (depth > MaxComponentDepth || glyph < 0 || glyph >= _loca.Length - 1 || Table("glyf") is not { } glyf) return;
@@ -972,14 +1055,18 @@ public sealed class OpenTypeFont
         var end = _loca[glyph + 1];
         // Equal: empty glyph (space). Smaller: loca is unsorted (test file issue11131); as in common font engines only the end of glyf is the limit then
         if (end == start || start >= glyf.Length) return;
-        var r = new FontReader(_data, glyf.Offset + start);
+        // the glyph is read within its loca range (within glyf when loca is unsorted), as the subset and the scrubber copy it: an
+        // instruction length or a point count reaching beyond it takes no flags or coordinates from the next glyph or another table
+        // (docs/FEHLERGEDAECHTNIS.md, No. 1171 — before only the end of the file was the limit)
+        var limit = (end > start ? Math.Min(end, glyf.Length) : glyf.Length) - start;
+        var r = new FontReader(new ArraySegment<byte>(_data, glyf.Offset + start, limit));
         int contours = r.I16();
         r.Skip(8);                                          // bounding box
-        if (contours >= 0) SimpleGlyph(outline, ref r, contours, m);
-        else CompositeGlyph(outline, ref r, m, depth);
+        if (contours >= 0) SimpleGlyph(outline, ref r, contours, m, points, pm);
+        else CompositeGlyph(outline, ref r, m, depth, glyph, points, pm);
     }
 
-    private static void SimpleGlyph(GlyphOutline outline, ref FontReader r, int contours, Matrix m)
+    private static void SimpleGlyph(GlyphOutline? outline, ref FontReader r, int contours, Matrix m, List<(double X, double Y)>? points, Matrix pm)
     {
         if (contours == 0) return;
         var endPoints = new int[contours];
@@ -1020,6 +1107,9 @@ public sealed class OpenTypeFont
             ys[i] = v;
         }
 
+        if (points is not null)
+            for (var i = 0; i < count; i++) points.Add(pm.Transform(xs[i], ys[i]));
+        if (outline is null) return;
         var first = 0;
         foreach (var last in endPoints)
         {
@@ -1080,25 +1170,158 @@ public sealed class OpenTypeFont
         outline.Close();
     }
 
-    private void CompositeGlyph(GlyphOutline outline, ref FontReader r, Matrix m, int depth)
+    private void CompositeGlyph(GlyphOutline? outline, ref FontReader r, Matrix m, int depth, int glyph, List<(double X, double Y)>? points, Matrix pm)
     {
+        // the points taken in so far, in the coordinates of this glyph and numbered on through the components (OpenType 19.4)
+        var own = new List<(double X, double Y)>();
         int flags;
         do
         {
             flags = r.U16();
             int component = r.U16();
-            double dx, dy;
-            if ((flags & 1) != 0) { dx = r.I16(); dy = r.I16(); }       // ARG_1_AND_2_ARE_WORDS
-            else { dx = r.I8(); dy = r.I8(); }
-            if ((flags & 2) == 0) dx = dy = 0;                           // point numbers instead of an offset: rare, treated as no offset
+            var xy = (flags & 2) != 0;                                   // ARGS_ARE_XY_VALUES: signed offset, otherwise unsigned point numbers
+            int arg1, arg2;
+            if ((flags & 1) != 0) { arg1 = xy ? r.I16() : r.U16(); arg2 = xy ? r.I16() : r.U16(); }   // ARG_1_AND_2_ARE_WORDS
+            else { arg1 = xy ? r.I8() : r.U8(); arg2 = xy ? r.I8() : r.U8(); }
             double a = 1, b = 0, c = 0, d = 1;
             if ((flags & 8) != 0) a = d = r.F2Dot14();                   // WE_HAVE_A_SCALE
             else if ((flags & 0x40) != 0) { a = r.F2Dot14(); d = r.F2Dot14(); }
             else if ((flags & 0x80) != 0) { a = r.F2Dot14(); b = r.F2Dot14(); c = r.F2Dot14(); d = r.F2Dot14(); }
-            if ((flags & 0x800) != 0) (dx, dy) = (a * dx + c * dy, b * dx + d * dy);   // SCALED_COMPONENT_OFFSET
+            double dx = 0, dy = 0;
+            if (xy)
+            {
+                (dx, dy) = (arg1, arg2);
+                // SCALED_COMPONENT_OFFSET; with UNSCALED_COMPONENT_OFFSET as well (invalid) still scaled, as all three reference readers draw it
+                // (docs/FEHLERGEDAECHTNIS.md, No. 1163)
+                if ((flags & 0x800) != 0) (dx, dy) = (a * dx + c * dy, b * dx + d * dy);
+            }
+            else
+            {
+                // point arg2 of the transformed component laid onto point arg1 of the points so far; numbers past the points name the phantom
+                // points. A number beyond those leaves the component without offset (as before)
+                var shape = new Matrix(a, b, c, d, 0, 0);
+                var child = new List<(double X, double Y)>();
+                AppendGlyf(null, component, shape, depth + 1, child, shape);
+                if (MatchPoint(own, glyph, arg1, Matrix.Identity) is { } p && MatchPoint(child, component, arg2, shape) is { } q)
+                    (dx, dy) = (p.X - q.X, p.Y - q.Y);
+            }
             var local = new Matrix(a, b, c, d, dx, dy);
-            AppendGlyf(outline, component, local * m, depth + 1);
+            AppendGlyf(outline, component, local * m, depth + 1, own, local);
         }
         while ((flags & 0x20) != 0);                                     // MORE_COMPONENTS
+        if (points is not null)
+            foreach (var (x, y) in own) points.Add(pm.Transform(x, y));
+    }
+
+    /// <summary>Point <paramref name="number"/> of a glyph for matching: one of its points, or after them its four phantom points (mapped by
+    /// <paramref name="shape"/>); null beyond.</summary>
+    private (double X, double Y)? MatchPoint(List<(double X, double Y)> taken, int glyph, int number, Matrix shape)
+    {
+        if (number < taken.Count) return taken[number];
+        if (number - taken.Count >= 4) return null;
+        var (x, y) = Phantom(glyph, number - taken.Count);
+        return shape.Transform(x, y);
+    }
+
+    // ------------------------------------------------------------ Phantom points and USE_MY_METRICS (OpenType 19.4, 23, 78.3.4)
+
+    /// <summary>
+    /// The glyf data of a glyph as absolute offsets (start, end); the end of glyf limits it, and a loca entry before its start (unsorted loca)
+    /// lets it run to the end of glyf as when it is drawn. Null for a glyph without data.
+    /// </summary>
+    private (int Start, int End)? GlyfData(int glyph)
+    {
+        if (glyph < 0 || glyph >= _loca.Length - 1 || Table("glyf") is not { } glyf) return null;
+        int start = _loca[glyph], end = _loca[glyph + 1];
+        if (end == start || start >= glyf.Length) return null;
+        var limit = end > start ? Math.Min(end, glyf.Length) : glyf.Length;
+        return (glyf.Offset + start, glyf.Offset + limit);
+    }
+
+    // per glyph the glyph whose metrics it takes, plus 1 (0: not yet looked up)
+    private int[]? _metricsGlyphs;
+
+    /// <summary>
+    /// The glyph whose metrics a glyph takes: itself, or for a composite glyph its last component with USE_MY_METRICS (0x0200), followed
+    /// through nested composites down to the component depth (OpenType 19.4; the last such component counts, as in common font engines).
+    /// </summary>
+    private int MetricsGlyph(int glyph)
+    {
+        if (Cff is not null || Cff2 is not null || glyph < 0 || glyph >= _loca.Length - 1) return glyph;
+        var known = _metricsGlyphs ??= new int[_loca.Length - 1];
+        if (known[glyph] != 0) return known[glyph] - 1;
+        var result = glyph;
+        for (var depth = 0; depth < MaxComponentDepth && UseMyMetricsComponent(result) is { } next; depth++) result = next;
+        known[glyph] = result + 1;
+        return result;
+    }
+
+    /// <summary>The last component of a composite glyph that carries USE_MY_METRICS, or null (simple glyph, none, damaged data).</summary>
+    private int? UseMyMetricsComponent(int glyph)
+    {
+        if (GlyfData(glyph) is not var (start, end) || end - start < 10) return null;
+        var r = new FontReader(_data, start);
+        if (r.I16() >= 0) return null;
+        r.Position = start + 10;
+        int? found = null;
+        while (r.Position + 4 <= end)
+        {
+            int flags = r.U16(), component = r.U16();
+            if ((flags & 0x0200) != 0 && component != glyph) found = component;
+            r.Position += ((flags & 1) != 0 ? 4 : 2) + ((flags & 8) != 0 ? 2 : (flags & 0x40) != 0 ? 4 : (flags & 0x80) != 0 ? 8 : 0);
+            if ((flags & 0x20) == 0) break;
+        }
+        return found;
+    }
+
+    /// <summary>The left side bearing of a glyph from hmtx (a full record or the list after them); null without a readable entry.</summary>
+    private int? LeftSideBearing(int glyph)
+    {
+        if (glyph < 0 || Table("hhea") is not { Length: >= 36 } hhea || Table("hmtx") is not { } hmtx) return null;
+        int full = new FontReader(_data, hhea.Offset + 34).U16();
+        var at = glyph < full ? glyph * 4L + 2 : full * 4L + (glyph - full) * 2L;
+        return at + 2 <= hmtx.Length ? new FontReader(_data, hmtx.Offset + (int)at).I16() : null;
+    }
+
+    /// <summary>
+    /// The x of the first phantom point of a glyph, pp1 = xMin − lsb (OpenType 23), with xMin from its glyf header and lsb from hmtx — for a
+    /// composite with USE_MY_METRICS those of that component. 0 for a glyph without data or without a readable lsb.
+    /// </summary>
+    private double LeftPhantomX(int glyph)
+    {
+        var metrics = MetricsGlyph(glyph);
+        if (GlyfData(metrics) is not var (start, end) || end - start < 10 || LeftSideBearing(metrics) is not { } lsb) return 0;
+        return new FontReader(_data, start + 2).I16() - lsb;
+    }
+
+    /// <summary>
+    /// Phantom point <paramref name="k"/> (0–3) of a glyph in its own coordinates (OpenType 78.3.4): left side bearing point (pp1, 0), advance
+    /// point (pp1 + advance, 0), top origin (0, yMax + tsb) and (0, top − advance height) from vhea/vmtx — without them the ascender and descender
+    /// of hhea, as common font engines take them. With USE_MY_METRICS the left ones are the component's (its pp1 and advance; No. 1179).
+    /// </summary>
+    private (double X, double Y) Phantom(int glyph, int k)
+    {
+        if (k < 2)
+        {
+            var x = LeftPhantomX(glyph);
+            return (k == 0 ? x : x + MetricsAdvance(glyph), 0);
+        }
+        var metrics = MetricsGlyph(glyph);
+        double top = Ascent, bottom = Descent;
+        if (GlyfData(metrics) is var (start, end) && end - start >= 10 && Table("vhea") is { Length: >= 36 } vhea && Table("vmtx") is { } vmtx)
+        {
+            int full = new FontReader(_data, vhea.Offset + 34).U16();
+            if (full > 0 && full * 4L <= vmtx.Length)
+            {
+                var record = vmtx.Offset + Math.Min(metrics, full - 1) * 4;
+                var tsbAt = metrics < full ? record + 2 : vmtx.Offset + full * 4L + (metrics - full) * 2L;
+                if (tsbAt + 2 <= vmtx.Offset + vmtx.Length)
+                {
+                    top = new FontReader(_data, start + 8).I16() + new FontReader(_data, (int)tsbAt).I16();
+                    bottom = top - new FontReader(_data, record).U16();
+                }
+            }
+        }
+        return (0, k == 2 ? top : bottom);
     }
 }

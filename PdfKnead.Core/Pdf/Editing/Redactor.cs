@@ -1057,9 +1057,11 @@ public static partial class Redactor
     /// Entries that describe content in another form and so outlive its redaction: data of other programs (/PieceInfo, /LastModified),
     /// object metadata (XMP, ISO 32000-2 14.3.2), associated files (14.13: the data of a chart, the source of a formula), alternate images
     /// and references to the original file (/OPI, /Ref). Dropped wherever redacted content is rewritten — page, form, pattern, image,
-    /// property list of marked content, structure element (docs/FEHLERGEDAECHTNIS.md, No. 434 and 444).
+    /// property list of marked content, structure element (docs/FEHLERGEDAECHTNIS.md, No. 434 and 444). /MCAF: the files of marked content
+    /// in the form of the corrigenda of ISO 32000-2, 14.13.5, a dictionary with /MCAF as the property list (before, only the older form, an
+    /// array, left the copy — No. 1254).
     /// </summary>
-    internal static readonly string[] DescribesOldContent = ["PieceInfo", "LastModified", "Metadata", "AF", "Alternates", "OPI", "Ref"];
+    internal static readonly string[] DescribesOldContent = ["PieceInfo", "LastModified", "Metadata", "AF", "MCAF", "Alternates", "OPI", "Ref"];
 
     /// <summary>
     /// What a redacted page draws, without descriptions of marked content where no observer looked (docs/FEHLERGEDAECHTNIS.md, No. 696 and
@@ -1806,16 +1808,18 @@ public static partial class Redactor
     /// Takes top-level forms out of the page content (their "Do"; resources no longer invoked are dropped), so that stored
     /// edited text (<see cref="ContentElements"/>) becomes a block again on opening. A form is taken only if it draws exactly
     /// the expected text, is visible (not on a hidden layer) and no clipping cuts it; otherwise PDF Knead would show stored data
-    /// instead of the content every other reader shows.
+    /// instead of the content every other reader shows. Right-to-left text is compared in the order the appearance draws it
+    /// (<see cref="ShownText"/>); a glyph within /ActualText stands for that text, and a glyph without a text counts only if it advances
+    /// nothing (the dots and marks the appearance draws apart from their letter; docs/FEHLERGEDAECHTNIS.md, No. 1177).
     /// </summary>
     /// <param name="doc">The document.</param>
     /// <param name="page">The page.</param>
-    /// <param name="select">Gives, for a form and its mapping onto the page, the text it must show (without white space), or null.</param>
+    /// <param name="select">Gives, for a form and its mapping onto the page, the text it must show (<see cref="ShownText"/>), or null.</param>
     /// <param name="max">At most this many forms.</param>
     /// <param name="cancel">Cancels the work.</param>
     /// <returns>The page without the forms and the forms taken; <see langword="null"/> if none was found.</returns>
     public static (HiddenContentResult Result, List<(PdfStream Form, Matrix FormToPage)> Removed)? RemoveForms(PdfDocument doc, PdfPage page,
-        Func<PdfStream, Matrix, string?> select, int max = int.MaxValue, CancellationToken cancel = default)
+        Func<PdfStream, Matrix, ShownText?> select, int max = int.MaxValue, CancellationToken cancel = default)
     {
         var root = new Scope();
         var observer = new FormObserver(select, root, max);
@@ -1833,7 +1837,7 @@ public static partial class Redactor
         return (new HiddenContentResult(dict, resources, 0, observer.Removed.Count) { ReplacedObjects = rewriter.ReplacedObjects }, observer.Removed);
     }
 
-    private sealed class FormObserver(Func<PdfStream, Matrix, string?> select, Scope root, int max) : IContentObserver
+    private sealed class FormObserver(Func<PdfStream, Matrix, ShownText?> select, Scope root, int max) : IContentObserver
     {
         private int _depth;
         public readonly List<(PdfStream Form, Matrix FormToPage)> Removed = [];
@@ -1841,14 +1845,20 @@ public static partial class Redactor
         // Top-level form currently running that is a candidate: what it must show, what it draws, whether visible and unclipped
         private Candidate? _candidate;
 
-        private sealed class Candidate(int op, PdfStream form, Matrix formToPage, string expected, RectD bounds)
+        private sealed class Candidate(int op, PdfStream form, Matrix formToPage, ShownText expected, RectD bounds)
         {
             public readonly int Op = op;
             public readonly PdfStream Form = form;
             public readonly Matrix FormToPage = formToPage;
-            public readonly string Expected = expected;
+            public readonly ShownText Expected = expected;
             public readonly RectD Bounds = bounds;
             public readonly StringBuilder Drawn = new();
+            // where each drawn glyph's text starts in Drawn (a ligature's letters may stand in either order), and where a glyph stands on
+            // another baseline than the one before it (a right-to-left paragraph may break into lines only there; ShownText)
+            public readonly List<int> Units = [], Lines = [];
+            public double LastX = double.NaN, LastY = double.NaN, UpX, UpY, Em;
+            // the marked content open within the form: an /ActualText span, or null for any other
+            public readonly Stack<ActualSpan?> Actual = new();
             public bool Ok = true;
         }
 
@@ -1867,8 +1877,93 @@ public static partial class Redactor
             bool vertical, Matrix textToPage, string? text, bool hidden, bool invisible)
         {
             if (_candidate is not { Ok: true } c) return;
-            if (hidden || invisible || text is null || c.Drawn.Length > c.Expected.Length) c.Ok = false;
-            else foreach (var ch in text) if (!char.IsWhiteSpace(ch)) c.Drawn.Append(ch);
+            if (hidden || invisible || c.Drawn.Length > c.Expected.Length)
+            {
+                c.Ok = false;
+                return;
+            }
+            // within /ActualText (a glyph the appearance draws for another letter than its text in ToUnicode — the body beh, teh and yeh
+            // share): the first glyph that advances stands for the actual text — before it, a glyph that advances nothing counts as one without
+            // a text of its own (a cluster of reordered Arabic marks drawn right to left starts with its marks; docs/FEHLERGEDAECHTNIS.md,
+            // No. 1180) —, any further one counts as a glyph without a text of its own
+            if (c.Actual.Count > 0 && c.Actual.Peek() is { } actual)
+            {
+                var still = Math.Abs(advance) <= 1e-3 * Math.Abs(fontSize);
+                if (!actual.Used && !(still && !string.IsNullOrWhiteSpace(actual.Text)))
+                {
+                    actual.Used = true;
+                    // an empty actual text shows nothing: its glyph is judged as one without a text
+                    text = string.IsNullOrWhiteSpace(actual.Text) ? null : actual.Text;
+                }
+                else
+                {
+                    // a span whose glyphs all advance nothing takes its text at its end, placed at its first glyph
+                    if (!actual.Used) actual.Pending ??= (cellToPage, textToPage, fontSize);
+                    text = null;
+                }
+            }
+            // a glyph without a text: only the dots and marks the appearance draws apart from their letter, which advance nothing (a glyph that
+            // moves the text on shows a character, and one the text does not name would be seen by every reader but not come back with the
+            // block; docs/FEHLERGEDAECHTNIS.md, No. 1177)
+            if (text is null)
+            {
+                if (!(Math.Abs(advance) <= 1e-3 * Math.Abs(fontSize))) c.Ok = false;
+                return;
+            }
+            var at = c.Drawn.Length;
+            foreach (var ch in text) if (ShownText.Shown(ch)) c.Drawn.Append(ch);
+            if (c.Drawn.Length > at) Placed(c, at, cellToPage, textToPage, fontSize);
+        }
+
+        public void MarkedContent(int op, PdfName tag, PdfDictionary? properties)
+        {
+            if (_candidate is not { } c) return;
+            // nested deeper than any appearance writes: not taken (the stack stays small)
+            if (c.Actual.Count >= 64) c.Ok = false;
+            var text = properties?.GetString(PdfName.Get("ActualText"))?.ToText();
+            c.Actual.Push(text is null ? null : new ActualSpan(text));
+        }
+
+        public void EndMarkedContent(int op)
+        {
+            if (_candidate is not { } c || c.Actual.Count == 0) return;
+            if (c.Actual.Pop() is { Used: false, Pending: { } first } span && c.Ok)
+            {
+                var at = c.Drawn.Length;
+                foreach (var ch in span.Text) if (ShownText.Shown(ch)) c.Drawn.Append(ch);
+                if (c.Drawn.Length > at) Placed(c, at, first.CellToPage, first.TextToPage, first.FontSize);
+            }
+        }
+
+        /// <summary>An /ActualText span within a candidate, whether a glyph has taken its text, and where its first glyph that advances nothing
+        /// stands (it takes the text at the end of a span without a glyph that advances).</summary>
+        private sealed class ActualSpan(string text)
+        {
+            public readonly string Text = text;
+            public bool Used;
+            public (Matrix CellToPage, Matrix TextToPage, double FontSize)? Pending;
+        }
+
+        /// <summary>
+        /// Notes a drawn glyph's text starting at <paramref name="at"/>, and whether its origin lies off the baseline of the glyph before it by
+        /// more than a tenth of the font size (measured across the text direction of that glyph; docs/FEHLERGEDAECHTNIS.md, No. 1177).
+        /// </summary>
+        private static void Placed(Candidate c, int at, Matrix cellToPage, Matrix textToPage, double fontSize)
+        {
+            var (x, y) = cellToPage.Transform(0, 0);
+            if (c.Units.Count > 0)
+            {
+                var across = (x - c.LastX) * c.UpX + (y - c.LastY) * c.UpY;
+                if (!(Math.Abs(across) <= 0.1 * c.Em)) c.Lines.Add(at);
+            }
+            c.Units.Add(at);
+            // across the baseline: perpendicular to the text direction (a slanted text matrix of fake italic leans its y axis); the font size
+            // as the height of an em in page space
+            var (bx, by) = textToPage.TransformVector(1, 0);
+            var length = Math.Sqrt(bx * bx + by * by);
+            (c.LastX, c.LastY) = (x, y);
+            (c.UpX, c.UpY) = length > 1e-12 ? (-by / length, bx / length) : (0, 1);
+            c.Em = length > 1e-12 ? Math.Abs(fontSize * textToPage.Determinant) / length : 0;
         }
 
         public void Path(int op, RectD bounds, Matrix ctm, bool hidden) { }
@@ -1892,7 +1987,7 @@ public static partial class Redactor
             _depth = Math.Max(0, _depth - 1);
             if (_depth != 0 || _candidate is not { } c) return;
             _candidate = null;
-            if (!c.Ok || c.Drawn.ToString() != c.Expected) return;
+            if (!c.Ok || !c.Expected.Matches(c.Drawn.ToString(), c.Units, c.Lines)) return;
             root.Dropped.Add(c.Op);
             Removed.Add((c.Form, c.FormToPage));
         }

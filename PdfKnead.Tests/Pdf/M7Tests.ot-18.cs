@@ -7,8 +7,9 @@ namespace PdfKnead.Tests.Pdf;
 
 /// <summary>
 /// Konformitätsabgleich M7, package ot-18 (OpenType: EBLC — embedded bitmap location, fpgm — font program, fvar — font variations): the
-/// tests the sentence-by-sentence drafts named as missing. Monochrome and grey bitmaps (EBLC/EBDT/EBSC) are not read; the colour bitmap
-/// location table CBLC has the same structure and is read, so its fields are tested there. Variable fonts are drawn in their default
+/// tests the sentence-by-sentence drafts named as missing. Monochrome and grey bitmaps (EBLC/EBDT) are read only as the fallback for an
+/// embedded font without outlines (FG 1169; those tests in M7Tests.ebdt.cs), EBSC not at all; the colour bitmap location table CBLC has the
+/// same structure and is read, so its fields are tested there as well. Variable fonts are drawn in their default
 /// instance (user question 2 is open: these tests hold today's behaviour).
 /// </summary>
 public sealed partial class M7NormTests
@@ -367,15 +368,16 @@ public sealed partial class M7NormTests
 
     /// <summary>
     /// OT 14 sentences 1–8, OT 14.1 sentences 1–9, 10–24, 57–64 (EBLC part) and 73–74: Liberation Sans with EBLC 2.0 (one or two strikes,
-    /// bit depth 1 or 8, colorRef 0 or 5), EBDT and EBSC for „A“ — the monochrome and grey bitmaps are not read: no glyph images, the outline
-    /// and advance of „A“ as without the tables; a subset and a scrubbed font carry none of the three tables.
+    /// bit depth 1 or 8, colorRef 0 or 5), EBDT and EBSC for „A“ — a font with outlines draws them, the monochrome and grey bitmaps are only
+    /// the fallback for fonts without (FG 1169): no glyph images, the outline and advance of „A“ as without the tables; a subset and a scrubbed
+    /// font carry none of the three tables.
     /// </summary>
     [Theory]
     [InlineData(1, 1, 1, 0)]
     [InlineData(2, 1, 1, 0)]
     [InlineData(1, 8, 1, 0)]
     [InlineData(1, 1, 1, 5)]
-    public void Ot18_EblcEbdtEbsc_NotReadAndLeftOutOfSubsetAndScrub(int strikes, int bitDepth, int flags, int colorRef)
+    public void Ot18_EblcEbdtEbsc_FontWithGlyf_OutlineDrawnLeftOutOfSubsetAndScrub(int strikes, int bitDepth, int flags, int colorRef)
     {
         var a = Ot18G('A');
         var (eblc, ebdt, ebsc) = Ot18Bitmaps(a, strikes, bitDepth, flags, colorRef);
@@ -764,31 +766,32 @@ public sealed partial class M7NormTests
     }
 
     /// <summary>
-    /// OT 16 sentences 14–16, OT 16.1.3 sentences 16–25 (writer part) and 29–30 (today's behaviour, user question 2): PDF-Knead builds no variable
-    /// fonts — a subset of a font with fvar, gvar, HVAR and STAT is static (none of them); a scrubbed one keeps all four unchanged.
+    /// OT 16 sentences 14–16, OT 16.1.3 sentences 16–25 (writer part) and 29–30: PDF-Knead builds no variable fonts — a subset, a subset
+    /// keeping all other tables (compression) and a scrubbed copy of a font with fvar, gvar (deltas for „A“), HVAR and STAT are static, none of
+    /// the four, with the outline of „A“ from glyf (FG 1159; before the scrubbed copy kept all four unchanged).
     /// </summary>
     [Fact]
-    public void Ot18_SubsetDropsVariationTables_ScrubKeepsThem()
+    public void Ot18_SubsetAndScrubDropVariationTables()
     {
         var a = Ot18G('A');
         (string Tag, byte[] Data)[] tables = [("fvar", Ot18Fvar([("wght", 100, 400, 900, 0, 256)], [(5, [700], 0), (5, [700], 0)])),
             ("gvar", Ot18Gvar(Ot18SansFont, 1, a, 80)), ("HVAR", Ot18Hvar(Ot18SansFont, a, 60)), ("STAT", Ot18Stat())];
         var file = Ot18With(Ot18Sans, [.. tables.Select(t => (t.Tag, (byte[]?)t.Data))]);
-        var subset = OpenTypeFont.Parse(TrueTypeSubsetter.Subset(file, [0, a]));
-        var scrubbed = OpenTypeFont.Parse(TrueTypeSubsetter.Scrub(file, [0, a]));
-        foreach (var (tag, data) in tables)
+        foreach (var written in (byte[][])[TrueTypeSubsetter.Subset(file, [0, a]), TrueTypeSubsetter.Subset(file, [0, a], keepAllTables: true),
+                     TrueTypeSubsetter.Scrub(file, [0, a])])
         {
-            Assert.False(subset.HasTable(tag), tag);
-            Assert.Equal(data, scrubbed.TableData(tag).ToArray());
+            var result = OpenTypeFont.Parse(written);
+            foreach (var (tag, _) in tables) Assert.False(result.HasTable(tag), tag);
+            Assert.Equal(Ot18SansFont.Outline(a).Points, result.Outline(a).Points);
         }
     }
 
     private const string Ot18Bahnschrift = @"C:\Windows\Fonts\bahnschrift.ttf";
 
     /// <summary>
-    /// OT 16.1.2 sentences 25–33 and 34–35, OT 16.1.3 sentences 26–28 (installed font; today's behaviour, user question 2): an installed variable font
-    /// (Bahnschrift on Windows, fvar with named instances) is offered once, as its family in the default instance — no axes and no named instances
-    /// in the font list.
+    /// OT 16.1.2 sentences 25–33 and 34–35, OT 16.1.3 sentences 26–28 (installed font): an installed variable font (Bahnschrift on Windows, fvar
+    /// with named instances) is offered once, as its family in the default instance — no axes and no named instances in the font list, as
+    /// PDF-Knead draws only the default instance (a named instance is found through fvar: Ot18_InstalledVariableFont_NamedInstancesFoundThroughFvar).
     /// </summary>
     [Fact]
     public void Ot18_InstalledVariableFont_OneFamilyEntry()
@@ -803,30 +806,16 @@ public sealed partial class M7NormTests
     }
 
     /// <summary>
-    /// OT 16.2 sentence 2 (today's behaviour, user question 2): a font that is not embedded, „Bahnschrift-Bold“, finds the file of the installed
-    /// variable Bahnschrift — the same font as „Bahnschrift“, its default instance (weight 400), not the named instance „Bold“.
-    /// </summary>
-    [Fact]
-    public void Ot18_InstalledVariableFont_NamedInstanceFindsTheDefaultInstance()
-    {
-        if (!OperatingSystem.IsWindows() || !File.Exists(Ot18Bahnschrift)) return;
-        var bold = SystemFonts.Find("Bahnschrift-Bold", false, false);
-        var plain = SystemFonts.Find("Bahnschrift", false, false);
-        Assert.NotNull(bold);
-        Assert.Same(plain, bold);
-        Assert.Equal(400, bold.WeightClass);
-        Assert.True(bold.HasTable("fvar"));
-    }
-
-    /// <summary>
-    /// OT 14 sentences 1–8 and 14.1 sentences 1–24, 57–64 (reader, special rule, measured): an embedded TrueType font whose glyphs exist only as
-    /// EBDT bitmaps (bit depth 1) — without glyf and loca, or with all glyphs empty — draws nothing, as two of three reference readers do (the
-    /// third draws the bitmaps only without glyf; probes e1–e4, FG 1160); its text is read all the same.
+    /// OT 14 sentences 1–8 and 14.1 sentences 1–24, 57–64 (reader, fallback, measured): an embedded TrueType font whose glyphs exist only as EBDT
+    /// bitmaps (bit depth 1, 8 × 8 checkerboard, strike of 12 ppem) draws them when it has neither glyf nor loca (none of the reference readers
+    /// draws the bitmaps — one takes another font, two draw nothing; probes e1–e4, f1–f3; special rule A200), at 72 pt each bitmap pixel 6 pt,
+    /// the top left one inked, the one beside it not; with glyf and loca whose glyphs are all empty it draws nothing, as all three reference
+    /// readers do (FG 1169). Its text is read either way.
     /// </summary>
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void Ot18_BitmapOnlyEmbeddedFont_DrawsNothing_TextRead(bool emptyGlyf)
+    public void Ot18_BitmapOnlyEmbeddedFont_DrawsItsBitmaps_EmptyGlyfDrawsNothing(bool emptyGlyf)
     {
         var a = Ot18G('A');
         var (eblc, ebdt, _) = Ot18Bitmaps(a, 1, 1, 1, 0);
@@ -850,7 +839,16 @@ public sealed partial class M7NormTests
             for (var y = 0; y < bitmap.Height; y++)
                 for (var x = 0; x < bitmap.Width; x++)
                     if (bitmap.GetPixel(x, y) is var p && Math.Min(p.Red, Math.Min(p.Green, p.Blue)) < 200) ink++;
-            Assert.Equal(0, ink);
+            if (emptyGlyf)
+            {
+                Assert.Equal(0, ink);
+                return;
+            }
+            // bearingX 0, bearingY 8: the bitmap of the first „A“ spans x 10…58 and y 20…68; row 0 is 0xAA (pixels 0, 2, 4, 6 inked)
+            Assert.True(EbGrey(bitmap, 10 + 3, 68 - 3) < 60, "Pixel 0,0");
+            Assert.True(EbGrey(bitmap, 10 + 9, 68 - 3) > 200, "Pixel 1,0");
+            Assert.True(EbGrey(bitmap, 10 + 9, 68 - 9) < 60, "Pixel 1,1");
+            Assert.InRange(ink, 3 * 32 * 36 * 0.95, 3 * 32 * 36 * 1.1);   // 32 inked pixels of 6 × 6 pt per glyph, three glyphs (edges smoothed)
         }
     }
 }

@@ -19,7 +19,8 @@ public sealed record ColorOption(int Rgb, string Label)
 /// <summary>Defaults for new elements; the settings in the „Einfügen“ tab change them.</summary>
 public static class ElementDefaults
 {
-    public static TextElement Text { get; set; } = new() { Rect = default };
+    /// <summary>The next text („Text einfügen“): spaced by the natural line height of its font (docs/FEHLERGEDAECHTNIS.md, No. 1211).</summary>
+    public static TextElement Text { get; set; } = new() { Rect = default, FontLineHeight = true };
 
     /// <summary>The signature chosen last („Unterschrift“ tool).</summary>
     public static PageElement? Signature { get; set; }

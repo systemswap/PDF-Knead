@@ -864,6 +864,8 @@ public sealed partial class DocumentViewModel
             FontSize = look is { LabelSize: > 0 } l ? l.LabelSize : MainViewModel.FontSizes.MinBy(s => Math.Abs(s - Math.Clamp(height * 0.72, 7, 14))),   // taken from the list of sizes (otherwise e.g. 13 would result, which is not in the list)
             LabelFor = FieldNameOf(field),
             LabelState = spec.Kind == FormFieldKind.Radio ? OnStateOf(field) ?? "" : "",
+            // new text, no form field: spaced by the natural line height of its font like inserted text (No. 1211)
+            FontLineHeight = true,
         };
         return PlaceLabel(label, field, look?.LabelLeft ?? false, look?.LabelGap ?? LabelGap);
     }

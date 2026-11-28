@@ -202,7 +202,10 @@ public sealed class Type1Font
             }
             else if (token == "/CharStrings")
             {
-                // "/CharStrings n dict dup begin /name len RD <bytes> ND … end"
+                // "/CharStrings n dict dup begin /name len RD <bytes> ND … end". A hybrid font (Type 1 Font Format 9.2) has a second group for
+                // high resolution: it is read over, the glyphs come with the subroutines from the first set — before its entries overwrote
+                // those of the first group, and a glyph of one set ran the subroutines of the other (docs/FEHLERGEDAECHTNIS.md, No. 1164)
+                var take = charStrings.Count == 0;
                 while (s.Next() is { } t)
                 {
                     if (t == "end") break;
@@ -210,6 +213,7 @@ public sealed class Type1Font
                     if (!int.TryParse(s.Next(), CultureInfo.InvariantCulture, out var length)) continue;
                     s.Next();                                       // RD or -|
                     var bytes = s.Binary(length);
+                    if (!take) continue;
                     if (!charStrings.ContainsKey(t[1..])) order.Add(t[1..]);
                     charStrings[t[1..]] = Decrypt(bytes, 4330, lenIV);
                 }

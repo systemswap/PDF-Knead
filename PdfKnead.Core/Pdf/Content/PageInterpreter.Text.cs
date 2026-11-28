@@ -51,9 +51,11 @@ public sealed partial class PageInterpreter
         {
             case "BT":
                 _tm = _tlm = Matrix.Identity;
+                BeginTextObject();
                 break;
             case "ET":
                 EndText();
+                EndTextObject();
                 break;
             case "Tc" when o.Count >= 1:
                 _gs.CharSpacing = o[0].Number;
@@ -68,11 +70,15 @@ public sealed partial class PageInterpreter
                 _gs.Leading = o[0].Number;
                 break;
             case "Tf" when o.Count >= 2:
-                _gs.Font = FontResource(o[0].Name, resources);
+                // a name the resources lack: the substitute in the size of Tf, as two of three reference readers (special rule, V14; probe B12e)
+                _gs.Font = FontResource(o[0].Name, resources) ?? DefaultFont;
                 _gs.FontSize = o[1].Number;
                 break;
-            case "Tr" when o.Count >= 1:
-                _gs.TextMode = Math.Clamp((int)o[0].Number, 0, 7);
+            // a mode outside 0–7 is passed over and the one before stays, as one reference reader does (the other two agree on what is seen; probes B12a,
+            // B12b) — before it was clamped: 9 became a clip that hid the text and everything after it, −1 made invisible text visible
+            // (ISO 32000-2, 9.3.6, Table 104; docs/FEHLERGEDAECHTNIS.md, No. 1165). Fractions are cut off (3.5 as 3)
+            case "Tr" when o.Count >= 1 && o[0].Number is >= 0 and < 8:
+                _gs.TextMode = (int)o[0].Number;
                 break;
             case "Ts" when o.Count >= 1:
                 _gs.Rise = o[0].Number;
@@ -124,7 +130,10 @@ public sealed partial class PageInterpreter
                     else if (item.AsNumber() is { } adjust) Adjust(adjust);
                 }
                 break;
-            case "d1":
+            // only in the glyph description of a Type 3 font (ISO 32000-2, 9.6.4 sentence 89): in the page content or a form it is passed over, as
+            // two of three reference readers — before it switched the colour operators off for the rest of the page (probe D1a;
+            // docs/FEHLERGEDAECHTNIS.md, No. 1165)
+            case "d1" when _type3Depth > 0:
                 _uncolored = true;
                 break;
         }
@@ -177,6 +186,10 @@ public sealed partial class PageInterpreter
         var size = _gs.FontSize;
         var th = _gs.HorizontalScale;
         var mode = _gs.TextMode;
+        // no Tf yet (font and size have no initial value, ISO 32000-2, 9.3.1): none of the three reference readers draws such text (probe B12d);
+        // it is still read, as invisible text in size 1 that clips nothing, so that search, copying and redaction find it
+        // (docs/FEHLERGEDAECHTNIS.md, No. 1165)
+        if (_gs.Font is null) mode = 3;
         if (mode >= 4)
         {
             _textClipPending = true;
@@ -197,6 +210,10 @@ public sealed partial class PageInterpreter
             var length = font.ReadCode(span, pos, out var code);
             pos += Math.Max(1, length);
             var glyph = font.Glyph(code, length);
+            // a bitmap glyph (embedded font without outlines): the strike nearest to the size of the em on the page, before anything reads its
+            // shape — drawing, clipping and redaction see the same (docs/FEHLERGEDAECHTNIS.md, No. 1169)
+            if (glyph.Bitmap is { } bitmap && _tm * _gs.Ctm is var emToPage)
+                glyph = bitmap.At(Math.Abs(size) * Math.Sqrt(emToPage.C * emToPage.C + emToPage.D * emToPage.D));
             if (AddsToTextClip(glyph, mode) && _observer is { WantsTextClip: true } clipGlyphObserver)
                 clipGlyphObserver.TextClipGlyph(_op, _showElement, start);
             var spacing = _gs.CharSpacing + (PdfFont.IsWordSpace(code, length) ? _gs.WordSpacing : 0);
@@ -322,8 +339,21 @@ public sealed partial class PageInterpreter
         }
         EnsureMask();
         var patternGroup = BeginPatternGroup(k is DisplayItemKind.Fill or DisplayItemKind.FillStroke, k is DisplayItemKind.Stroke or DisplayItemKind.FillStroke);
-        // filled and stroked text is text as well: the renderer draws its outline in its real width, never enhanced to a full pixel (No. 816)
-        _builder.Add(k, false, path, _builder.AddUniqueMatrix(matrix), paint, _gs.Clip, -1, bounds, glyph: k is DisplayItemKind.Fill or DisplayItemKind.FillStroke);
+        if (k == DisplayItemKind.Fill && glyph.Levels is { } levels && _builder.PaintAt(paint) is { FillShading: < 0 } style)
+        {
+            // a grey bitmap glyph: each grey level filled with its share of the opacity, in the fill colour (EBDT bit depth 2, 4, 8; No. 1169)
+            var at = _builder.AddUniqueMatrix(matrix);
+            foreach (var (shape, alpha) in levels)
+            {
+                var fill = style.Fill & 0x00FFFFFFu | (uint)((style.Fill >> 24) * alpha / 255) << 24;
+                _builder.Add(k, false, GlyphPath(shape), at, _builder.AddPaint(style with { Fill = fill }), _gs.Clip, -1, glyphToPage.TransformBounds(shape.Bounds), glyph: true);
+            }
+        }
+        else
+        {
+            // filled and stroked text is text as well: the renderer draws its outline in its real width, never enhanced to a full pixel (No. 816)
+            _builder.Add(k, false, path, _builder.AddUniqueMatrix(matrix), paint, _gs.Clip, -1, bounds, glyph: k is DisplayItemKind.Fill or DisplayItemKind.FillStroke);
+        }
         EndPatternGroup(patternGroup);
     }
 
@@ -371,9 +401,111 @@ public sealed partial class PageInterpreter
     /// <summary>Read texts of the visible characters, to notice suspicious ones (<see cref="DisplayList.MisreadGlyphs"/>).</summary>
     private readonly TextReading _reading = new();
 
+    // ------------------------------------------------------------ Replacement text (/ActualText)
+
+    /// <summary>
+    /// A marked-content sequence with /ActualText being read (ISO 32000-2, 14.9.4): its text replaces the text of the characters drawn within it.
+    /// Their quadrilaterals are gathered as they come, in the frame of the first one (along its baseline; across it the extent of the characters
+    /// that advance — marks above and below their letter do not make the line taller), so the memory stays the same however many characters the
+    /// sequence holds.
+    /// </summary>
+    private sealed class ActualTextSpan(string text, int depth)
+    {
+        public readonly string Text = text;
+
+        /// <summary>The number of open marked-content sequences with this one (it ends when fewer are open).</summary>
+        public readonly int Depth = depth;
+
+        public int Glyphs;
+        public double Ox, Oy, Ux, Uy, Nx, Ny, SMin, SMax, TMinAll, TMaxAll, TMin = double.MaxValue, TMax = double.MinValue, Size;
+        public bool Visible, Vertical;
+    }
+
+    /// <summary>The replacement text being read (an inner one within it counts as part of it, as the outer replaces all its content).</summary>
+    private ActualTextSpan? _actualText;
+
+    /// <summary>
+    /// Starts reading a replacement text when the properties of a marked-content sequence just opened carry /ActualText and none is being read.
+    /// Like two of the three reference readers, the text extraction gives the replacement text in place of the characters drawn within the
+    /// sequence, on their quadrilateral (an empty one hides them); before, it was ignored and the characters read as their fonts map them — own
+    /// text with reordered Arabic marks or a letter drawn with another letter's glyph read wrongly (docs/FEHLERGEDAECHTNIS.md, No. 1180).
+    /// </summary>
+    private void BeginActualText(PdfDictionary? properties)
+    {
+        if (_drawnText || _actualText is not null || properties?.GetString(PdfName.Get("ActualText")) is not { } actual) return;
+        _actualText = new ActualTextSpan(WithoutLanguageEscapes(actual.ToText()), _hiddenStack.Count);
+    }
+
+    /// <summary>Ends the replacement text being read once its marked-content sequence is closed (or with <paramref name="all"/>, at the end of
+    /// the page content), adding its text with the gathered quadrilateral.</summary>
+    private void EndActualText(bool all = false)
+    {
+        if (_actualText is not { } span || !all && _hiddenStack.Count >= span.Depth) return;
+        _actualText = null;
+        if (span.Glyphs == 0 || span.Text.Length == 0) return;
+        var (t0, t1) = span.TMin <= span.TMax ? (span.TMin, span.TMax) : (span.TMinAll, span.TMaxAll);
+        double X(double s, double t) => span.Ox + s * span.Ux + t * span.Nx;
+        double Y(double s, double t) => span.Oy + s * span.Uy + t * span.Ny;
+        _builder.AddText(new TextGlyph(span.Text, (float)X(span.SMin, t0), (float)Y(span.SMin, t0), (float)X(span.SMax, t0), (float)Y(span.SMax, t0),
+            (float)X(span.SMax, t1), (float)Y(span.SMax, t1), (float)X(span.SMin, t1), (float)Y(span.SMin, t1), (float)span.Size, span.Visible, span.Vertical));
+    }
+
+    /// <summary>A text string without its language escape sequences (ESC, language code, ESC; ISO 32000-2, 7.9.2.2).</summary>
+    private static string WithoutLanguageEscapes(string text)
+    {
+        if (!text.Contains('\u001B')) return text;
+        var sb = new System.Text.StringBuilder(text.Length);
+        var inside = false;
+        foreach (var c in text)
+        {
+            if (c == '\u001B') inside = !inside;
+            else if (!inside) sb.Append(c);
+        }
+        return sb.ToString();
+    }
+
+    /// <summary>Adds a character's quadrilateral (corners a, b, c, d as in <see cref="TextGlyph"/>) to the replacement text being read.</summary>
+    private static void Gather(ActualTextSpan span, (double X, double Y) a, (double X, double Y) b, (double X, double Y) c, (double X, double Y) d,
+        double size, bool visible, bool vertical, bool advances)
+    {
+        if (span.Glyphs++ == 0)
+        {
+            // the frame: origin at a, along a → b, across perpendicular to it towards d
+            var (ux, uy) = (b.X - a.X, b.Y - a.Y);
+            var length = Math.Sqrt(ux * ux + uy * uy);
+            (ux, uy) = length > 1e-9 ? (ux / length, uy / length) : (1, 0);
+            var (nx, ny) = (-uy, ux);
+            if ((d.X - a.X) * nx + (d.Y - a.Y) * ny < 0) (nx, ny) = (uy, -ux);
+            (span.Ox, span.Oy, span.Ux, span.Uy, span.Nx, span.Ny) = (a.X, a.Y, ux, uy, nx, ny);
+            (span.SMin, span.SMax, span.TMinAll, span.TMaxAll) = (double.MaxValue, double.MinValue, double.MaxValue, double.MinValue);
+            span.Vertical = vertical;
+        }
+        foreach (var (x, y) in (ReadOnlySpan<(double, double)>)[a, b, c, d])
+        {
+            var s = (x - span.Ox) * span.Ux + (y - span.Oy) * span.Uy;
+            var t = (x - span.Ox) * span.Nx + (y - span.Oy) * span.Ny;
+            if (!double.IsFinite(s) || !double.IsFinite(t)) continue;
+            (span.SMin, span.SMax) = (Math.Min(span.SMin, s), Math.Max(span.SMax, s));
+            (span.TMinAll, span.TMaxAll) = (Math.Min(span.TMinAll, t), Math.Max(span.TMaxAll, t));
+            if (advances) (span.TMin, span.TMax) = (Math.Min(span.TMin, t), Math.Max(span.TMax, t));
+        }
+        span.Size = Math.Max(span.Size, size);
+        span.Visible |= visible;
+    }
+
     /// <summary>Records a character with its quadrilateral for search and selection.</summary>
     private void RecordText(PdfFont font, PdfGlyph glyph, Matrix textToPage, bool visible)
     {
+        if (_actualText is { } span)
+        {
+            // within a replacement text: the character counts with its quadrilateral, not with its own text (nor as unreadable)
+            var (gx0, gx1) = font.Vertical ? (0, glyph.Width > 0 ? glyph.Width : 1) : (0, glyph.Width > 0 ? glyph.Width : 0.25);
+            var (gy0, gy1) = font.Vertical ? (glyph.OriginY + glyph.VerticalAdvance, glyph.OriginY) : (font.Descent, font.Ascent);
+            var em = textToPage.TransformVector(0, 1);
+            Gather(span, textToPage.Transform(gx0, gy0), textToPage.Transform(gx1, gy0), textToPage.Transform(gx1, gy1), textToPage.Transform(gx0, gy1),
+                Math.Sqrt(em.X * em.X + em.Y * em.Y), visible, font.Vertical, glyph.Width > 0);
+            return;
+        }
         if (glyph.Text is not { Length: > 0 } text)
         {
             // drawn, but without text: no search can find it — counted, so that searching to redact can say so
@@ -399,7 +531,7 @@ public sealed partial class PageInterpreter
         var (dx, dy) = textToPage.Transform(x0, y1);
         var size = textToPage.TransformVector(0, 1);
         _builder.AddText(new TextGlyph(text, (float)ax, (float)ay, (float)bx, (float)by, (float)cx, (float)cy, (float)dx, (float)dy,
-            (float)Math.Sqrt(size.X * size.X + size.Y * size.Y), visible, font.Vertical));
+            (float)Math.Sqrt(size.X * size.X + size.Y * size.Y), visible, font.Vertical, glyph.AlternateText));
     }
 
     // ------------------------------------------------------------ Text as a clip
@@ -481,6 +613,7 @@ public sealed partial class PageInterpreter
             while (_stack.Count > savedStack) _stack.Pop();
             while (_hiddenStack.Count > savedHidden)
                 if (_hiddenStack.Pop()) _hiddenDepth--;
+            EndActualText();
             _gs = saved;
             (_tm, _tlm, _uncolored) = (savedTm, savedTlm, savedUncolored);
             _verbs.Clear();

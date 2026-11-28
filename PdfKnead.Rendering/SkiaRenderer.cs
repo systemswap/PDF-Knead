@@ -242,7 +242,8 @@ public static class SkiaRenderer
             while (nextGroup < groups.Length && groups[nextGroup].Start <= index)
             {
                 var g = nextGroup++;
-                if (!groups[g].NeedsLayer || groups[g].End <= index || groups[g].Start < skipUntil) continue;
+                // a text group kept only for overprinting is no group without its simulation (docs/FEHLERGEDAECHTNIS.md, No. 1257)
+                if (!groups[g].NeedsLayer || groups[g].OverprintOnly && !overprintPreview || groups[g].End <= index || groups[g].Start < skipUntil) continue;
                 if (groups[g].Alpha == 0 || include is not null && !AnyIncluded(groups[g]))
                 {
                     // Invisible, or (mask pass of compact "save as image") nothing of it selected: neither layer nor content —

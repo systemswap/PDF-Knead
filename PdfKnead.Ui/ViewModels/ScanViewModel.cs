@@ -556,6 +556,22 @@ public sealed partial class ScanViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(ColourAdjustable))]
     public partial bool BlackWhite { get; set; }
 
+    /// <summary>
+    /// Whether the processing applies to all scanned pages (on by default) or only to the selected ones — a check box above „Begradigen“ in
+    /// place of the former button „Für alle übernehmen“ (27.11.2026). Switched on, the shown processing is given to all pages.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(AdjustmentsTarget))]
+    public partial bool ApplyToAll { get; set; } = true;
+
+    partial void OnApplyToAllChanged(bool value)
+    {
+        if (value && _pages.Count > 0) ApplyAdjustmentsToAll();
+    }
+
+    /// <summary>The pages a change of the processing applies to: all with <see cref="ApplyToAll"/>, else the selected or the shown one.</summary>
+    private List<ScanPage> AdjustedPages() => ApplyToAll ? [.. _pages] : SelectedOrCurrent();
+
     /// <summary>Schwelle für Schwarzweiß 0 … 100.</summary>
     [ObservableProperty]
     public partial double Threshold { get; set; } = 50;
@@ -610,6 +626,7 @@ public sealed partial class ScanViewModel : ObservableObject
         {
             var selected = Pages.Count(p => p.IsSelected);
             return Current is null ? Tr.T("für neue Scans")
+                : ApplyToAll ? Tr.T("Alle Seiten")
                 : selected > 1 ? Tr.T("{0} Seiten gewählt", selected)
                 : Tr.T("Seite {0}", _pages.IndexOf(Current) + 1);
         }
@@ -747,7 +764,7 @@ public sealed partial class ScanViewModel : ObservableObject
     {
         if (_loadingAdjustments) return;
         _next = Shown();
-        foreach (var page in SelectedOrCurrent())
+        foreach (var page in AdjustedPages())
         {
             page.Adjustments = change(page.Adjustments);
             _tilesToRefresh.Add(page);
@@ -755,13 +772,13 @@ public sealed partial class ScanViewModel : ObservableObject
         _ = RefreshAsync();
     }
 
-    /// <summary>Takes the processing of the selected pages back to the raw scan.</summary>
+    /// <summary>Takes the processing of the pages it applies to (all with <see cref="ApplyToAll"/>, else the selected ones) back to the raw scan.</summary>
     [RelayCommand]
     private void ResetAdjustments()
     {
         LoadAdjustments(ScanAdjustments.None);
         _next = ScanAdjustments.None;
-        foreach (var page in SelectedOrCurrent())
+        foreach (var page in AdjustedPages())
         {
             page.Adjustments = ScanAdjustments.None;
             _tilesToRefresh.Add(page);
@@ -769,8 +786,7 @@ public sealed partial class ScanViewModel : ObservableObject
         _ = RefreshAsync();
     }
 
-    /// <summary>Gives all pages the processing shown.</summary>
-    [RelayCommand]
+    /// <summary>Gives all pages the processing shown (when <see cref="ApplyToAll"/> is switched on).</summary>
     private void ApplyAdjustmentsToAll()
     {
         var shown = Shown();

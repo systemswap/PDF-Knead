@@ -82,7 +82,7 @@ public sealed class PageText
     /// <summary>Approximate memory use in bytes (glyphs, text, mappings, lines).</summary>
     public long EstimatedBytes =>
         _glyphs.Length * (long)System.Runtime.CompilerServices.Unsafe.SizeOf<TextGlyph>() + Text.Length * 4L   // text and search text
-        + _glyphOfChar.Length * 4L + _firstChar.Length * 4L + _lines.Length * 40L + 120;
+        + _glyphOfChar.Length * 4L + _firstChar.Length * 4L + _lines.Length * 40L + (_rightToLeft?.Length ?? 0) + (_alternate?.EstimatedBytes ?? 0) + 120;
 
     /// <summary>Assembles the text from the characters of a display list.</summary>
     /// <param name="glyphs">The characters in content order (<see cref="DisplayList.Text"/>); the array is kept, not copied (unless pieces
@@ -95,9 +95,12 @@ public sealed class PageText
     /// <param name="unreadableGlyphs">Characters drawn without readable text (<see cref="DisplayList.UnreadableGlyphs"/>).</param>
     /// <param name="misreadGlyphs">Characters with suspicious text (<see cref="DisplayList.MisreadGlyphs"/>).</param>
     /// <returns>The page text.</returns>
-    public static PageText Create(TextGlyph[] glyphs, int unreadableGlyphs, int misreadGlyphs = 0)
+    public static PageText Create(TextGlyph[] glyphs, int unreadableGlyphs, int misreadGlyphs = 0) =>
+        Build(Stitched(glyphs), unreadableGlyphs, misreadGlyphs);
+
+    /// <summary>The text of glyphs in the order given (<see cref="Create(TextGlyph[], int, int)"/> after <see cref="Stitched"/>; <see cref="Alternate"/> as they stand).</summary>
+    private static PageText Build(TextGlyph[] glyphs, int unreadableGlyphs, int misreadGlyphs)
     {
-        glyphs = Stitched(glyphs);
         var text = new StringBuilder(glyphs.Length + glyphs.Length / 5);
         var glyphOfChar = new List<int>(glyphs.Length + glyphs.Length / 5);
         var firstChar = new int[glyphs.Length];
@@ -163,7 +166,249 @@ public sealed class PageText
             prev = cur;
         }
         EndLine(previous);
-        return new PageText(glyphs, text.ToString(), [.. glyphOfChar], firstChar, [.. lines]) { UnreadableGlyphs = unreadableGlyphs, MisreadGlyphs = misreadGlyphs };
+        var chars = text.ToString();
+        var map = glyphOfChar.ToArray();
+        var rightToLeft = LogicalOrder(ref chars, map, firstChar, glyphs.Length);
+        return new PageText(glyphs, chars, map, firstChar, [.. lines])
+        {
+            UnreadableGlyphs = unreadableGlyphs, MisreadGlyphs = misreadGlyphs, _rightToLeft = rightToLeft,
+            _hasAlternate = Array.Exists(glyphs, g => g.Alternate is { Length: > 0 }),
+        };
+    }
+
+    // ------------------------------------------------------------ The second reading (docs/FEHLERGEDAECHTNIS.md, No. 1235)
+
+    private bool _hasAlternate;
+    private PageText? _alternate;
+    private bool _alternateDone;
+
+    /// <summary>
+    /// The text of the page in the second reading its glyphs have (<see cref="TextGlyph.Alternate"/>: a font that is not embedded, which a
+    /// reference reader shows otherwise than PDF-Knead draws it — the CID as Unicode where PDF-Knead draws it as a glyph number, or the other
+    /// way round); every other glyph keeps its text. Null if no glyph has one. The same glyphs in the same order, so each of its ranges is a
+    /// range here as well (<see cref="FromAlternate"/>): <see cref="Find"/> and <see cref="FindAll"/> search both readings and count a hit in
+    /// either, so „Suchen und schwärzen“ removes what that reader shows (security); copying and the text extraction keep <see cref="Text"/>.
+    /// </summary>
+    public PageText? Alternate
+    {
+        get
+        {
+            if (!_hasAlternate) return null;
+            if (_alternateDone) return _alternate;
+            var glyphs = new TextGlyph[_glyphs.Length];
+            for (var i = 0; i < glyphs.Length; i++)
+                glyphs[i] = _glyphs[i] with { Text = _glyphs[i].Alternate is { Length: > 0 } alternate ? alternate : _glyphs[i].Text, Alternate = null };
+            _alternate = Build(glyphs, UnreadableGlyphs, MisreadGlyphs);
+            _alternateDone = true;
+            return _alternate;
+        }
+    }
+
+    /// <summary>
+    /// Per glyph the glyph whose characters stand for it here — itself, or for an overprinted copy (read once) the glyph before it that was
+    /// read; -1 for none — and per glyph the end of its characters in <see cref="Text"/>.
+    /// </summary>
+    private (int[] ReadAs, int[] End)? _glyphChars;
+
+    /// <summary>
+    /// <see cref="_glyphChars"/>, made on first use in two linear passes: a copy is skipped in <see cref="Build"/> only after the glyph read last,
+    /// so it stands for what the glyph before it stands for. No search back or along per hit: a page of thousands of copies or a replacement
+    /// text of thousands of characters with as many hits stays linear (security).
+    /// </summary>
+    private (int[] ReadAs, int[] End) GlyphChars()
+    {
+        if (_glyphChars is { } done) return done;
+        var readAs = new int[_glyphs.Length];
+        for (var g = 0; g < readAs.Length; g++) readAs[g] = _firstChar[g] >= 0 ? g : g > 0 ? readAs[g - 1] : -1;
+        var end = new int[_glyphs.Length];
+        for (var c = 0; c < _glyphOfChar.Length; c++)
+            if (_glyphOfChar[c] is var g and >= 0) end[g] = Math.Max(end[g], c + 1);
+        _glyphChars = (readAs, end);
+        return (readAs, end);
+    }
+
+    /// <summary>
+    /// A range of <see cref="Alternate"/> as a range of <see cref="Text"/>: from the first to the last character of the glyphs it covers (an
+    /// overprinted copy, read once here, stands for the glyph it repeats). Null if it covers no glyph with a second reading — then the same
+    /// characters stand here and a search here finds them as finely as there — or none of its glyphs has characters here, or the page has no
+    /// second reading.
+    /// </summary>
+    /// <param name="range">A range of <see cref="Alternate"/>.</param>
+    /// <returns>The range of the same glyphs in <see cref="Text"/>, or null.</returns>
+    public TextRange? FromAlternate(TextRange range)
+    {
+        if (Alternate is not { } alternate) return null;
+        var (readAs, ends) = GlyphChars();
+        int start = int.MaxValue, end = -1, last = -1;
+        var second = false;
+        for (var c = Math.Max(0, range.Start); c < Math.Min(range.End, alternate.Text.Length); c++)
+        {
+            var g = alternate._glyphOfChar[c];
+            if (g < 0 || g == last) continue;
+            last = g;
+            second |= _glyphs[g].Alternate is { Length: > 0 };
+            var own = readAs[g];
+            if (own < 0) continue;
+            start = Math.Min(start, _firstChar[own]);
+            end = Math.Max(end, ends[own]);
+        }
+        return second && end > start ? new TextRange(start, end - start) : null;
+    }
+
+    /// <summary>
+    /// A range of <see cref="Text"/> as a range of <see cref="Alternate"/>, the other way round from <see cref="FromAlternate"/>: from the first to
+    /// the last character there of the glyphs it covers — what the hit reads in the second reading („Suchen und schwärzen“ shows a hit found only
+    /// there so; No. 1246). Null if it covers no glyph with a second reading, none of its glyphs has characters there, or the page has no second
+    /// reading.
+    /// </summary>
+    /// <param name="range">A range of <see cref="Text"/>.</param>
+    /// <returns>The range of the same glyphs in <see cref="Alternate"/>, or null.</returns>
+    public TextRange? ToAlternate(TextRange range)
+    {
+        if (Alternate is not { } alternate) return null;
+        var (readAs, ends) = alternate.GlyphChars();
+        int start = int.MaxValue, end = -1, last = -1;
+        var second = false;
+        for (var c = Math.Max(0, range.Start); c < Math.Min(range.End, Text.Length); c++)
+        {
+            var g = _glyphOfChar[c];
+            if (g < 0 || g == last) continue;
+            last = g;
+            second |= _glyphs[g].Alternate is { Length: > 0 };
+            var there = readAs[g];
+            if (there < 0) continue;
+            start = Math.Min(start, alternate._firstChar[there]);
+            end = Math.Max(end, ends[there]);
+        }
+        return second && end > start ? new TextRange(start, end - start) : null;
+    }
+
+    /// <summary>Hits of both readings in one list (<see cref="Find"/>): those of <see cref="Alternate"/> as ranges here, overlapping hits joined, in text order.</summary>
+    private List<TextRange> WithAlternate(List<TextRange> own, List<TextRange> alternate)
+    {
+        if (alternate.Count == 0) return own;
+        var all = new List<TextRange>(own.Count + alternate.Count);
+        all.AddRange(own);
+        foreach (var range in alternate)
+            if (FromAlternate(range) is { } here) all.Add(here);
+        all.Sort((a, b) => a.Start != b.Start ? a.Start.CompareTo(b.Start) : b.Length.CompareTo(a.Length));
+        var merged = new List<TextRange>(all.Count);
+        foreach (var range in all)
+        {
+            if (merged.Count > 0 && range.Start < merged[^1].End)
+            {
+                if (range.End > merged[^1].End) merged[^1] = new TextRange(merged[^1].Start, range.End - merged[^1].Start);
+                continue;
+            }
+            merged.Add(range);
+        }
+        return merged;
+    }
+
+    /// <summary>Per glyph whether it stands in a right-to-left run read back in logical order (<see cref="LogicalOrder"/>); null if none does.</summary>
+    private bool[]? _rightToLeft;
+
+    /// <summary>
+    /// Lines with right-to-left text read in logical order: every line is assembled along its direction, so a line holding Hebrew or Arabic letters
+    /// stands in the visual order of its glyphs — as producers write such text, and as the appearances of PDF Knead draw it (UAX #9, L2). Like two of
+    /// the three reference readers, the text extraction restores the reading order: the Unicode Bidirectional Algorithm on the line as drawn, with
+    /// the paragraph level from the strong characters at its ends (see the code; the line does not tell which kind of paragraph it belongs to — „a א“
+    /// is drawn alike for both), reorders it per glyph (L2), so the characters of one glyph keep their order and a mark stays after its letter.
+    /// Mirrored characters keep their text (the appearances store the logical character, Sonderregel A204). Copying, searching and „Suchen und
+    /// schwärzen“ then find „אב“ where the page shows it, each character still knowing its glyph. Lines without right-to-left letters stay as they
+    /// are (docs/FEHLERGEDAECHTNIS.md, No. 1177).
+    /// </summary>
+    /// <param name="text">The page text; replaced by the reordered one.</param>
+    /// <param name="glyphOfChar">Per character its glyph (reordered with the text).</param>
+    /// <param name="firstChar">Per glyph its first character (updated).</param>
+    /// <param name="glyphCount">The number of glyphs.</param>
+    /// <returns>Per glyph whether it stands at an odd level; null if no line was reordered.</returns>
+    private static bool[]? LogicalOrder(ref string text, int[] glyphOfChar, int[] firstChar, int glyphCount)
+    {
+        bool[]? odd = null;
+        char[]? result = null;
+        for (var start = 0; start < text.Length;)
+        {
+            var end = text.IndexOf('\n', start);
+            if (end < 0) end = text.Length;
+            // the strong characters of the line (ASCII without the table: letters are L, the rest is not strong): how many of each kind, and
+            // the kind of the first and the last from the left
+            int strongRight = 0, strongLeft = 0;
+            bool? firstRight = null, lastRight = null;
+            for (var i = start; i < end; i++)
+            {
+                bool right;
+                if (char.IsAscii(text[i]))
+                {
+                    if (!char.IsAsciiLetter(text[i])) continue;
+                    right = false;
+                }
+                else
+                {
+                    var c = char.IsHighSurrogate(text[i]) && i + 1 < end && char.IsLowSurrogate(text[i + 1]) ? char.ConvertToUtf32(text[i], text[++i]) : text[i];
+                    var kind = Core.Fonts.Layout.Bidi.ClassOf(c);
+                    if (kind is not (Core.Fonts.Layout.BidiClass.R or Core.Fonts.Layout.BidiClass.AL or Core.Fonts.Layout.BidiClass.L)) continue;
+                    right = kind != Core.Fonts.Layout.BidiClass.L;
+                }
+                if (right) strongRight++;
+                else strongLeft++;
+                firstRight ??= right;
+                lastRight = right;
+            }
+            if (strongRight > 0)
+            {
+                // the paragraph level: left to right where the line begins with a left-to-right character (as a line of a left-to-right
+                // paragraph does, and as both reference readers that reorder read it), right to left where both its ends are right-to-left; a
+                // line beginning right-to-left and ending left-to-right (a following line of either kind of paragraph) by the majority
+                var level = firstRight == false ? (byte)0 : lastRight == true ? (byte)1 : strongRight > strongLeft ? (byte)1 : (byte)0;
+                result ??= text.ToCharArray();
+                odd ??= new bool[glyphCount];
+                ReorderLine(text, start, end, level, result, glyphOfChar, firstChar, odd);
+            }
+            start = end + 1;
+        }
+        if (result is not null) text = new string(result);
+        return odd;
+    }
+
+    /// <summary>One line of <see cref="LogicalOrder"/>: its units (the characters of one glyph, or an inserted space) put in the order L2 gives on the levels of the line as drawn.</summary>
+    private static void ReorderLine(string text, int start, int end, byte paragraph, char[] result, int[] glyphOfChar, int[] firstChar, bool[] odd)
+    {
+        var line = text[start..end];
+        var analysis = Core.Fonts.Layout.Bidi.Analyze(line, paragraph);
+        var levels = analysis.LineLevels(0, line.Length);
+        var units = new List<(int Start, int Length)>();
+        for (var i = 0; i < line.Length;)
+        {
+            var g = glyphOfChar[start + i];
+            var j = i + 1;
+            if (g >= 0)
+                while (j < line.Length && glyphOfChar[start + j] == g) j++;
+            units.Add((i, j - i));
+            i = j;
+        }
+        var unitLevels = new byte[units.Count];
+        for (var u = 0; u < units.Count; u++) unitLevels[u] = levels[units[u].Start];
+        var order = Core.Fonts.Layout.Bidi.VisualOrder(unitLevels);
+        var glyphs = new int[line.Length];
+        for (var i = 0; i < line.Length; i++) glyphs[i] = glyphOfChar[start + i];
+        var at = start;
+        foreach (var u in order)
+        {
+            var (from, length) = units[u];
+            var g = glyphs[from];
+            if (g >= 0)
+            {
+                firstChar[g] = at;
+                odd[g] = unitLevels[u] % 2 == 1;
+            }
+            for (var k = 0; k < length; k++)
+            {
+                result[at] = line[from + k];
+                glyphOfChar[at] = g;
+                at++;
+            }
+        }
     }
 
     /// <summary>Characters the page draws without readable text: no search finds them (docs/RECHERCHE-VERSTECKEN.md, B-6).</summary>
@@ -404,13 +649,68 @@ public sealed class PageText
 
     private static bool EndsWithSpace(StringBuilder text) => text.Length > 0 && char.IsWhiteSpace(text[^1]);
 
+    /// <summary>
+    /// Text for the clipboard as plain text: the interlinear annotation characters U+FFF9–U+FFFB removed together with the annotating text between
+    /// the separator U+FFFA and the terminator U+FFFB, the annotated text kept (Unicode 23.8.3: the receiver is unknown; before all of it was
+    /// copied; docs/FEHLERGEDAECHTNIS.md, No. 1185). The page text itself keeps every character.
+    /// </summary>
+    /// <param name="text">Text of the page.</param>
+    /// <returns>The text without annotations.</returns>
+    public static string ForPlainText(string text)
+    {
+        if (text.AsSpan().IndexOfAnyInRange('\uFFF9', '\uFFFB') < 0) return text;
+        var sb = new StringBuilder(text.Length);
+        var depth = 0;   // within the annotating text (after a separator, up to its terminator); annotations may nest
+        var annotating = new Stack<bool>();
+        foreach (var c in text)
+        {
+            switch (c)
+            {
+                case '\uFFF9':
+                    annotating.Push(false);
+                    continue;
+                case '\uFFFA':
+                    if (annotating.Count > 0 && !annotating.Peek())
+                    {
+                        annotating.Pop();
+                        annotating.Push(true);
+                        depth++;
+                    }
+                    continue;
+                case '\uFFFB':
+                    if (annotating.Count > 0 && annotating.Pop()) depth--;
+                    continue;
+            }
+            // a paragraph break ends every open annotation (Unicode 23.8.3; before, the rest of the text after an annotation without its
+            // terminator was lost in the copy: docs/FEHLERGEDAECHTNIS.md, No. 1191)
+            if (c is '\n' or '\r' or '\u2029' or '\u0085')
+            {
+                annotating.Clear();
+                depth = 0;
+            }
+            if (depth == 0) sb.Append(c);
+        }
+        return sb.ToString();
+    }
+
     // ------------------------------------------------------------ Search
 
-    /// <summary>Finds all occurrences of <paramref name="query"/>; white space counts as one space, line breaks as spaces.</summary>
+    /// <summary>
+    /// Finds all occurrences of <paramref name="query"/>; white space counts as one space, line breaks as spaces; text and term folded as in
+    /// <see cref="SearchFolding.Fold"/>, upper and lower case per code point.
+    /// </summary>
     /// <param name="query">The search term; normalised with <see cref="NormalizeQuery"/>.</param>
     /// <param name="matchCase">Distinguish upper and lower case (otherwise ordinal, ignoring case).</param>
-    /// <returns>Non-overlapping hits in text order; empty for an empty term.</returns>
+    /// <returns>Non-overlapping hits in text order; empty for an empty term. A page with a second reading (<see cref="Alternate"/>) gives the
+    /// hits of both.</returns>
     public List<TextRange> Find(string query, bool matchCase = false)
+    {
+        var result = FindHere(query, matchCase);
+        return Alternate is { } alternate ? WithAlternate(result, alternate.FindHere(query, matchCase)) : result;
+    }
+
+    /// <summary><see cref="Find"/> in this reading only.</summary>
+    private List<TextRange> FindHere(string query, bool matchCase)
     {
         var result = new List<TextRange>();
         var needle = NormalizeQuery(query);
@@ -434,8 +734,28 @@ public sealed class PageText
     /// </summary>
     /// <param name="queries">Already prepared with <see cref="NormalizeQuery"/>, not empty.</param>
     /// <param name="matchCase">Distinguish upper and lower case.</param>
-    /// <returns>One list of non-overlapping hits per term, in the order of <paramref name="queries"/>.</returns>
+    /// <returns>One list of non-overlapping hits per term, in the order of <paramref name="queries"/>; with a second reading
+    /// (<see cref="Alternate"/>) the hits of both.</returns>
     public List<TextRange>[] FindAll(IReadOnlyList<string> queries, bool matchCase = false)
+    {
+        var results = FindAllHere(queries, matchCase);
+        if (Alternate is not { } alternate) return results;
+        var more = alternate.FindAllHere(queries, matchCase);
+        for (var q = 0; q < results.Length; q++) results[q] = WithAlternate(results[q], more[q]);
+        return results;
+    }
+
+    /// <summary>
+    /// <see cref="FindAll"/> in <see cref="Text"/> alone, without the second reading: which hits stand in the text itself („Suchen und schwärzen“
+    /// shows the others in the reading they were found in; No. 1246).
+    /// </summary>
+    /// <param name="queries">Already prepared with <see cref="NormalizeQuery"/>, not empty.</param>
+    /// <param name="matchCase">Distinguish upper and lower case.</param>
+    /// <returns>One list of non-overlapping hits per term, in the order of <paramref name="queries"/>.</returns>
+    public List<TextRange>[] FindAllInText(IReadOnlyList<string> queries, bool matchCase = false) => FindAllHere(queries, matchCase);
+
+    /// <summary><see cref="FindAll"/> in this reading only.</summary>
+    private List<TextRange>[] FindAllHere(IReadOnlyList<string> queries, bool matchCase)
     {
         var results = new List<TextRange>[queries.Count];
         for (var q = 0; q < queries.Count; q++) results[q] = [];
@@ -468,74 +788,57 @@ public sealed class PageText
             }
         return results;
 
+        // the key folds case as the comparison does, per code point: a surrogate pair cut by the prefix is taken whole (before each UTF-16
+        // unit was upper-cased alone, so a capitalised Warang Citi or Deseret name searched in small letters was never a candidate;
+        // docs/FEHLERGEDAECHTNIS.md, No. 1184); equal keys are only candidates, the comparison decides
         static ulong Key(string s, int start, int length, bool matchCase)
         {
-            ulong key = (ulong)length;
-            for (var i = 0; i < length; i++) key = key << 16 | (matchCase ? s[start + i] : char.ToUpperInvariant(s[start + i]));
-            return key;
+            var span = length;
+            if (start + span < s.Length && char.IsHighSurrogate(s[start + span - 1]) && char.IsLowSurrogate(s[start + span])) span++;
+            var hash = string.GetHashCode(s.AsSpan(start, span), matchCase ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase);
+            return (ulong)length << 32 | (uint)hash;
         }
     }
 
     /// <summary>
-    /// The text searches run over (docs/FEHLERGEDAECHTNIS.md, No. 355): line breaks as spaces; letters with separate accents (u and a
-    /// combining diaeresis, as some producers map them) composed, so that „Mündung“ finds them; soft hyphens left out; a hyphen at the end of
-    /// a line before a small letter joins the word („Muster-“ / „mann“ is found as „Mustermann“), any other one keeps the hyphen without the
-    /// break („Max-“ / „Planck“ as „Max-Planck“). <c>Map</c> gives, for each character of it, its place in <see cref="Text"/> (and one more
-    /// entry: the end) — null if the text is the page text itself.
+    /// The text searches run over (docs/FEHLERGEDAECHTNIS.md, No. 355, 1176, 1184): line breaks as spaces; a hyphen at the end of a line
+    /// before a small letter joins the word („Muster-“ / „mann“ is found as „Mustermann“), any other one keeps the hyphen without the break
+    /// („Max-“ / „Planck“ as „Max-Planck“); canonically equivalent text, format characters, presentation forms and the equivalent spellings
+    /// folded as in <see cref="SearchFolding.Fold"/>. <c>Map</c> gives, for each character of it, its place in <see cref="Text"/> (and one
+    /// more entry: the end) — null if the text is the page text itself.
     /// </summary>
     private static (string Text, int[]? Map) SearchText(string text)
     {
-        static bool Mark(char c) => System.Globalization.CharUnicodeInfo.GetUnicodeCategory(c) is System.Globalization.UnicodeCategory.NonSpacingMark
-            or System.Globalization.UnicodeCategory.SpacingCombiningMark or System.Globalization.UnicodeCategory.EnclosingMark;
-        if (!text.Contains('\u00AD') && !text.Contains("-\n", StringComparison.Ordinal) && !text.Any(Mark)) return (text.Replace('\n', ' '), null);
-        var sb = new StringBuilder(text.Length);
-        var map = new List<int>(text.Length + 1);
-        for (var i = 0; i < text.Length; i++)
-        {
-            var c = text[i];
-            if (c == '\u00AD') continue;
-            if (c == '-' && i + 1 < text.Length && text[i + 1] == '\n')
-            {
-                if (!(i > 0 && char.IsLetter(text[i - 1]) && i + 2 < text.Length && char.IsLower(text[i + 2])))
-                {
-                    sb.Append('-');
-                    map.Add(i);
-                }
-                i++;
-                continue;
-            }
-            if (i + 1 < text.Length && Mark(text[i + 1]))
-            {
-                var j = i + 1;
-                while (j < text.Length && Mark(text[j])) j++;
-                foreach (var composed in text.AsSpan(i, j - i).ToString().Normalize(NormalizationForm.FormC))
-                {
-                    sb.Append(composed);
-                    map.Add(i);
-                }
-                i = j - 1;
-                continue;
-            }
-            sb.Append(c == '\n' ? ' ' : c);
-            map.Add(i);
-        }
-        map.Add(text.Length);
-        return (sb.ToString(), [.. map]);
+        if (!text.Contains("-\n", StringComparison.Ordinal) && SearchFolding.Unchanged(text))
+            return (text.Replace('\n', ' '), null);
+        var (folded, map) = SearchFolding.Fold(text, page: true);
+        return (folded, map);
     }
 
-    /// <summary>A hit in the search text as a range of <see cref="Text"/>.</summary>
-    private static TextRange InText(int start, int length, int[]? map) =>
-        map is null ? new TextRange(start, length) : new TextRange(map[start], map[start + length] - map[start]);
+    /// <summary>
+    /// A hit in the search text as a range of <see cref="Text"/>. A hit that ends within the characters one character of the text became
+    /// (part of a folded ligature such as lam-alef, a letter without the marks composed with it) takes that whole character: its glyph shows
+    /// what was found (before, such a hit had no characters and marked no glyph; No. 1176).
+    /// </summary>
+    private static TextRange InText(int start, int length, int[]? map)
+    {
+        if (map is null) return new TextRange(start, length);
+        var end = start + length;
+        while (end < map.Length - 1 && map[end] == map[end - 1]) end++;
+        return new TextRange(map[start], map[end] - map[start]);
+    }
 
-    /// <summary>Collapses white space in the search term into single spaces and trims it.</summary>
+    /// <summary>
+    /// Prepares a search term: folded as the page text (<see cref="SearchFolding.Fold"/>: canonically equivalent text, format characters,
+    /// presentation forms, equivalent spellings), white space collapsed into single spaces and trimmed.
+    /// </summary>
     /// <param name="query">The term as entered.</param>
     /// <returns>The normalised term; empty if it consists only of white space.</returns>
     public static string NormalizeQuery(string query)
     {
-        var sb = new StringBuilder(query.Length);
-        // composed as the search text (letters with separate accents), without soft hyphens
-        foreach (var c in query.Normalize(NormalizationForm.FormC).Replace("\u00AD", "", StringComparison.Ordinal).Trim())
-        {
+        var (folded, _) = SearchFolding.Fold(query.Trim(), page: false);
+        var sb = new StringBuilder(folded.Length);
+        foreach (var c in folded)
             if (char.IsWhiteSpace(c))
             {
                 if (sb.Length > 0 && sb[^1] != ' ') sb.Append(' ');
@@ -544,8 +847,7 @@ public sealed class PageText
             {
                 sb.Append(c);
             }
-        }
-        return sb.ToString();
+        return sb.ToString().Trim();
     }
 
     // ------------------------------------------------------------ Quadrilaterals
@@ -575,7 +877,8 @@ public sealed class PageText
     private List<TextQuad> QuadsCore(TextRange range)
     {
         var result = new List<TextQuad>();
-        int first = -1, last = -1;
+        var line = new List<int>();
+        var ordered = true;
         var end = Math.Min(range.End, Text.Length);
         for (var c = Math.Max(0, range.Start); c < end; c++)
         {
@@ -585,17 +888,42 @@ public sealed class PageText
                 if (Text[c] == '\n') Flush();
                 continue;
             }
-            if (first < 0) first = g;
-            last = g;
+            if (line.Count > 0 && g < line[^1]) ordered = false;
+            line.Add(g);
         }
         Flush();
         return result;
 
         void Flush()
         {
-            if (first < 0) return;
-            result.Add(Span(_glyphs[first], _glyphs[last]));
-            first = last = -1;
+            if (line.Count == 0) return;
+            if (ordered)
+            {
+                result.Add(Span(_glyphs[line[0]], _glyphs[line[^1]]));
+            }
+            else
+            {
+                // a line read back in logical order (LogicalOrder): the characters do not follow the glyphs along the line, so one quadrilateral
+                // per stretch of glyphs that stand next to each other — from the first to the last character would also take in glyphs outside
+                // the range, or none (docs/FEHLERGEDAECHTNIS.md, No. 1177); overprinted copies between two of them do not interrupt a stretch
+                var glyphs = line.Distinct().Order().ToList();
+                var from = glyphs[0];
+                for (var k = 1; k <= glyphs.Count; k++)
+                {
+                    if (k < glyphs.Count && Adjacent(glyphs[k - 1], glyphs[k])) continue;
+                    result.Add(Span(_glyphs[from], _glyphs[glyphs[k - 1]]));
+                    if (k < glyphs.Count) from = glyphs[k];
+                }
+            }
+            line.Clear();
+            ordered = true;
+        }
+
+        bool Adjacent(int a, int b)
+        {
+            for (var g = a + 1; g < b; g++)
+                if (_firstChar[g] >= 0) return false;
+            return true;
         }
     }
 
@@ -773,6 +1101,8 @@ public sealed class PageText
         var geo = Geometry(g);
         var length = Distance(geo.StartX, geo.StartY, geo.EndX, geo.EndY);
         var t = length > 0 ? ((x - geo.StartX) * geo.DirX + (y - geo.StartY) * geo.DirY) / length : 0;
+        // a glyph of a right-to-left run read in logical order: its text begins at its far end (No. 1177)
+        if (_rightToLeft is { } odd && odd[best]) t = 1 - t;
         return t > 0.5 ? _firstChar[best] + g.Text.Length : _firstChar[best];
     }
 

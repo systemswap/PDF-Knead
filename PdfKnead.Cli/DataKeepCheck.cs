@@ -272,11 +272,14 @@ internal static class DataKeepCheck
                     if (d.GetName(PdfName.Subtype)?.Value == "Widget") (d, e) = (EffectiveField(d), EffectiveField(e));
                     var outer = _settled;
                     var outerFont = _rebuiltWidths;
+                    var outerCid = _strayCidMap;
                     if (d.ContainsKey(PdfName.Get("Rect")) && d.ContainsKey(PdfName.Subtype) && Settled(d)) _settled = path;   // an annotation, by any path
                     if (WidthsRebuilt(d)) _rebuiltWidths = path;
+                    if (StrayCidToGidMap(d)) _strayCidMap = path;
                     Dict(d, e, path, strict, depth, stream: false);
                     _settled = outer;
                     _rebuiltWidths = outerFont;
+                    _strayCidMap = outerCid;
                     return;
                 case PdfArray ar:
                     if (v is PdfStream joined && LastKey(path) == "Contents" && InlinePlaced(ar, joined))
@@ -310,6 +313,13 @@ internal static class DataKeepCheck
                     if (LastKey(path) == "Type" && u is PdfName && v is PdfName { Value: "XObject" } && !SameValue(u, v))
                     {
                         Note(strict, "Wert anders", path, "/Type einer Form als XObject geschrieben (ISO 32000-2, 8.10.2; FG 1131)");
+                        return;
+                    }
+                    // 2.0: /Compatible is no blend mode of ISO 32000-2 — written as /Normal, which is how it acts (11.3.5; FG 1253)
+                    if (LastKey(path) == "BM" && u is PdfName { Value: "Compatible" } && v is PdfName { Value: "Normal" } &&
+                        string.CompareOrdinal(version, "2.0") >= 0)
+                    {
+                        Note(strict, "Wert anders", path, "in PDF 2.0 gibt es /BM /Compatible nicht: als /Normal geschrieben, wie es wirkt (ISO 32000-2, 11.3.5; FG 1253)");
                         return;
                     }
                     if (!SameValue(u, v)) Note(strict, "Wert anders", path, RenamedTarget(path, u, v));
@@ -586,8 +596,21 @@ internal static class DataKeepCheck
                      Enumerable.Range(0, array.Count).All(i => Resolve(a, array[i]) is PdfInteger or PdfReal));
         }
 
+        /// <summary>The Type 2 CIDFont (its path) whose /CIDToGIDMap the save leaves out, while its parts are compared.</summary>
+        private string? _strayCidMap;
+
+        /// <summary>
+        /// Whether the save leaves out the /CIDToGIDMap of this font (FG 1167): a Type 2 CIDFont without an embedded program (ISO 32000-1,
+        /// 9.7.4.2: not allowed there; ISO 32000-2: to be ignored) — in every version, except as PDF/A, which embeds every font itself.
+        /// </summary>
+        private bool StrayCidToGidMap(PdfDictionary font) =>
+            font.GetName(PdfName.Subtype)?.Value == "CIDFontType2" && font.ContainsKey(PdfName.Get("CIDToGIDMap")) &&
+            !(Resolve(a, font.GetRaw(PdfName.Get("FontDescriptor"))) is PdfDictionary descriptor && descriptor.ContainsKey(PdfName.Get("FontFile2")));
+
         private void Note(bool strict, string kind, string path, string? reason)
         {
+            if (reason is null && _strayCidMap is { } cidFont && path == cidFont + "/CIDToGIDMap" && kind == "fehlt")
+                reason = "CIDFontType2 ohne eingebettetes Programm: /CIDToGIDMap entfernt (ISO 32000-1 9.7.4.2 verbietet sie dort, ISO 32000-2 übergeht sie; FG 1167)";
             if (reason is null && _rebuiltWidths is { } font && path.StartsWith(font, StringComparison.Ordinal) &&
                 (path[font.Length..] is "/FirstChar" or "/LastChar" or "/Widths" || path[font.Length..].StartsWith("/Widths[", StringComparison.Ordinal)))
                 reason = "einfache Schrift: /Widths passte nicht zu FirstChar und LastChar — die Breiten der Anzeige für 0 bis 255 eingesetzt (FG 886)";

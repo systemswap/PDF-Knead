@@ -86,7 +86,7 @@ public static partial class PdfTextEncoding
     /// no character there. Before, they were written as such bytes, which a reader may take for anything (docs/FEHLERGEDAECHTNIS.md, No. 1145).
     /// </summary>
     private static bool InDocEncoding(char c) =>
-        c <= 0xFF && !DocEncoding.ContainsKey((byte)c) && c is not ('\u009F' or '­' or '\u007F') && (c >= 0x20 || c is '\t' or '\n' or '\r');
+        c <= 0xFF && !DocEncoding.ContainsKey((byte)c) && c is not ('\u009F' or '\u00AD' or '\u007F') && (c >= 0x20 || c is '\t' or '\n' or '\r');
 
     /// <summary>
     /// Removes language markers (ISO 32000-2, 7.9.2.2.2: ESC, a language code of two letters, optionally a country code of two letters, ESC)

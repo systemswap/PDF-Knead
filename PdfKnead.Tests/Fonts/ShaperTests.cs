@@ -63,11 +63,12 @@ public sealed class ShaperTests(ITestOutputHelper output)
         var data = handwriting ? EmbeddedFonts.LoadHandwriting(file) : EmbeddedFonts.LoadStandard(file);
         var font = OpenTypeFont.Parse(data);
         var shaper = TextShaper.For(font);
-        // For Latin script HarfBuzz also applies rclt, rvrn and others; they do not affect these fonts
+        // Both apply rclt, rvrn, ltra and ltrm (since docs/FEHLERGEDAECHTNIS.md, No. 1174); cpsp, which the registration wants on by default in
+        // words of capitals (Patrick Hand has it), HarfBuzz leaves off — compared without it
         var mismatches = new List<string>();
         foreach (var text in Samples)
         {
-            var own = shaper.Shape(text);
+            var own = shaper.Shape(text, ["-cpsp"]);
             var hb = HarfBuzz(data, font.UnitsPerEm, text, []);
             var glyphs = own.Select(g => g.Glyph).ToArray();
             if (!glyphs.SequenceEqual(hb.Glyphs))
@@ -93,6 +94,36 @@ public sealed class ShaperTests(ITestOutputHelper output)
         }
         foreach (var m in mismatches) output.WriteLine(m);
         Assert.True(mismatches.Count == 0, $"{file}: {mismatches.Count} Abweichungen\n{string.Join("\n", mismatches)}");
+    }
+
+    /// <summary>
+    /// Greek and Cyrillic text in the Liberation fonts, shaped under the script of the text („grek“, „cyrl“; docs/FEHLERGEDAECHTNIS.md,
+    /// No. 1162): the same glyphs and positions as HarfBuzz, which takes the script from the text as well.
+    /// </summary>
+    [Theory]
+    [InlineData("LiberationSans-Regular.ttf")]
+    [InlineData("LiberationSerif-Regular.ttf")]
+    [InlineData("LiberationMono-Regular.ttf")]
+    public void GreekAndCyrillic_SameGlyphsAndPositionsAsHarfBuzz(string file)
+    {
+        var data = EmbeddedFonts.LoadStandard(file);
+        var font = OpenTypeFont.Parse(data);
+        var shaper = TextShaper.For(font);
+        foreach (var text in new[] { "Καλημέρα, ΑΥΤΟΚΙΝΗΤΟ ΤΑΥΤΑ", "Добрый день, ГОРОД АТАКА", "Ἀθῆναι ᾅδης" })
+        {
+            var own = shaper.Shape(text);
+            var hb = HarfBuzz(data, font.UnitsPerEm, text, []);
+            Assert.Equal(hb.Glyphs, own.Select(g => g.Glyph).ToArray());
+            double penOwn = 0, penHb = 0;
+            for (var i = 0; i < own.Length; i++)
+            {
+                Assert.True(Math.Abs(penOwn + own[i].XOffset - (penHb + hb.XOffsets[i])) <= 1, $"„{text}“ Glyphe {i}");
+                Assert.True(Math.Abs(own[i].YOffset - hb.YOffsets[i]) <= 1, $"„{text}“ Glyphe {i}");
+                penOwn += own[i].XAdvance;
+                penHb += hb.Advances[i];
+            }
+            Assert.True(Math.Abs(penOwn - penHb) <= 1, $"„{text}“ Breite");
+        }
     }
 
     /// <summary>

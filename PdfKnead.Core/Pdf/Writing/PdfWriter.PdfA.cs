@@ -1414,6 +1414,10 @@ public static partial class PdfWriter
             if (type is not (1 or 5) || halftone.ContainsKey(PdfName.Get("HalftoneName"))) return false;
             if (colorant != "Default" && (colorant is null or "Cyan" or "Magenta" or "Yellow" or "Black") == halftone.ContainsKey(PdfName.Get("TransferFunction")))
                 return false;
+            // only the colourants of the halftone of the graphics state (a type 5 halftone within one is not allowed, ISO 32000-2, 10.6.5.6;
+            // going down into it let one halftone naming itself 64 times make 64^5 calls — docs/FEHLERGEDAECHTNIS.md, No. 1252): such a
+            // colourant is not allowed, the halftone is left out
+            if (type == 5 && depth > 0) return false;
             if (type == 5)
                 foreach (var (key, _) in halftone.Entries.Take(64))
                     if (key.Value is not ("Type" or "HalftoneType" or "HalftoneName") && halftone.Get(key) is PdfDictionary or PdfStream &&

@@ -155,7 +155,7 @@ public static class AppLog
         foreach (var dir in new[]
                  {
                      SyncFolder.Contains(AppLocations.ProgramFolder) ? null : AppLocations.ProgramFolder,
-                     Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PDF-Knead"),
+                     AppLocations.UserDataFolder,   // the same folder in the program; under %TEMP% in the tests (No. 1240)
                  })
         {
             if (dir is null) continue;

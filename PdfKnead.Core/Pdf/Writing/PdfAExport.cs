@@ -11,6 +11,9 @@ public sealed record PdfAResult(byte[] Bytes, IReadOnlyList<PdfAViolation> Viola
     /// <summary>The fonts embedded as the substitute PDF-Knead draws them with (<see cref="PdfSaveResult.SubstitutedFonts"/>).</summary>
     public IReadOnlyList<string> SubstitutedFonts { get; init; } = [];
 
+    /// <summary>The embedded fonts left as they were because their licence forbids changing them (<see cref="PdfSaveResult.LicenceKeptFonts"/>).</summary>
+    public IReadOnlyList<string> LicenceKeptFonts { get; init; } = [];
+
     /// <summary>PDF/A-1: the pages (index) whose translucent areas are images (<see cref="PdfAFlattening"/>).</summary>
     public IReadOnlyList<int> FlattenedPages { get; init; } = [];
 
@@ -54,7 +57,7 @@ public static class PdfAExport
         var result = new PdfAResult(bytes, violations)
         {
             SubstitutedFonts = saved.SubstitutedFonts, AccessibilityClaimRemoved = saved.AccessibilityClaimRemoved, AccessibilityBreaks = saved.AccessibilityBreaks,
-            DeclarationsLeftOut = saved.DeclarationsLeftOut,
+            DeclarationsLeftOut = saved.DeclarationsLeftOut, LicenceKeptFonts = saved.LicenceKeptFonts,
         };
         // PDF/A-1 allows no transparency: the copy, which looks as the original is shown, is written once more with what was translucent
         // as images over its pages (PdfAFlattening)
@@ -75,6 +78,7 @@ public static class PdfAExport
         return new PdfAResult(flat, [.. Unanswered(pages, part, accessibility, cancel), .. PdfACheck.Check(flatDoc, cancel)])
         {
             SubstitutedFonts = saved.SubstitutedFonts,
+            LicenceKeptFonts = [.. saved.LicenceKeptFonts.Union(flatSaved.LicenceKeptFonts).Order(StringComparer.Ordinal)],
             FlattenedPages = [.. plan.Overlays.Keys.Order()],
             // the second write reads the first copy: what it removes adds to what the first left out
             AccessibilityClaimRemoved = saved.AccessibilityClaimRemoved || flatSaved.AccessibilityClaimRemoved,

@@ -163,25 +163,25 @@ public sealed partial class M7NormTests
     }
 
     /// <summary>
-    /// T1 9 sentences 1–4, 9.1 sentences 5–18 (reading) and 10.3 sentence 17: a synthetic font shares the CharStrings of its base program, whose
-    /// copy it contains; the reader recognises the form (FontDirectory after /Private), reads A from the copy and keeps the slanted matrix of the
-    /// synthetic font.
+    /// T1 9 sentences 1–4, 9.1 sentences 5–18 (reading) and 10.3 sentence 17, special rule (measured 26.11.2026): a synthetic font shares the
+    /// CharStrings of its base program, whose copy it contains in a second eexec layer — two of the three reference readers do not read such a
+    /// program and draw the substitute, one runs the PostScript; PDF-Knead draws the substitute as the two do: the program is not read (Parse
+    /// refuses it, the font has no program for the display), and redaction takes it out of the file (Redaction_UnreadableType1_ProgramLeavesTheFile).
     /// </summary>
-    [Fact(Skip = "M7-Befund: synthetische Type-1-Schrift nicht erkannt, Parse wirft „Type 1 ohne CharStrings“ (B53)")]
-    public void Type1_SyntheticFont_ReadsTheBaseProgramCopy()
+    [Fact]
+    public void Type1_SyntheticFont_DrawnWithTheSubstituteLikeTwoReaders()
     {
-        var font = Type1Font.Parse(T1PaketSynthetic());
-        Assert.Equal("KneadTestOblique", font.Name);
-        Assert.Equal(0.0002, font.FontMatrix.C, 9);
-        T1Paket.SameGlyph(T1Paket.Parse(), font, "A");
+        Assert.Throws<FontFormatException>(() => Type1Font.Parse(T1PaketSynthetic()));
+        Assert.Null(PdfKnead.Core.Pdf.Fonts.FontProgram.FromBytes(T1PaketSynthetic()));
     }
 
     /// <summary>
-    /// T1 9 sentences 1–4, 9.2 sentences 1–12 and 10.3 sentence 17: a hybrid font ("hires" before the first /Subrs) has two sets of Subrs and
-    /// CharStrings, one per resolution; the reader takes the charstring and its subroutines from the same set — never the subroutines of one with
-    /// the charstrings of the other.
+    /// T1 9 sentences 1–4, 9.2 sentences 1–12 and 10.3 sentence 17, special rule (measured 26.11.2026): a hybrid font ("hires" before the first
+    /// /Subrs) has two sets of Subrs and CharStrings, one per resolution; the reader takes the charstring and its subroutines from the same set —
+    /// the first, as the two reference readers that read one /Subrs group take the first — never the subroutines of one with the charstrings of
+    /// the other (before a second group of CharStrings overwrote the first).
     /// </summary>
-    [Fact(Skip = "M7-Befund: hybride Type-1-Schrift — Subrs der ersten, CharStrings der zweiten Gruppe gemischt (S8)")]
+    [Fact]
     public void Type1_HybridFont_TakesSubrsAndCharStringsFromOneSet()
     {
         string Set(string subr4, string glyphA)

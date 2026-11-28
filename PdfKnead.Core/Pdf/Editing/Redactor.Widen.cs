@@ -357,7 +357,7 @@ public static partial class Redactor
         {
             double WordEnd(int first, int last) => Enumerable.Range(first, last - first + 1).Max(k => End(part[k]));
             // the words of the line (characters within 0.15 em of the word so far — measured from its rightmost end: an accent set back over
-            // the letter before it ends early, and the comma after „H̃“ began a word of its own —, no space between)
+            // the letter before it ends early, and the comma after „HU+0303“ began a word of its own —, no space between)
             var words = new List<(int First, int Last)>();
             var wordEnd = double.NegativeInfinity;
             var gapSeen = true;

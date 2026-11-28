@@ -215,9 +215,42 @@ public sealed partial class DocumentViewModel
         var pages = History.Pages.ToArray();
         pages[page] = item.WithEditedPage(removed, [.. item.Elements, element]);
         History.Apply(RichTextEditor.Description, pages, element);
+        var signedHintShown = _signedEditHintShown;
         var editor = BeginRichEdit(new ElementRef(page, element), 0);
         editor.Converted = History.Pages;
+        // the notice that the document is signed goes first; the one about the font comes with the next block
+        if (signedHintShown == _signedEditHintShown) NoteFontLicence(element);
         return editor;
+    }
+
+    // fonts whose licence notice was given while the document is open
+    private readonly System.Runtime.CompilerServices.ConditionalWeakTable<PdfDictionary, object> _licenceNoticeGiven = new();
+
+    /// <summary>
+    /// Says once per font when a block is opened whose embedded font the licence allows only for viewing and printing (OS/2 fsType: restricted
+    /// or preview and print, not editable; ISO 32000-2, 9.9.1 sentences 8–10): new or changed text with it would go beyond its licence. Editing
+    /// stays possible — the choice is the user's —, viewing and printing never ask (docs/FEHLERGEDAECHTNIS.md, No. 1165).
+    /// </summary>
+    private void NoteFontLicence(RichTextElement element)
+    {
+        foreach (var span in element.Content.Spans)
+        {
+            if (span.Style.Original is not { } original || _licenceNoticeGiven.TryGetValue(original.Font, out _)) continue;
+            bool forbids;
+            try
+            {
+                forbids = Core.Pdf.Fonts.FontLicence.ForbidsEditing(Core.Pdf.Fonts.PdfFont.Get(original.Font, original.Document));
+            }
+            catch (Exception e) when (e is Core.Pdf.PdfException or InvalidDataException or IOException or ArgumentException or IndexOutOfRangeException)
+            {
+                continue;
+            }
+            if (!forbids) continue;
+            _licenceNoticeGiven.AddOrUpdate(original.Font, original);
+            var name = TextBlocks.StripSubset(original.Font.GetName(PdfName.Get("BaseFont"))?.Value ?? "");
+            Notify(Tr.T("Die Schrift „{0}“ ist nach ihrer Lizenz nur zum Ansehen und Drucken eingebettet — neuen oder geänderten Text mit ihr erlaubt die Lizenz nicht.", name));
+            return;
+        }
     }
 
     /// <summary>Raised when the caret or the text of the editor has changed.</summary>

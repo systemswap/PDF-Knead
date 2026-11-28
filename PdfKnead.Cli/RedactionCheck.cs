@@ -337,8 +337,10 @@ internal static class RedactionCheck
                 var dropped = DroppedAnnotations(original.Pages[p], bars, touched);
                 // what must stay is the page without the annotations a bar touches: they go as a whole, also their text that is
                 // clipped away beside them (a form field whose lines overflow it)
-                var before = PageInterpreter.Build(original, WithoutAnnotations(original.Pages[p], bars, touched)).Text;
-                var after = PageInterpreter.Build(copy, copy.Pages[p]).Text;
+                // the characters as drawn, each with its own text (docs/FEHLERGEDAECHTNIS.md, No. 1251): a replacement text (/ActualText) that goes
+                // with a bar is no lost character (No. 624; its fate is checked with the words, 5.), and the characters drawn within it are checked
+                var before = PageInterpreter.Build(original, WithoutAnnotations(original.Pages[p], bars, touched), drawnText: true).Text;
+                var after = PageInterpreter.Build(copy, copy.Pages[p], drawnText: true).Text;
 
                 // 2. nothing under a bar (nor under what it grew by to hide the length of a word); nothing hidden left in a marked area
                 var grownHere = extensions.GetValueOrDefault(p) ?? [];

@@ -18,6 +18,13 @@ public sealed partial class PageInterpreter
     private byte _maskRunBlend;
     private readonly Stack<(int Group, int Run, int RunMask, byte RunBlend)> _groupFrames = new();
 
+    // the knockout group of the text object being shown (ISO 32000-2, 9.3.8; −1 = none), the depth of the content stream its BT stands in,
+    // whether a text object is open in the current stream, and the depth of nested content streams (page, forms, glyphs, appearances)
+    private int _textGroup = -1;
+    private int _textGroupDepth;
+    private bool _inTextObject;
+    private int _streamDepth;
+
     // masks in masks in …: real files need no more than two levels
     private const int MaxMaskDepth = 8;
     private int _maskDepth;
@@ -84,6 +91,53 @@ public sealed partial class PageInterpreter
         _gs.SoftMask = -1;
         _gs.PaintIndex = -1;
         return _group;
+    }
+
+    /// <summary>
+    /// BT: with /TK true (the initial value) a text object acts as a non-isolated knockout group — where its glyphs overlap, a later one replaces an
+    /// earlier one instead of blending with it — composited with Normal, full opacity and no mask (ISO 32000-2, 9.3.8 sentences 9–11 and 17, also for
+    /// Type 3 glyphs, 9.6.4 sentence 61). Measured: a reference reader draws it so on the page and in groups (probes TK1–TK6). Before, the glyphs were
+    /// always blended one by one (docs/FEHLERGEDAECHTNIS.md, No. 1165). The group costs a layer only for translucent or blending text
+    /// (<see cref="DisplayListBuilder.EndTextGroup"/>). Not under a soft mask: there the run under the mask holds the glyphs, which then blend with
+    /// each other as before (a group inside the run would take the mask twice). A text object inside one already open (BT in a form or glyph
+    /// called within it) belongs to the open group. Nor directly in a knockout group: there every glyph is an element of that group already,
+    /// composited with its initial backdrop and replacing what lies beneath — the text knocks out the shapes drawn before it and the glyphs one
+    /// another, which is what the text group would give (11.4.6, 11.6.6). Composited as a group of its own onto the knockout group, the text
+    /// blended with those shapes (real file knockout_groups_test, probes KO1–KO4: two of three reference readers knock out; docs/FEHLERGEDAECHTNIS.md,
+    /// No. 1200).
+    /// </summary>
+    private void BeginTextObject()
+    {
+        _inTextObject = true;
+        if (_textGroup >= 0 || _observer is not null || _textOnly || !_gs.TextKnockout || _gs.SoftMask >= 0) return;
+        EnsureMask();
+        if (_group >= 0 && _builder.Group(_group).Knockout) return;
+        _groupFrames.Push((_group, _maskRun, _maskRunMask, _maskRunBlend));
+        _group = _textGroup = _builder.BeginGroup(_group, 1, 0, false, true, -1);
+        _maskRun = _maskRunMask = -1;
+        _textGroupDepth = _streamDepth;
+    }
+
+    /// <summary>ET: the text object ends, and its knockout group if it began in this content stream.</summary>
+    private void EndTextObject()
+    {
+        _inTextObject = false;
+        if (_textGroup >= 0 && _textGroupDepth == _streamDepth) CloseTextGroup();
+    }
+
+    /// <summary>Ends the knockout group of the text object, with a run under a soft mask begun inside it (a graphics state between BT and ET).</summary>
+    private void CloseTextGroup()
+    {
+        if (_maskRun >= 0 && _builder.Group(_maskRun).Parent == _textGroup)
+        {
+            _builder.EndGroup(_maskRun);
+            _group = _textGroup;
+            _maskRun = _maskRunMask = -1;
+        }
+        if (_group != _textGroup) return;   // a group inside it still open (an aborted form): FinishGroups closes them in order
+        _builder.EndTextGroup(_textGroup);
+        (_group, _maskRun, _maskRunMask, _maskRunBlend) = _groupFrames.Pop();
+        _textGroup = -1;
     }
 
     private void EndTransparencyGroup(int group)
@@ -158,10 +212,16 @@ public sealed partial class PageInterpreter
                 _maskRun = _maskRunMask = -1;
             }
             if (_groupFrames.Count == 0) break;
-            _builder.EndGroup(_group);
+            if (_group == _textGroup)
+            {
+                _builder.EndTextGroup(_group);
+                _textGroup = -1;
+            }
+            else _builder.EndGroup(_group);
             (_group, _maskRun, _maskRunMask, _maskRunBlend) = _groupFrames.Pop();
         }
         _group = -1;
+        _textGroup = -1;
     }
 
     /// <summary>

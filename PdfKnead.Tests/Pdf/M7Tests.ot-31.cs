@@ -18,31 +18,48 @@ public sealed partial class M7NormTests
     // ------------------------------------------------------------ helpers (ot-31)
 
     /// <summary>The decoration RichText draws for a span (private ElementAppearance.AppendDecoration) at the origin, 10 points wide.</summary>
-    private static string Ot31Decoration(RichStyle style)
-    {
-        var sb = new StringBuilder();
-        typeof(ElementAppearance).GetMethod("AppendDecoration", BindingFlags.NonPublic | BindingFlags.Static)!.Invoke(null, [sb, style, 0.0, 0.0, 10.0]);
-        return sb.ToString();
-    }
-
     private static int Ot31MacStyle(byte[] font) => Ot30U16(OpenTypeFont.Parse(font).TableData("head"), 44);
 
     // ------------------------------------------------------------ 31.2.14, 31.2.15 strikeout
 
     /// <summary>
-    /// OT 31.2.14 sentences 1–4, 31.2.15 sentences 1–5 (and ot-32: 32.2 sentences 6–8 for reading, 32.7 sentences 1–6) — today's behaviour,
-    /// question 14 open: strikeout and underline of typed text are fixed fractions of the size, not yStrikeout*, post or MVAR of the font (the
-    /// drawing does not see the font at all) — at 10 points 0.5 thick, the strikeout from 2.55 above the baseline, the underline from 1.45 below;
-    /// at 4 points the least thickness 0.4.
+    /// OT 31.2.14 sentences 1–4, 31.2.15 sentences 1–5 (and ot-32: 32.2 sentences 4–8; docs/FEHLERGEDAECHTNIS.md, No. 1162): underline and
+    /// strikeout of typed text come from the font — in Liberation Sans at 10 points the underline from post (top underlinePosition, thickness
+    /// underlineThickness), the strikeout from OS/2 (top yStrikeoutPosition, thickness yStrikeoutSize), each scaled to the size and measured from
+    /// the baseline of the line. Before, both were fixed shares of the size (0.5 thick at 10 points). MVAR is not read (question 2).
     /// </summary>
     [Fact]
-    public void Ot31_StrikeoutAndUnderline_FixedFractionsOfTheSize()
+    public void Ot31_StrikeoutAndUnderline_FromTheFont()
     {
-        var style = new RichStyle { Family = "Liberation Sans", Size = 10 };
-        Assert.Contains("0 2.55 10 0.5 re f", Ot31Decoration(style with { Strikeout = true }), StringComparison.Ordinal);
-        Assert.Contains("0 -1.45 10 0.5 re f", Ot31Decoration(style with { Underline = true }), StringComparison.Ordinal);
-        Assert.Contains("0 0.92 10 0.4 re f", Ot31Decoration(style with { Size = 4, Strikeout = true }), StringComparison.Ordinal);
-        Assert.Equal(Ot31Decoration(style with { Strikeout = true }), Ot31Decoration(style with { Family = "Liberation Serif", Strikeout = true }));
+        RichFonts.SystemFontsOff = true;
+        try
+        {
+            var element = new RichTextElement
+            {
+                Rect = new Core.Pdf.Document.PdfRectangle(0, 0, 200, 30),
+                Content = new RichText("Probe", new RichStyle { Family = "Liberation Sans", Size = 10, Underline = true, Strikeout = true }),
+            };
+            var font = Ot20Lib;
+            var post = font.TableData("post");
+            var os2 = font.TableData("OS/2");
+            double S(int v) => v * 10.0 / font.UnitsPerEm;
+            var (underTop, underThick) = (S(BinaryPrimitives.ReadInt16BigEndian(post[8..])), S(BinaryPrimitives.ReadInt16BigEndian(post[10..])));
+            var (strikeThick, strikeTop) = (S(BinaryPrimitives.ReadInt16BigEndian(os2[26..])), S(BinaryPrimitives.ReadInt16BigEndian(os2[28..])));
+            var baseline = element.UprightSize.Height - RichLayout.Of(element).Lines[0].Baseline;
+            var content = Encoding.ASCII.GetString(ElementAppearance.For(element).Form.RawData!);
+            var rects = content.Split('\n').Where(l => l.EndsWith(" re f", StringComparison.Ordinal))
+                .Select(l => l.Split(' ').Take(4).Select(v => double.Parse(v, System.Globalization.CultureInfo.InvariantCulture)).ToArray()).ToList();
+            Assert.Equal(2, rects.Count);
+            Assert.Equal(baseline + underTop - underThick, rects[0][1], 2);
+            Assert.Equal(underThick, rects[0][3], 2);
+            Assert.Equal(baseline + strikeTop - strikeThick, rects[1][1], 2);
+            Assert.Equal(strikeThick, rects[1][3], 2);
+            Assert.NotEqual(0.5, underThick, 2);
+        }
+        finally
+        {
+            RichFonts.SystemFontsOff = false;
+        }
     }
 
     /// <summary>
@@ -71,24 +88,34 @@ public sealed partial class M7NormTests
 
     /// <summary>
     /// OT 31.2.14 sentences 1–4, 31.2.15 sentences 1–5, 31.2.16, 31.2.17 sentences 1–17, 31.2.18 sentences 1–60, 101–180, 31.2.19 (and ot-32:
-    /// 31.2.22 sentences 4–5, 31.2.28 sentences 1–42): the fields are never computed anew — a subset, a scrubbed copy and a rebuilt copy of
-    /// Liberation Sans, Liberation Serif and Noto Sans Arabic (usLastCharIndex 0xFFFF, Arabic range bits 13, 63, 67) carry the OS/2 of the source
-    /// byte for byte: strikeout (26–29), family class (30–31), PANOSE (32–41), Unicode ranges (42–57), vendor (58–61), code pages (78–85).
+    /// 31.2.22 sentences 4–5, 31.2.28 sentences 1–42): the fields that describe the design are never computed anew — a subset, a scrubbed copy
+    /// and a rebuilt copy of Liberation Sans, Liberation Serif and Noto Sans Arabic (usLastCharIndex 0xFFFF, Arabic range bits 13, 63, 67) carry
+    /// the OS/2 of the source byte for byte: weight, width, fsType, sub- and superscript, strikeout (26–29), family class (30–31), PANOSE
+    /// (32–41), Unicode ranges (42–57), vendor (58–61), fsSelection, the typographic metrics, code pages (78–85), x-height and cap height. Only
+    /// what follows from the glyphs kept is computed anew (FG 1159): xAvgCharWidth (2–3), usFirstCharIndex and usLastCharIndex (64–67) and
+    /// usMaxContext (94–95).
     /// </summary>
     [Theory]
     [InlineData("Schriften/Standard/LiberationSans-Regular.ttf")]
     [InlineData("Schriften/Standard/LiberationSerif-Regular.ttf")]
     [InlineData("Schriften/Arabisch/NotoSansArabic-Regular.ttf")]
-    public void Ot31_SubsetScrubRebuild_KeepOs2ByteForByte(string file)
+    public void Ot31_SubsetScrubRebuild_KeepTheDescriptiveOs2Fields(string file)
     {
         var font = File.ReadAllBytes(Path.Combine(Ot05Repo(), file));
         var parsed = OpenTypeFont.Parse(font);
         var glyphs = new[] { 'A', 'e', 'ب' }.Select(c => parsed.GlyphForUnicode(c)).Where(g => g > 0).ToArray();
         Assert.NotEmpty(glyphs);
+        static byte[] Descriptive(byte[] os2)
+        {
+            var copy = os2.ToArray();
+            foreach (var (from, to) in (ReadOnlySpan<(int, int)>)[(2, 4), (64, 68), (94, 96)])
+                if (to <= copy.Length) copy.AsSpan(from, to - from).Clear();
+            return copy;
+        }
         var source = Ot30Os2Of(font);
-        Assert.Equal(source, Ot30Os2Of(TrueTypeSubsetter.Subset(font, glyphs)));
-        Assert.Equal(source, Ot30Os2Of(TrueTypeSubsetter.Scrub(font, glyphs)));
-        Assert.Equal(source, Ot30Os2Of(TrueTypeSubsetter.Rebuild(font, glyphs.ToDictionary(g => g, _ => 1000), [], null)));
+        Assert.Equal(Descriptive(source), Descriptive(Ot30Os2Of(TrueTypeSubsetter.Subset(font, glyphs))));
+        Assert.Equal(Descriptive(source), Descriptive(Ot30Os2Of(TrueTypeSubsetter.Scrub(font, glyphs))));
+        Assert.Equal(Descriptive(source), Descriptive(Ot30Os2Of(TrueTypeSubsetter.Rebuild(font, glyphs.ToDictionary(g => g, _ => 1000), [], null))));
         if (file.Contains("Arabic", StringComparison.Ordinal))
         {
             Assert.Equal(0xFFFF, Ot30U16(source, 66));
@@ -98,12 +125,12 @@ public sealed partial class M7NormTests
 
     /// <summary>
     /// OT 31.2.18 sentences 61–100: the Unicode ranges of the CJK font stay as they were — the OpenType excerpt of Noto Sans CJK scrubbed to
-    /// „漢字A“ has the OS/2 of the source byte for byte.
+    /// „漢字A“ has the ulUnicodeRange fields (42–57) of the source byte for byte.
     /// </summary>
     [Fact]
     public void Ot31_ScrubbedCjkFont_KeepsItsUnicodeRanges()
     {
-        Assert.Equal(Ot30Os2Of(Ot05NotoExcerpt.Value), Ot30Os2Of(Ot05NotoScrubbed.Value));
+        Assert.Equal(Ot30Os2Of(Ot05NotoExcerpt.Value)[42..58], Ot30Os2Of(Ot05NotoScrubbed.Value)[42..58]);
     }
 
     /// <summary>
@@ -209,20 +236,24 @@ public sealed partial class M7NormTests
     }
 
     /// <summary>
-    /// OT 31.2.20 sentences 11, 27–30 and ot-32 31.2.25 sentences 1–4, 8–10 (today's behaviour, question 14 open): the line spacing of typed
-    /// text is the factor times the size — in Liberation Sans 10 pt the baselines are 10 or 12 points apart for the factors 1.0 and 1.2, not
-    /// (sTypoAscender − sTypoDescender + sTypoLineGap) / unitsPerEm × 10 = 10.88; the own font leaves bit 7 clear.
+    /// OT 31.2.20 sentences 11, 27–30 and ot-32 31.2.25 sentences 1–4, 8–10 (docs/FEHLERGEDAECHTNIS.md, No. 1162, 1211): the line spacing of new
+    /// text is the factor times the natural line height of the font — in Liberation Sans 10 pt (USE_TYPO_METRICS not set: hhea 1854 − (−434) + 67
+    /// of 2048) 11.499 or 13.799 points for the factors 1.0 and 1.2, not (sTypoAscender − sTypoDescender + sTypoLineGap) / unitsPerEm × 10 =
+    /// 10.88; a block of the earlier kind keeps the factor times the size (10 or 12 points). Before, every block took the factor times the size;
+    /// the own font leaves bit 7 clear.
     /// </summary>
     [Theory]
     [InlineData(1.0)]
     [InlineData(1.2)]
-    public void Ot31_LineSpacing_FactorTimesSize_NotTypoMetrics(double factor)
+    public void Ot31_LineSpacing_FactorTimesLineHeightOfTheFont(double factor)
     {
         RichFonts.SystemFontsOff = true;
         try
         {
-            var layout = RichLayout.Layout(new RichText("Eins\nZwei", new RichStyle { Family = "Liberation Sans", Size = 10 }), 500, BlockAlignment.Left, factor, null, 0);
-            Assert.Equal(factor * 10, layout.Lines[1].Baseline - layout.Lines[0].Baseline, 3);
+            RichLayout Layout(bool fontLineHeight) => RichLayout.Layout(new RichText("Eins\nZwei", new RichStyle { Family = "Liberation Sans", Size = 10 }), 500,
+                BlockAlignment.Left, factor, null, 0, fontLineHeight: fontLineHeight);
+            Assert.Equal(factor * 10 * (1854 + 434 + 67) / 2048.0, Layout(true).Lines[1].Baseline - Layout(true).Lines[0].Baseline, 6);
+            Assert.Equal(factor * 10, Layout(false).Lines[1].Baseline - Layout(false).Lines[0].Baseline, 6);
         }
         finally
         {
@@ -232,8 +263,9 @@ public sealed partial class M7NormTests
     }
 
     /// <summary>
-    /// OT 31.2.20 sentences 12–13, 31–43: families are grouped by name 16 (else 1), not by the WWS names 21/22 — a font with bit 8 clear and names
-    /// 21/22 is offered under name 16; the own font leaves bit 8 clear.
+    /// OT 31.2.20 sentences 12–13, 31–43: families are not grouped by the WWS names 21/22 — a font with bit 8 clear and names 21/22 is offered
+    /// under name 1, the family of the model regular/bold/italic/bold italic of the font list (OT 57.2; before under name 16, FG 1176); the own
+    /// font leaves bit 8 clear.
     /// </summary>
     [Fact]
     public void Ot31_WwsNames_NotUsedForTheFamily()
@@ -241,7 +273,7 @@ public sealed partial class M7NormTests
         var font = Ot05SansWith(("name", Ot05Name((3, 1, 0x409, 1, "Muster Kondensiert"), (3, 1, 0x409, 2, "Regular"), (3, 1, 0x409, 6, "Muster-Kondensiert"),
             (3, 1, 0x409, 16, "Muster"), (3, 1, 0x409, 17, "Kondensiert"), (3, 1, 0x409, 21, "Muster Kondensiert WWS"), (3, 1, 0x409, 22, "Regular"))),
             ("OS/2", Ot31Os2Table(o => Ot30Set(o, 62, 0x0040))));
-        Assert.Equal("Muster", Ot05SystemFontNames(font).Family);
+        Assert.Equal("Muster Kondensiert", Ot05SystemFontNames(font).Family);
         Assert.Equal(0, Ot05Glyphless.Value.Selection & 0x100);
     }
 
@@ -262,7 +294,7 @@ public sealed partial class M7NormTests
 
     /// <summary>
     /// OT 31.2.20 sentences 48–51: weight is usWeightClass, slope fsSelection bit 0 or bit 9 — usWeightClass 700 reads bold, bit 9 alone italic
-    /// (the family from name 16: SystemFont_TypographicFamilyNameGoesFirst).
+    /// (the keys from names 16 and 17, the family of the font list from name 1: SystemFont_KeysFromTheTypographicNames_FamilyFromId1).
     /// </summary>
     [Fact]
     public void Ot31_WeightAndSlope_AsDefined()

@@ -357,7 +357,7 @@ internal static class XmpEditor
     public static byte[] Slim(string title, DateTimeOffset? modified, string? producer, string? extra = null)
     {
         var sb = new StringBuilder();
-        sb.Append("<?xpacket begin=\"﻿\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n");
+        sb.Append("<?xpacket begin=\"\uFEFF\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n");
         sb.Append("<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">\n<rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\n");
         sb.Append("<rdf:Description rdf:about=\"\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\" xmlns:xmp=\"http://ns.adobe.com/xap/1.0/\" xmlns:pdf=\"http://ns.adobe.com/pdf/1.3/\">\n");
         if (title.Length > 0) sb.Append(CultureInfo.InvariantCulture, $"<dc:title><rdf:Alt><rdf:li xml:lang=\"x-default\">{Xml(title)}</rdf:li></rdf:Alt></dc:title>\n");

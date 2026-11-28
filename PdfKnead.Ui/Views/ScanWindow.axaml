@@ -117,6 +117,14 @@
                             <TextBlock Classes="section" Text="{l:T 'NETZWERK-SCANNER (ERWEITERT)'}" />
                         </Expander.Header>
                         <StackPanel Spacing="6" IsEnabled="{Binding !IsScanning}">
+                            <!-- protocols and ports of the search, for the company firewall -->
+                            <StackPanel Spacing="4" Margin="0,2,0,8">
+                                <TextBlock Classes="muted small" TextWrapping="Wrap"
+                                           Text="{l:T 'Protokoll / Port: mDNS (DNS-SD) / UDP 5353 — Scanner im eigenen Netz finden'}" />
+                                <TextBlock Classes="muted small" TextWrapping="Wrap"
+                                           Text="{l:T 'Protokoll / Port: eSCL über HTTPS / TCP 443, eSCL über HTTP / TCP 8080 und 80 — Netze durchsuchen und scannen'}" />
+                                <ToolTip.Tip><l:T Text="Für die Freigabe in der Firewall: die Suche fragt von einem freien Port aus an die Multicast-Adresse 224.0.0.251 bzw. ff02::fb, die Antworten kommen dorthin zurück — eine Regel für eingehende Verbindungen ist nicht nötig. Gescannt wird über den Port, den der Scanner nennt." /></ToolTip.Tip>
+                            </StackPanel>
                             <CheckBox IsChecked="{Binding Network.Direct, FallbackValue=False}" Content="{l:T 'Netzwerk-Scanner direkt ansprechen'}">
                                 <ToolTip.Tip><l:T Text="PDF-Knead spricht Netzwerk-Scanner selbst an: Papier im Einzug, Stau und Klappe werden angezeigt, Abbrechen wirkt sofort. Aus: nur über den Scanner-Treiber des Systems." /></ToolTip.Tip>
                             </CheckBox>
@@ -345,6 +353,15 @@
                             </DockPanel>
                         </Expander.Header>
                         <StackPanel Spacing="4">
+                            <Grid ColumnDefinitions="*,Auto" Margin="0,0,0,4">
+                                <CheckBox IsChecked="{Binding ApplyToAll}" Content="{l:T 'Für alle übernehmen'}" VerticalAlignment="Center">
+                                    <ToolTip.Tip><l:T Text="An: jede Änderung der Nachbearbeitung gilt für alle gescannten Seiten. Aus: nur für die gewählten Seiten." /></ToolTip.Tip>
+                                </CheckBox>
+                                <Button Grid.Column="1" Classes="soft" Margin="8,0,0,0" VerticalAlignment="Center" Command="{Binding ResetAdjustmentsCommand}"
+                                        Content="{l:T 'Zurücksetzen'}">
+                                    <ToolTip.Tip><l:T Text="Nachbearbeitung zurücknehmen — die Seiten wie gescannt (alle oder die gewählten, je nach „Für alle übernehmen“)" /></ToolTip.Tip>
+                                </Button>
+                            </Grid>
                             <Grid Classes="row" ColumnDefinitions="96,*">
                                 <TextBlock Text="{l:T 'Begradigen'}" />
                                 <ComboBox Grid.Column="1" ItemsSource="{Binding StraightenMethods}" SelectedItem="{Binding SelectedStraightener}"
@@ -416,7 +433,12 @@
                                 <ToolTip.Tip><l:T Text="Die Farbe herausnehmen: die Seite als Graustufenbild — kleinere Dateien, gut für Texte mit Bildern" /></ToolTip.Tip>
                             </CheckBox>
                             <Grid Classes="row" ColumnDefinitions="96,*,36">
-                                <CheckBox IsChecked="{Binding BlackWhite}" Content="{l:T 'Schwarzweiß'}">
+                                <CheckBox IsChecked="{Binding BlackWhite}" AutomationProperties.Name="{l:T 'Schwarz / Weiß'}">
+                                    <TextBlock>
+                                        <Run Text="{l:T 'Schwarz /'}" />
+                                        <LineBreak />
+                                        <Run Text="{l:T 'Weiß'}" />
+                                    </TextBlock>
                                     <ToolTip.Tip><l:T Text="Nur Schwarz und Weiß: sehr kleine Dateien und scharfe Schrift — für Textseiten" /></ToolTip.Tip>
                                 </CheckBox>
                                 <Slider Grid.Column="1" Minimum="0" Maximum="100" Value="{Binding Threshold}" IsEnabled="{Binding BlackWhite}"
@@ -424,16 +446,6 @@
                                     <ToolTip.Tip><l:T Text="Schwelle: alles, was dunkler ist als dieser Anteil von Weiß, wird schwarz — weiter rechts mehr schwarz (dünne Schrift kräftiger), weiter links mehr weiß (Flecken und Grauschleier verschwinden)" /></ToolTip.Tip>
                                 </Slider>
                                 <TextBlock Grid.Column="2" Classes="muted small" TextAlignment="Right" Text="{Binding Threshold, StringFormat={}{0:0} %}" />
-                            </Grid>
-                            <Grid ColumnDefinitions="*,8,*" Margin="0,4,0,0">
-                                <Button Classes="soft" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Command="{Binding ResetAdjustmentsCommand}"
-                                        Content="{l:T 'Zurücksetzen'}">
-                                    <ToolTip.Tip><l:T Text="Nachbearbeitung der gewählten Seiten zurücknehmen — die Seite wie gescannt" /></ToolTip.Tip>
-                                </Button>
-                                <Button Grid.Column="2" Classes="soft" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
-                                        Command="{Binding ApplyAdjustmentsToAllCommand}" Content="{l:T 'Für alle übernehmen'}">
-                                    <ToolTip.Tip><l:T Text="Diese Einstellungen auf alle gescannten Seiten anwenden" /></ToolTip.Tip>
-                                </Button>
                             </Grid>
                         </StackPanel>
                     </Expander>

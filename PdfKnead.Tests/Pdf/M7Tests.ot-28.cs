@@ -141,19 +141,24 @@ public sealed partial class M7NormTests
     // ------------------------------------------------------------ OT 25 hmtx
 
     /// <summary>
-    /// OT 25 sentences 6–8 and 37–43 (reader): side bearings and phantom points are not used — Liberation Sans with the lsb of „A“ in hmtx set to
-    /// 500: the outline (and its bounds) and the advance of „A“ are unchanged.
+    /// OT 25 sentences 6–8 and 37–43 (reader): the left side bearing of hmtx places the outline — its origin is the phantom point
+    /// pp1 = xMin − lsb, as the three reference readers draw it (measured, docs/FEHLERGEDAECHTNIS.md, No. 1163; before the side bearing was not
+    /// used). Liberation Sans with the lsb of „A“ in hmtx set to 500: the outline of „A“ is the same, moved so that it begins at x = 500; the
+    /// advance of „A“ is unchanged.
     /// </summary>
     [Fact]
-    public void Ot28_LeftSideBearingChanged_OutlineAndAdvanceUnchanged()
+    public void Ot28_LeftSideBearingChanged_OutlineMovedToIt_AdvanceUnchanged()
     {
         var a = Ot27Glyph('A');
         var hmtx = Ot27Table(Ot27SansFile.Value, "hmtx");
         BinaryPrimitives.WriteInt16BigEndian(hmtx.AsSpan(a * 4 + 2), 500);
         var font = OpenTypeFont.Parse(Ot27SansWith(("hmtx", hmtx)));
         Assert.Equal(500, Ot28Lsb(font.FileData, a));
-        Assert.True(Ot27SameOutline(Ot27Sans.Value.Outline(a), font.Outline(a)));
-        Assert.Equal(Ot27Sans.Value.Outline(a).Bounds, font.Outline(a).Bounds);
+        var original = Ot27Sans.Value.Outline(a);
+        var dx = 500 - (float)original.Bounds.Left;
+        Assert.Equal(original.Verbs, font.Outline(a).Verbs);
+        for (var i = 0; i < original.Points.Count; i++) Assert.Equal(original.Points[i] + (i % 2 == 0 ? dx : 0), font.Outline(a).Points[i], 0.001f);
+        Assert.Equal(500, font.Outline(a).Bounds.Left, 3);
         Assert.Equal(Ot27Sans.Value.AdvanceWidth(a), font.AdvanceWidth(a));
     }
 
@@ -294,35 +299,38 @@ public sealed partial class M7NormTests
     }
 
     /// <summary>
-    /// OT 26 sentences 9 and 23–26, OT 26.1 sentences 1–6 (writer, today's behaviour; question 2): a subset of Liberation Sans with fvar, gvar, HVAR
-    /// (maps for advance, lsb and rsb) and hdmx has none of them; the scrubbed font keeps HVAR and fvar byte for byte and drops hdmx.
+    /// OT 26 sentences 9 and 23–26, OT 26.1 sentences 1–6 (writer): a subset and a scrubbed copy of Liberation Sans with fvar, gvar, HVAR (maps
+    /// for advance, lsb and rsb, with entries for the glyphs emptied) and hdmx have none of them (FG 1159; before the scrubbed copy kept HVAR and
+    /// fvar byte for byte).
     /// </summary>
     [Fact]
-    public void Ot28_SubsetDropsVariationTables_ScrubKeepsHvarAndFvarDropsHdmx()
+    public void Ot28_SubsetAndScrubDropVariationTablesAndHdmx()
     {
         var count = Ot27Sans.Value.GlyphCount;
-        var (fvar, hvar) = (Ot27Fvar(), Ot27Hvar(count, true));
-        var font = Ot27SansWith(("fvar", fvar), ("gvar", Ot27Gvar(count, new Dictionary<int, byte[]>())), ("HVAR", hvar), ("hdmx", new byte[8]));
+        var font = Ot27SansWith(("fvar", Ot27Fvar()), ("gvar", Ot27Gvar(count, new Dictionary<int, byte[]>())), ("HVAR", Ot27Hvar(count, true)),
+            ("hdmx", new byte[8]));
         var glyphs = new[] { Ot27Glyph('A') };
         var subset = OpenTypeFont.Parse(TrueTypeSubsetter.Subset(font, glyphs));
-        foreach (var tag in (string[])["fvar", "gvar", "HVAR", "hdmx"]) Assert.False(subset.HasTable(tag), tag);
-        var scrubbed = TrueTypeSubsetter.Scrub(font, glyphs);
-        Assert.Equal(hvar, Ot27Table(scrubbed, "HVAR"));
-        Assert.Equal(fvar, Ot27Table(scrubbed, "fvar"));
-        Assert.False(OpenTypeFont.Parse(scrubbed).HasTable("hdmx"));
+        var scrubbed = OpenTypeFont.Parse(TrueTypeSubsetter.Scrub(font, glyphs));
+        foreach (var tag in (string[])["fvar", "gvar", "HVAR", "hdmx"])
+        {
+            Assert.False(subset.HasTable(tag), tag);
+            Assert.False(scrubbed.HasTable(tag), tag);
+        }
     }
 
     // ------------------------------------------------------------ OT 27 kern
 
     /// <summary>
-    /// OT 27 sentences 7–8, 10 and 26–27 (reader, today's behaviour; question 16): coverage bit 1 (minimum values) is not looked at — a format 0
-    /// subtable with coverage 0x0003 and the pair A/V −200 narrows „AV“ by 200 (as kerning values would).
+    /// OT 27 sentences 7–8, 10 and 26–27 (reader; docs/FEHLERGEDAECHTNIS.md, No. 1162): a subtable of minimum values (coverage bit 1) is passed
+    /// over — there is no tracking it could limit — a format 0 subtable with coverage 0x0003 and the pair A/V −200 leaves „AV“ unchanged (before
+    /// it narrowed it by 200, as kerning values would).
     /// </summary>
     [Fact]
-    public void Ot28_KernMinimumValues_TodayAppliedAsKerning()
+    public void Ot28_KernMinimumValues_PassedOver()
     {
         var (a, v) = (Ot27Glyph('A'), Ot27Glyph('V'));
-        Assert.Equal((-200.0, 0.0), Ot28KernAV(Ot28KernShaper(Ot28Kern((0x0003, Ot28KernPair(a, v, -200))))));
+        Assert.Equal((0.0, 0.0), Ot28KernAV(Ot28KernShaper(Ot28Kern((0x0003, Ot28KernPair(a, v, -200))))));
     }
 
     /// <summary>
@@ -351,28 +359,34 @@ public sealed partial class M7NormTests
     }
 
     /// <summary>
-    /// OT 27 sentence 34 (reader, today's behaviour; question 16): the override bit 3 is not looked at — two subtables with A/V −50 and, with
-    /// coverage 0x0009, −30: „AV“ is narrowed by 80 (by the rule: 30).
+    /// OT 27 sentence 34 (reader; docs/FEHLERGEDAECHTNIS.md, No. 1162): a subtable with the override bit 3 replaces the value summed so far — two
+    /// subtables with A/V −50 and, with coverage 0x0009, −30: „AV“ is narrowed by 30 (before by 80); a third plain subtable with −10 after
+    /// them adds again (40).
     /// </summary>
     [Fact]
-    public void Ot28_KernOverride_TodayAdded()
+    public void Ot28_KernOverride_ReplacesTheSum()
     {
         var (a, v) = (Ot27Glyph('A'), Ot27Glyph('V'));
         var kern = Ot28Kern((0x0001, Ot28KernPair(a, v, -50)), (0x0009, Ot28KernPair(a, v, -30)));
-        Assert.Equal(-80, Ot28KernAV(Ot28KernShaper(kern)).Kerning);
+        Assert.Equal(-30, Ot28KernAV(Ot28KernShaper(kern)).Kerning);
+        var more = Ot28Kern((0x0001, Ot28KernPair(a, v, -50)), (0x0009, Ot28KernPair(a, v, -30)), (0x0001, Ot28KernPair(a, v, -10)));
+        Assert.Equal(-40, Ot28KernAV(Ot28KernShaper(more)).Kerning);
     }
 
     /// <summary>
-    /// OT 27.2 sentences 1–9, 10–22 and 23–26 (reader, today's behaviour; question 16): format 2 is not read — a subtable of format 2 (coverage
-    /// 0x0201) with „A“ in left class 1, „V“ in right class 1 and the value −120 leaves „AV“ unchanged.
+    /// OT 27.2 sentences 1–9, 10–22 and 23–26 (reader; docs/FEHLERGEDAECHTNIS.md, No. 1162): format 2 is read — a subtable of format 2 (coverage
+    /// 0x0201) with „A“ in left class 1 (its row offset from the subtable start, the array's offset included), „V“ in right class 1 and the value
+    /// −120 narrows „AV“ by 120 (before unchanged); „AA“ (right class 0) and „VV“ (left class 0) are not kerned.
     /// </summary>
     [Fact]
-    public void Ot28_KernFormat2_TodayPassedOver()
+    public void Ot28_KernFormat2_Read()
     {
         var (a, v) = (Ot27Glyph('A'), Ot27Glyph('V'));
         var body = Ot28KernClasses(a, v, -120);
         Assert.Equal(-120, Ot27I16(body, 32 - 6));   // the cell of the left class of „A“ and the right class of „V“
-        Assert.Equal((0.0, 0.0), Ot28KernAV(Ot28KernShaper(Ot28Kern((0x0201, body)))));
+        var shaper = Ot28KernShaper(Ot28Kern((0x0201, body)));
+        Assert.Equal((-120.0, 0.0), Ot28KernAV(shaper));
+        foreach (var text in new[] { "AA", "VV" }) Assert.Equal(shaper.Shape(text, ["-kern"])[0].XAdvance, shaper.Shape(text)[0].XAdvance);
     }
 
     // ------------------------------------------------------------ OT 28 loca

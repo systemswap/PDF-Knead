@@ -35,6 +35,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Konformitätstests von UAX #9 (Unicode 16.0.0, Unicode License v3), komprimiert -->
+    <EmbeddedResource Include="Fonts/Data/*.gz" LogicalName="Bidi/%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Using Include="Xunit" />
   </ItemGroup>
 

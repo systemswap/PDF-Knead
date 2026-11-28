@@ -2,6 +2,7 @@
              Background="{DynamicResource SurfaceAltBrush}"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:l="using:PdfKnead.Localization"
+             xmlns:cv="using:PdfKnead.Converters"
              xmlns:vm="using:PdfKnead.ViewModels"
              x:Class="PdfKnead.Views.NotesPanel"
              x:DataType="vm:DocumentViewModel">
@@ -51,7 +52,7 @@
                     <ListBox.ItemTemplate>
                         <DataTemplate x:DataType="vm:NoteRow">
                             <StackPanel Spacing="1">
-                                <TextBlock Classes="muted" FontSize="11" TextWrapping="Wrap" Text="{Binding Header}" />
+                                <TextBlock Classes="muted" FontSize="11" TextWrapping="Wrap" Text="{Binding Header, Converter={x:Static cv:IsolatedName.Instance}}" />
                                 <TextBlock FontSize="12" TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis" Text="{Binding Text}" />
                             </StackPanel>
                         </DataTemplate>
@@ -64,8 +65,8 @@
         <Border Grid.Row="2" Classes="propCard" IsVisible="{Binding SelectedNoteRow, Converter={x:Static ObjectConverters.IsNotNull}}">
             <ScrollViewer MaxHeight="280" HorizontalScrollBarVisibility="Disabled">
                 <StackPanel Spacing="4">
-                    <TextBlock Classes="muted" FontSize="11" TextWrapping="Wrap" Text="{Binding SelectedNoteRow.Header, FallbackValue={x:Null}}" />
-                    <TextBlock FontWeight="SemiBold" FontSize="12" TextWrapping="Wrap" Text="{Binding SelectedNoteRow.Subject, FallbackValue={x:Null}}"
+                    <TextBlock Classes="muted" FontSize="11" TextWrapping="Wrap" Text="{Binding SelectedNoteRow.Header, Converter={x:Static cv:IsolatedName.Instance}, FallbackValue={x:Null}}" />
+                    <TextBlock FontWeight="SemiBold" FontSize="12" TextWrapping="Wrap" Text="{Binding SelectedNoteRow.Subject, Converter={x:Static cv:IsolatedName.Instance}, FallbackValue={x:Null}}"
                                IsVisible="{Binding SelectedNoteRow.Subject, Converter={x:Static StringConverters.IsNotNullOrEmpty}, FallbackValue=False}" />
                     <SelectableTextBlock TextWrapping="Wrap" Text="{Binding SelectedNoteRow.Text, FallbackValue={x:Null}}"
                                          IsVisible="{Binding !SelectedNoteRow.IsOwn, FallbackValue=False}" />

@@ -175,6 +175,9 @@ public sealed class SignatureDisplayUiTests
 
                 doc.AddElement(0, signature with { Rect = new PdfRectangle(100, 100, 300, 170) }, Tr.T("Unterschrift einfügen"));
                 vm.AskPassword = (_, _) => Task.FromResult<string?>("geheim");
+                // no time-stamping authority, whatever the settings say: with time stamps switched on (a service with a login), saving
+                // would ask for its password in a window nobody answers, and without a login it would go to the network
+                vm.Timestamps = () => null;
                 vm.ConfirmFixing = (_, _, _) => Task.FromResult(FixingReply.Save);
                 Assert.True(await vm.SaveDocumentAsync(doc, doc.Path, doc.SaveVersion));
                 await doc.CheckSignaturesAsync();

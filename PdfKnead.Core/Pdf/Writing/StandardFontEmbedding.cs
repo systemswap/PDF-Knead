@@ -393,6 +393,11 @@ internal static class StandardFontEmbedding
                 if (low < 0) low = c;
                 high = c;
             }
+            // the range the source names (both /FirstChar and /LastChar, within 0–255) stays — only its widths are added (the display draws
+            // no code outside it with its own width either; before, the range was moved to the codes drawn: docs/FEHLERGEDAECHTNIS.md, No. 1255)
+            if (font.GetInteger(PdfName.Get("FirstChar")) is { } first && font.GetInteger(PdfName.Get("LastChar")) is { } last &&
+                first >= 0 && first <= last && last <= 255)
+                (low, high) = ((int)first, (int)last);
             if (low >= 0)
             {
                 var array = new PdfArray();
@@ -448,8 +453,8 @@ internal static class StandardFontEmbedding
             : new PdfArray([PdfInteger.Of(-200), PdfInteger.Of(-300), PdfInteger.Of(1200), PdfInteger.Of(1000)]);
         var post = font.TableData("post");
         var italicAngle = post.Length >= 8 ? BinaryPrimitives.ReadInt32BigEndian(post[4..]) / 65536.0 : 0;
-        var os2 = font.TableData("OS/2");
-        var capHeight = os2.Length >= 90 && BinaryPrimitives.ReadUInt16BigEndian(os2) >= 2 ? BinaryPrimitives.ReadInt16BigEndian(os2[88..]) : font.Ascent;
+        // one rule for the cap height of every font written (OpenTypeFont.CapHeight; docs/FEHLERGEDAECHTNIS.md, No. 1162)
+        var capHeight = font.CapHeight;
         var bold = file.Contains("Bold", StringComparison.Ordinal);
         var flags = 32 | (file.StartsWith("LiberationMono", StringComparison.Ordinal) ? 1 : 0) | (file.StartsWith("LiberationSerif", StringComparison.Ordinal) ? 2 : 0) |
                     (italicAngle != 0 ? 64 : 0);

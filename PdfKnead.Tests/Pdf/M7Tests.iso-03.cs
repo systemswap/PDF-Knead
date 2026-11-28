@@ -47,6 +47,14 @@ public sealed partial class M7NormTests
 
     internal static PdfDictionary Iso03Descendant(PdfDictionary type0) => (PdfDictionary)type0.GetArray(PdfName.Get("DescendantFonts"))!.Get(0);
 
+    /// <summary>
+    /// The CFF data of a FontFile3 program: the stream itself for /CIDFontType0C, the 'CFF ' table for /OpenType (typed text in a font with CFF
+    /// outlines is saved as OpenType since docs/FEHLERGEDAECHTNIS.md, No. 1168).
+    /// </summary>
+    internal static byte[] Iso03CffProgram(PdfStream program) => program.Dictionary.GetName(PdfName.Subtype)?.Value == "OpenType"
+        ? OpenTypeFont.Parse(program.RawData!).TableData("CFF ").ToArray()
+        : program.RawData!;
+
     private static PdfDictionary Iso03Collection(string registry, string ordering, int supplement) =>
         TestPdf.Dict(("Registry", Iso03Str(registry)), ("Ordering", Iso03Str(ordering)), ("Supplement", PdfInteger.Of(supplement)));
 
@@ -190,7 +198,7 @@ public sealed partial class M7NormTests
         var baseFont = cid.GetName(PdfName.Get("BaseFont"))!.Value;
         Assert.Matches("^[A-Z]{6}\\+", baseFont);
         var program = (PdfStream)cid.GetDictionary(PdfName.Get("FontDescriptor"))!.Get(PdfName.Get("FontFile3"))!;
-        Assert.Equal(baseFont[7..], Iso03CffTop(program.RawData!).Name);
+        Assert.Equal(baseFont[7..], Iso03CffTop(Iso03CffProgram(program)).Name);
     }
 
     /// <summary>9.7.4.1 sentences 26–28 (reader): /DW is optional, its default 1000 — a CID that /W does not list is 1 em wide without /DW.</summary>
@@ -313,8 +321,8 @@ public sealed partial class M7NormTests
         Assert.True(Iso03SameOutline(sans.Font.Outline(0), trueType.Outline(0)));
 
         var noto = Iso03NotoFace();
-        var cff = CffFont.Parse(((PdfStream)Iso03Descendant(Iso03Saved(noto, "日本")).GetDictionary(PdfName.Get("FontDescriptor"))!
-            .Get(PdfName.Get("FontFile3"))!).RawData!);
+        var cff = CffFont.Parse(Iso03CffProgram((PdfStream)Iso03Descendant(Iso03Saved(noto, "日本")).GetDictionary(PdfName.Get("FontDescriptor"))!
+            .Get(PdfName.Get("FontFile3"))!));
         var original = Iso03NotoJp.Value.Cff!;
         Assert.False(original.Outline(original.GlyphByCid(0)).IsEmpty);
         Assert.True(Iso03SameOutline(original.Outline(original.GlyphByCid(0)), cff.Outline(cff.GlyphByCid(0))));

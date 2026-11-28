@@ -44,7 +44,8 @@ public sealed partial class M7NormTests
     /// <summary>
     /// OT 2.11.1 sentences 1–15: the ScriptList of example 1 (three scripts hani, kana, latn in alphabetical order, Script tables at 0x14,
     /// 0x18, 0x1C), each Script table with its own default language system naming its own „liga“ feature (lookups 0, 1, 2). The shaper
-    /// asks for „latn“ and gets only the lookup of the Latin feature; for a script the list lacks (no DFLT either) the first Script table.
+    /// asks for „latn“ and gets only the lookup of the Latin feature; for a script the list lacks (no DFLT either) „latn“, as common shaping
+    /// engines do (docs/FEHLERGEDAECHTNIS.md, No. 1162; before the first Script table).
     /// </summary>
     [Fact]
     public void Ot04_Example1_ScriptList_EachScriptItsOwnFeatures()
@@ -58,7 +59,7 @@ public sealed partial class M7NormTests
         Assert.Equal([2], table.LookupsFor(["liga"], "latn"));
         Assert.Equal([1], table.LookupsFor(["liga"], "kana"));
         Assert.Equal([0], table.LookupsFor(["liga"], "hani"));
-        Assert.Equal([0], table.LookupsFor(["liga"], "arab"));
+        Assert.Equal([2], table.LookupsFor(["liga"], "arab"));
     }
 
     // ------------------------------------------------------------ Example 2
@@ -78,7 +79,8 @@ public sealed partial class M7NormTests
     /// <summary>
     /// OT 2.11.2 sentences 12–19: the Script table of example 2 — offset 0x0A to the default language system, one LangSysRecord „URD “ at
     /// 0x16. The lookups of „init“ come over the default language system at 0x0A (lookup 2 only); the same bytes with a default offset of
-    /// 0 make the reader take the language system of the first record, at 0x16 (with its required feature: lookups 2 and 3).
+    /// 0 give a text without a language no lookups, as the shaping library, and Urdu text the language system of the record at 0x16 (with
+    /// its required feature: lookups 2 and 3). Before, the first record applied to text of any language (docs/FEHLERGEDAECHTNIS.md, No. 1204).
     /// </summary>
     [Fact]
     public void Ot04_Example2_ScriptTable_DefaultLanguageSystemFirst()
@@ -86,7 +88,8 @@ public sealed partial class M7NormTests
         var original = new LayoutTable(Ot04Layout(Ot04Example2ScriptList(0x0A), Ot04Example2Features, Ot04EmptyLookups(4)), 7);
         Assert.Equal([2], original.LookupsFor(["init"], "arab"));
         var noDefault = new LayoutTable(Ot04Layout(Ot04Example2ScriptList(0), Ot04Example2Features, Ot04EmptyLookups(4)), 7);
-        Assert.Equal([2, 3], noDefault.LookupsFor(["init"], "arab"));
+        Assert.Equal([], noDefault.LookupsFor(["init"], "arab"));
+        Assert.Equal([2, 3], noDefault.LookupsFor(["init"], ["arab"], "URD "));
     }
 
     /// <summary>
@@ -117,13 +120,13 @@ public sealed partial class M7NormTests
     }
 
     /// <summary>
-    /// OT 2.11.2 sentences 4–11 (today's behaviour; open question on language systems): the shaper has no text language and never picks a
-    /// language-specific language system. Noto Sans Arabic with the GSUB of example 2, the required feature 3 of the Urdu language system
-    /// replacing the Farsi four (U+06F4) by another glyph: a word ending in U+06F4 keeps the Farsi glyph of the cmap. Only when the Urdu
-    /// language system is made the default does the replacement act — so the lookup itself works.
+    /// OT 2.11.2 sentences 4–11 (docs/FEHLERGEDAECHTNIS.md, No. 1162): the text's language picks the language system. Noto Sans Arabic with the
+    /// GSUB of example 2, the required feature 3 of the Urdu language system replacing the Farsi four (U+06F4) by another glyph: in Urdu text a
+    /// word ending in U+06F4 takes the Urdu glyph; without a language it keeps the Farsi glyph of the cmap (the default language system), as
+    /// when the Urdu language system is not the default.
     /// </summary>
     [Fact]
-    public void Ot04_Example2_UrduDigits_NotAppliedWithoutTextLanguage()
+    public void Ot04_Example2_UrduDigits_ForUrduText()
     {
         var arabic = EmbeddedFonts.ArabicOpenType("NotoSansArabic-Regular.ttf");
         int farsi = arabic.GlyphForUnicode(0x06F4), other = arabic.GlyphForUnicode(0x0664);
@@ -138,6 +141,7 @@ public sealed partial class M7NormTests
             })));
         const string word = "بب۴";
         Assert.Equal(farsi, Shaper(0x0A).Shape(word)[^1].Glyph);
+        Assert.Equal(other, Shaper(0x0A).Shape(word, null, "ur-PK")[^1].Glyph);
         Assert.Equal(other, Shaper(0x16).Shape(word)[^1].Glyph);
     }
 
@@ -162,13 +166,13 @@ public sealed partial class M7NormTests
     }
 
     /// <summary>
-    /// OT 2.11.3 sentences 7–9, 12–13 (today's behaviour; open question on language systems): language systems „DEU “ (feature 2, with the
-    /// eszett ligature) and „TRK “ (feature 0, without fi) under „latn“, the default naming feature 1. Lookup 0 is f i → fi, lookup 1 f l → fl,
-    /// lookup 2 s s → ß. The shaper always takes the default: „fi“ becomes the fi ligature (also for Turkish text), „fl“ the fl ligature,
-    /// and „ss“ never the eszett.
+    /// OT 2.11.3 sentences 7–9, 12–13 (docs/FEHLERGEDAECHTNIS.md, No. 1162): language systems „DEU “ (feature 2, with the eszett ligature) and
+    /// „TRK “ (feature 0, without fi) under „latn“, the default naming feature 1. Lookup 0 is f i → fi, lookup 1 f l → fl, lookup 2 s s → ß.
+    /// Without a language the default applies: „fi“ becomes the fi ligature, „fl“ the fl ligature, „ss“ stays; for Turkish text „fi“ stays two
+    /// glyphs, for German text „ss“ becomes ß.
     /// </summary>
     [Fact]
-    public void Ot04_Example3_LanguageSystemsAreNeverChosen()
+    public void Ot04_Example3_LanguageSystemByTheTextLanguage()
     {
         int G(int c)
         {
@@ -188,6 +192,8 @@ public sealed partial class M7NormTests
         Assert.Equal([G(0xFB01)], shaper.Shape("fi").Select(g => g.Glyph).ToArray());
         Assert.Equal([G(0xFB02)], shaper.Shape("fl").Select(g => g.Glyph).ToArray());
         Assert.Equal([G('s'), G('s')], shaper.Shape("ss").Select(g => g.Glyph).ToArray());
+        Assert.Equal([G('f'), G('i')], shaper.Shape("fi", null, "tr").Select(g => g.Glyph).ToArray());
+        Assert.Equal([G(0xDF)], shaper.Shape("ss", null, "de-DE").Select(g => g.Glyph).ToArray());
     }
 
     /// <summary>
@@ -254,10 +260,10 @@ public sealed partial class M7NormTests
         Assert.True(classes.Skips(lookup, 11));
         Assert.True(classes.Skips(lookup, 12));
 
-        var acute = Ot03Font.GlyphForUnicode('́');
+        var acute = Ot03Font.GlyphForUnicode('\u0301');
         var gdef = new Ot03Part().U16(1, 0).Off(Ot03Classes((acute, 3))).U16(0, 0, 0).Build();
         var shaper = Ot03Shaper(Ot03Liga(Ot03Ligature("fi", 'ﬁ', 0x000C)), gdef);
-        Assert.Equal([Ot03G('ﬁ'), acute], Ot03Shape(shaper, "f́i"));
+        Assert.Equal([Ot03G('ﬁ'), acute], Ot03Shape(shaper, "f\u0301i"));
     }
 
     // ------------------------------------------------------------ Examples 5–8

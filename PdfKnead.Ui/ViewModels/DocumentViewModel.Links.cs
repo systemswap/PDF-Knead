@@ -27,8 +27,11 @@ public sealed partial class DocumentViewModel
         return links;
     }
 
-    /// <summary>What a link leads to, for its tooltip.</summary>
-    internal static string Describe(LinkTarget target) => target switch
+    /// <summary>
+    /// What a link leads to, for its tooltip; a target from the file (address, file name, action) with its directional formatting characters
+    /// shown, so that it cannot pass for another (Unicode 9, UTR #36; docs/FEHLERGEDAECHTNIS.md, No. 1217).
+    /// </summary>
+    internal static string Describe(LinkTarget target) => Core.Security.DisplayNames.Safe(target switch
     {
         InternalLink i => Tr.T("Seite {0}", i.Destination.PageIndex + 1),
         NamedLink { Action: "NextPage" } => Tr.T("Nächste Seite"),
@@ -38,7 +41,7 @@ public sealed partial class DocumentViewModel
         AddressLink a => string.Join("\n", [a.Uri, .. a.Check.Warnings]),
         OtherLink o => Tr.T("Wird aus Sicherheitsgründen nicht ausgeführt: {0}", o.Detail is null ? o.Kind : $"{o.Kind} ({o.Detail})"),
         _ => "",
-    };
+    });
 
     /// <summary>
     /// Follows a link of the page at <paramref name="position"/>; (x, y) is the click in page space (for /IsMap, the position relative to the

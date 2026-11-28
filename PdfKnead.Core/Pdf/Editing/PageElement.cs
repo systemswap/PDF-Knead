@@ -101,6 +101,15 @@ public sealed record TextElement : PageElement
 
     /// <summary>For radio buttons: the export value of the button in the group that this label belongs to (otherwise empty).</summary>
     public string LabelState { get; init; } = "";
+
+    /// <summary>
+    /// Whether the lines are spaced by the natural line height of the font (single spacing; <see cref="ElementFace.LineHeight"/>,
+    /// docs/FEHLERGEDAECHTNIS.md, No. 1211) instead of 1.15 times the font size: set for text inserted anew („Text einfügen“) and stored with
+    /// the element (<see cref="ElementStore"/>). Text elements of earlier versions have no mark and keep 1.15 times the size, so that nothing
+    /// moves; a form field never takes it (<see cref="ElementAppearance.LineStep"/>): its appearance is made again from the value and the
+    /// default appearance by every program that fills it in, with no place for such a mark, so it keeps the spacing it always had.
+    /// </summary>
+    public bool FontLineHeight { get; init; }
 }
 
 /// <summary>
@@ -117,8 +126,21 @@ public sealed record RichTextElement : PageElement
     /// <summary>Alignment of the lines, including justification.</summary>
     public Text.BlockAlignment Alignment { get; init; } = Text.BlockAlignment.Left;
 
-    /// <summary>Distance between baselines as a multiple of the font size (of the largest font in the line).</summary>
-    public double LineGap { get; init; } = 1.15;
+    /// <summary>
+    /// Distance between baselines as a multiple of the natural line height of the fonts in the line (<see cref="FontLineHeight"/>; for new
+    /// blocks 1, single spacing), else of the font size (of the largest font in the line).
+    /// </summary>
+    public double LineGap { get; init; } = 1;
+
+    /// <summary>
+    /// Whether <see cref="LineGap"/> multiplies the natural line height of the fonts (ascender − descender + line gap, the typographic ones of
+    /// OS/2 with USE_TYPO_METRICS, else those of hhea: <see cref="ElementFace.LineHeight"/>; OpenType 3.20.2, 31.2.20;
+    /// docs/FEHLERGEDAECHTNIS.md, No. 1211) — true for new blocks and for a block whose spacing was chosen anew — or the font size (false).
+    /// The mark is stored with the block (<see cref="ContentElements"/>): blocks of earlier versions have none and keep their spacing as a
+    /// multiple of the font size, so that nothing moves when they are opened or edited; edited text of the page takes the spacing of the original
+    /// as a multiple of the font size, so that it keeps the lines of the original.
+    /// </summary>
+    public bool FontLineHeight { get; init; } = true;
 
     /// <summary>Distance of the first baseline from the top edge in points; null = ascender of the first line.</summary>
     public double? FirstBaseline { get; init; }
@@ -128,6 +150,12 @@ public sealed record RichTextElement : PageElement
 
     /// <summary>Tab stops from the left edge (from the original: left, right or centre), ordered by position; beyond them every 1.25 cm as in office programs.</summary>
     public IReadOnlyList<Text.TabStop> TabStops { get; init; } = [];
+
+    /// <summary>
+    /// The language of the text as a language tag (/Lang, BCP 47), or null if unknown: shaping takes the font's language system for it
+    /// (OpenType 2.4.1, locl), so that the input box and the appearance show the same glyphs (docs/FEHLERGEDAECHTNIS.md, No. 1162).
+    /// </summary>
+    public string? Language { get; init; }
 
     /// <summary>
     /// The marked content (MCIDs of the page content) whose text the block now carries, in ascending order: those that lost characters when

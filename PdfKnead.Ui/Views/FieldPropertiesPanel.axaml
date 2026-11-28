@@ -2,6 +2,7 @@
              Background="{DynamicResource SurfaceAltBrush}"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:l="using:PdfKnead.Localization"
+             xmlns:cv="using:PdfKnead.Converters"
              xmlns:vm="using:PdfKnead.ViewModels"
              x:Class="PdfKnead.Views.FieldPropertiesPanel" Focusable="True"
              x:DataType="vm:FieldPropertiesViewModel">
@@ -63,7 +64,7 @@
                 <Border Classes="bannerIcon"><PathIcon Data="{Binding KindIcon}" /></Border>
                 <StackPanel Grid.Column="1" Margin="10,0,0,0" Spacing="0" VerticalAlignment="Center">
                     <TextBlock FontWeight="SemiBold" FontSize="14" Text="{Binding Title}" />
-                    <TextBlock FontSize="11" Opacity="0.85" Text="{Binding FullName}" TextTrimming="CharacterEllipsis" IsVisible="{Binding IsSingle}" />
+                    <TextBlock FontSize="11" Opacity="0.85" Text="{Binding FullName, Converter={x:Static cv:IsolatedName.Instance}}" TextTrimming="CharacterEllipsis" IsVisible="{Binding IsSingle}" />
                     <TextBlock FontSize="11" Opacity="0.9" TextWrapping="Wrap" IsVisible="{Binding IsMixed}"
                                Text="{l:T 'Verschiedene Feldarten: hier steht nur, was alle gemeinsam haben. Eine Änderung gilt nur für diese eine Eigenschaft.'}" />
                 </StackPanel>
