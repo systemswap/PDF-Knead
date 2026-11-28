@@ -6,7 +6,7 @@ namespace PdfKnead.Tests.Updates;
 /// <summary>
 /// <c>pdf-knead release-pruefen</c>: a downloaded version file is checked as the update check of the program checks it — the signature, the
 /// file itself — and every package of the folder against its size and SHA-256; a release can so be checked before the program can reach it
-/// (docs/UEBERGABE.md, „Veröffentlichung und öffentliches Repository“).
+/// (docs/UEBERGABE.md, section 4 „Veröffentlichen“).
 /// </summary>
 public sealed class ReleaseVerifyTests
 {
