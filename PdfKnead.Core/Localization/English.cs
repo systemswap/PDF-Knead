@@ -35,6 +35,8 @@ public static class English
         ["Gefragt wird nur nach der Versionsdatei auf GitHub. Gesendet wird dabei nichts über Sie oder Ihre Dokumente; der Server sieht die Adresse Ihres Anschlusses, den Zeitpunkt und den Programmnamen mit Version. Updates sind signiert — ein Update ohne gültige Signatur wird nie installiert."] = "Only the version file on GitHub is requested. Nothing about you or your documents is sent; the server sees the address of your connection, the time and the program name with version. Updates are signed — an update without a valid signature is never installed.",
         ["Jetzt nach Updates suchen"] = "Check for updates now",
         ["Jetzt neu starten"] = "Restart now",
+        ["PDF-Knead {0} konnte noch nicht eingespielt werden, weil Programmdateien gerade benutzt wurden. „Jetzt neu starten“ versucht es erneut — sonst geschieht es beim nächsten Start."] =
+            "PDF-Knead {0} could not be installed yet because program files were in use. “Restart now” tries again — otherwise it happens at the next start.",
         ["Keine Update-Quelle erreichbar — ohne Netz, oder es sind noch keine Updates veröffentlicht."] = "No update source reachable — no network, or no updates are published yet.",
         ["Lade PDF-Knead {0} …"] = "Downloading PDF-Knead {0} …",
         ["Laden fehlgeschlagen oder Prüfsumme falsch — nichts wurde geändert."] = "Download failed or checksum wrong — nothing was changed.",

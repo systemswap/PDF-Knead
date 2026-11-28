@@ -22,6 +22,12 @@ public static class UpdateStart
     /// </summary>
     public const string AfterExchange = "PDFKNEAD_NACH_UPDATE";
 
+    /// <summary>
+    /// Set in addition for the program started after an exchange that did not succeed (its files were in use): it is the previous version
+    /// again, and it says so instead of starting as if nothing had been tried.
+    /// </summary>
+    public const string ExchangeFailed = "PDFKNEAD_UPDATE_OFFEN";
+
     /// <summary>Where the waiting area, the previous version and the notes of the exchange lie.</summary>
     public static string StateFolder => Path.Combine(AppLocations.UserDataFolder, "updates");
 
@@ -55,10 +61,16 @@ public static class UpdateStart
         {
             if (args is [ApplyArgument, var folder, var pidText, var versionText])
             {
-                WaitForExit(pidText);
-                if (UpdateVersion.Parse(versionText) is { } version && installer.Waiting() is { } waiting && waiting.Version.CompareTo(version) == 0)
-                    installer.Apply(folder, version, waiting.Files);
-                start(Program(folder, exe));
+                if (!WaitForExit(pidText)) AppLog.Write("Update", "das vorige Programm lief nach 60 s noch");
+                var failed = false;
+                if (UpdateVersion.Parse(versionText) is { } version && installer.Waiting() is { } waiting && waiting.Version.CompareTo(version) == 0
+                    && !installer.Apply(folder, version, waiting.Files))
+                {
+                    // the previous version starts and says so; the waiting area stays, the next start tries again
+                    failed = true;
+                    AppLog.Write("Update", $"Austausch nicht gelungen ({installer.LastFailure ?? "ohne Angabe"}) — die bisherige Fassung startet, der nächste Start versucht es erneut");
+                }
+                start(Program(folder, exe, failed));
                 return true;
             }
             if (args is [RestoreArgument, var restoreFolder, var restorePid])
@@ -120,27 +132,30 @@ public static class UpdateStart
     }
 
     /// <summary>The program in its folder, started after an exchange or a restore (without handing over again).</summary>
-    private static ProcessStartInfo Program(string folder, string exe)
+    private static ProcessStartInfo Program(string folder, string exe, bool exchangeFailed = false)
     {
         var info = new ProcessStartInfo(Path.Combine(folder, exe)) { UseShellExecute = false, WorkingDirectory = folder };
         info.Environment[AfterExchange] = "1";
+        if (exchangeFailed) info.Environment[ExchangeFailed] = "1";
         return info;
     }
 
     /// <summary>The name of the program file: „PDF-Knead.exe“, or the name of the AppImage.</summary>
     public static string ExecutableName() => Path.GetFileName(ProgramLocation().Executable);
 
-    private static void WaitForExit(string pidText)
+    /// <summary>Waits for the process to end, at most a minute.</summary>
+    /// <returns>False only if it was still running after that.</returns>
+    private static bool WaitForExit(string pidText)
     {
-        if (!int.TryParse(pidText, out var pid)) return;
+        if (!int.TryParse(pidText, out var pid)) return true;
         try
         {
             using var process = Process.GetProcessById(pid);
-            process.WaitForExit(TimeSpan.FromSeconds(60));
+            return process.WaitForExit(TimeSpan.FromSeconds(60));
         }
         catch (Exception e) when (e is ArgumentException or InvalidOperationException or System.ComponentModel.Win32Exception)
         {
-            // already ended, or not ours to wait for
+            return true;   // already ended, or not ours to wait for
         }
     }
 }

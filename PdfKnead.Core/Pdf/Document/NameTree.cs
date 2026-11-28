@@ -4,9 +4,11 @@ namespace PdfKnead.Core.Pdf.Document;
 
 /// <summary>
 /// Name trees (ISO 32000-2, 7.9.6) — the /IDTree of the structure: reading all pairs, building one. Keys are strings compared byte by byte
-/// (lexical order of the bytes, 7.9.6). Every walk stops at a depth of 32 and within a budget (crafted trees).
+/// (lexical order of the bytes, 7.9.6). Every walk visits a node once and stops at a depth of 32 and within a budget (crafted trees). This is
+/// the one walker of name trees: a walk of its own elsewhere misses one of the three limits sooner or later (docs/FEHLERGEDAECHTNIS.md,
+/// No. 1264).
 /// </summary>
-internal static class NameTree
+public static class NameTree
 {
     private const int MaxDepth = 32;
 
@@ -33,6 +35,25 @@ internal static class NameTree
     /// <param name="budget">At most this many pairs and kids.</param>
     public static IEnumerable<(byte[] Key, PdfObject Value)> Pairs(PdfDictionary root, Func<PdfObject?, PdfObject?>? resolve = null, int budget = 1_000_000)
     {
+        foreach (var (names, i) in Slots(root, resolve, budget))
+            if (KeyOf(resolve is null ? names.Get(i) : resolve(names[i])) is { } key) yield return (key, names[i + 1]);
+    }
+
+    /// <summary>
+    /// Every pair in the order of the tree with key and value resolved, each node once — also a pair whose key is neither a string nor a
+    /// name: a check that looks at the values (embedded files, destinations) must not pass one over.
+    /// </summary>
+    /// <param name="root">The root node.</param>
+    /// <param name="budget">At most this many pairs and kids.</param>
+    /// <returns>Key and value of each pair as the arrays resolve them.</returns>
+    public static IEnumerable<(PdfObject? Key, PdfObject? Value)> Entries(PdfDictionary root, int budget = 1_000_000)
+    {
+        foreach (var (names, i) in Slots(root, null, budget)) yield return (names.Get(i), names.Get(i + 1));
+    }
+
+    /// <summary>The places of all pairs — the /Names array and the index of the key —, each node once, within depth and budget.</summary>
+    private static IEnumerable<(PdfArray Names, int Index)> Slots(PdfDictionary root, Func<PdfObject?, PdfObject?>? resolve, int budget)
+    {
         PdfObject? Entry(PdfDictionary owner, PdfName key) => resolve is null ? owner.Get(key) : resolve(owner.GetRaw(key));
         PdfObject? Item(PdfArray array, int index) => resolve is null ? array.Get(index) : resolve(array[index]);
         var seen = new HashSet<PdfDictionary>(ReferenceEqualityComparer.Instance);
@@ -43,7 +64,7 @@ internal static class NameTree
             if (item.Depth > MaxDepth || !seen.Add(item.Node)) continue;
             if (Entry(item.Node, Names) is PdfArray names)
                 for (var i = 0; i + 1 < names.Count && --budget > 0; i += 2)
-                    if (KeyOf(Item(names, i)) is { } key) yield return (key, names[i + 1]);
+                    yield return (names, i);
             if (Entry(item.Node, Kids) is PdfArray kids)
                 for (var i = Math.Min(kids.Count, 100_000) - 1; i >= 0 && --budget > 0; i--)
                     if (Item(kids, i) is PdfDictionary kid) stack.Push((kid, item.Depth + 1));

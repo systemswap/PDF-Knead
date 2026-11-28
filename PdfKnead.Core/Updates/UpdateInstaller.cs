@@ -29,6 +29,19 @@ public sealed class UpdateInstaller(string stateFolder)
     public string Previous => Path.Combine(stateFolder, "vorversion");
 
     /// <summary>
+    /// How long an exchange waits in all for files that are in use for a moment — a virus scanner reading the fresh files, a sync client of
+    /// the folder, the previous process still releasing them. What is held longer is held for good (another window of the program): the
+    /// exchange is put back and tried at the next start.
+    /// </summary>
+    public TimeSpan Patience { get; init; } = TimeSpan.FromSeconds(10);
+
+    /// <summary>
+    /// What stopped the last exchange: the file of the package and the kind of the fault — without a path, so that it can go into the log;
+    /// null if nothing did.
+    /// </summary>
+    public string? LastFailure { get; private set; }
+
+    /// <summary>
     /// Unpacks a zip package into the waiting area of its version. Every entry is checked: no absolute path, no „..“, no link, at most
     /// <see cref="MaxFiles"/> files and <see cref="MaxUnpacked"/> bytes; a package that breaks one is refused as a whole.
     /// </summary>
@@ -193,45 +206,73 @@ public sealed class UpdateInstaller(string stateFolder)
 
     /// <summary>
     /// Exchanges the program in <paramref name="programFolder"/> for the waiting version: each file of the package that exists there goes to
-    /// the previous version first, then the new one is copied in. Nothing else in the folder is touched. On a failure everything moved so far
-    /// is put back.
+    /// the previous version first, then the new one is copied in. Nothing else in the folder is touched. A file in use for a moment is
+    /// waited for (<see cref="Patience"/>): giving up at the first refusal started the old version again after an update, without a word
+    /// (docs/FEHLERGEDAECHTNIS.md, No. 1265). On a failure everything moved so far is put back and <see cref="LastFailure"/> names it.
     /// </summary>
     /// <returns>Whether the exchange is complete.</returns>
     public bool Apply(string programFolder, UpdateVersion version, IReadOnlyList<string> files)
     {
+        LastFailure = null;
+        // all names first: a refused one must not leave the files before it exchanged
+        if (!files.All(SafeRelative)) return false;
         var staged = Staged(version);
         if (Directory.Exists(Previous)) Directory.Delete(Previous, recursive: true);
         Directory.CreateDirectory(Previous);
         var moved = new List<string>();
         var added = new List<string>();
+        var started = Environment.TickCount64;
+        var current = "";
         try
         {
             foreach (var name in files)
             {
-                if (!SafeRelative(name)) return false;
+                current = name;
                 var source = Path.Combine(staged, name);
                 var target = Path.Combine(programFolder, name);
                 if (File.Exists(target))
                 {
                     var keep = Path.Combine(Previous, name);
                     Directory.CreateDirectory(Path.GetDirectoryName(keep)!);
-                    File.Move(target, keep);
+                    // overwriting: a move across volumes that copied and could not delete has left its copy for the next try
+                    Patiently(() => File.Move(target, keep, overwrite: true), started);
                     moved.Add(name);
                 }
                 else added.Add(name);
                 Directory.CreateDirectory(Path.GetDirectoryName(target)!);
-                File.Copy(source, target);
+                Patiently(() => File.Copy(source, target, overwrite: true), started);
                 if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(target, File.GetUnixFileMode(source) | (IsProgram(name) ? UnixFileMode.UserExecute : 0));
             }
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
+            LastFailure = $"{current}: {e.GetType().Name}";
             Restore(programFolder, moved, added);
             return false;
         }
         Write(Installed, new State(version.ToString(), files, false, 0, moved, added));
         Discard(version);
         return true;
+    }
+
+    /// <summary>
+    /// Runs a file operation of the exchange; while the file is in use, waits a little (50 ms, doubling up to half a second) and tries
+    /// again — until the <see cref="Patience"/> of the whole exchange, counted from <paramref name="started"/>, is used up.
+    /// </summary>
+    private void Patiently(Action operation, long started)
+    {
+        for (var pause = 50; ; pause = Math.Min(pause * 2, 500))
+        {
+            try
+            {
+                operation();
+                return;
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException && Environment.TickCount64 - started < Patience.TotalMilliseconds)
+            {
+                Thread.Sleep(pause);
+            }
+        }
     }
 
     private static bool IsProgram(string name) => name.EndsWith(".AppImage", StringComparison.Ordinal) || !Path.GetFileName(name).Contains('.');

@@ -574,7 +574,7 @@ Digitally signing 200 MB: around 3 s, using less than half a gigabyte of memory.
 ### What is still missing: the standard texts
 
 PDF-Knead is compared with the standard text sentence by sentence – just as for PDF itself,
-PDF/UA and the signature standards. For four areas the texts are still missing; they are only available for purchase:
+PDF/UA and the signature standards. For five areas the texts are still missing; they are only available for purchase:
 
 - **PDF/A – archiving**, from the PDF Association. Today PDF-Knead works from the public rule collections and has every file
   cross-checked by veraPDF; the standard texts are the source of each of these rules.
@@ -597,6 +597,10 @@ PDF/UA and the signature standards. For four areas the texts are still missing; 
     the default colour space of almost every image and its extended YCC version.
   - **[IEC 61966-2-2:2003 – scRGB](https://webstore.iec.ch/en/publication/6171)**: linear RGB colour space with an extended range.
   - **[ISO 22028-2:2013 – ROMM RGB](https://www.iso.org/standard/56591.html)**: the wide colour space of print and photography.
+- **Black point compensation**, from ISO. When PDF-Knead converts colours from one colour profile to another, it matches the darkest tones
+  so that the detail in the shadows is not lost. Today it follows the freely available application note of the PDF Association; the
+  standard defines the method bindingly.
+  - **[ISO 18619:2015 – Black point compensation](https://www.iso.org/standard/63033.html)**
 - **Barcodes**, from ISO. PDF-Knead reads and creates QR, Data Matrix, Code 128, EAN/UPC, Code 39 and ITF and today checks them against
   the freely available GS1 specifications; the symbology standards define the structure, dimensions and check rules of each code.
   - **[ISO/IEC 18004:2024 – QR Code](https://www.iso.org/standard/83389.html)**

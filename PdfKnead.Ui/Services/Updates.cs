@@ -51,6 +51,19 @@ public sealed partial class Updates : ObservableObject
         _client = client ?? new UpdateClient();
         _installer = installer ?? new UpdateInstaller(UpdateStart.StateFolder);
         _publicKey = publicKey;
+        NoteStart(Environment.GetEnvironmentVariable(UpdateStart.ExchangeFailed) == "1");
+    }
+
+    /// <summary>
+    /// At the start: after an exchange that did not succeed the previous version runs again. It says so and offers „Jetzt neu starten“
+    /// anew — before, it started without a word and looked as if the update had been lost (docs/FEHLERGEDAECHTNIS.md, No. 1265).
+    /// </summary>
+    /// <param name="exchangeFailed">Whether this start follows an exchange that did not succeed (<see cref="UpdateStart.ExchangeFailed"/>).</param>
+    internal void NoteStart(bool exchangeFailed)
+    {
+        if (!exchangeFailed || _installer.Waiting() is not { } waiting) return;
+        State = UpdateState.Ready;
+        Message = Tr.T("PDF-Knead {0} konnte noch nicht eingespielt werden, weil Programmdateien gerade benutzt wurden. „Jetzt neu starten“ versucht es erneut — sonst geschieht es beim nächsten Start.", waiting.Version);
     }
 
     /// <summary>The state for the hint.</summary>

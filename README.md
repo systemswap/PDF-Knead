@@ -575,7 +575,7 @@ Ein Plan im Format A0 mit rund 780 000 Linien ist beim ersten Öffnen in gut 1 s
 ### Was noch fehlt: die Normtexte
 
 PDF-Knead wird Satz für Satz am Normtext abgeglichen – so, wie PDF selbst, PDF/UA und die
-Signaturnormen. Für vier Bereiche fehlen die Texte noch; es gibt sie nur zu kaufen:
+Signaturnormen. Für fünf Bereiche fehlen die Texte noch; es gibt sie nur zu kaufen:
 
 - **PDF/A – Archivieren**, bei der PDF Association. Heute arbeitet PDF-Knead nach den öffentlichen Regelsammlungen und lässt jede Datei
   von veraPDF gegenprüfen; die Normtexte sind die Quelle jeder dieser Regeln.
@@ -598,6 +598,10 @@ Signaturnormen. Für vier Bereiche fehlen die Texte noch; es gibt sie nur zu kau
     der Standard-Farbraum fast aller Bilder und seine erweiterte YCC-Fassung.
   - **[IEC 61966-2-2:2003 – scRGB](https://webstore.iec.ch/en/publication/6171)**: linearer RGB-Farbraum mit erweitertem Umfang.
   - **[ISO 22028-2:2013 – ROMM RGB](https://www.iso.org/standard/56591.html)**: der weite Farbraum der Druck- und Fotowelt.
+- **Schwarzpunktkompensation**, bei ISO. Rechnet PDF-Knead Farben von einem Farbprofil in ein anderes um, gleicht es die dunkelsten Töne
+  aneinander an, damit die Zeichnung in den Schatten nicht verloren geht. Heute folgt es dabei der frei zugänglichen Anleitung der PDF
+  Association; die Norm legt das Verfahren verbindlich fest.
+  - **[ISO 18619:2015 – Schwarzpunktkompensation](https://www.iso.org/standard/63033.html)**
 - **Strichcodes**, bei ISO. PDF-Knead liest und erzeugt QR, Data Matrix, Code 128, EAN/UPC, Code 39 und ITF und prüft heute gegen die
   frei zugänglichen GS1-Spezifikationen; die Symbologie-Normen legen Aufbau, Maße und Prüfregeln jedes Codes fest.
   - **[ISO/IEC 18004:2024 – QR-Code](https://www.iso.org/standard/83389.html)**

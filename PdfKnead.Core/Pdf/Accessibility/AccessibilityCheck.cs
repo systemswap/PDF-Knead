@@ -139,19 +139,12 @@ public static partial class AccessibilityCheck
 
         private List<PdfDictionary>? _elements;
 
-        /// <summary>The values of a name tree (ISO 32000-1, 7.9.6), within a budget.</summary>
-        private static IEnumerable<PdfObject> NameTreeValues(PdfDictionary node, int depth = 0)
-        {
-            if (depth > 32) yield break;
-            if (node.Get(PdfName.Get("Names")) is PdfArray pairs)
-                for (var i = 1; i < pairs.Count && i < 200_000; i += 2)
-                    yield return pairs.Get(i);
-            if (node.Get(PdfName.Kids) is PdfArray kids)
-                for (var i = 0; i < kids.Count && i < 10_000; i++)
-                    if (kids.Get(i) is PdfDictionary kid)
-                        foreach (var value in NameTreeValues(kid, depth + 1))
-                            yield return value;
-        }
+        /// <summary>
+        /// The values of a name tree (ISO 32000-2, 7.9.6), each node once, within the limits of <see cref="NameTree"/>: a walk of its own
+        /// here had depth and width limits but did not remember the nodes, and a tree naming itself as its kid kept the check busy without
+        /// end (docs/FEHLERGEDAECHTNIS.md, No. 1264).
+        /// </summary>
+        private static IEnumerable<PdfObject?> NameTreeValues(PdfDictionary node) => NameTree.Entries(node).Select(e => e.Value);
 
         /// <summary>
         /// Whether the language of an object attached to the structure through /StructParent can be told: /Lang on its structure element or an

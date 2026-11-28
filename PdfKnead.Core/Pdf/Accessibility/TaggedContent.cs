@@ -166,24 +166,8 @@ internal static class TaggedContent
         return issues;
     }
 
-    /// <summary>The values of a name tree (ISO 32000-2, 7.9.6), resolved, each node once, within a budget.</summary>
-    private static IEnumerable<PdfObject?> NameTreeValues(PdfDictionary root)
-    {
-        var seen = new HashSet<PdfDictionary>(ReferenceEqualityComparer.Instance);
-        var stack = new Stack<(PdfDictionary Node, int Depth)>();
-        stack.Push((root, 0));
-        var budget = 1_000_000;
-        while (stack.TryPop(out var item) && budget > 0)
-        {
-            if (item.Depth > 32 || !seen.Add(item.Node)) continue;
-            if (item.Node.Get(PdfName.Get("Names")) is PdfArray names)
-                for (var i = 1; i < names.Count && --budget > 0; i += 2)
-                    yield return names.Get(i);
-            if (item.Node.Get(PdfName.Get("Kids")) is PdfArray kids)
-                for (var i = Math.Min(kids.Count, 100_000) - 1; i >= 0 && --budget > 0; i--)
-                    if (kids.Get(i) is PdfDictionary kid) stack.Push((kid, item.Depth + 1));
-        }
-    }
+    /// <summary>The values of a name tree (ISO 32000-2, 7.9.6), resolved, each node once, within the limits of <see cref="NameTree"/>.</summary>
+    private static IEnumerable<PdfObject?> NameTreeValues(PdfDictionary root) => NameTree.Entries(root).Select(e => e.Value);
 
     /// <summary>The containment rules the tree breaks (<see cref="Containment.Violations"/>).</summary>
     public static List<string> Nesting(PdfDocument doc) =>

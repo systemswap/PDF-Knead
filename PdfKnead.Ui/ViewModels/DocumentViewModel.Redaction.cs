@@ -851,21 +851,15 @@ public sealed partial class DocumentViewModel
         return false;
     }
 
-    /// <summary>Name tree: whether a name (or, with <paramref name="value"/>, its value) contains redacted text; at most 10,000 entries and 16 levels.</summary>
+    /// <summary>
+    /// Name tree: whether a name (or, with <paramref name="value"/>, its value) contains redacted text. The walk is the one of
+    /// <see cref="Core.Pdf.Document.NameTree"/> (each node once, depth and budget): a walk of its own here counted entries only, and a tree
+    /// naming itself as its kid kept the search for leftovers busy without end (docs/FEHLERGEDAECHTNIS.md, No. 1264).
+    /// </summary>
     private static bool NameTreeHas(Core.Pdf.Objects.PdfDictionary tree, Func<string?, bool> has, Func<Core.Pdf.Objects.PdfObject?, Func<string?, bool>, bool>? value)
     {
-        var stack = new Stack<(Core.Pdf.Objects.PdfDictionary Node, int Depth)>([(tree, 0)]);
-        var count = 0;
-        while (stack.Count > 0 && count < 10_000)
-        {
-            var (node, depth) = stack.Pop();
-            if (node.GetArray(Core.Pdf.Objects.PdfName.Get("Names")) is { } pairs)
-                for (var i = 0; i + 1 < pairs.Count && count < 10_000; i += 2, count++)
-                    if (has((pairs.Get(i) as Core.Pdf.Objects.PdfString)?.ToText()) || value?.Invoke(pairs.Get(i + 1), has) == true) return true;
-            if (depth < 16 && node.GetArray(Core.Pdf.Objects.PdfName.Kids) is { } kids)
-                for (var i = 0; i < kids.Count && i < 10_000; i++)
-                    if (kids.Get(i) is Core.Pdf.Objects.PdfDictionary kid) stack.Push((kid, depth + 1));
-        }
+        foreach (var (key, entry) in Core.Pdf.Document.NameTree.Entries(tree))
+            if (has((key as Core.Pdf.Objects.PdfString)?.ToText()) || value?.Invoke(entry, has) == true) return true;
         return false;
     }
 

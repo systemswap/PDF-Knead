@@ -311,7 +311,7 @@ public sealed class UpdateTests : IDisposable
         Directory.CreateDirectory(Path.GetDirectoryName(Path.Combine(program, second))!);
         File.WriteAllText(Path.Combine(program, "PDF-Knead.exe"), "alt");
         File.WriteAllText(Path.Combine(program, second), "alt-b");
-        var installer = new UpdateInstaller(Path.Combine(_folder, "zustand"));
+        var installer = new UpdateInstaller(Path.Combine(_folder, "zustand")) { Patience = TimeSpan.FromMilliseconds(300) };
         var file = Path.Combine(_folder, "p.zip");
         File.WriteAllBytes(file, Zip(("PDF-Knead.exe", "neu"), (second, "neu-b")));
         var files = installer.UnpackPackage(file, V("2.0.0"))!;
@@ -337,6 +337,121 @@ public sealed class UpdateTests : IDisposable
         Assert.Equal("alt", File.ReadAllText(Path.Combine(program, "PDF-Knead.exe")));
         Assert.Equal("alt-b", File.ReadAllText(Path.Combine(program, second)));
         Assert.NotNull(installer.Waiting());                                                           // tried again at the next start
+        Assert.StartsWith(second + ": ", installer.LastFailure);                                       // named for the log, without a path
+    }
+
+    /// <summary>
+    /// A file of the exchange is held open for a moment (a virus scanner reading the fresh files, a sync client of the folder): the exchange
+    /// waits and tries again instead of giving up at once — before, the old version was started again without a word
+    /// (docs/FEHLERGEDAECHTNIS.md, No. 1265).
+    /// </summary>
+    [Fact]
+    public void Apply_FileHeldForAMoment_ExchangedAfterWaiting()
+    {
+        var program = Path.Combine(_folder, "programm");
+        Directory.CreateDirectory(program);
+        File.WriteAllText(Path.Combine(program, "PDF-Knead.exe"), "alt");
+        var installer = new UpdateInstaller(Path.Combine(_folder, "zustand"));
+        var file = Path.Combine(_folder, "p.zip");
+        File.WriteAllBytes(file, Zip(("PDF-Knead.exe", "neu")));
+        var files = installer.UnpackPackage(file, V("2.0.0"))!;
+        installer.MarkReady(V("2.0.0"), files);
+        var held = new FileStream(Path.Combine(installer.Staged(V("2.0.0")), "PDF-Knead.exe"), FileMode.Open, FileAccess.Read, FileShare.None);
+        var release = Task.Run(async () =>
+        {
+            await Task.Delay(700);
+            held.Dispose();
+        });
+        Assert.True(installer.Apply(program, V("2.0.0"), files));
+        release.Wait();
+        Assert.Equal("neu", File.ReadAllText(Path.Combine(program, "PDF-Knead.exe")));
+        Assert.Null(installer.Waiting());
+    }
+
+    /// <summary>
+    /// The exchange does not succeed (a file stays in use): the program started afterwards is the previous version, marked so that it says so
+    /// and offers the restart again; the waiting version stays for the next try (docs/FEHLERGEDAECHTNIS.md, No. 1265).
+    /// </summary>
+    [Fact]
+    public void Start_ExchangeFails_ThePreviousVersionStartsMarked_AndSaysSo()
+    {
+        const string exe = "PDF-Knead.exe";
+        var program = Path.Combine(_folder, "programm");
+        var second = OperatingSystem.IsWindows() ? "b.dat" : "teile/b.dat";
+        Directory.CreateDirectory(Path.GetDirectoryName(Path.Combine(program, second))!);
+        File.WriteAllText(Path.Combine(program, exe), "alt");
+        File.WriteAllText(Path.Combine(program, second), "alt-b");
+        var installer = new UpdateInstaller(Path.Combine(_folder, "zustand")) { Patience = TimeSpan.FromMilliseconds(300) };
+        var file = Path.Combine(_folder, "p.zip");
+        File.WriteAllBytes(file, Zip((exe, "neu"), (second, "neu-b")));
+        var version = V("999.0.0");
+        installer.MarkReady(version, installer.UnpackPackage(file, version)!);
+        var started = new List<System.Diagnostics.ProcessStartInfo>();
+        (string, string) location = (program, Path.Combine(program, exe));
+        bool Exchange() => UpdateStart.Run([UpdateStart.ApplyArgument, program, "-1", "999.0.0"], installer, info =>
+        {
+            started.Add(info);
+            return true;
+        }, location);
+        // held as in Apply_FailsHalfway_EverythingPutBack: open under Windows, its folder not writable elsewhere
+        if (OperatingSystem.IsWindows())
+        {
+            using (new FileStream(Path.Combine(program, second), FileMode.Open, FileAccess.Read, FileShare.None)) Assert.True(Exchange());
+        }
+        else
+        {
+            var folder = Path.Combine(program, "teile");
+            File.SetUnixFileMode(folder, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+            try
+            {
+                Assert.True(Exchange());
+            }
+            finally
+            {
+                File.SetUnixFileMode(folder, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            }
+        }
+        Assert.Equal("alt", File.ReadAllText(Path.Combine(program, exe)));
+        var restart = Assert.Single(started);
+        Assert.Equal(Path.Combine(program, exe), restart.FileName);
+        Assert.Equal("1", restart.Environment[UpdateStart.AfterExchange]);
+        Assert.Equal("1", restart.Environment[UpdateStart.ExchangeFailed]);
+        Assert.NotNull(installer.Waiting());
+
+        // the previous version, started so, shows the hint and offers the restart again; a start without the mark says nothing
+        var marked = new PdfKnead.Services.Updates(installer: installer);
+        marked.NoteStart(exchangeFailed: true);
+        Assert.Equal(PdfKnead.Services.UpdateState.Ready, marked.State);
+        Assert.True(marked.CanRestart);
+        Assert.Contains("999.0.0", marked.Message);
+        var plain = new PdfKnead.Services.Updates(installer: installer);
+        plain.NoteStart(exchangeFailed: false);
+        Assert.Equal(PdfKnead.Services.UpdateState.Idle, plain.State);
+        Assert.Null(plain.Message);
+    }
+
+    /// <summary>After an exchange that succeeds the program starts without the mark of a failure.</summary>
+    [Fact]
+    public void Start_ExchangeSucceeds_NoMarkOfAFailure()
+    {
+        const string exe = "PDF-Knead.exe";
+        var program = Path.Combine(_folder, "programm");
+        Directory.CreateDirectory(program);
+        File.WriteAllText(Path.Combine(program, exe), "alt");
+        var installer = new UpdateInstaller(Path.Combine(_folder, "zustand"));
+        var file = Path.Combine(_folder, "p.zip");
+        File.WriteAllBytes(file, Zip((exe, "neu")));
+        var version = V("999.0.0");
+        installer.MarkReady(version, installer.UnpackPackage(file, version)!);
+        var started = new List<System.Diagnostics.ProcessStartInfo>();
+        Assert.True(UpdateStart.Run([UpdateStart.ApplyArgument, program, "-1", "999.0.0"], installer, info =>
+        {
+            started.Add(info);
+            return true;
+        }, (program, Path.Combine(program, exe))));
+        Assert.Equal("neu", File.ReadAllText(Path.Combine(program, exe)));
+        Assert.False(Assert.Single(started).Environment.ContainsKey(UpdateStart.ExchangeFailed));
+        Assert.Null(installer.LastFailure);
     }
 
     [Fact]
